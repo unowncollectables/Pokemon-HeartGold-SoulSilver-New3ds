@@ -16,13 +16,17 @@ if [ -f "$NW" ] && ! grep -q SDK_BUILD_LINUX "$NW"; then
   log "ss3ds: staged compile-network.py had no SDK_BUILD_LINUX; rebuilding libnetwork-probe.a"
   step network-linux bash -c "cd '$T/native-probe' && python3 compile-network.py"
 fi
-# ss3ds (0180): the staged compile-network.py was only patched in place above, never re-copied, so a pspoke-patch that edits
-# it (0178/0179 DWC AC bypass) never reached an already staged tree. Re-sync it and rebuild libnetwork-probe.a when it differs.
+# ss3ds (0180/0181): the staged compile-network.py was only patched in place above, never re-copied, so a pspoke-patch that
+# edits it (0178/0179 DWC AC bypass) never reached an already staged tree. Re-sync it and rebuild libnetwork-probe.a until one
+# rebuild from the current script succeeded (recorded in $NW.ss3ds-built). The script edits the staged libntrdwc sources in place,
+# so ss3ds_nw_idempotent.py first makes each of those edits skip when it is already applied (0181).
 SRC_NW="$ROOT/port/native-probe/compile-network.py"
-if [ -f "$NW" ] && [ -f "$SRC_NW" ] && ! cmp -s "$SRC_NW" "$NW"; then
+if [ -f "$NW" ] && [ -f "$SRC_NW" ] && ! cmp -s "$SRC_NW" "$NW.ss3ds-built"; then
   cp -f "$SRC_NW" "$NW"
+  python3 "$(dirname "$0")/ss3ds_nw_idempotent.py" "$NW" || die "ss3ds 0181: could not prepare the staged compile-network.py"
   log "ss3ds: staged compile-network.py was stale, re-synced; rebuilding libnetwork-probe.a"
   step network-linux bash -c "cd '$T/native-probe' && python3 compile-network.py"
+  cp -f "$SRC_NW" "$NW.ss3ds-built"
 fi
 C="$T/soulsilver-native-core"; P="$C/nitromain-perf"
 # ss3ds: the staged tree keeps the prepare scripts copied when it was first staged, so a pspoke-patch that changes
