@@ -29,7 +29,16 @@ unsigned int ov00_021EC11C(int *errorCode, int *errorType) { return (unsigned)DW
    than DWCInetControl, which only holds a few state fields. */
 extern void DWC_InitInet(void *inetCntl);
 static unsigned char s_ss3ds_inet[512] __attribute__((aligned(32)));
-unsigned int ov00_021EC4A4(void) { static int n = 0; if (n++ < 4) PSPNativeMemLog("[COMM] DWC ConnectInetAsync called (#%d), InitInet done first [ss3ds run 71 built " __DATE__ " " __TIME__ "]", n); DWC_InitInet(s_ss3ds_inet); DWC_ConnectInetAsync(); return 0; }
+/* ss3ds run 72: run 71 got past -50199 and crashed in DWC_Alloc (pc=0): libntrdwc's DWC_MEMFUNC calls its registered allocator
+   s_alloc(name, size, align) / s_free(name, ptr, size), and the game's DWC_SetMemFunc call is one of the stubs, so s_alloc was NULL.
+   Register a malloc-backed pair here (before the first DWC_Alloc, which DWC_AC_Create makes). DWC_AllocEx adds a 32-byte header and
+   returns base+32, so a 32-aligned base keeps the 32-byte alignment DWC_Alloc asks for. */
+extern void *memalign(unsigned int boundary, unsigned int size);
+extern void free(void *ptr);
+extern void DWC_SetMemFunc(void *(*alloc)(int name, unsigned int size, int align), void (*freef)(int name, void *ptr, unsigned int size));
+static void *ss3ds_dwc_alloc(int name, unsigned int size, int align) { (void)name; (void)align; return memalign(32, size); }
+static void ss3ds_dwc_free(int name, void *ptr, unsigned int size) { (void)name; (void)size; free(ptr); }
+unsigned int ov00_021EC4A4(void) { static int n = 0; static int memset_done = 0; if (!memset_done) { memset_done = 1; DWC_SetMemFunc(ss3ds_dwc_alloc, ss3ds_dwc_free); } if (n++ < 4) PSPNativeMemLog("[COMM] DWC ConnectInetAsync called (#%d), SetMemFunc + InitInet done first [ss3ds run 72 built " __DATE__ " " __TIME__ "]", n); DWC_InitInet(s_ss3ds_inet); DWC_ConnectInetAsync(); return 0; }
 unsigned int ov00_021EC5B4(void) { int r = DWC_CheckInet(); static int last = -99; if (r != last) { PSPNativeMemLog("[COMM] DWC CheckInet -> %d", r); last = r; } return (unsigned)r; }
 unsigned int ov00_021EC60C(void) { DWC_ProcessInet(); return 0; }
 unsigned int ov00_021EC724(void) { int r = DWC_GetInetStatus(); static int last = -99; if (r != last) { PSPNativeMemLog("[COMM] DWC GetInetStatus -> %d", r); last = r; } return (unsigned)r; }
