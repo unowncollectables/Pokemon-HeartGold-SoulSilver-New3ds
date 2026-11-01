@@ -18,10 +18,13 @@ extern int DWC_GetInetStatus(void);
 extern int DWC_GetLastErrorEx(int *errorCode, int *errorType);
 
 unsigned int ov00_021EC11C(int *errorCode, int *errorType) { return (unsigned)DWC_GetLastErrorEx(errorCode, errorType); }
-unsigned int ov00_021EC4A4(void) { DWC_ConnectInetAsync(); return 0; }
-unsigned int ov00_021EC5B4(void) { return (unsigned)DWC_CheckInet(); }
+/* ss3ds 0180: DWC_Printf does not reach log.txt, so the 0179 marker can never show in a game log. These wrappers log what the
+   game really sees: each ConnectInetAsync call (capped), and CheckInet / GetInetStatus only when their value changes, so one run
+   shows whether the AC bypass got the driver to CONNECTED. Platform file: rebuilt every build, no Clean needed. */
+unsigned int ov00_021EC4A4(void) { static int n = 0; if (n++ < 4) PSPNativeMemLog("[COMM] DWC ConnectInetAsync called (#%d) [ss3ds 0180 built " __DATE__ " " __TIME__ "]", n); DWC_ConnectInetAsync(); return 0; }
+unsigned int ov00_021EC5B4(void) { int r = DWC_CheckInet(); static int last = -99; if (r != last) { PSPNativeMemLog("[COMM] DWC CheckInet -> %d", r); last = r; } return (unsigned)r; }
 unsigned int ov00_021EC60C(void) { DWC_ProcessInet(); return 0; }
-unsigned int ov00_021EC724(void) { return (unsigned)DWC_GetInetStatus(); }
+unsigned int ov00_021EC724(void) { int r = DWC_GetInetStatus(); static int last = -99; if (r != last) { PSPNativeMemLog("[COMM] DWC GetInetStatus -> %d", r); last = r; } return (unsigned)r; }
 
 /* overlay 0 and overlay 45 Wi-Fi glue (ARM asm in lib/NitroDWC, plus overlay 45 Thumb pointer-table targets) */
 /* GTS error capture (0177 follow-up): ClearError used to be a 0-returning stub, so the
