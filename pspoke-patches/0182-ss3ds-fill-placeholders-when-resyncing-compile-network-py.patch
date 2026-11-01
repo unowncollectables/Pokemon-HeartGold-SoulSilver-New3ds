@@ -1,0 +1,31 @@
+From 72202a9cd5660fe2d3db9f58aba990aba475a5ba Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Sun, 1 Nov 2026 16:39:08 +0000
+Subject: [PATCH] ss3ds: fill the @PSPDEV@/@WORK@ placeholders when re-syncing
+ the staged compile-network.py
+
+0181's re-run failed with FileNotFoundError '@PSPDEV@/bin/psp-gcc': the port/ source keeps its placeholders, which staging
+fills in, and 0180 copied it raw. Fill them the same way the builder's sync does (@WORK@ -> $T, @PSPDEV@ -> $PSPDEV,
+@PPSSPP@ -> PPSSPPHeadless) and stop the build if any placeholder is left.
+---
+ scripts/ss3ds_game.sh | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/ss3ds_game.sh b/scripts/ss3ds_game.sh
+index 39c6c4e..466eb05 100644
+--- a/scripts/ss3ds_game.sh
++++ b/scripts/ss3ds_game.sh
+@@ -22,7 +22,9 @@ fi
+ # so ss3ds_nw_idempotent.py first makes each of those edits skip when it is already applied (0181).
+ SRC_NW="$ROOT/port/native-probe/compile-network.py"
+ if [ -f "$NW" ] && [ -f "$SRC_NW" ] && ! cmp -s "$SRC_NW" "$NW.ss3ds-built"; then
+-  cp -f "$SRC_NW" "$NW"
++  # The staged copy has its @PSPDEV@/@WORK@ placeholders filled in (0182): fill them the same way, or psp-gcc is not found.
++  sed -e "s#@WORK@#$T#g" -e "s#@PSPDEV@#$PSPDEV#g" -e "s#@PPSSPP@#PPSSPPHeadless#g" "$SRC_NW" > "$NW"
++  ! grep -q '@[A-Z]\+@' "$NW" || die "ss3ds 0182: unfilled placeholder left in the staged compile-network.py: $(grep -o '@[A-Z]\+@' "$NW" | sort -u | tr '\n' ' ')"
+   python3 "$(dirname "$0")/ss3ds_nw_idempotent.py" "$NW" || die "ss3ds 0181: could not prepare the staged compile-network.py"
+   log "ss3ds: staged compile-network.py was stale, re-synced; rebuilding libnetwork-probe.a"
+   step network-linux bash -c "cd '$T/native-probe' && python3 compile-network.py"
+-- 
+2.43.0
+

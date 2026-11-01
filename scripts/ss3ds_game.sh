@@ -22,7 +22,9 @@ fi
 # so ss3ds_nw_idempotent.py first makes each of those edits skip when it is already applied (0181).
 SRC_NW="$ROOT/port/native-probe/compile-network.py"
 if [ -f "$NW" ] && [ -f "$SRC_NW" ] && ! cmp -s "$SRC_NW" "$NW.ss3ds-built"; then
-  cp -f "$SRC_NW" "$NW"
+  # The staged copy has its @PSPDEV@/@WORK@ placeholders filled in (0182): fill them the same way, or psp-gcc is not found.
+  sed -e "s#@WORK@#$T#g" -e "s#@PSPDEV@#$PSPDEV#g" -e "s#@PPSSPP@#PPSSPPHeadless#g" "$SRC_NW" > "$NW"
+  ! grep -q '@[A-Z]\+@' "$NW" || die "ss3ds 0182: unfilled placeholder left in the staged compile-network.py: $(grep -o '@[A-Z]\+@' "$NW" | sort -u | tr '\n' ' ')"
   python3 "$(dirname "$0")/ss3ds_nw_idempotent.py" "$NW" || die "ss3ds 0181: could not prepare the staged compile-network.py"
   log "ss3ds: staged compile-network.py was stale, re-synced; rebuilding libnetwork-probe.a"
   step network-linux bash -c "cd '$T/native-probe' && python3 compile-network.py"
