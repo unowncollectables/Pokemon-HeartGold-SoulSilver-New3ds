@@ -16,6 +16,14 @@ if [ -f "$NW" ] && ! grep -q SDK_BUILD_LINUX "$NW"; then
   log "ss3ds: staged compile-network.py had no SDK_BUILD_LINUX; rebuilding libnetwork-probe.a"
   step network-linux bash -c "cd '$T/native-probe' && python3 compile-network.py"
 fi
+# ss3ds (0180): the staged compile-network.py was only patched in place above, never re-copied, so a pspoke-patch that edits
+# it (0178/0179 DWC AC bypass) never reached an already staged tree. Re-sync it and rebuild libnetwork-probe.a when it differs.
+SRC_NW="$ROOT/port/native-probe/compile-network.py"
+if [ -f "$NW" ] && [ -f "$SRC_NW" ] && ! cmp -s "$SRC_NW" "$NW"; then
+  cp -f "$SRC_NW" "$NW"
+  log "ss3ds: staged compile-network.py was stale, re-synced; rebuilding libnetwork-probe.a"
+  step network-linux bash -c "cd '$T/native-probe' && python3 compile-network.py"
+fi
 C="$T/soulsilver-native-core"; P="$C/nitromain-perf"
 # ss3ds: the staged tree keeps the prepare scripts copied when it was first staged, so a pspoke-patch that changes
 # them (0053/0054 raw DISPCNT rewrite) never ran there and the wild battle crash shipped twice. Re-sync them and, when
