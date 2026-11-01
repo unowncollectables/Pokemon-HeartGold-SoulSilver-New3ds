@@ -43,6 +43,17 @@ unsigned int ov00_021EC5B4(void) { int r = DWC_CheckInet(); static int last = -9
 unsigned int ov00_021EC60C(void) { DWC_ProcessInet(); return 0; }
 unsigned int ov00_021EC724(void) { int r = DWC_GetInetStatus(); static int last = -99; if (r != last) { PSPNativeMemLog("[COMM] DWC GetInetStatus -> %d", r); last = r; } return (unsigned)r; }
 
+/* ss3ds run 73: run 72 reached CONNECTED (CheckInet 1, GetInetStatus 4). The game's next steps (overlay_75 states 0xE/0xF, read from the
+   NitroDWC asm) were still 0-returning stubs, so it saw failure, tore the connection down and retried:
+   - ov00_021EC9E0 = DWC_GetApInfo(DWCApInfo *out, 0x3C bytes): aptype s32 @0, spot area s32 @4 (0xFF = none), spotinfo[9] @8,
+     essid @0x12, bssid[6] @0x33. The 3DS OS owns the connection, so report a plain user AP and success (1).
+   - ov00_021ECD04 = start of DWC's netcheck (internet reachability test: a worker thread and a result word); returns 1 if started.
+   - ov00_021ECDC8 = its per-frame poll: 1/2 still running, 3 = success (the flow then goes on to the profile and login steps),
+     0/4/5 = failure. The 3DS already proved it is online (soc + a successful AC connect), so report success (3) at once. */
+unsigned int ov00_021EC9E0(unsigned char *apInfo) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC GetApInfo (ss3ds) -> 1 (#%d)", n); if (apInfo) { int i; for (i = 0; i < 0x3C; i++) apInfo[i] = 0; *(int *)(apInfo + 4) = 0xFF; } return 1; }
+unsigned int ov00_021ECD04(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck start (ss3ds) -> 1 (#%d)", n); return 1; }
+unsigned int ov00_021ECDC8(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck poll (ss3ds) -> 3 = ok (#%d)", n); return 3; }
+
 /* overlay 0 and overlay 45 Wi-Fi glue (ARM asm in lib/NitroDWC, plus overlay 45 Thumb pointer-table targets) */
 /* GTS error capture (0177 follow-up): ClearError used to be a 0-returning stub, so the
    game cleared an error it never reported and the reset that followed carried no
@@ -95,10 +106,7 @@ DWC_STUB(ov00_021EC0FC)
 DWC_STUB(ov00_021EC2A8)
 DWC_STUB(ov00_021EC2EC)
 DWC_STUB(ov00_021EC454)
-DWC_STUB(ov00_021EC9E0)
 DWC_STUB(ov00_021ECB94)
-DWC_STUB(ov00_021ECD04)
-DWC_STUB(ov00_021ECDC8)
 DWC_STUB(ov00_021EDB1C)
 DWC_STUB(ov00_021EE490)
 DWC_STUB(ov00_021EE4FC)
