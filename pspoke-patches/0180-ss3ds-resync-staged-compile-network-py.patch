@@ -1,0 +1,33 @@
+From 0d3c23da5cd87533c24a3f4e9956b3a9b7b3cea2 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Sun, 1 Nov 2026 16:16:54 +0000
+Subject: [PATCH] ss3ds: re-sync the staged compile-network.py and rebuild
+ libnetwork-probe.a when it changed
+
+The repo copy of scripts/ss3ds_game.sh is only a reference; the build runs pspoke's copy, which comes from the patches, so PR 275's edit never ran and the 0178/0179 DWC AC bypass never reached the staged network library (libnetwork-probe.a was still from Oct 25). ss3ds_game.sh now copies port/native-probe/compile-network.py over the staged copy when they differ and re-runs only that script; the game Makefile relinks the archive.
+---
+ scripts/ss3ds_game.sh | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/scripts/ss3ds_game.sh b/scripts/ss3ds_game.sh
+index cd8fbcd..2b5e4f3 100644
+--- a/scripts/ss3ds_game.sh
++++ b/scripts/ss3ds_game.sh
+@@ -16,6 +16,14 @@ if [ -f "$NW" ] && ! grep -q SDK_BUILD_LINUX "$NW"; then
+   log "ss3ds: staged compile-network.py had no SDK_BUILD_LINUX; rebuilding libnetwork-probe.a"
+   step network-linux bash -c "cd '$T/native-probe' && python3 compile-network.py"
+ fi
++# ss3ds (0180): the staged compile-network.py was only patched in place above, never re-copied, so a pspoke-patch that edits
++# it (0178/0179 DWC AC bypass) never reached an already staged tree. Re-sync it and rebuild libnetwork-probe.a when it differs.
++SRC_NW="$ROOT/port/native-probe/compile-network.py"
++if [ -f "$NW" ] && [ -f "$SRC_NW" ] && ! cmp -s "$SRC_NW" "$NW"; then
++  cp -f "$SRC_NW" "$NW"
++  log "ss3ds: staged compile-network.py was stale, re-synced; rebuilding libnetwork-probe.a"
++  step network-linux bash -c "cd '$T/native-probe' && python3 compile-network.py"
++fi
+ C="$T/soulsilver-native-core"; P="$C/nitromain-perf"
+ # ss3ds: the staged tree keeps the prepare scripts copied when it was first staged, so a pspoke-patch that changes
+ # them (0053/0054 raw DISPCNT rewrite) never ran there and the wild battle crash shipped twice. Re-sync them and, when
+-- 
+2.43.0
+
