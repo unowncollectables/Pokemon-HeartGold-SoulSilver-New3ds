@@ -1648,23 +1648,24 @@ static int Present(bool){
      if(rightPar)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dL.bmp",GPU3D::NativeFrame,true);if(t3R)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dR.bmp",t3R,true);}}}}
  /* POWCNT1 bit15: engine A on top screen. */
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
- /* run 123 panel_party: freeze clean overworld top when Want/On.
-    Party menu calls GX_DISP_SELECT_SUB_MAIN, so the party UI is on the TOP LCD (engine B when
-    POWCNT bit15 is clear) - NOT bot. Run 121 snapped bot (often black) -> black panel box. */
+ /* run 124 panel_party: freeze clean overworld; snap LCD-top (SUB_MAIN -> party on top).
+    RGB is bits 0..23 (A often 0xFF): old "nonblack" counted opaque blacks. Stats use RGB only. */
  static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged;
+ auto ppRgbNz=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFFu)!=0)n++;return n;};
+ auto ppDistinct=[](const u32 *p)->int{if(!p)return 0;u32 seen[48];int ns=0;for(int i=0;i<256*192;i+=11){const u32 r=p[i]&0xFFFFFFu;int f=0;for(int k=0;k<ns;k++)if(seen[k]==r){f=1;break;}if(!f&&ns<(int)(sizeof seen/sizeof *seen))seen[ns++]=r;}return ns;};
  if(!(P3DS_PanelPartyWant||P3DS_PanelPartyOn)){
   if(P3DS_InField&&(power&0x8000)&&display[0]){memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;}
  }else if(P3DS_InField&&(power&0x8000)&&display[0]&&!sFieldHoldOk){
   memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;
  }
  if(P3DS_PanelPartyOn&&!P3DS_InField){
-  auto nb=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFF00u)!=0)n++;return n;};
-  /* prefer LCD-top (party after SUB_MAIN); fall back to whichever engine has more non-black pixels */
-  const int nTop=nb(top),nBot=nb(bot);const u32 *src=top;const char *tag="top";
+  const int nTop=ppRgbNz(top),nBot=ppRgbNz(bot);const u32 *src=top;const char *tag="top";
   if(nBot>nTop){src=bot;tag="bot";}
   if(src){memcpy(sPartySnap,src,sizeof sPartySnap);sPartySnapOk=1;}
-  if(!sPartySrcLogged&&(nTop>64||nBot>64)){sPartySrcLogged=1;
-   PSPNativeMemLog("[PANEL] party source %s (nonblack top=%d bot=%d pow=%04x kind=%d) /* once per open */",tag,nTop,nBot,(unsigned)power,P3DS_InWideKind);}
+  if(!sPartySrcLogged&&(nTop>64||nBot>64)){sPartySrcLogged=1;const u32 *S=src?src:top;
+   PSPNativeMemLog("[PANEL] party source %s (rgbNz top=%d bot=%d distinct~%d pow=%04x kind=%d samp %08x %08x %08x %08x) /* once per open */",
+    tag,nTop,nBot,ppDistinct(S),(unsigned)power,P3DS_InWideKind,
+    S?S[0]:0,S?S[128+96*256]:0,S?S[255+191*256]:0,S?S[40+40*256]:0);}
  }
  if(P3DS_PanelPartyOn&&P3DS_InField){P3DS_PanelPartyOn=0;P3DS_PanelPartyWant=0;sPartySnapOk=0;sPartySrcLogged=0;sPartyNbLogged=0;PSPNativeMemLog("[PANEL] cleared On (back in the field)");}
  u64 tComp=svcGetSystemTick();
@@ -1937,27 +1938,38 @@ static int Present(bool){
      whole read + bind + init in one task step (ROM is cached; ~100-200 KiB). */
   static int landCfg=-1;if(landCfg<0){landCfg=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"land_fastload=%d",&x)==1)landCfg=x;fclose(f);}PSPNativeMemLog("[WIDE] land_fastload=%d",landCfg);}
   P3DS_LandFast=landCfg==2||(landCfg==1&&act);}
- /* run 123 panel_party compose: top = frozen field; bot = live JOHTO chrome; paste party snap
-    (from LCD-top / richer engine after SUB_MAIN) 1:1 into the left panel. */
+ /* run 124 panel_party compose: fit whole 256x192 party into JOHTO panel (centred NN), not a 1:1
+    top-left crop (that looked like a black box / wrong place). Force bottom upload. */
  if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()){
-  static unsigned ppLog;
+  static unsigned ppLog;int dx0=0,dy0=0,dx1=0,dy1=0;
   if(sPartySnapOk&&bot){
    u32 *dst=(u32*)bot;
    const int x0=kBlPanX0,y0=kBlPanY0+17,x1=kBlPanX1,y1=kBlPanY1,dw=x1-x0,dh=y1-y0;
    if(dw>0&&dh>0){
-    for(int y=0;y<dh;y++){const u32 *src=sPartySnap+y*256;u32 *row=dst+(y0+y)*256+x0;
-     for(int x=0;x<dw;x++)row[x]=src[x];} /* 1:1 crop: crisp game text, no NN downscale */
+    int outW,outH; /* letterbox the full party UI into the panel */
+    if(dw*192<=dh*256){outW=dw;outH=(192*dw+128)/256;}else{outH=dh;outW=(256*dh+96)/192;}
+    if(outW<1)outW=1;if(outH<1)outH=1;if(outW>dw)outW=dw;if(outH>dh)outH=dh;
+    const int ox=x0+(dw-outW)/2,oy=y0+(dh-outH)/2;
+    dx0=ox;dy0=oy;dx1=ox+outW;dy1=oy+outH;
+    for(int y=0;y<outH;y++){const int sy=y*192/outH;const u32 *src=sPartySnap+sy*256;u32 *row=dst+(oy+y)*256+ox;
+     for(int x=0;x<outW;x++)row[x]=src[x*256/outW];}
+    blSameFrame=false; /* we dirtied bot after any chrome cache hit */
    }
   }
   if(sFieldHoldOk)top=sFieldHold;
-  P3DS_WideStrip[0]=P3DS_WideStrip[1]=nullptr; /* cyan edge bars were wide strips over a black/missing hold */
+  P3DS_WideStrip[0]=P3DS_WideStrip[1]=nullptr;
   G3G_Wide=0;
-  /* keep P3DS_OvN: live bottom_hd POKEDEX/POKEMON column (never clear overlays - that dug up the legacy DEX/PKMN alts) */
-  {int nb=0;if(sPartySnapOk)for(int i=0;i<256*192;i++)if((sPartySnap[i]&0xFFFFFF00u)!=0)nb++;
-   if(!sPartyNbLogged&&sPartySnapOk&&nb>64){sPartyNbLogged=1;PSPNativeMemLog("[PANEL] compose snap nonblack=%d hold=%d ovN=%d (1:1 crop) /* once per open */",nb,sFieldHoldOk,P3DS_OvN);}
-   if((++ppLog%120)==1)PSPNativeMemLog("[PANEL] compose: hold=%d partySnap=%d ovN=%d nonblack=%d (1:1 crop, live chrome)",sFieldHoldOk,sPartySnapOk,P3DS_OvN,nb);}
+  /* keep P3DS_OvN: live bottom_hd column */
+  {int nz=0,nd=0;u32 seen[48];if(sPartySnapOk){for(int i=0;i<256*192;i++){const u32 r=sPartySnap[i]&0xFFFFFFu;if(r)nz++;}
+    for(int i=0;i<256*192;i+=11){const u32 r=sPartySnap[i]&0xFFFFFFu;int f=0;for(int k=0;k<nd;k++)if(seen[k]==r){f=1;break;}if(!f&&nd<48)seen[nd++]=r;}}
+   const u32 *D=bot;const u32 p0=(D&&dx1>dx0)?D[dy0*256+dx0]:0,p1=(D&&dx1>dx0)?D[dy0*256+(dx1-1)]:0;
+   const u32 p2=(D&&dx1>dx0)?D[(dy1-1)*256+dx0]:0,p3=(D&&dx1>dx0)?D[(dy1-1)*256+(dx1-1)]:0;
+   if(!sPartyNbLogged&&sPartySnapOk){sPartyNbLogged=1;
+    PSPNativeMemLog("[PANEL] compose fit dest=(%d,%d)-(%d,%d) rgbNz=%d distinct~%d hold=%d ovN=%d snapSamp %08x %08x panelSamp %08x %08x %08x %08x /* once per open */",
+     dx0,dy0,dx1,dy1,nz,nd,sFieldHoldOk,P3DS_OvN,sPartySnap[0],sPartySnap[128+96*256],p0,p1,p2,p3);}
+   if((++ppLog%120)==1)PSPNativeMemLog("[PANEL] compose: hold=%d partySnap=%d ovN=%d rgbNz=%d dest=(%d,%d)-(%d,%d)",sFieldHoldOk,sPartySnapOk,P3DS_OvN,nz,dx0,dy0,dx1,dy1);}
  }
- if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=(power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty;btnDirty=false;/* run 41: !fpsOn removed (FPS text is drawn on the top screen; it blocked every skip) */{const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
+ if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=P3DS_PanelPartyOn?0:((power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty);btnDirty=false;/* panel_party: always re-upload bottom */{const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
  else{present(GFX_TOP,400,top,0);if(!P3DS_ConsoleOnBottom())present(GFX_BOTTOM,320,bot,0);gfxFlushBuffers();gfxSwapBuffers();}
  P3DS_GameFramePresented();
  u64 tEnd=svcGetSystemTick();last2DUs=(unsigned)((tEnd-t0)/CPU_TICKS_PER_USEC);frames++;
