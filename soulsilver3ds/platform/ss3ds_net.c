@@ -449,3 +449,136 @@ SS3DSHostent *gethostbyname(const char *name)
     he.h_name = hn; he.h_aliases = al; he.h_addrtype = AF_INET; he.h_length = 4; he.h_addr_list = list;
     return &he;
 }
+
+/* ---- run 89: the library's DS socket API (SOC_*) on the 3DS's own BSD sockets -------------------------------------------------
+ * GameSpy's availability check and GP connection (nonport.c) and the NAS HTTP step call SOC_Socket/Connect/Send/... which sit on the DS
+ * SOC/CPS stack that never starts here (run 88 crashed in SOCLi_StartupSocket, SOCLiConfigPtr NULL). These strong definitions replace
+ * them one for one with libctru sockets (soc:u is already up). Conventions of the DS API: >= 0 on success, NEGATIVE SOC_E* code on error
+ * (not errno); sockaddrs are SOCSockAddrIn {u8 len; u8 family; u16 port; u32 addr} with network order port/addr (not the BSD layout);
+ * SOC_Poll/Fcntl use the DS flag values. Log tag [SOC] (first calls and every failure of connect only). */
+typedef struct { unsigned char len, family; unsigned short port; unsigned int addr; } SS3DSSockAddrIn;
+typedef struct { int fd; short events; short revents; } SS3DSPollFD;
+
+static int socErr(void)
+{
+    switch (errno) {
+    case EAGAIN: return -6;
+    case EINPROGRESS: return -26;
+    case EALREADY: return -7;
+    case ECONNREFUSED: return -14;
+    case ECONNRESET: return -15;
+    case ECONNABORTED: return -13;
+    case ETIMEDOUT: return -76;
+    case EINTR: return -27;
+    case EISCONN: return -30;
+    case ENOTCONN: return -56;
+    case EBADF: return -8;
+    case EHOSTUNREACH: return -23;
+    case ENETUNREACH: return -40;
+    case EADDRINUSE: return -3;
+    case EINVAL: return -28;
+    case EPIPE: return -66;
+    case ENOMEM: return -49;
+    case ENOBUFS: return -42;
+    default: return -29;
+    }
+}
+
+static void toBsd(const SS3DSSockAddrIn *a, struct sockaddr_in *b)
+{
+    memset(b, 0, sizeof *b);
+    b->sin_family = AF_INET; b->sin_port = a->port; b->sin_addr.s_addr = a->addr;
+}
+static void fromBsd(const struct sockaddr_in *b, SS3DSSockAddrIn *a)
+{
+    a->len = 8; a->family = 2; a->port = b->sin_port; a->addr = b->sin_addr.s_addr;
+}
+
+int SOC_Socket(int pf, int type, int protocol)
+{
+    (void)pf; (void)protocol;
+    if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit()) { NLOG("[SOC] socket refused (online mode off, cheat on, or sockets down)"); return -38; }
+    int fd = socket(AF_INET, type == 2 ? SOCK_DGRAM : SOCK_STREAM, 0);
+    static int n; if (n++ < 6) NLOG("[SOC] socket(%s) -> %d", type == 2 ? "udp" : "tcp", fd);
+    return fd < 0 ? socErr() : fd;
+}
+int SOC_Bind(int s, const void *sa) { struct sockaddr_in b; toBsd(sa, &b); return bind(s, (struct sockaddr *)&b, sizeof b) < 0 ? socErr() : 0; }
+int SOC_Connect(int s, const void *sa)
+{
+    struct sockaddr_in b; toBsd(sa, &b);
+    int r = connect(s, (struct sockaddr *)&b, sizeof b);
+    int e = r < 0 ? socErr() : 0;
+    static int n; if (n++ < 8) NLOG("[SOC] connect(%d, %s:%u) -> %d", s, inet_ntoa(b.sin_addr), (unsigned)ntohs(b.sin_port), e);
+    return e;
+}
+int SOC_Listen(int s, int backlog) { return listen(s, backlog) < 0 ? socErr() : 0; }
+int SOC_Accept(int s, void *sa)
+{
+    struct sockaddr_in b; socklen_t l = sizeof b;
+    int fd = accept(s, (struct sockaddr *)&b, &l);
+    if (fd < 0) return socErr();
+    if (sa) fromBsd(&b, sa);
+    return fd;
+}
+int SOC_Read(int s, void *buf, int len) { int r = read(s, buf, len); return r < 0 ? socErr() : r; }
+int SOC_Recv(int s, void *buf, int len, int flags) { (void)flags; int r = recv(s, buf, len, 0); return r < 0 ? socErr() : r; }
+int SOC_RecvFrom(int s, void *buf, int len, int flags, void *sa)
+{
+    struct sockaddr_in b; socklen_t l = sizeof b; (void)flags;
+    memset(&b, 0, sizeof b);
+    int r = recvfrom(s, buf, len, 0, (struct sockaddr *)&b, &l);
+    if (r < 0) return socErr();
+    if (sa) fromBsd(&b, sa);
+    return r;
+}
+int SOC_Write(int s, const void *buf, int len) { int r = write(s, buf, len); return r < 0 ? socErr() : r; }
+int SOC_Send(int s, const void *buf, int len, int flags) { (void)flags; int r = send(s, buf, len, 0); return r < 0 ? socErr() : r; }
+int SOC_SendTo(int s, const void *buf, int len, int flags, const void *sa)
+{
+    struct sockaddr_in b; (void)flags;
+    int r;
+    if (sa) { toBsd(sa, &b); r = sendto(s, buf, len, 0, (struct sockaddr *)&b, sizeof b); }
+    else r = send(s, buf, len, 0);
+    return r < 0 ? socErr() : r;
+}
+int SOC_Close(int s) { return close(s) < 0 ? socErr() : 0; }
+int SOC_Shutdown(int s, int how) { return shutdown(s, how) < 0 ? socErr() : 0; }
+int SOC_GetSockName(int s, void *sa)
+{
+    struct sockaddr_in b; socklen_t l = sizeof b;
+    memset(&b, 0, sizeof b);
+    if (getsockname(s, (struct sockaddr *)&b, &l) < 0) return socErr();
+    if (sa) fromBsd(&b, sa);
+    return 0;
+}
+long SOC_GetHostID(void) { return (long)gethostid(); }
+int SOC_Fcntl(int s, int cmd, int mode)
+{
+    int fl = fcntl(s, F_GETFL, 0);
+    if (fl < 0) return socErr();
+    if (cmd == 3) return (fl & O_NONBLOCK) ? 0x04 : 0;           /* SOC_F_GETFL -> SOC_O_NONBLOCK bit */
+    if (cmd == 4) { fl = (mode & 0x04) ? (fl | O_NONBLOCK) : (fl & ~O_NONBLOCK); return fcntl(s, F_SETFL, fl) < 0 ? socErr() : 0; }
+    return -28;
+}
+int SOC_Poll(SS3DSPollFD fds[], unsigned nfds, long long timeout)
+{
+    struct pollfd p[8]; unsigned i;
+    if (nfds > 8) nfds = 8;
+    for (i = 0; i < nfds; i++) {
+        p[i].fd = fds[i].fd; p[i].revents = 0; p[i].events = 0;
+        if (fds[i].events & 0x03) p[i].events |= POLLIN;
+        if (fds[i].events & 0x18) p[i].events |= POLLOUT;
+    }
+    int r = poll(p, nfds, timeout > 0 ? 1 : 0);
+    if (r < 0) return socErr();
+    for (i = 0; i < nfds; i++) {
+        short rv = 0;
+        if (p[i].revents & POLLIN) rv |= 0x01;
+        if (p[i].revents & POLLOUT) rv |= 0x08;
+        if (p[i].revents & POLLERR) rv |= 0x20;
+        if (p[i].revents & POLLHUP) rv |= 0x40;
+        if (p[i].revents & POLLNVAL) rv |= 0x80;
+        fds[i].revents = rv;
+    }
+    return r;
+}
