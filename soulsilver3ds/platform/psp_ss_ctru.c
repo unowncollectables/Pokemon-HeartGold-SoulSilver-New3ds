@@ -1,10 +1,22 @@
 /* ss3ds: the PSP kernel calls SoulSilver's pspoke app uses on top of what psp_ctru.c (from Platinum) provides. */
 #include <3ds.h>
+#include <stdio.h>
 #include <pspkernel.h>
 #include <psploadexec.h>
 _Static_assert(sizeof(RecursiveLock) <= sizeof(SceLwMutexWorkarea), "SceLwMutexWorkarea too small");
+/* run 80: the ROM lock (romfs_lock.c SSRomLock) froze GTS: its state word `created` sits just before its mutex workarea. Remember when/where the
+   "SS readonly ROM" mutex was created so the watchdog can print whether it ever was, and the words around it (created = the word before). */
+extern void PSPNativeMemLog(const char *fmt, ...);
+static volatile unsigned romWork, romLr, romMade;
 int sceKernelCreateLwMutex(SceLwMutexWorkarea *work, const char *name, SceUInt attr, int count, void *opt)
-{ (void)name; (void)attr; (void)count; (void)opt; RecursiveLock_Init((RecursiveLock *)work); return 0; }
+{ (void)attr; (void)count; (void)opt; RecursiveLock_Init((RecursiveLock *)work);
+  if (name && name[0] == 'S' && name[1] == 'S' && name[3] == 'r') { romWork = (unsigned)work; romLr = (unsigned)__builtin_return_address(0); romMade++; PSPNativeMemLog("[ROMLOCK] mutex created #%u work=%p from %p", romMade, (void *)work, __builtin_return_address(0)); }
+  return 0; }
+void P3DS_RomLockInfo(char *b, int n) {
+    if (!romWork) { snprintf(b, n, "ROM lock mutex was NEVER created (SSRomLock stuck before init finished)"); return; }
+    volatile unsigned *w = (volatile unsigned *)romWork;
+    snprintf(b, n, "ROM lock: created %u time(s) from %08x; created-flag %d; mutex words %08x %08x %08x", romMade, romLr, (int)w[-1], w[0], w[1], w[2]);
+}
 int sceKernelLockLwMutex(SceLwMutexWorkarea *work, int count, SceUInt *timeout)
 { (void)timeout; for (int i = 0; i < count; i++) RecursiveLock_Lock((RecursiveLock *)work); return 0; }
 int sceKernelUnlockLwMutex(SceLwMutexWorkarea *work, int count)
