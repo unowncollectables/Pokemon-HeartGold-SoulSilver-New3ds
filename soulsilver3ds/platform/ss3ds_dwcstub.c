@@ -52,6 +52,10 @@ unsigned int ov00_021EC724(void) { int r = DWC_GetInetStatus(); static int last 
      0/4/5 = failure. The 3DS already proved it is online (soc + a successful AC connect), so report success (3) at once. */
 unsigned int ov00_021EC9E0(unsigned char *apInfo) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC GetApInfo (ss3ds) -> 1 (#%d)", n); if (apInfo) { int i; for (i = 0; i < 0x3C; i++) apInfo[i] = 0; *(int *)(apInfo + 4) = 0xFF; } return 1; }
 unsigned int ov00_021ECD04(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck start (ss3ds) -> 1 (#%d)", n); return 1; }
+/* GHTTP init/release refcount (ov00_021FA0B4 / ov00_021FA0D8); both return 1, callers ignore it. Real GHTTP is not used yet. */
+static int s_ss3ds_ghttp_ref = 0;
+unsigned int ov00_021FA0B4(void) { s_ss3ds_ghttp_ref++; return 1; }
+unsigned int ov00_021FA0D8(void) { if (s_ss3ds_ghttp_ref > 0) s_ss3ds_ghttp_ref--; return 1; }
 unsigned int ov00_021ECDC8(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck poll (ss3ds) -> 3 = ok (#%d)", n); return 3; }
 
 /* overlay 0 and overlay 45 Wi-Fi glue (ARM asm in lib/NitroDWC, plus overlay 45 Thumb pointer-table targets) */
@@ -110,8 +114,6 @@ DWC_STUB(ov00_021ECB94)
 DWC_STUB(ov00_021EDB1C)
 DWC_STUB(ov00_021EE490)
 DWC_STUB(ov00_021EE4FC)
-DWC_STUB(ov00_021FA0B4)
-DWC_STUB(ov00_021FA0D8)
 DWC_STUB(ov00_021FA118)
 DWC_STUB(ov00_021FA21C)
 DWC_STUB(ov00_021FFC18)
