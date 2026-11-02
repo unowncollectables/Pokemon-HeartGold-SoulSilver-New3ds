@@ -619,21 +619,16 @@ void CPS_SocBind(unsigned short lport, unsigned short rport, unsigned int rip) {
 
 unsigned int CPS_TcpConnect(void)
 {
-    struct sockaddr_in a; struct pollfd p; int fl, r, e;
+    struct sockaddr_in a; int fl, r, e;
     if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit()) { NLOG("[CPS] connect refused (online mode off, cheat on, or sockets down)"); return 1; }
     cpsClose();
     sCps.fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sCps.fd < 0) { NLOG("[CPS] socket failed errno %d", errno); return 1; }
     memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_port = htons(sCps.rport); a.sin_addr.s_addr = htonl(sCps.rip);
-    fl = fcntl(sCps.fd, F_GETFL, 0); fcntl(sCps.fd, F_SETFL, fl | O_NONBLOCK);
+    /* blocking connect, like the ghttp worker (the non-blocking poll/SO_ERROR route failed on the 3DS with errno -26 in run 91) */
     r = connect(sCps.fd, (struct sockaddr *)&a, sizeof a); e = errno;
-    if (r < 0 && e == EINPROGRESS) {
-        p.fd = sCps.fd; p.events = POLLOUT; p.revents = 0;
-        r = poll(&p, 1, 10000);
-        if (r > 0 && !(p.revents & (POLLERR | POLLHUP))) { socklen_t l = sizeof e; e = 0; getsockopt(sCps.fd, SOL_SOCKET, SO_ERROR, &e, &l); r = e ? -1 : 0; }
-        else { if (r == 0) e = ETIMEDOUT; r = -1; }
-    }
-    if (r < 0) { NLOG("[CPS] connect failed errno %d", e); cpsClose(); return 1; }
+    if (r == 0) { fl = fcntl(sCps.fd, F_GETFL, 0); fcntl(sCps.fd, F_SETFL, fl | O_NONBLOCK); }
+    if (r < 0) { NLOG("[CPS] connect failed errno %d (r %d)", e, r); cpsClose(); return 1; }
     CPSMyIp = ntohl((unsigned)gethostid()); if (!CPSMyIp) CPSMyIp = 0x0a000002;
     NLOG("[CPS] connected");
     return 0;
