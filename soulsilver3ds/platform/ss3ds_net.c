@@ -644,7 +644,7 @@ static void cpsDump(const char *tag, const unsigned char *b, unsigned n)
         else t[o++] = (c >= 32 && c < 127) ? (char)c : '.';
     }
     t[o] = 0;
-    NLOG("[CPS] %s (%u bytes): %s", tag, n, t);
+    for (i = 0; i == 0 || (i < o && i < 900); i += 300) { char c2 = t[i + 300 > o ? o : i + 300]; t[i + 300 > o ? o : i + 300] = 0; NLOG("[CPS] %s (%u bytes) part %u: %s", tag, n, i / 300, t + i); t[i + 300 > o ? o : i + 300] = c2; }
 }
 
 unsigned int CPS_SocWrite(const unsigned char *buf, unsigned len)
@@ -688,3 +688,21 @@ unsigned char *CPS_SocRead(unsigned *len)
 void CPS_SocConsume(unsigned len) { unsigned n = sCps.rxn - sCps.rxPos; sCps.rxPos += len < n ? len : n; }
 unsigned int CPS_TcpShutdown(void) { if (sCps.fd >= 0) shutdown(sCps.fd, 2); return 0; }
 unsigned int CPS_TcpClose(void) { cpsClose(); return 0; }
+
+/* ---- run 95: the NAS login request carries the cartridge's game and maker code (HW_ROM_HEADER_BUF+0xC / +0x10). That buffer is empty in this
+ * port, so Wiimmfi refused the login (error #23934, "Invalid login parameter", empty gamecd=/makercd=). Fill them from the ROM file's header
+ * (read only) right before the request is built. cal layout (DWCCalInfo): gamecd[5] at +0x15, makercd[3] at +0x1a. */
+extern void __real_DWC_Auth_SetCalInfoToHttp(void *aHttp, char *cal, int withSsid);
+void __wrap_DWC_Auth_SetCalInfoToHttp(void *aHttp, char *cal, int withSsid)
+{
+    if (cal && cal[0x15] == 0) {
+        unsigned char h[0x14]; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/soulsilver.nds", "rb");
+        if (f && fread(h, 1, sizeof h, f) == sizeof h && h[0x0C] >= 'A' && h[0x0C] <= 'Z') {
+            memcpy(cal + 0x15, h + 0x0C, 4); cal[0x19] = 0;
+            memcpy(cal + 0x1a, h + 0x10, 2); cal[0x1c] = 0;
+            NLOG("[LOGIN] NAS request: game code %.4s, maker code %.2s from the ROM header", cal + 0x15, cal + 0x1a);
+        } else NLOG("[LOGIN] NAS request: could not read the ROM header for the game code");
+        if (f) fclose(f);
+    }
+    __real_DWC_Auth_SetCalInfoToHttp(aHttp, cal, withSsid);
+}
