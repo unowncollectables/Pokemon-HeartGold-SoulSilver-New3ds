@@ -382,7 +382,7 @@ static void watchdog(void *p) {
         if (++still == 20) { P3DS_CrumbDump();
             char b[300]; snprintf(b, sizeof b, "game stalled: no frame for 10 s at frame %u (crumbs in log.txt). main last: %s %p. msg: %s", f, crumbs[0][(crumbPos[0]-1)&63].tag ? crumbs[0][(crumbPos[0]-1)&63].tag : "(none)", crumbs[0][(crumbPos[0]-1)&63].caller, lastMsg[0] ? lastMsg : "(none)");
             PSPNativeMemLog("[WATCHDOG] %s", b);
-            { extern void P3DS_BigLockInfo(char *b, int n); char lb[400]; P3DS_BigLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); { extern void P3DS_RomLockInfo(char *b, int n); P3DS_RomLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); { extern void P3DS_RomCallerInfo(char *b, int n); char cb[500]; P3DS_RomCallerInfo(cb, sizeof cb); PSPNativeMemLog("[WATCHDOG] %s", cb); } } }
+            { extern void P3DS_BigLockInfo(char *b, int n); char lb[400]; P3DS_BigLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); { extern void P3DS_RomLockInfo(char *b, int n); P3DS_RomLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); { extern void P3DS_RomCallerInfo(char *b, int n); char cb[800]; P3DS_RomCallerInfo(cb, sizeof cb); PSPNativeMemLog("[WATCHDOG] %s", cb); } } }
             hold(b);
         }
     }
