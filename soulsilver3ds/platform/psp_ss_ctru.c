@@ -12,6 +12,22 @@ int sceKernelCreateLwMutex(SceLwMutexWorkarea *work, const char *name, SceUInt a
 { (void)attr; (void)count; (void)opt; RecursiveLock_Init((RecursiveLock *)work);
   if (name && name[0] == 'S' && name[1] == 'S' && name[3] == 'r') { romWork = (unsigned)work; romLr = (unsigned)__builtin_return_address(0); romMade++; PSPNativeMemLog("[ROMLOCK] mutex created #%u work=%p from %p", romMade, (void *)work, __builtin_return_address(0)); }
   return 0; }
+/* run 81: --wrap=SSRomLock. Run 80 showed the ROM lock itself is fine (ready, free), so main is looping through ROM file calls; remember which
+   FS functions call it (return address of each call) and how often, so addr2line can name the loop. */
+extern void __real_SSRomLock(void);
+static volatile unsigned rlCaller[8], rlCount[8], rlTotal, rlLast[16], rlPos;
+void __wrap_SSRomLock(void) {
+    unsigned c = (unsigned)__builtin_return_address(0); int k;
+    rlTotal++; rlLast[rlPos++ & 15] = c;
+    for (k = 0; k < 8; k++) { if (rlCaller[k] == c) { rlCount[k]++; break; } if (!rlCaller[k]) { rlCaller[k] = c; rlCount[k] = 1; break; } }
+    __real_SSRomLock();
+}
+void P3DS_RomCallerInfo(char *b, int n) {
+    int w = snprintf(b, n, "ROM lock calls %u; by caller:", rlTotal);
+    for (int k = 0; k < 8 && rlCaller[k] && w < n - 30; k++) w += snprintf(b + w, n - w, " %08x x%u", rlCaller[k], rlCount[k]);
+    w += snprintf(b + w, n - w, " | last 16:");
+    for (int k = 0; k < 16 && w < n - 12; k++) w += snprintf(b + w, n - w, " %08x", rlLast[(rlPos + k) & 15]);
+}
 void P3DS_RomLockInfo(char *b, int n) {
     if (!romWork) { snprintf(b, n, "ROM lock mutex was NEVER created (SSRomLock stuck before init finished)"); return; }
     volatile unsigned *w = (volatile unsigned *)romWork;
