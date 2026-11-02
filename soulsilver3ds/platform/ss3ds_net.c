@@ -533,8 +533,10 @@ int SOC_Accept(int s, void *sa)
     if (sa) fromBsd(&b, sa);
     return fd;
 }
+static void cpsDump(const char *tag, const unsigned char *b, unsigned n);
+static void tcpPeek(const char *tag, const void *b, int r, unsigned maxn) { static int n; if (r > 0 && n < 14) { n++; cpsDump(tag, b, (unsigned)r < maxn ? (unsigned)r : maxn); } }
 int SOC_Read(int s, void *buf, int len) { soctr("read %d len %d", s, len); int r = read(s, buf, len); return r < 0 ? socErr() : r; }
-int SOC_Recv(int s, void *buf, int len, int flags) { soctr("recv %d len %d", s, len); (void)flags; int r = recv(s, buf, len, 0); return r < 0 ? socErr() : r; }
+int SOC_Recv(int s, void *buf, int len, int flags) { soctr("recv %d len %d", s, len); (void)flags; int r = recv(s, buf, len, 0); tcpPeek("GP recv", buf, r, 600); return r < 0 ? socErr() : r; }
 int SOC_RecvFrom(int s, void *buf, int len, int flags, void *sa)
 { soctr("recvfrom %d len %d", s, len);
     struct sockaddr_in b; socklen_t l = sizeof b; (void)flags;
@@ -545,7 +547,7 @@ int SOC_RecvFrom(int s, void *buf, int len, int flags, void *sa)
     return r;
 }
 int SOC_Write(int s, const void *buf, int len) { soctr("write %d len %d", s, len); int r = write(s, buf, len); return r < 0 ? socErr() : r; }
-int SOC_Send(int s, const void *buf, int len, int flags) { soctr("send %d len %d", s, len); (void)flags; int r = send(s, buf, len, 0); return r < 0 ? socErr() : r; }
+int SOC_Send(int s, const void *buf, int len, int flags) { soctr("send %d len %d", s, len); (void)flags; int r = send(s, buf, len, 0); tcpPeek("GP send", buf, r, 150); return r < 0 ? socErr() : r; }
 int SOC_SendTo(int s, const void *buf, int len, int flags, const void *sa)
 { soctr("sendto %d len %d %s", s, len, sa ? "addr" : "noaddr");
     struct sockaddr_in b; (void)flags;
