@@ -1,5 +1,5 @@
 /* ss3ds 2026-10-28 (Nathan: "polish Pokegear map, phone list and radio"): the JOHTO bottom screen's left panel gets three
-   tabs on its top bar, MAP / PHONE / RADIO, the three cards of the real Pokegear. Setting `pg_extras` (Settings > Input,
+   tabs on its top bar (MAP / PHONE / RADIO / PARTY / BAG; run 122 restyles them as even rounded JOHTO chips). Setting `pg_extras` (Settings > Input,
    default ON until tested); OFF = the panel is the plain map exactly as before.
    MAP    unchanged map plus pins on places where a phone contact lives (blue = number registered, amber = wants a rematch)
           and a "Phone:" line on the info card (pgDraw calls pxMapPins / pxCardLine).
@@ -95,21 +95,45 @@ static void pxBuild() {
 static inline bool pxScrolls() { return pxPane() == 1 || pxPane() == 4; } /* panes with a drag-to-scroll list */
 static inline int pxMaxScroll() { const int h = gPx.listY1 - gPx.listY0; const int m = (gPx.pane == 4 ? gPx.bagN : gPx.n) * kPxRowH - h; return m > 0 ? m : 0; }
 
-/* ---- tab bar ---- */
-enum { kPxNTab = 5 };
+/* ---- tab bar (run 122: even-width rounded JOHTO tabs; hit rects match draw) ---- */
+enum { kPxNTab = 5, kPxTabGap = 2, kPxTabPad = 5 };
 static const char *const kPxTabs[kPxNTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG" };
+static void pxTabEdge(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t c) {
+  const int r = 2;
+  for (int x = x0 + r; x < x1 - r; x++) { suiPx(b, x, y0, c); suiPx(b, x, y1 - 1, c); }
+  for (int y = y0 + r; y < y1 - r; y++) { suiPx(b, x0, y, c); suiPx(b, x1 - 1, y, c); }
+  suiPx(b, x0 + 1, y0 + 0, c); suiPx(b, x0 + 0, y0 + 1, c);
+  suiPx(b, x1 - 2, y0 + 0, c); suiPx(b, x1 - 1, y0 + 1, c);
+  suiPx(b, x0 + 1, y1 - 1, c); suiPx(b, x0 + 0, y1 - 2, c);
+  suiPx(b, x1 - 2, y1 - 1, c); suiPx(b, x1 - 1, y1 - 2, c); }
 static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0, int *y1) {
-  int right = X1 - 2; for (int i = kPxNTab - 1; i >= 0; i--) { const int w = suiSWidth(T, kPxTabs[i]) + 6; x0[i] = right - w; x1[i] = right; right -= w + 1; }
-  *y0 = Y0 + 2; *y1 = Y0 + 14; }
-/* location bar: name on the left, the three tabs on the right */
+  int maxW = 0; for (int i = 0; i < kPxNTab; i++) { const int w = suiSWidth(T, kPxTabs[i]); if (w > maxW) maxW = w; }
+  const int tabW = maxW + kPxTabPad * 2; /* equal width for every tab */
+  int right = X1 - 2; for (int i = kPxNTab - 1; i >= 0; i--) { x0[i] = right - tabW; x1[i] = right; right -= tabW + kPxTabGap; }
+  *y0 = Y0 + 1; *y1 = Y0 + 15; }
+/* location bar: name on the left (MAP pane), even tabs on the right */
 static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
   int cx0[kPxNTab], cx1[kPxNTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
-  if (gPx.pane == 0) { char nm[40]; snprintf(nm, sizeof nm, "%s", name); for (int k = (int)strlen(nm); k > 1 && suiSWidth(T, nm) > cx0[0] - 4 - (X0 + 5); ) nm[--k] = 0; suiSDraw(T, b, X0 + 5, Y0 + 2, nm, kBlNavy, kBlSilverHi); }
+  if (gPx.pane == 0) { char nm[40]; snprintf(nm, sizeof nm, "%s", name); for (int k = (int)strlen(nm); k > 1 && suiSWidth(T, nm) > cx0[0] - 4 - (X0 + 5); ) nm[--k] = 0; suiSDraw(T, b, X0 + 5, Y0 + 3, nm, kBlNavy, kBlSilverHi); }
   for (int i = 0; i < kPxNTab; i++) { const bool on = gPx.pane == i;
-    for (int y = cy0; y < cy1; y++) for (int x = cx0[i]; x < cx1[i]; x++) suiPx(b, x, y, on ? kBlNavy : suiMix(SUI_RGB(250, 252, 255), kBlSilverLo, y - cy0, cy1 - cy0));
-    mmFrame(b, cx0[i], cy0, cx1[i], cy1, kBlNavy);
-    suiSDraw(T, b, cx0[i] + 3, cy0, kPxTabs[i], on ? SUI_RGB(255, 255, 255) : kBlNavy, on ? kBlNavy : kBlSilverHi); } }
-/* tab index under bar x, -1 none (the chips are measured with the same font as the drawing) */
+    const uint32_t fill0 = on ? kBlBlue : SUI_RGB(250, 252, 255);
+    const uint32_t fill1 = on ? SUI_RGB(40, 80, 168) : kBlSilverLo;
+    const int h = cy1 - cy0, r = 2;
+    for (int y = cy0; y < cy1; y++) {
+      const uint32_t c = suiMix(fill0, fill1, y - cy0, h > 1 ? h - 1 : 1);
+      for (int x = cx0[i]; x < cx1[i]; x++) {
+        const int dx = x < cx0[i] + r ? cx0[i] + r - x : (x >= cx1[i] - r ? x - (cx1[i] - 1 - r) : 0);
+        const int dy = y < cy0 + r ? cy0 + r - y : (y >= cy1 - r ? y - (cy1 - 1 - r) : 0);
+        if (dx && dy && dx + dy > r + 1) continue;
+        suiPx(b, x, y, c); } }
+    pxTabEdge(b, cx0[i], cy0, cx1[i], cy1, kBlNavy);
+    if (on) { /* selected: bright top lip + dark bottom bar so the active tab is obvious */
+      for (int x = cx0[i] + 2; x < cx1[i] - 2; x++) { suiPx(b, x, cy0 + 1, SUI_RGB(160, 200, 255)); suiPx(b, x, cy1 - 2, SUI_RGB(20, 36, 80)); } }
+    const int tw = suiSWidth(T, kPxTabs[i]);
+    const int tx = cx0[i] + (cx1[i] - cx0[i] - tw) / 2;
+    const int ty = cy0 + (cy1 - cy0 - 9) / 2; /* ~9 px gamefont-3/4 glyph height */
+    suiSDraw(T, b, tx, ty, kPxTabs[i], on ? SUI_RGB(255, 255, 255) : kBlNavy, on ? SUI_RGB(40, 80, 168) : kBlSilverHi); } }
+/* tab index under bar x, -1 none (same layout as pxBar) */
 static int pxChipHit(const SUiText &T, int X1, int Y0, int x) {
   int cx0[kPxNTab], cx1[kPxNTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
   for (int i = 0; i < kPxNTab; i++) if (x >= cx0[i] - 1 && x < cx1[i] + 1) return i; return -1; }
