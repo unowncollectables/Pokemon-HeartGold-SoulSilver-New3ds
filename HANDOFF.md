@@ -17,7 +17,10 @@
 - 0188: CRYPTO_SetAllocator (no-op) and CRYPTO_VerifySignature (returns TRUE) done natively; ParseSignHash and the BN_* RSA code are ARM and failed with 'unsupported stack layout'.
 - 0189: native SVC_GetCRC16 + CRYPTO_RC4Init in missing.c; ov00_* wifi calls from ov74_02236AE0 stubbed with Missing() (download path, needs real DWC later).
 
+- 0192 (Grok): Mystery Gift cursor diagnostic — native ov74_02235FF8 + [SS-MG-CURSOR] logs in ListMenuUpdateCursorObj (MG-gated via gSS_MG_CursorDiag). No behavior change beyond PlaySE still firing on move.
+
 ## Run log (Grok Bot)
 - Run 102 (Claude): quit save before thread teardown. Device log: Mystery Gift opened, then crashed in native_ov74_0222AB70 (DS BG palette 0x05000000 built as mov #5; lsl #24, unmapped on 3DS).
 - Run 103 (patches 0187-0190): Mystery Gift builds (native RC4/CRC16/signature, ov00 wifi stubs) + maploader maps mov #5-7/lsl #24 DS palette/VRAM/OAM bases to the backing arrays.
 - Run 104 (patch 0191): same fix limited to ov74_* functions so nothing outside Mystery Gift changes.
+- Run 105 (patch 0192): Mystery Gift cursor still invisible after 104; no confident root cause. Diagnostic only: native ov74_02235FF8 + gated ListMenuUpdateCursorObj logs ([SS-MG-CURSOR]) dump ListMenu template/window, BG/OBJ palette, and OAM0-2 while navigating MG. Open MG, move the d-pad, capture the device log.
