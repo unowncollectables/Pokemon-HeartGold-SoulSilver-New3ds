@@ -11,4 +11,3 @@
 - 0155 (Grok): logs "[SS-PARTICLES] 0155 wait" every 120 polls while emitters are active, and "0155 skip delete" when 0151 skips one. Diagnostic for the Supersonic hang.
 - 0156 (Grok): run 67 log showed "skip delete ... active=1": the battle waits forever on one stale emitter. If the delete target is not active and exactly one emitter is, delete that one.
 - 0157 (Grok): Kurt Apricorn Box (overlay 58) crashed at ov58_02237CCC writing *(u32*)0x04000000; hook drops the raw DISPCNT writes. Run 67 also confirmed 0156 cleared the Supersonic hang.
-- 0158 (Grok): 0157 anchor fixed (staged overlay_58.c already had reg_GXS_DB_DISPCNT); the 0x04000000 line is removed. Verified on PC: no 0x4000000 in overlay_58.o.
