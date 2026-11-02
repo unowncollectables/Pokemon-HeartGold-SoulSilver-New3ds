@@ -13,3 +13,4 @@
 - 0157 (Grok): Kurt Apricorn Box (overlay 58) crashed at ov58_02237CCC writing *(u32*)0x04000000; hook drops the raw DISPCNT writes. Run 67 also confirmed 0156 cleared the Supersonic hang.
 - 0185 (Grok): seed Mystery Gift (overlay 74 / overlay_74_thumb.s); drop 58 ov74_ Missing() stubs so Init ov74_0222AE6C / Main / Exit are translated (mirror of 0164 Global Terminal).
 - 0186 (Grok): maploader translate2 accepts `$` in literal-pool symbols (nitrocrypto TEMPNAME__$p16 etc. pulled in by Mystery Gift RC4 after 0185).
+- 0187: CRYPTO_RC4Encrypt done natively in missing.c (it's an ARM routine, translator raised 'fallthrough without return'); added to native-provided.json.

@@ -1,0 +1,191 @@
+From 5e426740e4293f4e01555b899dfde7e7a8a728cd Mon Sep 17 00:00:00 2001
+From: platinum3ds <local@box>
+Date: Mon, 2 Nov 2026 02:04:11 -0500
+Subject: [PATCH] native CRYPTO_RC4Encrypt (ARM routine the maploader can't
+ translate)
+
+---
+ .../nitromain-perf/missing.c                  |  2 +
+ .../maploader/native-provided.json            | 85 ++++++++++---------
+ 2 files changed, 45 insertions(+), 42 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index 0a0ac92..3e7cb1f 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -707,3 +707,5 @@ __attribute__((noreturn)) void sub_02096AAC(void){Missing("sub_02096AAC");}
+ __attribute__((noreturn)) void sub_02096AF4(void){Missing("sub_02096AF4");}
+ __attribute__((noreturn)) void sub_02096BF8(void){Missing("sub_02096BF8");}
+ __attribute__((noreturn)) void sub_02096C40(void){Missing("sub_02096C40");}
++/* NitroSDK CRYPTO_RC4Encrypt (ARM in the ROM, which the Thumb translator can't take). Context: i@0, j@1, S[256]@4. */
++void CRYPTO_RC4Encrypt(void *ctx,const void *in,unsigned len,void *out){unsigned char *c=ctx,*s=c+4;const unsigned char *p=in;unsigned char *o=out;unsigned i=c[0],j=c[1];while(len--){i=(i+1)&0xff;unsigned char a=s[i];j=(j+a)&0xff;unsigned char b=s[j];s[i]=b;s[j]=a;*o++=*p++^s[(a+b)&0xff];}c[0]=i;c[1]=j;}
+diff --git a/port/soulsilver-native-play/maploader/native-provided.json b/port/soulsilver-native-play/maploader/native-provided.json
+index 146f60c..7384bf0 100644
+--- a/port/soulsilver-native-play/maploader/native-provided.json
++++ b/port/soulsilver-native-play/maploader/native-provided.json
+@@ -4,6 +4,7 @@
+ "ApricornBox_TakeApricorn",
+ "AreaDataManager_GetMapTexture",
+ "BeginNormalPaletteFade",
++"CRYPTO_RC4Encrypt",
+ "CalcAngleBetweenVecs",
+ "ClearFrameAndWindow2",
+ "CreateFieldEscapeRopeTaskEnv",
+@@ -45,6 +46,8 @@
+ "IsSEPlaying",
+ "ListMenuCursorNew",
+ "ListMenuUpdateCursorObj",
++"LoadDwcOverlay",
++"LoadOVY38",
+ "LoadUserFrameGfx1",
+ "LoadUserFrameGfx2",
+ "MapObject_AreBitsSetForMovementScriptInit",
+@@ -72,6 +75,7 @@
+ "Save_ApricornBox_Get",
+ "Save_FashionData_Get",
+ "Save_FashionData_GetFashionCase",
++"Save_FriendGroup_Get",
+ "Save_FrontierData_Get",
+ "Save_Frontier_GetStatic",
+ "SetMasterBrightness",
+@@ -87,6 +91,9 @@
+ "TextOBJ_Destroy",
+ "TextOBJ_SetPaletteNum",
+ "TextOBJ_SetSpritesDrawFlag",
++"UnloadDwcOverlay",
++"UnloadOVY38",
++"ov00_021E6A70",
+ "ov01_021EA7E0",
+ "ov01_021EAAB8",
+ "ov01_021EAAE0",
+@@ -660,20 +667,6 @@
+ "sub_0201980C",
+ "sub_020198FC",
+ "sub_02019934",
+-"LoadDwcOverlay",
+-"LoadOVY38",
+-"UnloadDwcOverlay",
+-"UnloadOVY38",
+-"ov00_021E6A70",
+-"sub_0202DB54",
+-"sub_0202DB5C",
+-"sub_0202DB64",
+-"sub_0202DB70",
+-"sub_0202DB80",
+-"sub_0202DB88",
+-"sub_0202DB90",
+-"sub_0202DB98",
+-"sub_0202DBA0",
+ "sub_02019978",
+ "sub_020199E4",
+ "sub_020199F4",
+@@ -726,9 +719,24 @@
+ "sub_0202C254",
+ "sub_0202C270",
+ "sub_0202C298",
++"sub_0202C2B4",
+ "sub_0202C2DC",
++"sub_0202C2F8",
+ "sub_0202C338",
++"sub_0202C4B0",
++"sub_0202C4F0",
++"sub_0202C5E4",
+ "sub_0202C6F4",
++"sub_0202C7E0",
++"sub_0202DB54",
++"sub_0202DB5C",
++"sub_0202DB64",
++"sub_0202DB70",
++"sub_0202DB80",
++"sub_0202DB88",
++"sub_0202DB90",
++"sub_0202DB98",
++"sub_0202DBA0",
+ "sub_0202FBCC",
+ "sub_0202FBD4",
+ "sub_0202FBF0",
+@@ -752,6 +760,7 @@
+ "sub_02030938",
+ "sub_02031108",
+ "sub_020311AC",
++"sub_02031214",
+ "sub_020314A4",
+ "sub_020314BC",
+ "sub_020314C4",
+@@ -781,13 +790,28 @@
+ "sub_020320E0",
+ "sub_02032158",
+ "sub_020321A0",
++"sub_02034354",
++"sub_020343E4",
++"sub_02034434",
+ "sub_02034638",
+ "sub_020346E8",
++"sub_020347CC",
+ "sub_02034818",
++"sub_0203484C",
++"sub_02034884",
++"sub_020348A8",
++"sub_020348CC",
++"sub_02034960",
++"sub_02034A20",
++"sub_02034AEC",
+ "sub_020378CC",
++"sub_020379A0",
++"sub_020379F8",
+ "sub_02037AC0",
+ "sub_02037B38",
+ "sub_02037B5C",
++"sub_0203A444",
++"sub_0203A700",
+ "sub_02054774",
+ "sub_02054790",
+ "sub_020548C0",
+@@ -825,6 +849,9 @@
+ "sub_02068DB8",
+ "sub_02068DD0",
+ "sub_02068DD4",
++"sub_02068FC8",
++"sub_020691A8",
++"sub_020691E8",
+ "sub_020696C4",
+ "sub_02069714",
+ "sub_02074E5C",
+@@ -874,31 +901,5 @@
+ "sub_02087A84",
+ "sub_02087E1C",
+ "thunk_ClearMainOAM",
+-"thunk_ClearSubOAM",
+-"Save_FriendGroup_Get",
+-"sub_0202C2B4",
+-"sub_0202C4B0",
+-"sub_0202C4F0",
+-"sub_0202C5E4",
+-"sub_0202C7E0",
+-"sub_02031214",
+-"sub_02034354",
+-"sub_020343E4",
+-"sub_02034434",
+-"sub_020347CC",
+-"sub_0203484C",
+-"sub_02034884",
+-"sub_020348A8",
+-"sub_020348CC",
+-"sub_02034A20",
+-"sub_020379A0",
+-"sub_020379F8",
+-"sub_02068FC8",
+-"sub_020691A8",
+-"sub_020691E8",
+-"sub_0203A700",
+-"sub_0203A444",
+-"sub_0202C2F8",
+-"sub_02034960",
+-"sub_02034AEC"
+-]
+\ No newline at end of file
++"thunk_ClearSubOAM"
++]
+-- 
+2.47.3
+
