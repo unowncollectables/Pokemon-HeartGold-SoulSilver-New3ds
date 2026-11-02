@@ -1,0 +1,116 @@
+From 6ee614adbddc638d7e76e9fabcf309f77ca01e7f Mon Sep 17 00:00:00 2001
+From: Grok <grok@localhost>
+Date: Mon, 2 Nov 2026 01:41:11 -0500
+Subject: [PATCH] ss3ds: seed the Mystery Gift app (overlay 74) into the
+ translator
+
+Opening Mystery Gift from the main menu loads overlay 74 then aborts at
+[SS-MISSING] ov74_0222AE6C (Init). Mirror 0164 (Global Terminal / ov70):
+seed overlay_74_thumb.s and the three app entry points
+(ov74_0222AE6C/0222C2EC/0222CD94), and drop every ov74_ Missing() stub
+whose body lives in that seeded file (58 total; Init callees were already
+unstubbed).
+---
+ .../nitromain-perf/missing.c                  | 58 -------------------
+ .../maploader/seed-files.json                 |  3 +-
+ .../maploader/seeds.json                      |  5 +-
+ 3 files changed, 6 insertions(+), 60 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index 7356b97..0a0ac92 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -507,64 +507,6 @@ __attribute__((noreturn)) void ov67_021E5984(void){Missing("ov67_021E5984");}
+ __attribute__((noreturn)) void ov73_021E5900(void){Missing("ov73_021E5900");}
+ __attribute__((noreturn)) void ov73_021E5AB8(void){Missing("ov73_021E5AB8");}
+ __attribute__((noreturn)) void ov73_021E5BAC(void){Missing("ov73_021E5BAC");}
+-__attribute__((noreturn)) void ov74_02229200(void){Missing("ov74_02229200");}
+-__attribute__((noreturn)) void ov74_02229294(void){Missing("ov74_02229294");}
+-__attribute__((noreturn)) void ov74_02229450(void){Missing("ov74_02229450");}
+-__attribute__((noreturn)) void ov74_02229DA0(void){Missing("ov74_02229DA0");}
+-__attribute__((noreturn)) void ov74_02229DCC(void){Missing("ov74_02229DCC");}
+-__attribute__((noreturn)) void ov74_02229DD4(void){Missing("ov74_02229DD4");}
+-__attribute__((noreturn)) void ov74_02229DE0(void){Missing("ov74_02229DE0");}
+-__attribute__((noreturn)) void ov74_02229F90(void){Missing("ov74_02229F90");}
+-__attribute__((noreturn)) void ov74_02229FF4(void){Missing("ov74_02229FF4");}
+-__attribute__((noreturn)) void ov74_0222A2A4(void){Missing("ov74_0222A2A4");}
+-__attribute__((noreturn)) void ov74_0222A2E0(void){Missing("ov74_0222A2E0");}
+-__attribute__((noreturn)) void ov74_0222A35C(void){Missing("ov74_0222A35C");}
+-__attribute__((noreturn)) void ov74_0222A3CC(void){Missing("ov74_0222A3CC");}
+-__attribute__((noreturn)) void ov74_0222A494(void){Missing("ov74_0222A494");}
+-__attribute__((noreturn)) void ov74_0222A4CC(void){Missing("ov74_0222A4CC");}
+-__attribute__((noreturn)) void ov74_0222A504(void){Missing("ov74_0222A504");}
+-__attribute__((noreturn)) void ov74_0222A538(void){Missing("ov74_0222A538");}
+-__attribute__((noreturn)) void ov74_0222A560(void){Missing("ov74_0222A560");}
+-__attribute__((noreturn)) void ov74_0222A5AC(void){Missing("ov74_0222A5AC");}
+-__attribute__((noreturn)) void ov74_0222A5CC(void){Missing("ov74_0222A5CC");}
+-__attribute__((noreturn)) void ov74_0222A650(void){Missing("ov74_0222A650");}
+-__attribute__((noreturn)) void ov74_0222A688(void){Missing("ov74_0222A688");}
+-__attribute__((noreturn)) void ov74_0222A6C0(void){Missing("ov74_0222A6C0");}
+-__attribute__((noreturn)) void ov74_0222AE6C(void){Missing("ov74_0222AE6C");}
+-__attribute__((noreturn)) void ov74_0222C2EC(void){Missing("ov74_0222C2EC");}
+-__attribute__((noreturn)) void ov74_0222CD94(void){Missing("ov74_0222CD94");}
+-__attribute__((noreturn)) void ov74_0222D2D4(void){Missing("ov74_0222D2D4");}
+-__attribute__((noreturn)) void ov74_0222D308(void){Missing("ov74_0222D308");}
+-__attribute__((noreturn)) void ov74_0222D358(void){Missing("ov74_0222D358");}
+-__attribute__((noreturn)) void ov74_0222D414(void){Missing("ov74_0222D414");}
+-__attribute__((noreturn)) void ov74_0222D490(void){Missing("ov74_0222D490");}
+-__attribute__((noreturn)) void ov74_0222D494(void){Missing("ov74_0222D494");}
+-__attribute__((noreturn)) void ov74_0222D4E4(void){Missing("ov74_0222D4E4");}
+-__attribute__((noreturn)) void ov74_0222D55C(void){Missing("ov74_0222D55C");}
+-__attribute__((noreturn)) void ov74_0222D5C4(void){Missing("ov74_0222D5C4");}
+-__attribute__((noreturn)) void ov74_0222D614(void){Missing("ov74_0222D614");}
+-__attribute__((noreturn)) void ov74_0222D690(void){Missing("ov74_0222D690");}
+-__attribute__((noreturn)) void ov74_0222D774(void){Missing("ov74_0222D774");}
+-__attribute__((noreturn)) void ov74_0222D78C(void){Missing("ov74_0222D78C");}
+-__attribute__((noreturn)) void ov74_0222D7D0(void){Missing("ov74_0222D7D0");}
+-__attribute__((noreturn)) void ov74_0222DDFC(void){Missing("ov74_0222DDFC");}
+-__attribute__((noreturn)) void ov74_0222E1F4(void){Missing("ov74_0222E1F4");}
+-__attribute__((noreturn)) void ov74_0222EB44(void){Missing("ov74_0222EB44");}
+-__attribute__((noreturn)) void ov74_0222EE08(void){Missing("ov74_0222EE08");}
+-__attribute__((noreturn)) void ov74_0222EE0C(void){Missing("ov74_0222EE0C");}
+-__attribute__((noreturn)) void ov74_0222EE58(void){Missing("ov74_0222EE58");}
+-__attribute__((noreturn)) void ov74_0222EEB0(void){Missing("ov74_0222EEB0");}
+-__attribute__((noreturn)) void ov74_0222EF18(void){Missing("ov74_0222EF18");}
+-__attribute__((noreturn)) void ov74_0222EF64(void){Missing("ov74_0222EF64");}
+-__attribute__((noreturn)) void ov74_0222EF68(void){Missing("ov74_0222EF68");}
+-__attribute__((noreturn)) void ov74_0222F598(void){Missing("ov74_0222F598");}
+-__attribute__((noreturn)) void ov74_0222F7D4(void){Missing("ov74_0222F7D4");}
+-__attribute__((noreturn)) void ov74_0222FB8C(void){Missing("ov74_0222FB8C");}
+-__attribute__((noreturn)) void ov74_02233230(void){Missing("ov74_02233230");}
+-__attribute__((noreturn)) void ov74_022332F4(void){Missing("ov74_022332F4");}
+-__attribute__((noreturn)) void ov74_022338D4(void){Missing("ov74_022338D4");}
+-__attribute__((noreturn)) void ov74_02235FF8(void){Missing("ov74_02235FF8");}
+-__attribute__((noreturn)) void ov74_02236074(void){Missing("ov74_02236074");}
+ __attribute__((noreturn)) void ov75_02246960(void){Missing("ov75_02246960");}
+ __attribute__((noreturn)) void ov75_022469D8(void){Missing("ov75_022469D8");}
+ __attribute__((noreturn)) void ov75_02246B00(void){Missing("ov75_02246B00");}
+diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
+index ec57029..4f798f3 100644
+--- a/port/soulsilver-native-play/maploader/seed-files.json
++++ b/port/soulsilver-native-play/maploader/seed-files.json
+@@ -79,5 +79,6 @@
+ "overlay_56.s",
+ "overlay_64.s",
+ "overlay_103.s",
+-"overlay_70.s"
++"overlay_70.s",
++"overlay_74_thumb.s"
+ ]
+diff --git a/port/soulsilver-native-play/maploader/seeds.json b/port/soulsilver-native-play/maploader/seeds.json
+index 983aad5..31fda45 100644
+--- a/port/soulsilver-native-play/maploader/seeds.json
++++ b/port/soulsilver-native-play/maploader/seeds.json
+@@ -802,5 +802,8 @@
+ "sub_0208F800",
+ "ov70_02238430",
+ "ov70_022385C0",
+-"ov70_022386F4"
++"ov70_022386F4",
++"ov74_0222AE6C",
++"ov74_0222C2EC",
++"ov74_0222CD94"
+ ]
+-- 
+2.47.3
+
