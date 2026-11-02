@@ -16,3 +16,7 @@
 - 0187: CRYPTO_RC4Encrypt done natively in missing.c (it's an ARM routine, translator raised 'fallthrough without return'); added to native-provided.json.
 - 0188: CRYPTO_SetAllocator (no-op) and CRYPTO_VerifySignature (returns TRUE) done natively; ParseSignHash and the BN_* RSA code are ARM and failed with 'unsupported stack layout'.
 - 0189: native SVC_GetCRC16 + CRYPTO_RC4Init in missing.c; ov00_* wifi calls from ov74_02236AE0 stubbed with Missing() (download path, needs real DWC later).
+
+## Run log (Grok Bot)
+- Run 102 (Claude): quit save before thread teardown. Device log: Mystery Gift opened, then crashed in native_ov74_0222AB70 (DS BG palette 0x05000000 built as mov #5; lsl #24, unmapped on 3DS).
+- Run 103 (patches 0187-0190): Mystery Gift builds (native RC4/CRC16/signature, ov00 wifi stubs) + maploader maps mov #5-7/lsl #24 DS palette/VRAM/OAM bases to the backing arrays.

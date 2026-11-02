@@ -1,0 +1,50 @@
+From 7aab48c867bd2d8e2f135fe838e6c2eed92f21ee Mon Sep 17 00:00:00 2001
+From: platinum3ds <local@box>
+Date: Mon, 2 Nov 2026 02:25:47 -0500
+Subject: [PATCH] maploader: map DS palette/VRAM/OAM bases built with mov #5-7;
+ lsl #24 to the backing arrays (Mystery Gift crash)
+
+---
+ .../maploader/translate2.py                   | 26 +++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/port/soulsilver-native-play/maploader/translate2.py b/port/soulsilver-native-play/maploader/translate2.py
+index ad54ea5..f915952 100644
+--- a/port/soulsilver-native-play/maploader/translate2.py
++++ b/port/soulsilver-native-play/maploader/translate2.py
+@@ -138,6 +138,32 @@ def _prepare(name, body, relocs):  # noqa
+     # unmapped 0x04000000 on the 3DS and data-aborts.
+     if re.search(r'\blsls?\s+(r\d),\s*\1,\s*#(?:0x1a|26)\b', body):
+         io = True
++    # ss3ds: DS palette/VRAM/OAM base built in a register (mov rX,#5; lsl rX,rX,#0x18 = 0x05000000, BG palette;
++    # ov74_0222AB70 Mystery Gift) has no literal pool entry and data-aborts on the 3DS. Map it to the backing array.
++    _pend, _out = {}, []
++    for _raw in body.splitlines():
++        _l = _raw.split(';')[0].strip()
++        _m = re.fullmatch(r'movs?\s+(r\d),\s*#([5-7])', _l)
++        _k = re.fullmatch(r'lsls?\s+(r\d),\s*(r\d),\s*#(?:0x18|24)', _l)
++        if _k and _k[1] == _k[2] and _k[1] in _pend:
++            _hw = _hw_literal(hex(_pend[_k[1]] << 24))
++            if _hw:
++                _lab = f'_ss_hw_{_pend[_k[1]]}'
++                literals[_lab], _sym = _hw
++                externs.add(_sym)
++                _out.append(f'\tldr {_k[1]}, {_lab}')
++                del _pend[_k[1]]
++                continue
++        if _m:
++            _pend[_m[1]] = int(_m[2])
++        elif not _l or _l.endswith(':') or _l.startswith(('b', 'pop', 'push')):
++            _pend.clear()
++        else:
++            _d = re.match(r'\w+\s+(r\d)\b', _l)
++            if _d and not _l.startswith(('str', 'cmp', 'tst')):
++                _pend.pop(_d[1], None)
++        _out.append(_raw)
++    body = '\n'.join(_out)
+     clean = []
+     for raw in body.splitlines():
+         line = raw.split(';')[0].strip()
+-- 
+2.47.3
+
