@@ -74,7 +74,7 @@ build/p3ds.specs:
 	@mkdir -p build; sed 's#-T 3dsx.ld%s#-T $(CURDIR)/build/soulsilver3ds.ld#' $(DKP)/devkitARM/arm-none-eabi/lib/3dsx.specs > $@
 # SSOBJS/SSLIBS are relative to $(P) (the link recipe cds there), so prefix them: as bare prerequisites make would look in this directory and fail on names like g2_asm_abi.o. SSLIBS also holds linker flags (-Wl,--start-group, -l...), so only .o/.a entries are prerequisites.
 soulsilver3ds.elf: check $(POBJS) $(addprefix $(P)/,$(filter %.o %.a,$(SSOBJS) $(SSLIBS))) build/soulsilver3ds.ld build/p3ds.specs
-	cd $(P) && $(DKA)gcc -specs=$(CURDIR)/build/p3ds.specs -B$(DKP)/devkitARM/arm-none-eabi/lib/ $(ARCH) -Wl,--gc-sections $(SSWRAP) $(P3WRAP) -Wl,--no-enum-size-warning -Wl,-Map,$(CURDIR)/build/full.map \
+	cd $(P) && $(DKA)gcc -specs=$(CURDIR)/build/p3ds.specs -B$(DKP)/devkitARM/arm-none-eabi/lib/ $(ARCH) -Wl,--gc-sections -Wl,--allow-multiple-definition $(SSWRAP) $(P3WRAP) -Wl,--no-enum-size-warning -Wl,-Map,$(CURDIR)/build/full.map \
 	  $(addprefix $(CURDIR)/,$(POBJS)) $(SSOBJS) $(RENDER) $(SSLIBS) -L$(DKP)/libctru/lib -lcitro3d -lctru -lstdc++ -lm -o $(CURDIR)/$@
 soulsilver3ds.smdh: ../platform/ss3ds_version.h cia/art/icon.png
 	@# run 3: depends on the version (was stuck at the first build's string) and uses the committed SoulSilver icon art
