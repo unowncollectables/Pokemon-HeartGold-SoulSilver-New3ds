@@ -203,3 +203,126 @@ int __wrap_DWC_CheckHasProfile(const void *userData)
     if (!real && onlineMode() && !P3DS_OnlineCheatBlocked() && P3DS_NetInit()) return 1;
     return real;
 }
+
+/* ---- run 83: the game's ghttp (GameSpy HTTP) for the GTS login --------------------------------------------------------------
+ * After the netcheck the GTS fetches http://gamestats2.gs.nintendowifi.net/pokemondpds/worldexchange/info.asp?pid=..  (a 32 byte
+ * challenge) and then a second URL with a SHA1 of it (a 22 byte answer). The game starts a request with ov00_021FA21C(url, cb, ud)
+ * and polls ov00_021FA118() every frame; cb(buf, len, result, ud) is called from that poll (result 0 = ok).
+ * Here: a plain HTTP/1.0 GET over the same soc sockets, run in a worker thread (the game thread never blocks); the name is resolved
+ * by asking the community DNS (wifi_dns, default as above) directly over UDP, because the system DNS knows nothing of these hosts.
+ * Online mode only, never with a cheat on. Log tag [GHTTP]. Plain GET only, nothing is POSTed, nothing touches the save. */
+#include <poll.h>
+#include <errno.h>
+#include <fcntl.h>
+
+static in_addr_t ghDnsAddr(void)
+{
+    if (!gDns) setDns();
+    return gDns;
+}
+
+static int ghResolve(const char *host, in_addr_t *out)
+{
+    unsigned char q[300], r[600];
+    int n = 0, fd;
+    memset(q, 0, 12); q[0] = 0x53; q[1] = 0x31; q[2] = 1; q[5] = 1; n = 12; /* id, RD, 1 question */
+    for (const char *p = host; *p;) {
+        const char *d = strchr(p, '.'); int l = d ? (int)(d - p) : (int)strlen(p);
+        if (l <= 0 || l > 63 || n + l + 6 > (int)sizeof q) return -1;
+        q[n++] = (unsigned char)l; memcpy(q + n, p, l); n += l; p += l; if (d) p++;
+    }
+    q[n++] = 0; q[n++] = 0; q[n++] = 1; q[n++] = 0; q[n++] = 1; /* type A, class IN */
+    fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (fd < 0) return -2;
+    struct sockaddr_in to; memset(&to, 0, sizeof to); to.sin_family = AF_INET; to.sin_port = htons(53); to.sin_addr.s_addr = ghDnsAddr();
+    int got = -3;
+    for (int tries = 0; tries < 3 && got < 0; tries++) {
+        if (sendto(fd, q, n, 0, (struct sockaddr *)&to, sizeof to) < 0) { got = -4; break; }
+        struct pollfd pf = { fd, POLLIN, 0 };
+        if (poll(&pf, 1, 2000) > 0) { int m = recvfrom(fd, r, sizeof r, 0, NULL, NULL); if (m > 12) got = m; }
+    }
+    close(fd);
+    if (got < 12) return -5;
+    int an = (r[6] << 8) | r[7], pos = 12;
+    while (pos < got && r[pos]) pos += (r[pos] >= 0xC0) ? 2 : r[pos] + 1; /* question name */
+    pos += 5;
+    for (int i = 0; i < an && pos + 12 <= got; i++) {
+        while (pos < got && r[pos] && !(r[pos] >= 0xC0)) pos += r[pos] + 1;
+        pos += (pos < got && r[pos] >= 0xC0) ? 2 : 1;
+        if (pos + 10 > got) break;
+        int type = (r[pos] << 8) | r[pos + 1], rl = (r[pos + 8] << 8) | r[pos + 9]; pos += 10;
+        if (type == 1 && rl == 4 && pos + 4 <= got) { memcpy(out, r + pos, 4); return 0; }
+        pos += rl;
+    }
+    return -6;
+}
+
+#define GH_MAX 1024
+static struct { volatile int state; /* 0 idle, 1 running, 2 done */ char url[400]; char body[GH_MAX]; int len, result; void *cb, *ud; Thread th; } gh;
+
+static void ghWork(void *arg)
+{
+    (void)arg;
+    char host[128], path[300]; const char *u = gh.url; int result = 5, len = 0;
+    if (strncmp(u, "http://", 7) == 0) u += 7;
+    const char *sl = strchr(u, '/');
+    int hl = sl ? (int)(sl - u) : (int)strlen(u);
+    if (hl > 0 && hl < (int)sizeof host) {
+        memcpy(host, u, hl); host[hl] = 0; snprintf(path, sizeof path, "%s", sl ? sl : "/");
+        in_addr_t ip = 0; int rr = ghResolve(host, &ip);
+        NLOG("[GHTTP] %s -> %s (%s)", host, rr == 0 ? inet_ntoa(*(struct in_addr *)&ip) : "lookup failed", rr == 0 ? "ok" : "err");
+        if (rr == 0) {
+            int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+            struct sockaddr_in sa; memset(&sa, 0, sizeof sa); sa.sin_family = AF_INET; sa.sin_port = htons(80); sa.sin_addr.s_addr = ip;
+            if (fd >= 0 && connect(fd, (struct sockaddr *)&sa, sizeof sa) == 0) {
+                char req[600]; int rl = snprintf(req, sizeof req, "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: GameSpyHTTP/1.0\r\nConnection: close\r\n\r\n", path, host);
+                char resp[2048]; int tot = 0;
+                if (send(fd, req, rl, 0) == rl) {
+                    for (;;) {
+                        struct pollfd pf = { fd, POLLIN, 0 };
+                        if (poll(&pf, 1, 6000) <= 0) break;
+                        int m = recv(fd, resp + tot, (int)sizeof resp - 1 - tot, 0);
+                        if (m <= 0) break;
+                        tot += m; if (tot >= (int)sizeof resp - 1) break;
+                    }
+                }
+                resp[tot] = 0;
+                NLOG("[GHTTP] got %d bytes, status line: %.40s", tot, tot > 0 ? resp : "(none)");
+                char *body = strstr(resp, "\r\n\r\n");
+                if (tot > 12 && strncmp(resp, "HTTP/", 5) == 0 && strstr(resp, " 200") && strstr(resp, " 200") < resp + 16 && body) {
+                    body += 4; len = tot - (int)(body - resp); if (len > GH_MAX - 1) len = GH_MAX - 1;
+                    memcpy(gh.body, body, len); gh.body[len] = 0; result = 0;
+                    NLOG("[GHTTP] ok, body %d bytes", len);
+                }
+            } else NLOG("[GHTTP] connect failed (errno %d)", errno);
+            if (fd >= 0) close(fd);
+        }
+    }
+    gh.len = len; gh.result = result; gh.state = 2;
+}
+
+/* returns a request id (>= 0) or -5 when it cannot start */
+int P3DS_GhttpStart(const char *url, void *cb, void *ud)
+{
+    if (!url || !onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit()) { NLOG("[GHTTP] not started (online mode off, cheat on, or sockets down): %s", url ? url : "(null)"); return -5; }
+    if (gh.state != 0) { NLOG("[GHTTP] busy, refused: %s", url); return -5; }
+    snprintf(gh.url, sizeof gh.url, "%s", url); gh.cb = cb; gh.ud = ud; gh.len = 0; gh.result = 5; gh.state = 1;
+    NLOG("[GHTTP] GET %s", gh.url);
+    gh.th = threadCreate(ghWork, NULL, 0x8000, 0x30, -2, false);
+    if (!gh.th) { gh.state = 0; NLOG("[GHTTP] thread create failed"); return -5; }
+    return 1;
+}
+
+/* per-frame: finish a request on the game thread (the callback is game code) */
+int P3DS_GhttpThink(void)
+{
+    if (gh.state == 2) {
+        int (*cb)(char *, int, int, void *) = (int (*)(char *, int, int, void *))gh.cb;
+        void *ud = gh.ud; int len = gh.len, res = gh.result;
+        threadJoin(gh.th, 2000000000ULL); threadFree(gh.th);
+        gh.th = NULL; gh.state = 0; /* idle first: the callback starts the next request */
+        NLOG("[GHTTP] callback result %d len %d", res, len);
+        if (cb) cb(res == 0 ? gh.body : NULL, len, res, ud);
+    }
+    return 1;
+}
