@@ -730,15 +730,10 @@ void __wrap_DWC_Auth_SetCalInfoToHttp(void *aHttp, char *cal, int withSsid)
         } else NLOG("[LOGIN] NAS request: could not read the ROM header for the game code");
         if (f) fclose(f);
     }
-    /* MG Nd/SVL only (gSS_MG_NdSvlActive): NdInit rewrites the download gamecd to IPKE
-       (SoulSilver). If the ROM header is IPGE (HeartGold dump), force IPKE so the SVCLOC
-       token matches the Nd password/gamecd. GTS never sets the flag. */
-    if (cal && gSS_MG_NdSvlActive) {
-        if (cal[0x15] != 'I' || cal[0x16] != 'P' || cal[0x17] != 'K' || cal[0x18] != 'E') {
-            cal[0x15] = 'I'; cal[0x16] = 'P'; cal[0x17] = 'K'; cal[0x18] = 'E'; cal[0x19] = 0;
-            NLOG("[SS-MG] NAS cal gamecd forced IPKE for Nd/SVL");
-        }
-    }
+    /* run 114: do not force IPKE. ROM header gamecd (IPGE for US SoulSilver) matches
+       DLS dlc/IPGE; forcing IPKE made count return 0. GTS path unchanged (flag off). */
+    if (cal && gSS_MG_NdSvlActive)
+        NLOG("[SS-MG] NAS cal gamecd=%.4s for Nd/SVL (ROM header, no rewrite)", cal + 0x15);
     __real_DWC_Auth_SetCalInfoToHttp(aHttp, cal, withSsid);
 }
 

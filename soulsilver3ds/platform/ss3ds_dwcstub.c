@@ -100,7 +100,9 @@ unsigned int ov00_021EC210(void) { int code = 0, type = 0; int err = DWC_GetLast
    the maploader cannot translate - map them onto libntrdwc's DWC_Nd* (already in
    libnetwork-probe.a) the same way GTS mapped ConnectInet/CheckInet/ghttp. Requires
    Settings > Play > Wireless = ONLINE (wireless=2). Local wireless MG receive is unchanged.
-   Gamecode: pokeheartgold overlay data has "IPGE" (HeartGold); this is SoulSilver so rewrite to IPKE. */
+   Gamecode: keep the ROM header code. US SoulSilver is IPGE; US HeartGold is IPKE.
+   Run 113 forced IPGE->IPKE and DLS count returned 0 (Wiimmfi/AltWFC list IPGE gifts
+   under dlc/IPGE and treat IPGE as Gen4 random-file; no IPKE folder). */
 typedef void (*SS3DS_NdCallback)(int reason, int error, int servererror);
 typedef void (*SS3DS_NdCleanupCallback)(void);
 extern int DWC_NdInitAsync(SS3DS_NdCallback cb, char *gamecd, char *passwd);
@@ -110,6 +112,11 @@ extern int DWC_NdGetFileListNumAsync(int *entrynum);
 extern int DWCi_Ndi_error;
 extern int DWCi_Ndi_isOpened;
 extern char *DWCi_Ndi_serverURL;
+extern char DWCi_Ndi_dwcgamecd[9];
+extern char DWCi_Ndi_password[25];
+extern char DWCi_Ndi_macaddr[17];
+extern char *DWCi_Ndi_authtoken;
+extern char *DWCi_Ndi_dlattr[3];
 extern int DWC_NdGetFileListAsync(void *filelist, unsigned offset, unsigned num);
 extern int DWC_NdGetFileAsync(void *fileinfo, char *buf, unsigned size);
 extern int DWC_NdCancelAsync(void);
@@ -118,11 +125,9 @@ extern int DWC_CleanupInetAsync(void);
 extern void DWC_NASLoginAbort(void);
 extern int DWC_UpdateConnection(void);
 
+/* run 114: do not rewrite IPGE->IPKE. Pass the cart/ROM gamecd through unchanged. */
 static char *ss3ds_mg_gamecd(char *gamecd)
 {
-    static char ipke[] = "IPKE";
-    if (gamecd && gamecd[0] == 'I' && gamecd[1] == 'P' && gamecd[2] == 'G' && gamecd[3] == 'E')
-        return ipke;
     return gamecd;
 }
 
@@ -147,8 +152,21 @@ extern SS3DS_DWCHttpParam DWCauthhttpparam;
 extern void *DWC_Alloc(int name, unsigned int size);
 extern void DWC_Free(int name, void *ptr, unsigned int size);
 extern void DWC_Auth_SetCustomNas(const char *url);
-/* Set by NdInit so the shared SetCalInfoToHttp wrap can force IPKE for MG SVL only. */
+/* Set by NdInit so MG-only NAS cal / soctr / body logs can gate on the Nd path. */
 int gSS_MG_NdSvlActive;
+
+/* Truncate sensitive POST fields for logs (token/MAC/userid). Never print full values. */
+static void ss3ds_mg_mask4(char *dst, unsigned dstn, const char *src)
+{
+    unsigned i = 0;
+    if (!dst || dstn < 8) return;
+    if (!src) { dst[0] = 0; return; }
+    while (src[i] && i < 4 && i + 1 < dstn) { dst[i] = src[i]; i++; }
+    if (src[i]) {
+        if (i + 4 < dstn) { dst[i++] = '.'; dst[i++] = '.'; dst[i++] = '.'; }
+        dst[i] = 0;
+    } else dst[i] = 0;
+}
 
 /* run 113: log Nd callbacks (gift count / errors). Run 112 had HTTP/1.1 200 then
    NdCleanup with no callback line, so the DLS gift count was unknown. */
@@ -204,8 +222,8 @@ unsigned int ov00_021ED1F0(SS3DS_NdCallback cb, char *gamecd, char *passwd)
     ss3ds_mg_ensure_http_alloc();
     s_mg_nd_cb = cb;
     s_mg_entrynum = 0;
-    PSPNativeMemLog("[SS-MG] NdInitAsync gamecd=%s (in=%s) passwd=%s (NAS http + SVL)",
-                    gc ? gc : "(null)", gamecd ? gamecd : "(null)", passwd ? passwd : "(null)");
+    PSPNativeMemLog("[SS-MG] NdInitAsync gamecd=%.4s (ROM=%.4s) passwd=%.4s... (NAS http + SVL)",
+                    gc ? gc : "????", gamecd ? gamecd : "????", passwd ? passwd : "????");
     r = DWC_NdInitAsync(ss3ds_mg_nd_cb, gc, passwd);
     PSPNativeMemLog("[SS-MG] NdInitAsync -> %d", r);
     return (unsigned)r;
@@ -220,7 +238,9 @@ unsigned int ov00_021ED308(SS3DS_NdCleanupCallback cb)
 unsigned int ov00_021ED354(const char *a, const char *b, const char *c)
 {
     int r = DWC_NdSetAttr(a ? a : "", b ? b : "", c ? c : "");
-    PSPNativeMemLog("[SS-MG] NdSetAttr -> %d", r);
+    /* HGSS passes ov74_0223D054 = empty string x3; empty attrs stay NULL (not posted). */
+    PSPNativeMemLog("[SS-MG] NdSetAttr a=\"%.10s\" b=\"%.10s\" c=\"%.10s\" -> %d",
+                    a ? a : "", b ? b : "", c ? c : "", r);
     return (unsigned)r;
 }
 unsigned int ov00_021ED388(int *entrynum)
@@ -232,12 +252,35 @@ unsigned int ov00_021ED388(int *entrynum)
     ss3ds_mg_ensure_http_alloc();
     s_mg_entrynum = entrynum;
     {
-        int r = DWC_NdGetFileListNumAsync(entrynum);
+        char tok[12], mac[12];
+        int r;
+        ss3ds_mg_mask4(tok, sizeof tok, DWCi_Ndi_authtoken);
+        ss3ds_mg_mask4(mac, sizeof mac, DWCi_Ndi_macaddr);
+        /* setupHttp posts action=Y291bnQ* (b64 "count"), gamecd/rhgamecd/passwd/token/mac
+           already b64 from NdInit; attr1-3 only if SetAttr left non-NULL (HGSS: none). */
+        PSPNativeMemLog("[SS-MG] DLS count POST action=Y291bnQ* gamecd=%s rh=%s passwd=%.4s... token=%s mac=%s attr1=%s attr2=%s attr3=%s",
+                        DWCi_Ndi_dwcgamecd, DWCi_Ndi_dwcgamecd, DWCi_Ndi_password,
+                        tok[0] ? tok : "(null)", mac[0] ? mac : "(null)",
+                        DWCi_Ndi_dlattr[0] ? DWCi_Ndi_dlattr[0] : "(omit)",
+                        DWCi_Ndi_dlattr[1] ? DWCi_Ndi_dlattr[1] : "(omit)",
+                        DWCi_Ndi_dlattr[2] ? DWCi_Ndi_dlattr[2] : "(omit)");
+        r = DWC_NdGetFileListNumAsync(entrynum);
         PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d (num ptr %p) opened=%d ndi_err=%d url=%s",
                         r, (void *)entrynum, DWCi_Ndi_isOpened, DWCi_Ndi_error,
                         DWCi_Ndi_serverURL ? DWCi_Ndi_serverURL : "(null)");
         return (unsigned)r;
     }
+}
+
+/* run 114: log DLS response body (count is a short ASCII integer). MG-gated. */
+extern int __real_NHTTP_GetBodyAll(void *res, char **value);
+int __wrap_NHTTP_GetBodyAll(void *res, char **value)
+{
+    int r = __real_NHTTP_GetBodyAll(res, value);
+    if (gSS_MG_NdSvlActive && r >= 0 && value && *value) {
+        PSPNativeMemLog("[SS-MG] DLS response body len=%d: %.80s", r, *value);
+    }
+    return r;
 }
 unsigned int ov00_021ED3AC(void *filelist, unsigned offset, unsigned num)
 {
