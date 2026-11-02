@@ -1749,7 +1749,7 @@ static int Present(bool){
    if(gPg.decoded&&gPg.tidKnown&&P3DS_PgReady&&pgKantoUpdate(gPg,pkCfg())){BLINV;
     if(gPg.kantoX==-3){gPg.kantoX=-4;PSPNativeMemLog("[PGMAP] Kanto gate off: no Kanto town name found in the Pokegear location names");}
     else if(gPg.kantoX>=0)PSPNativeMemLog("[PGMAP] Kanto on map: %s (map columns from %d, pg_kanto=%d, here %d '%s')",gPg.kantoOpen?"shown":"hidden until a Kanto place is visited",gPg.kantoX,pkCfg(),P3DS_PgLoc,P3DS_PgLoc>=0&&P3DS_PgLoc<kPgN?P3DS_PgName[P3DS_PgLoc]:"");}}
-  if(P3DS_StartReq>=0){if(++bmAge>90){PSPNativeMemLog("[BMENU] request %d timed out: the game's Start menu did not open",P3DS_StartReq);P3DS_StartReq=-1;P3DS_PhCallReq=0;P3DS_RadTuneReq=0;bmAge=0;}if(!bmHold&&bmAge%8==4){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2; /* X missed mid-step: pulse again until the menu opens */}}
+  if(P3DS_StartReq>=0){if(++bmAge>90){PSPNativeMemLog("[BMENU] request %d timed out: the game's Start menu did not open",P3DS_StartReq);P3DS_StartReq=-1;P3DS_PhCallReq=0;P3DS_RadTuneReq=0;P3DS_VwPartySlot=0;P3DS_VwBagPocket=-1;P3DS_VwBagSlot=-1;bmAge=0;}if(!bmHold&&bmAge%8==4){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2; /* X missed mid-step: pulse again until the menu opens */}}
   else if(bmAge){PSPNativeMemLog("[BMENU] request handled by the game after %u frames",bmAge);bmAge=0;}
   if(show){
    static int tX0,tY0,tXl,tYl,tXp;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
@@ -1798,14 +1798,14 @@ static int Present(bool){
     else if(bmDown==21&&pxPane()==3){
       if(tDrag)PSPNativeMemLog("[VIEW] party tap ignored: drag");
       else if(!((P3DS_StartAvail>>1)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[VIEW] party tap: not in the game's menu (avail mask %04x)",P3DS_StartAvail);}
-      else if(P3DS_StartReq<0){P3DS_StartReq=1;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[VIEW] party tap -> open Pokemon menu, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+      else if(P3DS_StartReq<0){const int slot=pxPartyAt(tY0);P3DS_VwPartySlot=slot>=0?slot+1:0;P3DS_StartReq=1;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}if(slot>=0)PSPNativeMemLog("[VIEW] party tap slot %d -> open Pokemon menu, %s",slot,bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");else PSPNativeMemLog("[VIEW] party tap -> open Pokemon menu (no row), %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
       else PSPNativeMemLog("[VIEW] party tap ignored: a menu request is already running");}
     else if(bmDown==21&&pxPane()==4){
       if(tDrag)PSPNativeMemLog("[VIEW] bag tap ignored: drag");
       else if(pxBagTap(tX0,tY0)){}
       else if(pxViewerListHit(tY0)){
         if(!((P3DS_StartAvail>>2)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[VIEW] bag tap: not in the game's menu (avail mask %04x)",P3DS_StartAvail);}
-        else if(P3DS_StartReq<0){P3DS_StartReq=2;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[VIEW] bag tap -> open Bag, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+        else if(P3DS_StartReq<0){const int row=pxBagRowAt(tX0,tY0);if(row>=0){P3DS_VwBagPocket=gPx.bag;P3DS_VwBagSlot=gPx.bagList[row];}else{P3DS_VwBagPocket=-1;P3DS_VwBagSlot=-1;}P3DS_StartReq=2;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}if(row>=0)PSPNativeMemLog("[VIEW] bag tap pocket %d slot %d -> open Bag, %s",gPx.bag,gPx.bagList[row],bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");else PSPNativeMemLog("[VIEW] bag tap -> open Bag (no row), %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
         else PSPNativeMemLog("[VIEW] bag tap ignored: a menu request is already running");}}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&!tDrag&&tX0>=gPg.achX0&&tX0<gPg.achX1&&tY0>=gPg.achY0&&tY0<gPg.achY1){gPg.achOpen=!gPg.achOpen;gPg.ov=false;gPg.sel=-1;gPg.achScroll=0;if(gPg.achOpen)P3DS_AchViewed();BLINV;PSPNativeMemLog("[ACH] list %s",gPg.achOpen?"open":"closed");}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&!tDrag&&tX0>=gPg.dotsX0-3&&tX0<gPg.dotsX1+3&&tY0>=gPg.dotsY0-3&&tY0<gPg.dotsY1+3){gPg.achOpen=false;gPg.ov=!gPg.ov;gPg.sel=-1;gPg.ovScroll=0;BLINV;PSPNativeMemLog("[PGSTAT] overview %s",gPg.ov?"open":"closed");}

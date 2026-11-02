@@ -24,7 +24,7 @@ extern "C" {
 /* published by hook 0122 on the game thread (field_control.c) */
 volatile int P3DS_PhReady, P3DS_RadSel, P3DS_RadNat, P3DS_RadGb, P3DS_RadCard, P3DS_PhRing, P3DS_PhCallReq, P3DS_RadTuneReq; /* RadTuneReq: station id + 1 to tune from the RADIO tab (hook 0129), 0 none; PhCallReq: contact id + 1 to call from the PHONE tab (hook 0128), 0 none; RadCard: Radio card registered; PhRing: 0 quiet, 1 ringing (caller unknown), 2+id = contact id ringing (hook 0125) */ volatile uint32_t P3DS_PhTick;
 /* published by hook 0167 (field_control.c / field_system.c) while a PARTY or BAG tab is open: party slots {species, level, hp, max hp, held item, status bits, egg}, every bag slot of the eight pockets in the game's pocket order (ITEMS, MEDICINE, BALLS, TM/HM, BERRIES, MAIL, BATTLE, KEY), item names read from the game's own text */
-volatile int P3DS_VwOn, P3DS_VwReady; volatile unsigned P3DS_VwTick; int P3DS_VwPartyN; uint16_t P3DS_VwParty[6][7]; uint16_t P3DS_VwBagId[8][165], P3DS_VwBagQty[8][165]; char P3DS_VwItem[540][20];
+volatile int P3DS_VwOn, P3DS_VwReady; volatile unsigned P3DS_VwTick; int P3DS_VwPartyN; uint16_t P3DS_VwParty[6][7]; uint16_t P3DS_VwBagId[8][165], P3DS_VwBagQty[8][165]; char P3DS_VwItem[540][20]; /* run 119 / hook 0200: row tap selects this mon/item when opening Party/Bag */ volatile int P3DS_VwPartySlot; /* 0 none, 1..6 = party index+1 */ volatile int P3DS_VwBagPocket; /* -1 none, 0..7 pocket */ volatile int P3DS_VwBagSlot; /* -1 none, pocket slot index */
 uint8_t P3DS_PhFlag[75], P3DS_PhLoc[75]; /* flag bit0 registered, bit1 rematch, bit2 gift; loc = Pokegear location 0..99 or 255 */
 }
 
@@ -285,7 +285,9 @@ static bool pxPaneDraw(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, in
 static void pxSetPane(int p, const char *why) { if (p < 0 || p >= kPxNTab || p == gPx.pane) return; gPx.pane = p; gPx.vel = 0; gPx.scroll = 0; gPx.touching = gPx.scrub = false; gPx.vwWait = 0; BLINV; PSPNativeMemLog("[PHONE] panel -> %s (%s)", kPxTabs[p], why); }
 /* every frame: fling after the finger lifts, and the radio's clock */
 static void pxFrame(bool touching) {
-  if (!pxOn()) return; gPx.touching = touching;
+  if (!pxOn()) return;
+  { static int vwSelInit; if (!vwSelInit) { vwSelInit = 1; P3DS_VwPartySlot = 0; P3DS_VwBagPocket = -1; P3DS_VwBagSlot = -1; } }
+  gPx.touching = touching;
   if (pxScrolls() && !touching && (gPx.vel > 0.5f || gPx.vel < -0.5f)) { gPx.scroll += gPx.vel; gPx.vel *= 0.9f; const int ms = pxMaxScroll(); if (gPx.scroll < 0 || gPx.scroll > ms) { gPx.scroll = gPx.scroll < 0 ? 0.f : (float)ms; gPx.vel = 0; } BLINV; }
   else if (!touching) gPx.vel = 0;
   { const bool vw = gPx.pane == 3 || gPx.pane == 4; P3DS_VwOn = vw ? 1 : 0;
@@ -321,6 +323,17 @@ static bool pxViewerListHit(int y) {
   if (gPx.pane == 3) return y >= gPx.listY0 - kPxSubH && y < gPx.listY1; /* party: whole pane incl. title */
   if (gPx.pane == 4) return y >= gPx.listY0 && y < gPx.listY1; /* bag: list rows only; title arrows = pxBagTap */
   return false; }
+/* run 119: party slot under y (-1 none); bag list-row under (x,y) (-1 none) */
+static int pxPartyAt(int y) {
+  if (gPx.pane != 3 || !P3DS_VwReady || y < gPx.listY0 || y >= gPx.listY1) return -1;
+  const int i = (y - gPx.listY0 - 1) / 25;
+  return (i >= 0 && i < P3DS_VwPartyN && i < 6) ? i : -1; }
+static int pxBagRowAt(int x, int y) {
+  if (gPx.pane != 4 || y < gPx.listY0 || y >= gPx.listY1) return -1;
+  if (pxMaxScroll() > 0 && x >= gPx.listX1 - 14) return -1;
+  const int r = (y - gPx.listY0 + (int)gPx.scroll) / kPxRowH;
+  return (r >= 0 && r < gPx.bagN) ? r : -1; }
+
 static bool pxSortTap(int x, int y) {
   if (gPx.pane != 1 || y < gPx.listY0 - kPxSubH || y >= gPx.listY0 || x < gPx.sortX0 - 2 || x >= gPx.sortX1 + 2) return false;
   gPx.sort = (gPx.sort + 1) % 3; gPx.built = false; gPx.scroll = 0; gPx.vel = 0; BLINV; static const char *const k[3] = { "A-Z", "PLACE", "REMATCH first" };

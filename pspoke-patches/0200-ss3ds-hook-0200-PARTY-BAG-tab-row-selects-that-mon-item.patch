@@ -1,0 +1,139 @@
+From 3240bdc2fad44087661b55ad3eff664cd60561b2 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 14:25:57 -0500
+Subject: [PATCH] ss3ds: hook 0200 PARTY/BAG tab row selects that mon/item in
+ Start-menu apps (run 119)
+
+Platform sets P3DS_VwPartySlot or P3DS_VwBagPocket+P3DS_VwBagSlot then StartReq
+1/2. Task_StartMenu_Pokemon passes the slot to PartyMenu_LaunchApp_Unk1;
+Task_StartMenu_Bag sets BagCursor pocket+position before sub_0203E3FC.
+---
+ scripts/ss3ds_hooks.d/0200_viewsel.py | 103 ++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0200_viewsel.sh |   5 ++
+ 2 files changed, 108 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0200_viewsel.py
+ create mode 100755 scripts/ss3ds_hooks.d/0200_viewsel.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0200_viewsel.py b/scripts/ss3ds_hooks.d/0200_viewsel.py
+new file mode 100755
+index 0000000..0c1a700
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0200_viewsel.py
+@@ -0,0 +1,103 @@
++#!/usr/bin/env python3
++"""ss3ds 0200: PARTY/BAG tab row tap selects that mon/item in the real Start-menu apps (run 119).
++Idempotent ('SS3DS 0200'). Platform sets P3DS_VwPartySlot (1..6) or P3DS_VwBagPocket (0..7) +
++P3DS_VwBagSlot (pocket slot index) then StartReq 1/2. Here:
++ - Task_StartMenu_Pokemon passes the slot into PartyMenu_LaunchApp_Unk1 (vanilla already
++   focuses that mon; return path unchanged);
++ - Task_StartMenu_Bag writes BagCursor pocket+position before sub_0203E3FC so the Bag
++   opens on that pocket with the cursor on that item (use/give/toss still needs A in-game).
++No save writes beyond what opening Party/Bag already does. Behind pg_extras on the platform."""
++import sys
++
++def once(s, old, new, label):
++    if s.count(old) != 1:
++        sys.exit('0200_viewsel: %s anchor not found exactly once: %s' % (label, old[:80]))
++    return s.replace(old, new)
++
++p = 'src/start_menu.c'
++s = open(p).read()
++if 'SS3DS 0200' in s:
++    sys.exit(0)
++
++s = once(s,
++'''static BOOL Task_StartMenu_Pokemon(TaskManager *taskManager) {
++    FieldSystem *fieldSystem = TaskManager_GetFieldSystem(taskManager);
++    StartMenuTaskData *startMenu = (StartMenuTaskData *)TaskManager_GetEnvironment(taskManager);
++
++    startMenu->exitTaskEnvironment = PartyMenu_LaunchApp_Unk1(fieldSystem, &startMenu->fieldMoveCheckData, 0);
++    startMenu->exitTaskFunc = Task_StartMenu_HandleReturn_Pokemon;
++    return FALSE;
++}
++''',
++'''static BOOL Task_StartMenu_Pokemon(TaskManager *taskManager) {
++    FieldSystem *fieldSystem = TaskManager_GetFieldSystem(taskManager);
++    StartMenuTaskData *startMenu = (StartMenuTaskData *)TaskManager_GetEnvironment(taskManager);
++    u8 slot0200 = 0; /* SS3DS 0200 */
++    {
++        extern volatile int P3DS_VwPartySlot;
++        extern void PSPNativeMemLog(const char *, ...);
++        int req = P3DS_VwPartySlot;
++        P3DS_VwPartySlot = 0;
++        if (req > 0 && req <= 6) {
++            int n = Party_GetCount(SaveArray_Party_Get(fieldSystem->saveData));
++            if (req - 1 < n) {
++                slot0200 = (u8)(req - 1);
++                PSPNativeMemLog("[VIEW] party open on slot %d from the PARTY tab", slot0200);
++            } else {
++                PSPNativeMemLog("[VIEW] party slot request %d out of range (party %d), opening slot 0", req - 1, n);
++            }
++        }
++    }
++    startMenu->exitTaskEnvironment = PartyMenu_LaunchApp_Unk1(fieldSystem, &startMenu->fieldMoveCheckData, slot0200);
++    startMenu->exitTaskFunc = Task_StartMenu_HandleReturn_Pokemon;
++    return FALSE;
++}
++''', 'pokemon')
++
++s = once(s,
++'''static BOOL Task_StartMenu_Bag(TaskManager *taskManager) {
++    FieldSystem *fieldSystem = TaskManager_GetFieldSystem(taskManager);
++    StartMenuTaskData *startMenu = (StartMenuTaskData *)TaskManager_GetEnvironment(taskManager);
++
++    startMenu->exitTaskEnvironment = sub_0203E3FC(fieldSystem, &startMenu->itemCheckUseData);
++    sub_020778E0(startMenu->exitTaskEnvironment, 0);
++    startMenu->exitTaskFunc = Task_StartMenu_HandleReturn;
++    ov01_021F4440(fieldSystem);
++    return FALSE;
++}
++''',
++'''static BOOL Task_StartMenu_Bag(TaskManager *taskManager) {
++    FieldSystem *fieldSystem = TaskManager_GetFieldSystem(taskManager);
++    StartMenuTaskData *startMenu = (StartMenuTaskData *)TaskManager_GetEnvironment(taskManager);
++    {   /* SS3DS 0200: place BagCursor on the tapped pocket/item before the Bag opens */
++        extern volatile int P3DS_VwBagPocket;
++        extern volatile int P3DS_VwBagSlot;
++        extern void PSPNativeMemLog(const char *, ...);
++        int pocket = P3DS_VwBagPocket;
++        int idx = P3DS_VwBagSlot;
++        P3DS_VwBagPocket = -1;
++        P3DS_VwBagSlot = -1;
++        if (pocket >= 0 && pocket < 8 && idx >= 0 && idx < 165 && fieldSystem->bagCursor != NULL) {
++            u8 pos, scroll;
++            if (idx < 6) {
++                scroll = 0;
++                pos = (u8)idx;
++            } else {
++                scroll = (u8)(idx - 5);
++                pos = 5;
++            }
++            BagCursor_Field_SetPocket(fieldSystem->bagCursor, (u16)pocket);
++            BagCursor_Field_PocketSetPosition(fieldSystem->bagCursor, (u32)pocket, pos, scroll);
++            PSPNativeMemLog("[VIEW] bag open on pocket %d slot %d (pos %u scroll %u) from the BAG tab", pocket, idx, (unsigned)pos, (unsigned)scroll);
++        }
++    }
++    startMenu->exitTaskEnvironment = sub_0203E3FC(fieldSystem, &startMenu->itemCheckUseData);
++    sub_020778E0(startMenu->exitTaskEnvironment, 0);
++    startMenu->exitTaskFunc = Task_StartMenu_HandleReturn;
++    ov01_021F4440(fieldSystem);
++    return FALSE;
++}
++''', 'bag')
++
++open(p, 'w').write(s)
++print('0200_viewsel: start_menu.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0200_viewsel.sh b/scripts/ss3ds_hooks.d/0200_viewsel.sh
+new file mode 100755
+index 0000000..e81dc9c
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0200_viewsel.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0200: PARTY/BAG tab row tap selects that mon/item in the real Pokemon/Bag Start-menu apps (run 119).
++# Not fatal: without it a row tap still opens Party/Bag at the default slot/pocket (run 118 behaviour).
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0200_viewsel.py" && bash rebuild_game_object.sh src/start_menu.c start_menu.o none); then
++  log "ss3ds 0200 party/bag select hook NOT applied (see message above); PARTY/BAG taps open the menus without a preselected row"
++fi
+-- 
+2.47.3
+
