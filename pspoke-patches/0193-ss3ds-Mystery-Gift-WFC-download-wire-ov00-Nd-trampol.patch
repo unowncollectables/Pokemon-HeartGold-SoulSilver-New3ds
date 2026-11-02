@@ -51,7 +51,7 @@ diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsil
 index e30a02b..a1dd8f3 100644
 --- a/port/soulsilver-native-core/nitromain-perf/missing.c
 +++ b/port/soulsilver-native-core/nitromain-perf/missing.c
-@@ -716,16 +716,10 @@ int CRYPTO_VerifySignature(const void *d,int len,const void *sig,const void *key
+@@ -716,15 +716,9 @@ int CRYPTO_VerifySignature(const void *d,int len,const void *sig,const void *key
  unsigned short SVC_GetCRC16(unsigned v,const void *d,unsigned n){const unsigned char *p=d;while(n--){v^=*p++;for(int k=0;k<8;k++)v=(v&1)?(v>>1)^0xA001:v>>1;}return (unsigned short)v;}
  /* NitroSDK CRYPTO_RC4Init: i@0, j@1, S[256]@4. */
  void CRYPTO_RC4Init(void *ctx,const void *key,unsigned klen){unsigned char *c=ctx,*s=c+4;const unsigned char *k=key;for(int i=0;i<256;i++)s[i]=i;unsigned j=0;for(int i=0;i<256;i++){unsigned char t=s[i];j=(j+t+k[i%klen])&0xff;s[i]=s[j];s[j]=t;}c[0]=0;c[1]=0;}
@@ -69,8 +69,7 @@ index e30a02b..a1dd8f3 100644
 + * removed - real DWC_Nd* / CleanupInetAsync / NASLoginAbort wrappers live in
 + * soulsilver3ds/platform/ss3ds_dwcstub.c (Mystery Gift WFC download path).
 + */
- /* SS3DS run 105: Mystery Gift cursor diagnostic (ListMenu moveCursorFunc). Sets a flag so
-  * ListMenuUpdateCursorObj logs palette/OAM/window state only while MG is navigating. */
+ /* SS3DS run 105/116: Mystery Gift moveCursorFunc. PlaySE on move; gSS_MG_CursorDiag kept for patch compatibility. */
  int gSS_MG_CursorDiag;
 -- 
 2.47.3

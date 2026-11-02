@@ -38,7 +38,7 @@ extern void free(void *ptr);
 extern void DWC_SetMemFunc(void *(*alloc)(int name, unsigned int size, int align), void (*freef)(int name, void *ptr, unsigned int size));
 static void *ss3ds_dwc_alloc(int name, unsigned int size, int align) { (void)name; (void)align; return memalign(32, size); }
 static void ss3ds_dwc_free(int name, void *ptr, unsigned int size) { (void)name; (void)size; free(ptr); }
-unsigned int ov00_021EC4A4(void) { static int n = 0; static int memset_done = 0; if (!memset_done) { memset_done = 1; DWC_SetMemFunc(ss3ds_dwc_alloc, ss3ds_dwc_free); } if (n++ < 4) PSPNativeMemLog("[COMM] DWC ConnectInetAsync called (#%d), SetMemFunc + InitInet done first [ss3ds run 72 built " __DATE__ " " __TIME__ "]", n); DWC_InitInet(s_ss3ds_inet); DWC_ConnectInetAsync(); return 0; }
+unsigned int ov00_021EC4A4(void) { static int n = 0; static int memset_done = 0; if (!memset_done) { memset_done = 1; DWC_SetMemFunc(ss3ds_dwc_alloc, ss3ds_dwc_free); } if (n++ < 4) PSPNativeMemLog("[COMM] DWC ConnectInetAsync called (#%d), SetMemFunc + InitInet done first", n); DWC_InitInet(s_ss3ds_inet); DWC_ConnectInetAsync(); return 0; }
 unsigned int ov00_021EC5B4(void) { int r = DWC_CheckInet(); static int last = -99; if (r != last) { PSPNativeMemLog("[COMM] DWC CheckInet -> %d", r); last = r; } return (unsigned)r; }
 unsigned int ov00_021EC60C(void) { DWC_ProcessInet(); return 0; }
 unsigned int ov00_021EC724(void) { int r = DWC_GetInetStatus(); static int last = -99; if (r != last) { PSPNativeMemLog("[COMM] DWC GetInetStatus -> %d", r); last = r; } return (unsigned)r; }
@@ -111,12 +111,6 @@ extern int DWC_NdSetAttr(const char *a, const char *b, const char *c);
 extern int DWC_NdGetFileListNumAsync(int *entrynum);
 extern int DWCi_Ndi_error;
 extern int DWCi_Ndi_isOpened;
-extern char *DWCi_Ndi_serverURL;
-extern char DWCi_Ndi_dwcgamecd[9];
-extern char DWCi_Ndi_password[25];
-extern char DWCi_Ndi_macaddr[17];
-extern char *DWCi_Ndi_authtoken;
-extern char *DWCi_Ndi_dlattr[3];
 extern int DWC_NdGetFileListAsync(void *filelist, unsigned offset, unsigned num);
 extern int DWC_NdGetFileAsync(void *fileinfo, char *buf, unsigned size);
 extern int DWC_NdCancelAsync(void);
@@ -154,19 +148,6 @@ extern void DWC_Free(int name, void *ptr, unsigned int size);
 extern void DWC_Auth_SetCustomNas(const char *url);
 /* Set by NdInit so MG-only NAS cal / soctr / body logs can gate on the Nd path. */
 int gSS_MG_NdSvlActive;
-
-/* Truncate sensitive POST fields for logs (token/MAC/userid). Never print full values. */
-static void ss3ds_mg_mask4(char *dst, unsigned dstn, const char *src)
-{
-    unsigned i = 0;
-    if (!dst || dstn < 8) return;
-    if (!src) { dst[0] = 0; return; }
-    while (src[i] && i < 4 && i + 1 < dstn) { dst[i] = src[i]; i++; }
-    if (src[i]) {
-        if (i + 4 < dstn) { dst[i++] = '.'; dst[i++] = '.'; dst[i++] = '.'; }
-        dst[i] = 0;
-    } else dst[i] = 0;
-}
 
 /* run 113: log Nd callbacks (gift count / errors). Run 112 had HTTP/1.1 200 then
    NdCleanup with no callback line, so the DLS gift count was unknown. */
@@ -237,11 +218,8 @@ unsigned int ov00_021ED308(SS3DS_NdCleanupCallback cb)
 }
 unsigned int ov00_021ED354(const char *a, const char *b, const char *c)
 {
-    int r = DWC_NdSetAttr(a ? a : "", b ? b : "", c ? c : "");
     /* HGSS passes ov74_0223D054 = empty string x3; empty attrs stay NULL (not posted). */
-    PSPNativeMemLog("[SS-MG] NdSetAttr a=\"%.10s\" b=\"%.10s\" c=\"%.10s\" -> %d",
-                    a ? a : "", b ? b : "", c ? c : "", r);
-    return (unsigned)r;
+    return (unsigned)DWC_NdSetAttr(a ? a : "", b ? b : "", c ? c : "");
 }
 unsigned int ov00_021ED388(int *entrynum)
 {
@@ -252,22 +230,10 @@ unsigned int ov00_021ED388(int *entrynum)
     ss3ds_mg_ensure_http_alloc();
     s_mg_entrynum = entrynum;
     {
-        char tok[12], mac[12];
-        int r;
-        ss3ds_mg_mask4(tok, sizeof tok, DWCi_Ndi_authtoken);
-        ss3ds_mg_mask4(mac, sizeof mac, DWCi_Ndi_macaddr);
-        /* setupHttp posts action=Y291bnQ* (b64 "count"), gamecd/rhgamecd/passwd/token/mac
-           already b64 from NdInit; attr1-3 only if SetAttr left non-NULL (HGSS: none). */
-        PSPNativeMemLog("[SS-MG] DLS count POST action=Y291bnQ* gamecd=%s rh=%s passwd=%.4s... token=%s mac=%s attr1=%s attr2=%s attr3=%s",
-                        DWCi_Ndi_dwcgamecd, DWCi_Ndi_dwcgamecd, DWCi_Ndi_password,
-                        tok[0] ? tok : "(null)", mac[0] ? mac : "(null)",
-                        DWCi_Ndi_dlattr[0] ? DWCi_Ndi_dlattr[0] : "(omit)",
-                        DWCi_Ndi_dlattr[1] ? DWCi_Ndi_dlattr[1] : "(omit)",
-                        DWCi_Ndi_dlattr[2] ? DWCi_Ndi_dlattr[2] : "(omit)");
-        r = DWC_NdGetFileListNumAsync(entrynum);
-        PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d (num ptr %p) opened=%d ndi_err=%d url=%s",
-                        r, (void *)entrynum, DWCi_Ndi_isOpened, DWCi_Ndi_error,
-                        DWCi_Ndi_serverURL ? DWCi_Ndi_serverURL : "(null)");
+        int r = DWC_NdGetFileListNumAsync(entrynum);
+        /* Keep a short result line; gift count arrives in NdCallback entrynum. */
+        PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d opened=%d ndi_err=%d",
+                        r, DWCi_Ndi_isOpened, DWCi_Ndi_error);
         return (unsigned)r;
     }
 }
@@ -291,8 +257,9 @@ unsigned int ov00_021ED3AC(void *filelist, unsigned offset, unsigned num)
     ss3ds_mg_ensure_http_alloc();
     {
         int r = DWC_NdGetFileListAsync(filelist, offset, num);
-        PSPNativeMemLog("[SS-MG] NdGetFileListAsync off=%u num=%u -> %d ndi_err=%d",
-                        offset, num, r, DWCi_Ndi_error);
+        if (r == 0 || DWCi_Ndi_error)
+            PSPNativeMemLog("[SS-MG] NdGetFileListAsync off=%u num=%u -> %d ndi_err=%d",
+                            offset, num, r, DWCi_Ndi_error);
         return (unsigned)r;
     }
 }
@@ -306,18 +273,14 @@ unsigned int ov00_021ED3F4(void *fileinfo, char *buf, unsigned size)
     ss3ds_mg_ensure_http_alloc();
     {
         int r = DWC_NdGetFileAsync(fileinfo, buf, size);
-        PSPNativeMemLog("[SS-MG] NdGetFileAsync size=%u -> %d ndi_err=%d", size, r, DWCi_Ndi_error);
+        if (r == 0 || DWCi_Ndi_error)
+            PSPNativeMemLog("[SS-MG] NdGetFileAsync size=%u -> %d ndi_err=%d", size, r, DWCi_Ndi_error);
         return (unsigned)r;
     }
 }
 unsigned int ov00_021ED444(unsigned *received, unsigned *contentlen)
 {
-    int r = DWC_NdGetProgress(received, contentlen);
-    static int n;
-    if (n++ < 8 || (received && contentlen && n % 30 == 0))
-        PSPNativeMemLog("[SS-MG] NdGetProgress -> %d recv=%u len=%u (#%d)", r,
-                        received ? *received : 0u, contentlen ? *contentlen : 0u, n);
-    return (unsigned)r;
+    return (unsigned)DWC_NdGetProgress(received, contentlen);
 }
 unsigned int ov00_021ED428(void)
 {

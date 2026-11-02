@@ -1,18 +1,20 @@
 # Wireless and Wi-Fi: feasibility and plan
 
 Written 2026-10-26 for both native ports (Platinum `3ds-platinum`, SoulSilver `pokemon-soulsilver-new3ds`). The same
-file lives in both repos; keep them in sync. Status update 2026-10-29: SoulSilver local trading between two 3DS consoles works (see "Status" below). The online parts are still research plus a plan.
+file lives in both repos; keep them in sync. Status update 2026-11-02 (run 116): SoulSilver local trading between two 3DS consoles works; online **GTS** and **Mystery Gift WFC download** both work on hardware (see "Status" below). Wi-Fi Club / Plaza with a real DS remain later work.
 
 the owner's ask: trading between the port and legit games, the Underground with other players, "everything like normal",
 in Platinum and SoulSilver.
 
-## Status (2026-10-29)
+## Status (2026-11-02)
 
 **Local trade works on SoulSilver.** On run 59 (main 158e73b) two 3DS consoles, Settings > Play > Local wireless ON, found each
 other in the Union Room and completed a full trade, animation included; both Pokémon were checked on both sides. The path
 differs from the plan below: instead of hand-porting the Union Room, the real DS comm and Union Room Thumb assembly is
 translated to C by pspoke's maploader translator (patches 0127 to 0136) and runs on `wm_uds.c`. Not yet tested: Union Room
 Battle, Records, Draw, Greet, Spin; the Wireless Trade desk; anything with a real DS (needs the online plan below).
+
+**Online GTS and Mystery Gift WFC work on SoulSilver.** With Settings > Play > Wireless = ONLINE (`wireless=2`) and no `cheat_*` options, the Global Terminal (GTS) and Mystery Gift → Receive → Get via Nintendo WFC paths both complete on hardware against community revival servers. Local wireless MG parent search still cannot succeed without a real DS parent (ONLINE mode redirects that confirm to WFC download).
 
 ## Short answer
 
@@ -110,7 +112,7 @@ Risks, honestly:
 
 ## Option B: online through a revival server (for legit-game trades)
 
-**Status 2026-10-29 (online trading thread):** plan and hardware findings in the project file `plans/online-ds-trading-plan.md`. Proven from a 3DS and a PC: the 3DS reaches the community servers with plain sockets (`tools/net_probe`), the NAS login host (Wiimmfi) answers plain HTTP, and the GTS host (Poke Classic Network) returns the documented challenge token over plain HTTP. The community DNS is 178.62.43.212; it points nas at itself and gamestats2 at 195.201.236.139. First code step (patch 0137 + `platform/ss3ds_net.c`, Settings > Play > Wireless = ONLINE, config `wireless=2`): the game's libntrwifi/libntrdwc are built with the Linux socket backend, `ss3ds_net.c` brings up 3DS sockets, supplies the local IP (getifaddrs) and sets the DNS server (`wifi_dns=`). libntrdwc's own `ac/connect.c` skips WCM under SDK_PORT (`//PCPORT_TODO`: ConnectStart returns 8, ConnectAP 0x10), so no WM infrastructure shim is needed for that path. Untested; `[NET]` log lines show how far the game's own Wi-Fi code gets. Patch 0138 makes `ss3ds_game.sh` patch an already staged `compile-network.py` and rebuild only `libnetwork-probe.a` (the network step is part of the one-shot libraries phase). The Linux CPS branch needs `SOCK_NONBLOCK`; `toolchain-3ds/pspshim/ifaddrs.h` defines it as 0 (blocking sockets).
+**Status 2026-11-02 (online):** GTS and Mystery Gift WFC download are confirmed on hardware. Earlier plan notes and hardware findings live in `plans/online-ds-trading-plan.md`. The 3DS reaches community servers with plain sockets (`tools/net_probe`); NAS (Wiimmfi) and GTS (Poké Classic Network) answer plain HTTP. Default community DNS is configurable via `wifi_dns=` (see `platform/ss3ds_net.c`). Patch 0137 + `platform/ss3ds_net.c` (Settings > Play > Wireless = ONLINE, `wireless=2`) builds libntrwifi/libntrdwc with the Linux socket backend, brings up 3DS sockets, supplies the local IP (`getifaddrs`), and sets DNS. libntrdwc's `ac/connect.c` skips WCM under SDK_PORT (`//PCPORT_TODO`), so no WM infrastructure shim is needed for that path. Patch 0138 makes `ss3ds_game.sh` patch an already staged `compile-network.py` and rebuild only `libnetwork-probe.a`. The Linux CPS branch needs `SOCK_NONBLOCK`; `toolchain-3ds/pspshim/ifaddrs.h` defines it as 0 (blocking sockets).
 
 Nintendo WFC closed in May 2014. Community servers run its protocol again:
 - **Wiimmfi**: the main one for DS games. Gen 4 GTS, Wi-Fi battles and Wi-Fi Club work. HGSS connects as is. **Diamond,

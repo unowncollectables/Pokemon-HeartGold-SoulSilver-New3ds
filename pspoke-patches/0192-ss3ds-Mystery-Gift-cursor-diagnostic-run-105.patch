@@ -1,120 +1,33 @@
 From ccb09954adaa7451e99c664814f3e07235feed10 Mon Sep 17 00:00:00 2001
 From: Grok <grok@localhost>
 Date: Mon, 2 Nov 2026 03:08:14 -0500
-Subject: [PATCH] ss3ds: Mystery Gift cursor diagnostic (run 105)
+Subject: [PATCH] ss3ds: Mystery Gift moveCursorFunc PlaySE (run 105/116)
 
-No confident root cause for the invisible ListMenu selector yet. Native
-ov74_02235FF8 (MG moveCursorFunc) + gated ListMenuUpdateCursorObj logs
-dump window/palette/OAM state when navigating Mystery Gift only.
+Native ov74_02235FF8 so MG ListMenu move still plays SEQ_SE_DP_SELECT.
+Run 116 strips the temporary [SS-MG-CURSOR] dumps; gSS_MG_CursorDiag is
+kept so later patches that context-match this symbol still apply.
 ---
- .../nitromain-perf/missing.c                  | 40 +++++++++++++++++
- port/soulsilver-native-particles/glue.c       | 44 +++++++++++++++++++
- .../maploader/native-provided.json            |  1 +
- 3 files changed, 85 insertions(+)
+ .../nitromain-perf/missing.c                  | 9 +++++++++
+ .../maploader/native-provided.json            | 1 +
+ 2 files changed, 10 insertions(+)
 
 diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
-index 2738aa7..e30a02b 100644
+index 2738aa7..b0c1166 100644
 --- a/port/soulsilver-native-core/nitromain-perf/missing.c
 +++ b/port/soulsilver-native-core/nitromain-perf/missing.c
-@@ -726,3 +726,43 @@ __attribute__((noreturn)) void ov00_021ED444(void){Missing("ov00_021ED444");}
+@@ -726,3 +726,12 @@ __attribute__((noreturn)) void ov00_021ED444(void){Missing("ov00_021ED444");}
  __attribute__((noreturn)) void ov00_021ED1F0(void){Missing("ov00_021ED1F0");}
  __attribute__((noreturn)) void ov00_021ED354(void){Missing("ov00_021ED354");}
  __attribute__((noreturn)) void ov00_021ECEC0(void){Missing("ov00_021ECEC0");}
-+/* SS3DS run 105: Mystery Gift cursor diagnostic (ListMenu moveCursorFunc). Sets a flag so
-+ * ListMenuUpdateCursorObj logs palette/OAM/window state only while MG is navigating. */
++/* SS3DS run 105/116: Mystery Gift moveCursorFunc. PlaySE on move; gSS_MG_CursorDiag kept for patch compatibility. */
 +int gSS_MG_CursorDiag;
-+extern void PSPNativeMemLog(const char *, ...);
 +extern void PlaySE(unsigned short);
-+extern unsigned char s_HW_BG_PLTT[], s_HW_OBJ_PLTT[], s_HW_OAM[];
-+extern unsigned char PSPNative_GfxRegisters[];
 +void ov74_02235FF8(void *list, int index, unsigned onInit) {
-+  unsigned char *l = (unsigned char *)list;
-+  unsigned short *bg = (unsigned short *)s_HW_BG_PLTT;
-+  unsigned short *obj = (unsigned short *)s_HW_OBJ_PLTT;
-+  unsigned short *oam = (unsigned short *)s_HW_OAM;
-+  unsigned short *dispcnt = (unsigned short *)(PSPNative_GfxRegisters + 0);
++  (void)list;
++  (void)index;
 +  gSS_MG_CursorDiag = 1;
-+  PSPNativeMemLog("[SS-MG-CURSOR] move list=%p idx=%d onInit=%u cursorPos=%u itemsAbove=%u",
-+                  list, index, onInit,
-+                  l ? (unsigned)*(unsigned short *)(l + 0x2c) : 0u,
-+                  l ? (unsigned)*(unsigned short *)(l + 0x2e) : 0u);
-+  if (l) {
-+    void *win = *(void **)(l + 0x0c);
-+    unsigned short bits = *(unsigned short *)(l + 0x1a);
-+    PSPNativeMemLog("[SS-MG-CURSOR] tpl itemX=%u cursorX=%u upY_pal=%02x fill_sh=%02x bits1A=%04x font=%u kind=%u win=%p",
-+                    (unsigned)l[0x15], (unsigned)l[0x16], (unsigned)l[0x17], (unsigned)l[0x18],
-+                    (unsigned)bits, (unsigned)((bits >> 9) & 0x3f), (unsigned)((bits >> 15) & 1), win);
-+    if (win) {
-+      unsigned char *w = (unsigned char *)win;
-+      PSPNativeMemLog("[SS-MG-CURSOR] win bg=%u left=%u top=%u %ux%u pal=%u base=%u pix=%p",
-+                      (unsigned)w[4], (unsigned)w[5], (unsigned)w[6], (unsigned)w[7], (unsigned)w[8],
-+                      (unsigned)w[9], (unsigned)(*(unsigned short *)(w + 10) & 0x7fff), *(void **)(w + 12));
-+    }
-+  }
-+  PSPNativeMemLog("[SS-MG-CURSOR] DISPCNT=%04x BG_PLTT[0,1,2,15]=%04x %04x %04x %04x OBJ_PLTT[0,1,2,3]=%04x %04x %04x %04x",
-+                  (unsigned)dispcnt[0], (unsigned)bg[0], (unsigned)bg[1], (unsigned)bg[2], (unsigned)bg[15],
-+                  (unsigned)obj[0], (unsigned)obj[1], (unsigned)obj[2], (unsigned)obj[3]);
-+  PSPNativeMemLog("[SS-MG-CURSOR] OAM0 attr=%04x %04x %04x  OAM1 attr=%04x %04x %04x  OAM2 attr=%04x %04x %04x",
-+                  (unsigned)oam[0], (unsigned)oam[1], (unsigned)oam[2],
-+                  (unsigned)oam[4], (unsigned)oam[5], (unsigned)oam[6],
-+                  (unsigned)oam[8], (unsigned)oam[9], (unsigned)oam[10]);
 +  if (!onInit) PlaySE(1500); /* SEQ_SE_DP_SELECT */
 +}
-diff --git a/port/soulsilver-native-particles/glue.c b/port/soulsilver-native-particles/glue.c
-index 0ac6512..bd90aac 100644
---- a/port/soulsilver-native-particles/glue.c
-+++ b/port/soulsilver-native-particles/glue.c
-@@ -970,6 +970,50 @@ void ListMenuCursorSetColor(struct ListMenuCursor *cursor, u32 color) {
- }
- 
- void ListMenuUpdateCursorObj(struct ListMenuCursor *cursor, Window *window, u8 x, u8 y) {
-+    /* SS3DS run 105: MG-only cursor diagnostic (flag set by ov74_02235FF8). */
-+    extern int gSS_MG_CursorDiag;
-+    extern void PSPNativeMemLog(const char *, ...);
-+    extern unsigned char s_HW_BG_PLTT[], s_HW_OAM[];
-     AddTextPrinterParameterizedWithColor(window, 0, cursor->text, x, y, 0xFF, cursor->color, NULL);
-+    if (gSS_MG_CursorDiag) {
-+        static int s_n;
-+        u16 glyph = 0xFFFF;
-+        if (cursor && cursor->text) {
-+            const u16 *s = String_cstr(cursor->text);
-+            if (s) glyph = s[0];
-+        }
-+        u32 nonzero = 0, fill = 0xF;
-+        if (window && window->pixelBuffer) {
-+            /* 4bpp window buffer: count non-fill nibbles in an 8x16 cursor cell at (x,y). */
-+            u8 *pix = window->pixelBuffer;
-+            /* pixelBuffer is width*height tiles, each tile 32 bytes (8x8 4bpp). */
-+            u32 tileW = window->width;
-+            for (u32 row = 0; row < 16 && (y + row) / 8u < window->height; row++) {
-+                u32 py = y + row;
-+                for (u32 col = 0; col < 8 && (x + col) / 8u < tileW; col++) {
-+                    u32 px = x + col;
-+                    u32 tile = (py / 8) * tileW + (px / 8);
-+                    u8 *tp = pix + tile * 32 + (py % 8) * 4 + (px % 8) / 2;
-+                    u8 nib = ((px % 8) & 1) ? (*tp >> 4) : (*tp & 0xF);
-+                    if (nib != fill) nonzero++;
-+                }
-+            }
-+        }
-+        if (s_n < 12) {
-+            unsigned short *bg = (unsigned short *)s_HW_BG_PLTT;
-+            unsigned short *oam = (unsigned short *)s_HW_OAM;
-+            PSPNativeMemLog("[SS-MG-CURSOR] draw n=%d win=%p xy=%u,%u color=%08x glyph=%04x nonzeroPix=%u bgId=%u pal=%u %ux%u",
-+                            s_n, (void *)window, (unsigned)x, (unsigned)y, cursor ? cursor->color : 0u,
-+                            (unsigned)glyph, nonzero,
-+                            window ? (unsigned)window->bgId : 0u,
-+                            window ? (unsigned)window->paletteNum : 0u,
-+                            window ? (unsigned)window->width : 0u,
-+                            window ? (unsigned)window->height : 0u);
-+            PSPNativeMemLog("[SS-MG-CURSOR] after-draw BG_PLTT[0,1,2,15]=%04x %04x %04x %04x OAM0=%04x/%04x/%04x",
-+                            (unsigned)bg[0], (unsigned)bg[1], (unsigned)bg[2], (unsigned)bg[15],
-+                            (unsigned)oam[0], (unsigned)oam[1], (unsigned)oam[2]);
-+            s_n++;
-+        }
-+    }
-     CopyWindowPixelsToVram_TextMode(window);
- }
 diff --git a/port/soulsilver-native-play/maploader/native-provided.json b/port/soulsilver-native-play/maploader/native-provided.json
 index 03e7209..2eec34e 100644
 --- a/port/soulsilver-native-play/maploader/native-provided.json
@@ -129,4 +42,3 @@ index 03e7209..2eec34e 100644
  "sub_02005464",
 -- 
 2.47.3
-
