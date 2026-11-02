@@ -203,22 +203,8 @@ unsigned int ov00_021ECB40(void)
     return (unsigned)DWC_UpdateConnection();
 }
 
-/* ss3ds 0194 / run 108: ov00_021EC294 is DWC_SetMemFunc (stores alloc/free into
-   ov00_0221A754). Was a 0-returning stub; MG WFC case 1 and GTS both call it with the
-   game's Heap allocators before ConnectInet. Register them for real; ConnectInet's own
-   SetMemFunc (ss3ds malloc) still runs later and wins for the ONLINE stack. */
-extern void DWC_SetMemFunc(void *(*alloc)(int name, unsigned int size, int align),
-                           void (*freef)(int name, void *ptr, unsigned int size));
-unsigned int ov00_021EC294(void *(*alloc)(int, unsigned, int), void (*freef)(int, void *, unsigned))
-{
-    static int n;
-    if (n++ < 4)
-        PSPNativeMemLog("[SS-MG] SetMemFunc (ov00_021EC294) alloc=%p free=%p (#%d)",
-                        (void *)alloc, (void *)freef, n);
-    if (alloc && freef)
-        DWC_SetMemFunc(alloc, freef);
-    return 0;
-}
+/* run 109: back to the pre-108 stub so GTS stays exactly as it was (ConnectInet sets the allocators itself). */
+DWC_STUB(ov00_021EC294)
 
 /* ss3ds 0194 / run 108: Mystery Gift receive path discrimination.
    Run 107 log showed WM_Initialize + wireless-icon redraw and NO [SS-MG] Nd / ConnectInet
