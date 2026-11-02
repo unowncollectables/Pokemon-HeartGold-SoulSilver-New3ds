@@ -381,7 +381,9 @@ static void watchdog(void *p) {
         if (f != last) { last = f; still = 0; continue; }
         if (++still == 20) { P3DS_CrumbDump();
             char b[300]; snprintf(b, sizeof b, "game stalled: no frame for 10 s at frame %u (crumbs in log.txt). main last: %s %p. msg: %s", f, crumbs[0][(crumbPos[0]-1)&63].tag ? crumbs[0][(crumbPos[0]-1)&63].tag : "(none)", crumbs[0][(crumbPos[0]-1)&63].caller, lastMsg[0] ? lastMsg : "(none)");
-            PSPNativeMemLog("[WATCHDOG] %s", b); hold(b);
+            PSPNativeMemLog("[WATCHDOG] %s", b);
+            { extern void P3DS_BigLockInfo(char *b, int n); char lb[400]; P3DS_BigLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); }
+            hold(b);
         }
     }
 }
