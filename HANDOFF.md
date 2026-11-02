@@ -15,3 +15,4 @@
 - 0186 (Grok): maploader translate2 accepts `$` in literal-pool symbols (nitrocrypto TEMPNAME__$p16 etc. pulled in by Mystery Gift RC4 after 0185).
 - 0187: CRYPTO_RC4Encrypt done natively in missing.c (it's an ARM routine, translator raised 'fallthrough without return'); added to native-provided.json.
 - 0188: CRYPTO_SetAllocator (no-op) and CRYPTO_VerifySignature (returns TRUE) done natively; ParseSignHash and the BN_* RSA code are ARM and failed with 'unsupported stack layout'.
+- 0189: native SVC_GetCRC16 + CRYPTO_RC4Init in missing.c; ov00_* wifi calls from ov74_02236AE0 stubbed with Missing() (download path, needs real DWC later).

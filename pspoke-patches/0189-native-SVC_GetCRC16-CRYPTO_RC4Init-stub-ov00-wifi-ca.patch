@@ -1,0 +1,35 @@
+From bff0ed4f93bbfc057102c6b829a1e6e36d03b40c Mon Sep 17 00:00:00 2001
+From: platinum3ds <local@box>
+Date: Mon, 2 Nov 2026 02:18:39 -0500
+Subject: [PATCH] native SVC_GetCRC16/CRYPTO_RC4Init; stub ov00 wifi calls used
+ by Mystery Gift download
+
+---
+ .../nitromain-perf/missing.c                       | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index e534601..2738aa7 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -712,3 +712,17 @@ void CRYPTO_RC4Encrypt(void *ctx,const void *in,unsigned len,void *out){unsigned
+ /* NitroSDK RSA signature check (all ARM bignum code). Native: allocator is a no-op and gift signatures are accepted. */
+ void CRYPTO_SetAllocator(void *a,void *f){(void)a;(void)f;}
+ int CRYPTO_VerifySignature(const void *d,int len,const void *sig,const void *key){(void)d;(void)len;(void)sig;(void)key;return 1;}
++/* NDS BIOS CRC16 (poly 0xA001, reflected). */
++unsigned short SVC_GetCRC16(unsigned v,const void *d,unsigned n){const unsigned char *p=d;while(n--){v^=*p++;for(int k=0;k<8;k++)v=(v&1)?(v>>1)^0xA001:v>>1;}return (unsigned short)v;}
++/* NitroSDK CRYPTO_RC4Init: i@0, j@1, S[256]@4. */
++void CRYPTO_RC4Init(void *ctx,const void *key,unsigned klen){unsigned char *c=ctx,*s=c+4;const unsigned char *k=key;for(int i=0;i<256;i++)s[i]=i;unsigned j=0;for(int i=0;i<256;i++){unsigned char t=s[i];j=(j+t+k[i%klen])&0xff;s[i]=s[j];s[j]=t;}c[0]=0;c[1]=0;}
++__attribute__((noreturn)) void ov00_021ED388(void){Missing("ov00_021ED388");}
++__attribute__((noreturn)) void ov00_021ED308(void){Missing("ov00_021ED308");}
++__attribute__((noreturn)) void ov00_021ED428(void){Missing("ov00_021ED428");}
++__attribute__((noreturn)) void ov00_021EC938(void){Missing("ov00_021EC938");}
++__attribute__((noreturn)) void ov00_021ED3F4(void){Missing("ov00_021ED3F4");}
++__attribute__((noreturn)) void ov00_021ED3AC(void){Missing("ov00_021ED3AC");}
++__attribute__((noreturn)) void ov00_021ED444(void){Missing("ov00_021ED444");}
++__attribute__((noreturn)) void ov00_021ED1F0(void){Missing("ov00_021ED1F0");}
++__attribute__((noreturn)) void ov00_021ED354(void){Missing("ov00_021ED354");}
++__attribute__((noreturn)) void ov00_021ECEC0(void){Missing("ov00_021ECEC0");}
+-- 
+2.47.3
+
