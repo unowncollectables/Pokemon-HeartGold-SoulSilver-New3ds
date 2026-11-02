@@ -634,6 +634,19 @@ unsigned int CPS_TcpConnect(void)
     return 0;
 }
 
+static void cpsDump(const char *tag, const unsigned char *b, unsigned n)
+{
+    char t[900]; unsigned i, o = 0;
+    for (i = 0; i < n && o < sizeof t - 6; i++) {
+        unsigned char c = b[i];
+        if (c == '\r') continue;
+        if (c == '\n') { t[o++] = ' '; t[o++] = '|'; t[o++] = ' '; }
+        else t[o++] = (c >= 32 && c < 127) ? (char)c : '.';
+    }
+    t[o] = 0;
+    NLOG("[CPS] %s (%u bytes): %s", tag, n, t);
+}
+
 unsigned int CPS_SocWrite(const unsigned char *buf, unsigned len)
 {
     unsigned off = 0, tries = 0;
@@ -644,7 +657,7 @@ unsigned int CPS_SocWrite(const unsigned char *buf, unsigned len)
         if (r < 0 && errno == EAGAIN && ++tries < 2000) { svcSleepThread(5000000LL); continue; }
         NLOG("[CPS] send failed errno %d", errno); return off;
     }
-    NLOG("[CPS] sent %u bytes", off);
+    NLOG("[CPS] sent %u bytes", off); { static int d; if (d++ < 2) cpsDump("request", buf, len); }
     return off;
 }
 void CPS_SocFlush(void) {}
@@ -655,7 +668,7 @@ int CPS_SocGetLength(void)
     if (sCps.rxn - sCps.rxPos == 0) { sCps.rxn = sCps.rxPos = 0; }
     if (!sCps.eof && sCps.rxn < sizeof sCps.rx) {
         int r = recv(sCps.fd, sCps.rx + sCps.rxn, sizeof sCps.rx - sCps.rxn, 0);
-        if (r > 0) { sCps.rxn += r; sCps.idle = 0; static int told; if (told++ < 4) NLOG("[CPS] received %d bytes", r); }
+        if (r > 0) { sCps.rxn += r; sCps.idle = 0; static int told; if (told++ < 4) { NLOG("[CPS] received %d bytes", r); if (told <= 2) cpsDump("reply", sCps.rx + sCps.rxn - r, (unsigned)r); } }
         else if (r == 0) { sCps.eof = 1; NLOG("[CPS] server closed the connection"); }
         else if (errno != EAGAIN) { NLOG("[CPS] recv failed errno %d", errno); sCps.eof = 1; }
     }
