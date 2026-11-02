@@ -1,0 +1,42 @@
+From 5a1c0e0000000000000000000000000000000183 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 04:55:00 +0000
+Subject: [PATCH] ss3ds: 0183 fix raw decompiler offsets on the DWCHttp struct
+ pointer (null read when the NAS reply arrives)
+
+---
+ port/native-probe/compile-network.py | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/port/native-probe/compile-network.py b/port/native-probe/compile-network.py
+index 5b920f9..d0e1830 100644
+--- a/port/native-probe/compile-network.py
++++ b/port/native-probe/compile-network.py
+@@ -87,6 +87,24 @@
+     sys.exit('ss3ds 0179: expected 0178 marker line not found exactly once; refusing to build without the bypass marker')
+ _ac_src = _ac_src.replace(_ac2_old, _ac2_new, 1)
+ _ac_path.write_text(_ac_src)
++# ss3ds 0183: the decompiled DWC HTTP client (auth/src/dwc_http.c) does pointer math on the DWCHttp struct pointer with raw byte
++# offsets from the decompiler, e.g. `*(int *)(aHttp + 0x1a0c)`. Pointer arithmetic on a struct pointer scales by sizeof(DWCHttp), so
++# that reads an unmapped address and faults as soon as the first reply bytes arrive (run 92 boot.txt: null read in
++# DWCi_Http_CheckHeaderReceived). Use the real fields: 0x1a34 = receivedbody_len, 0x1a30 = content_len, 0x101c = timeout (use the
++# 60000 ms default), and body bytes received = write_index - (header end + 4) (the original sign was wrong, which would end the
++# receive loop before the body arrived). Idempotent on an already patched tree; fails loudly if the text moved.
++import re as _re
++_h_path = b / 'libntrdwc/libraries/auth/src/dwc_http.c'
++_h_src = _h_path.read_text()
++if 'ss3ds 0183' not in _h_src:
++    _h_n = 0
++    _h_src, _k = _re.subn(r"\*\(int \*\)\(aHttp \+ 0x1a34\) = \*\(int \*\)\(aHttp \+ 0x1a0c\) - \(int\)\(pcVar2 \+ 4\);", "/* ss3ds 0183: raw decompiler offsets removed */", _h_src); _h_n += _k
++    _h_src, _k = _re.subn(r"aHttp->receivedbody_len = \(u64\)\(aHttp->rep\.write_index\) - \(\(u64\)pcVar2\) \+ 4;", "aHttp->receivedbody_len = (int)((u64)(aHttp->rep.write_index) - (u64)(pcVar2 + 4));", _h_src); _h_n += _k
++    _h_src, _k = _re.subn(r"if \(\*\(int \*\)\(http \+ 0x101c\) < 1\) \{\s*local_48 = 60000;\s*\} else \{\s*local_48 = \*\(uint \*\)\(http \+ 0x101c\);\s*\}", "local_48 = 60000; /* ss3ds 0183 */", _h_src); _h_n += _k
++    if _h_n != 3:
++        sys.exit('ss3ds 0183: dwc_http.c raw-offset text not found as expected (%d of 3); refusing to build with a faulting HTTP client' % _h_n)
++    _h_src = _h_src.replace('*(int *)(http + 0x1a34)', 'http->receivedbody_len').replace('*(int *)(http + 0x1a30)', 'http->content_len')
++    _h_path.write_text(_h_src)
+ def comp(p):
+  name=str(p.relative_to(b)).replace('/','__');f=flags+['-I'+str(p.parent),'-I'+str(p.parent.parent/'include'),'-I'+str(p.parent.parent),'-include','pspkernel.h']
+  if p.name=='network.c':f+=['-include','sys/socket.h','-include','netinet/in.h','-include','arpa/inet.h']
+-- 
+2.43.0
+
