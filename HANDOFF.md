@@ -22,6 +22,7 @@
 - 0192 (Grok): Mystery Gift cursor diagnostic — native ov74_02235FF8 + [SS-MG-CURSOR] logs in ListMenuUpdateCursorObj (MG-gated via gSS_MG_CursorDiag). No behavior change beyond PlaySE still firing on move.
 
 ## Run log (Grok Bot)
+- run 110: Run 109 crashed in DWC_Http_Create (pc=0 lr=0x61d010) during NdInitAsync/SVL: DWCauthhttpparam.alloc was NULL because NAS login is skipped. Fix: MG-only NdInit wrapper sets DWCauthhttpparam.alloc/free to DWC_Alloc/DWC_Free and re-asserts SetMemFunc; null-guards on later Nd Get* wrappers. GTS-shared EC294/ConnectInet/NAS login unchanged.
 - run 109: reverted the run 108 real DWC_SetMemFunc (ov00_021EC294) to the old stub; GTS shares it and was working. Kept only the MG-only redirect + logs.
 - run 108: Run 107 hung on local wireless MG search (WM stand-in), not ov74_02236AE0. Evidence: WM init + icon redraw, no ConnectInet / [SS-MG] Nd / DWC_Init logs; cursor itemsAbove=1 selects GET VIA WIRELESS (submenu order Friend, Wireless, WFC). Fix: platform --wrap A4CC redirects to WFC when wireless=2; A560 logs path=WFC-download; EC294=SetMemFunc; patch 0194 logs DWC_Init. Test: ONLINE, Receive > GET VIA NINTENDO WFC (or Wireless, now redirected) and expect [SS-MG] path=WFC-download then DWC_Init / ConnectInet / Nd*.
 - run 107: patch 0193 had UTF-8 em dashes; builder flagged it "[MISSING] patch not in the build" and stopped. Made the patch pure ASCII (same code). Clean build to test MG WFC download.

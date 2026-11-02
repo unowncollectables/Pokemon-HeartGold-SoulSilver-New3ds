@@ -97,7 +97,7 @@ extern void DWC_ClearError(void);
 unsigned int ov00_021EC210(void) { int code = 0, type = 0; int err = DWC_GetLastErrorEx(&code, &type); static int n = 0, lastErr = -1, lastCode = 0, lastType = 0; if (n++ < 8 || err != lastErr || code != lastCode || type != lastType) { PSPNativeMemLog("[COMM] DWC ClearError: last error %d code %d type %d", err, code, type); lastErr = err; lastCode = code; lastType = type; } DWC_ClearError(); return 0; }
 
 /* ss3ds 0193: Mystery Gift WFC download (ov74_02236AE0). Overlay 0 ARM trampolines that
-   the maploader cannot translate — map them onto libntrdwc's DWC_Nd* (already in
+   the maploader cannot translate - map them onto libntrdwc's DWC_Nd* (already in
    libnetwork-probe.a) the same way GTS mapped ConnectInet/CheckInet/ghttp. Requires
    Settings > Play > Wireless = ONLINE (wireless=2). Local wireless MG receive is unchanged.
    Gamecode: pokeheartgold overlay data has "IPGE" (HeartGold); this is SoulSilver so rewrite to IPKE. */
@@ -123,10 +123,44 @@ static char *ss3ds_mg_gamecd(char *gamecd)
     return gamecd;
 }
 
+/* run 110: DWCauthhttpparam.alloc/free are filled only by DWC_Auth_Create (NAS login).
+   Our MG path skips NAS ([LOGIN] failed or skipped), so they stay NULL. NdInit then
+   calls DWC_SVLGetTokenAsync -> DWC_Svl_GetTokenAsync -> DWC_Http_Create(&DWCauthhttpparam)
+   which does blx param->alloc: run 109 crash pc=0 lr=DWC_Http_Create (0x61d010),
+   r0="ALLOC http->lowrecvbuf". Install the same DWC_Alloc/DWC_Free Auth_Create would
+   have set. MG Nd wrappers only; GTS-shared EC294 / ConnectInet / NAS login untouched. */
+typedef void *(*SS3DS_DWCAuthAlloc)(unsigned long name, long size);
+typedef void (*SS3DS_DWCAuthFree)(unsigned long name, void *ptr, long size);
+typedef struct {
+    const char *url;
+    int action;
+    unsigned long len_recvbuf;
+    SS3DS_DWCAuthAlloc alloc;
+    SS3DS_DWCAuthFree free;
+    int ignoreca;
+    int timeout;
+} SS3DS_DWCHttpParam;
+extern SS3DS_DWCHttpParam DWCauthhttpparam;
+extern void *DWC_Alloc(int name, unsigned int size);
+extern void DWC_Free(int name, void *ptr, unsigned int size);
+
+static void ss3ds_mg_ensure_http_alloc(void)
+{
+    if (DWCauthhttpparam.alloc == 0 || DWCauthhttpparam.free == 0) {
+        DWCauthhttpparam.alloc = (SS3DS_DWCAuthAlloc)DWC_Alloc;
+        DWCauthhttpparam.free = (SS3DS_DWCAuthFree)DWC_Free;
+        PSPNativeMemLog("[SS-MG] DWCauthhttpparam.alloc/free set (NAS login skipped)");
+    }
+}
+
 unsigned int ov00_021ED1F0(SS3DS_NdCallback cb, char *gamecd, char *passwd)
 {
     char *gc = ss3ds_mg_gamecd(gamecd);
     int r;
+    /* Keep s_alloc registered for DWCi_NdAlloc/DWC_AllocEx; ConnectInet already did
+       this, but re-set here so the Nd path does not depend on GTS-shared EC294. */
+    DWC_SetMemFunc(ss3ds_dwc_alloc, ss3ds_dwc_free);
+    ss3ds_mg_ensure_http_alloc();
     PSPNativeMemLog("[SS-MG] NdInitAsync gamecd=%s (in=%s) passwd=%s",
                     gc ? gc : "(null)", gamecd ? gamecd : "(null)", passwd ? passwd : "(null)");
     r = DWC_NdInitAsync(cb, gc, passwd);
@@ -147,21 +181,43 @@ unsigned int ov00_021ED354(const char *a, const char *b, const char *c)
 }
 unsigned int ov00_021ED388(int *entrynum)
 {
-    int r = DWC_NdGetFileListNumAsync(entrynum);
-    PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d (num ptr %p)", r, (void *)entrynum);
-    return (unsigned)r;
+    if (!entrynum) {
+        PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync NULL entrynum -> 0");
+        return 0;
+    }
+    ss3ds_mg_ensure_http_alloc();
+    {
+        int r = DWC_NdGetFileListNumAsync(entrynum);
+        PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d (num ptr %p)", r, (void *)entrynum);
+        return (unsigned)r;
+    }
 }
 unsigned int ov00_021ED3AC(void *filelist, unsigned offset, unsigned num)
 {
-    int r = DWC_NdGetFileListAsync(filelist, offset, num);
-    PSPNativeMemLog("[SS-MG] NdGetFileListAsync off=%u num=%u -> %d", offset, num, r);
-    return (unsigned)r;
+    if (!filelist && num != 0) {
+        PSPNativeMemLog("[SS-MG] NdGetFileListAsync NULL filelist num=%u -> 0", num);
+        return 0;
+    }
+    ss3ds_mg_ensure_http_alloc();
+    {
+        int r = DWC_NdGetFileListAsync(filelist, offset, num);
+        PSPNativeMemLog("[SS-MG] NdGetFileListAsync off=%u num=%u -> %d", offset, num, r);
+        return (unsigned)r;
+    }
 }
 unsigned int ov00_021ED3F4(void *fileinfo, char *buf, unsigned size)
 {
-    int r = DWC_NdGetFileAsync(fileinfo, buf, size);
-    PSPNativeMemLog("[SS-MG] NdGetFileAsync size=%u -> %d", size, r);
-    return (unsigned)r;
+    if (!fileinfo || !buf) {
+        PSPNativeMemLog("[SS-MG] NdGetFileAsync NULL fileinfo=%p buf=%p -> 0",
+                        (void *)fileinfo, (void *)buf);
+        return 0;
+    }
+    ss3ds_mg_ensure_http_alloc();
+    {
+        int r = DWC_NdGetFileAsync(fileinfo, buf, size);
+        PSPNativeMemLog("[SS-MG] NdGetFileAsync size=%u -> %d", size, r);
+        return (unsigned)r;
+    }
 }
 unsigned int ov00_021ED444(unsigned *received, unsigned *contentlen)
 {
