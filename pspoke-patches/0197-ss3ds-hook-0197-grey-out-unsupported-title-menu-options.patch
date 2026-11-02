@@ -1,0 +1,158 @@
+From ac2ac757d5a910657df495f0f0f0ef43b9ef2e32 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 10:20:25 -0500
+Subject: [PATCH] ss3ds: hook 0197 grey out unsupported title-menu options (run
+ 115)
+
+Settings > Setup menu_grey_unsupported (default ON). Greys Connect to Wii,
+Nintendo WFC Settings, Wii Message Settings, Ranger, Migrate AGB; A/touch
+plays SEQ_SE_DP_BOX03 and does nothing. Continue/New Game/MG/Pokewalker
+unchanged. OFF = original behaviour.
+---
+ scripts/ss3ds_hooks.d/0197_menu_grey.py | 122 ++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0197_menu_grey.sh |   4 +
+ 2 files changed, 126 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0197_menu_grey.py
+ create mode 100755 scripts/ss3ds_hooks.d/0197_menu_grey.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0197_menu_grey.py b/scripts/ss3ds_hooks.d/0197_menu_grey.py
+new file mode 100755
+index 0000000..a651671
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0197_menu_grey.py
+@@ -0,0 +1,122 @@
++#!/usr/bin/env python3
++"""ss3ds 0197: grey out unsupported title-menu options on the 3DS port (run 115).
++Settings > Setup "Grey unsupported menu" (menu_grey_unsupported, default ON).
++When ON: Connect to Wii, Nintendo WFC Settings, Wii Message Settings, Connect to Ranger,
++and Migrate from AGB (when shown) draw with muted grey text and refuse A/touch with
++SEQ_SE_DP_BOX03. Continue / New Game / Mystery Gift / Pokewalker are untouched.
++When OFF the patched sites are no-ops so behaviour matches the unpatched menu.
++Idempotent ('SS3DS 0197'); applied to staged src/application/main_menu/main_menu.c."""
++import sys
++
++p = 'src/application/main_menu/main_menu.c'
++s = open(p).read()
++if 'SS3DS 0197' in s:
++    sys.exit(0)
++
++def once(old, new, label):
++    global s
++    if s.count(old) != 1:
++        sys.exit('0197_menu_grey: %s anchor not found exactly once in %s' % (label, p))
++    s = s.replace(old, new)
++
++# Helpers after the PrintWiiMessage forward decl (before sMainMenuButtons).
++once(
++    ('static BOOL MainMenu_PrintWiiMessageSettingsButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3);\n'
++     '\n'
++     'static MainMenuButton sMainMenuButtons[] = {\n'),
++    ('static BOOL MainMenu_PrintWiiMessageSettingsButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3);\n'
++     '\n'
++     '/* SS3DS 0197: title-menu options that cannot work on the 3DS port. */\n'
++     'extern int P3DS_MenuGreyUnsupportedCfg(void);\n'
++     'static int MainMenu_IsUnsupportedOn3DS(MainMenu_AppOption id) {\n'
++     '    switch (id) {\n'
++     '    case APPOPTION_RANGER:\n'
++     '    case APPOPTION_MIGRATE_AGB:\n'
++     '    case APPOPTION_CONNECT_TO_WII:\n'
++     '    case APPOPTION_WFC:\n'
++     '    case APPOPTION_WII_SETTINGS:\n'
++     '        return 1;\n'
++     '    default:\n'
++     '        return 0;\n'
++     '    }\n'
++     '}\n'
++     'static void MainMenu_MaybeGreyLabel(UnkStruct_ov74_02235414 *a2, MainMenu_AppOption id) {\n'
++     '    if (P3DS_MenuGreyUnsupportedCfg() && MainMenu_IsUnsupportedOn3DS(id)) {\n'
++     '        /* FontPal0 idx 2 = dark grey used as muted FG (layout unchanged). */\n'
++     '        *(u32 *)a2->unk44 = MAKE_TEXT_COLOR(2, 1, 15);\n'
++     '    }\n'
++     '}\n'
++     '\n'
++     'static MainMenuButton sMainMenuButtons[] = {\n'),
++    'helpers')
++
++# Reject A/touch on unsupported rows (keep B = return to title).
++once(
++    ('static u32 ov74_022270C4(MainMenuAppData *data, int *state, BOOL a2) {\n'
++     '    if (!a2) {\n'
++     '        PlaySE(SEQ_SE_DP_SELECT);\n'
++     '        data->selectedApp = (MainMenu_AppOption)data->unkEC[data->currentOption];\n'),
++    ('static u32 ov74_022270C4(MainMenuAppData *data, int *state, BOOL a2) {\n'
++     '    if (!a2) {\n'
++     '        MainMenu_AppOption sel0197 = (MainMenu_AppOption)data->unkEC[data->currentOption]; /* SS3DS 0197 */\n'
++     '        if (P3DS_MenuGreyUnsupportedCfg() && MainMenu_IsUnsupportedOn3DS(sel0197)) {\n'
++     '            PlaySE(SEQ_SE_DP_BOX03);\n'
++     '            return FALSE;\n'
++     '        }\n'
++     '        PlaySE(SEQ_SE_DP_SELECT);\n'
++     '        data->selectedApp = sel0197;\n'),
++    'select')
++
++# Grey label just before each unsupported print's ov74_02235568.
++once(
++    ('        msgId = msg_0442_00008; // "MIGRATE FROM EMERALD"\n'
++     '        break;\n'
++     '    }\n'
++     '\n'
++     '    ov74_02235568(data->bgConfig, a2, 3, a3, msgId);\n'),
++    ('        msgId = msg_0442_00008; // "MIGRATE FROM EMERALD"\n'
++     '        break;\n'
++     '    }\n'
++     '\n'
++     '    MainMenu_MaybeGreyLabel(a2, sMainMenuButtons[a1].id); /* SS3DS 0197 */\n'
++     '    ov74_02235568(data->bgConfig, a2, 3, a3, msgId);\n'),
++    'migrate')
++
++once(
++    ('static BOOL MainMenu_PrintConnectToRangerButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {\n'
++     '    if (data->drawConnectToRangerButton == TRUE && data->hasPokedex == TRUE) {\n'
++     '        ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);\n'),
++    ('static BOOL MainMenu_PrintConnectToRangerButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {\n'
++     '    if (data->drawConnectToRangerButton == TRUE && data->hasPokedex == TRUE) {\n'
++     '        MainMenu_MaybeGreyLabel(a2, sMainMenuButtons[a1].id); /* SS3DS 0197 */\n'
++     '        ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);\n'),
++    'ranger')
++
++once(
++    ('static BOOL MainMenu_PrintConnectToWiiButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {\n'
++     '    if (data->drawConnectToWiiButton == TRUE) {\n'
++     '        ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);\n'),
++    ('static BOOL MainMenu_PrintConnectToWiiButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {\n'
++     '    if (data->drawConnectToWiiButton == TRUE) {\n'
++     '        MainMenu_MaybeGreyLabel(a2, sMainMenuButtons[a1].id); /* SS3DS 0197 */\n'
++     '        ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);\n'),
++    'wii')
++
++once(
++    ('static BOOL MainMenu_PrintNintendoWFCSetupButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {\n'
++     '    ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);\n'),
++    ('static BOOL MainMenu_PrintNintendoWFCSetupButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {\n'
++     '    MainMenu_MaybeGreyLabel(a2, sMainMenuButtons[a1].id); /* SS3DS 0197 */\n'
++     '    ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);\n'),
++    'wfc')
++
++once(
++    ('static BOOL MainMenu_PrintWiiMessageSettingsButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {\n'
++     '    ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);\n'),
++    ('static BOOL MainMenu_PrintWiiMessageSettingsButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {\n'
++     '    MainMenu_MaybeGreyLabel(a2, sMainMenuButtons[a1].id); /* SS3DS 0197 */\n'
++     '    ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);\n'),
++    'wii_msg')
++
++open(p, 'w').write(s)
++print('0197_menu_grey: main_menu.c patched')
+diff --git a/scripts/ss3ds_hooks.d/0197_menu_grey.sh b/scripts/ss3ds_hooks.d/0197_menu_grey.sh
+new file mode 100755
+index 0000000..5c8eaa3
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0197_menu_grey.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0197: grey unsupported title-menu options (main_menu.c / overlay 74). Not fatal: without it the dead rows stay selectable.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0197_menu_grey.py" && bash rebuild_game_object.sh src/application/main_menu/main_menu.c application__main_menu__main_menu.o 74); then
++  log "ss3ds 0197 menu grey NOT applied (see message above); unsupported title-menu rows stay fully selectable"
++fi
+-- 
+2.47.3
+
