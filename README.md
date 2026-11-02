@@ -73,7 +73,7 @@ It builds on [pspoke](https://github.com/IbrahimIrfan/pspoke) (retargeted from P
 | Boot, title, overworld, battles, menus, saving; online **GTS** (Global Terminal) | Pokégear RADIO tap-to-tune (needs Radio Card) | Solid path to 60 fps (30 fps is the goal now) |
 | 3D depth, wide view, GPU 3D + 2D compose, FAST / SHARP 3D | Roamer + breeding tracker | Wi-Fi Club / Plaza with a real DS |
 | Johto map, X tile cursor, YES/NO & starter balls on touch | Union Room Battle, Records, Draw, Greet, Spin | Pokédex encounter locations / times |
-| Pokégear MAP / PHONE (calls) / header; battle move badges | Wireless trade & Union Room extras | Pokéathlon & Bug-Catching helpers |
+| Pokégear MAP / PHONE (calls) / header; battle move badges | | Pokéathlon & Bug-Catching helpers |
 | Retail `.sav` round-trip; automatic backups; durable `log.txt` | **Mystery Gift** (overlay 74 seeded into the translator; crypto / closure work ongoing) | Tap-to-Fly on the Johto map |
 | HMs without the Pokémon, shortcuts, visible wilds, shiny suite | PARTY / BAG read-only bottom tabs | |
 | **Local wireless trade between two 3DS consoles** | Speed tweaks / FAST AUTO 3D | |
