@@ -260,13 +260,13 @@ static int ghResolve(const char *host, in_addr_t *out)
     return -6;
 }
 
-#define GH_MAX 1024
-static struct { volatile int state; /* 0 idle, 1 running, 2 done */ char url[400]; char body[GH_MAX]; int len, result; void *cb, *ud; Thread th; } gh;
+#define GH_MAX 16384 /* run 100: was 1024, which cut the GTS search listing short */
+static struct { volatile int state; /* 0 idle, 1 running, 2 done */ char url[2048]; char body[GH_MAX]; int len, result; void *cb, *ud; Thread th; } gh;
 
 static void ghWork(void *arg)
 {
     (void)arg;
-    char host[128], path[300]; const char *u = gh.url; int result = 5, len = 0;
+    char host[128], path[1990]; const char *u = gh.url; int result = 5, len = 0;
     if (strncmp(u, "http://", 7) == 0) u += 7;
     const char *sl = strchr(u, '/');
     int hl = sl ? (int)(sl - u) : (int)strlen(u);
@@ -278,8 +278,8 @@ static void ghWork(void *arg)
             int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
             struct sockaddr_in sa; memset(&sa, 0, sizeof sa); sa.sin_family = AF_INET; sa.sin_port = htons(80); sa.sin_addr.s_addr = ip;
             if (fd >= 0 && connect(fd, (struct sockaddr *)&sa, sizeof sa) == 0) {
-                char req[600]; int rl = snprintf(req, sizeof req, "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: GameSpyHTTP/1.0\r\nConnection: close\r\n\r\n", path, host);
-                char resp[2048]; int tot = 0;
+                char req[2300]; int rl = snprintf(req, sizeof req, "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: GameSpyHTTP/1.0\r\nConnection: close\r\n\r\n", path, host);
+                static char resp[GH_MAX + 2048]; int tot = 0; /* run 100: static, the worker stack is 32 KiB */
                 if (send(fd, req, rl, 0) == rl) {
                     for (;;) {
                         struct pollfd pf = { fd, POLLIN, 0 };
