@@ -70,10 +70,10 @@ It builds on [pspoke](https://github.com/IbrahimIrfan/pspoke) (retargeted from P
 
 | ✅ Confirmed on hardware | 🧪 Built / wired, still baking | 🛠️ Later / wishlist |
 | :--- | :--- | :--- |
-| Boot, title, overworld, battles, menus, saving | Pokégear RADIO tap-to-tune (needs Radio Card) | Solid path to 60 fps (30 fps is the goal now) |
+| Boot, title, overworld, battles, menus, saving; online **GTS** (Global Terminal) | Pokégear RADIO tap-to-tune (needs Radio Card) | Solid path to 60 fps (30 fps is the goal now) |
 | 3D depth, wide view, GPU 3D + 2D compose, FAST / SHARP 3D | Roamer + breeding tracker | Wi-Fi Club / Plaza with a real DS |
 | Johto map, X tile cursor, YES/NO & starter balls on touch | Union Room Battle, Records, Draw, Greet, Spin | Pokédex encounter locations / times |
-| Pokégear MAP / PHONE (calls) / header; battle move badges | Online **GTS** / Global Terminal path (community DNS, NAS login, search replies — actively iterating) | Pokéathlon & Bug-Catching helpers |
+| Pokégear MAP / PHONE (calls) / header; battle move badges | Wireless trade & Union Room extras | Pokéathlon & Bug-Catching helpers |
 | Retail `.sav` round-trip; automatic backups; durable `log.txt` | **Mystery Gift** (overlay 74 seeded into the translator; crypto / closure work ongoing) | Tap-to-Fly on the Johto map |
 | HMs without the Pokémon, shortcuts, visible wilds, shiny suite | PARTY / BAG read-only bottom tabs | |
 | **Local wireless trade between two 3DS consoles** | Speed tweaks / FAST AUTO 3D | |
@@ -90,7 +90,7 @@ Details: [`docs/ROADMAP.md`](docs/ROADMAP.md) · history: [`CHANGELOG.md`](CHANG
 - Untested: Union Room Battle / Records / Draw / Greet / Spin.
 - A real DS cannot join locally — native 3DS mode cannot speak DS MP radio.
 
-**Online (WIP).** An ONLINE wireless mode drives the game’s own NitroDWC / NitroWiFi stack over 3DS sockets toward community revival servers (Wiimmfi / self-hosted GTS). The **GTS / Global Terminal** path is under active development (login, DNS, HTTP client, overlays). **Mystery Gift** is seeded but not finished. Online mode is refused while any `cheat_*` option is on. Back up saves before linking. See [`docs/WIRELESS.md`](docs/WIRELESS.md).
+**Online (WIP).** An ONLINE wireless mode drives the game’s own NitroDWC / NitroWiFi stack over 3DS sockets toward community revival servers (Wiimmfi / self-hosted GTS). The **GTS / Global Terminal** is fully working. **Mystery Gift** is seeded but not finished. Online mode is refused while any `cheat_*` option is on. Back up saves before linking. See [`docs/WIRELESS.md`](docs/WIRELESS.md).
 
 ---
 
@@ -170,7 +170,7 @@ Press **L+R+Y** (or hold the top-left of the touch screen ~0.3 s). L/R or tap sw
 - Steady ~30 fps (the game’s own rate); 60 fps is a later experiment ([`docs/FPS60.md`](docs/FPS60.md)).
 - Local wireless: trading works; discovery can be slow; other Union Room modes untested.
 - First visit to a map can hitch while data loads from the SD card.
-- Online GTS / Mystery Gift are unfinished — expect errors and bring logs.
+- Mystery Gift is unfinished — expect errors and bring logs.
 
 Found a bug? Open an [issue](https://github.com/unowncollectables/Pokemon-Soulsilver-New3ds/issues) and attach `sdmc:/3ds/soulsilver3ds/log.txt` (or `log_crash.txt`) plus your console model.
 
