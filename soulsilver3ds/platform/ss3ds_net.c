@@ -152,6 +152,7 @@ void freeifaddrs(struct ifaddrs *list) { (void)list; }
  * each DWCAccLoginId is 12 bytes, so `authentic` is at offset 16. DWCAuthWiFiId is { u64 uId; u64 notAttestedId; u32 flg; }. */
 extern unsigned long long DWCi_Acc_GetUserId(const void *loginId);
 extern int __real_DWC_CheckHasProfile(const void *userData);
+static const void *sGameUd; /* the save's DWCUserData, seen by the game's own CheckHasProfile call (run 86 login driver) */
 extern int __real_DWC_CheckValidConsole(const void *userData);
 extern void __real_DWC_Auth_GetId(void *id);
 struct AuthWiFiId { unsigned long long uId; unsigned long long notAttestedId; unsigned int flg; };
@@ -196,6 +197,7 @@ int __wrap_DWC_CheckHasProfile(const void *userData)
 {
     static int told;
     int real = __real_DWC_CheckHasProfile(userData);
+    if (userData) sGameUd = userData;
     if (!told) {
         told = 1;
         NLOG("[NET] save has a Wi-Fi profile: %s%s", real ? "yes" : "no", (!real && onlineMode() && !P3DS_OnlineCheatBlocked()) ? " (online mode: connection task allowed anyway, the login will create one)" : "");
@@ -327,4 +329,80 @@ int P3DS_GhttpThink(void)
         if (cb) cb(res == 0 ? gh.body : NULL, len, res, ud);
     }
     return 1;
+}
+
+/* ---- run 86: the real DWC account login (NAS web step + GameSpy GP) so the GTS gets a real profile id instead of -1 ---------------
+ * The game only learns its profile id from its own login, whose overlay-0 pieces are unfinished stubs. Here libntrdwc's own C login is
+ * driven directly on the SAVE's DWCUserData (seen via the game's DWC_CheckHasProfile call): SetMemFunc, DWC_Init, InitFriendsMatch with
+ * HGSS's constants (productID 0x29E7, "pokemondpds", secret "1vTlwb", gamecode 0x4144414A), DWC_LoginAsync, then DWC_ProcessFriendsMatch
+ * once per frame. The game's netcheck poll (ov00_021ECDC8, polled every frame right before it reads the profile id) is held at "running"
+ * until the login finishes or fails (30 s), so the game's next step (state 0x10) sees the real gs_profile_id written by the library.
+ * The NAS step uses plain http://nas.nintendowifi.net/ac (libntrdwc skips the cert check for a custom NAS URL). Online mode only, no cheats.
+ * The login writes the profile into the save's userdata (that is how a real DS stores it); this is a test save, back it up first.
+ * Log tag [LOGIN]. */
+extern void DWC_SetMemFunc(void *(*)(int, unsigned, int), void (*)(int, void *, unsigned));
+extern void DWC_Init(void *work);
+extern int DWC_CheckUserData(const void *ud);
+extern void DWC_CreateUserData(void *ud, unsigned gamecode);
+extern int DWC_InitFriendsMatch(void *ctl, void *ud, int productID, const char *gameName, const char *secretKey, int sendBufSize, int recvBufSize, void *friendList, int friendListLen);
+extern int DWC_LoginAsync(const unsigned short *name, const char *reserved, void (*cb)(int, int, void *), void *param);
+extern void DWC_ProcessFriendsMatch(void);
+extern int DWC_GetState(void);
+extern int DWC_GetLastError(int *code);
+extern void DWC_Auth_SetCustomNas(const char *url);
+extern int DWC_GetInetStatus(void);
+
+static unsigned char sLoginWork[16384] __attribute__((aligned(32)));
+static unsigned char sLoginCtl[65536] __attribute__((aligned(32)));
+static unsigned char sLoginFriends[2048] __attribute__((aligned(32)));
+static volatile int sLoginDone; /* 0 not started, 1 running, 2 ok, 3 failed */
+static volatile int sLoginPid, sLoginErr;
+static unsigned sLoginFrames;
+
+static void loginCb(int err, int pid, void *param)
+{
+    (void)param;
+    sLoginErr = err; sLoginPid = pid;
+    NLOG("[LOGIN] callback: error %d, profile id %d", err, pid);
+    if (err == 0 && pid > 0) sLoginDone = 2; else sLoginDone = 3;
+}
+
+/* netcheck start (ov00_021ECD04) */
+void P3DS_LoginStart(void)
+{
+    if (sLoginDone != 0) return;
+    if (!sGameUd || !onlineMode() || P3DS_OnlineCheatBlocked() || DWC_GetInetStatus() != 4) {
+        NLOG("[LOGIN] not started (userdata %p, online %d, inet %d)", sGameUd, onlineMode(), DWC_GetInetStatus());
+        sLoginDone = 3; return;
+    }
+    void *ud = (void *)sGameUd;
+    int okud = DWC_CheckUserData(ud);
+    unsigned gid = *(const unsigned *)((const unsigned char *)ud + 0x1c);
+    NLOG("[LOGIN] starting on the save's userdata %p (valid %d, gs profile id %u)", ud, okud, gid);
+    if (!okud) { DWC_CreateUserData(ud, 0x4144414Au); NLOG("[LOGIN] userdata was invalid: created a fresh one"); }
+    DWC_Auth_SetCustomNas("http://nas.nintendowifi.net/ac");
+    DWC_Init(sLoginWork);
+    int r = DWC_InitFriendsMatch(sLoginCtl, ud, 0x29E7, "pokemondpds", "1vTlwb", 0, 0, sLoginFriends, 0x20);
+    NLOG("[LOGIN] InitFriendsMatch -> %d", r);
+    static const unsigned short nm[] = { 'T', 'e', 's', 't', 0 };
+    r = DWC_LoginAsync(nm, NULL, loginCb, NULL);
+    NLOG("[LOGIN] LoginAsync -> %d (state %d)", r, DWC_GetState());
+    sLoginDone = r ? 1 : 3;
+}
+
+/* netcheck poll (ov00_021ECDC8): returns the game's netcheck result: 1 running, 3 ok (also after a failed login: the game then goes on without a profile id, as in run 85) */
+int P3DS_LoginPoll(void)
+{
+    static int lastState = -99;
+    if (sLoginDone == 0) P3DS_LoginStart();
+    if (sLoginDone == 1) {
+        DWC_ProcessFriendsMatch();
+        int st = DWC_GetState();
+        if (st != lastState) { int code = 0; int e = DWC_GetLastError(&code); NLOG("[LOGIN] state %d (last error %d code %d)", st, e, code); lastState = st; }
+        if (++sLoginFrames > 30 * 30) { NLOG("[LOGIN] gave up after 30 s"); sLoginDone = 3; }
+    }
+    if (sLoginDone == 1) return 1;
+    if (sLoginDone == 2) { static int told; if (!told) { told = 1; NLOG("[LOGIN] done, profile id %d is now in the save's userdata", sLoginPid); } return 3; }
+    { static int told; if (!told) { told = 1; NLOG("[LOGIN] failed or skipped: continuing without a profile id (the GTS will use -1 as before)"); } }
+    return 3;
 }
