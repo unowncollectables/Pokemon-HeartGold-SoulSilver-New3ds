@@ -1,5 +1,5 @@
 /* ss3ds: one version string for the log header, the settings app and the HOME Menu title. Bump on each delivered build. */
 #ifndef SS3DS_VERSION_H
 #define SS3DS_VERSION_H
-#define SS3DS_VERSION "run 97: GTS login, GameSpy traffic peek"
+#define SS3DS_VERSION "run 98: GTS login, real MD5 for GameSpy"
 #endif
