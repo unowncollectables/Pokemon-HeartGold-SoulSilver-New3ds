@@ -1,0 +1,46 @@
+From d1b444db2aba0efa9a1a6490257539d806398671 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 09:22:56 -0500
+Subject: [PATCH] ss3ds: fix Nd setupHttp getDSdesc fold (run 112 / 0196)
+
+Uninitialized iVar1 after commented getDSdesc made -O2 compile
+DWCi_NdGetFileListNumAsync as always-FALSE (error 8). Replace setupHttp
+and fix getMacAddress hex encoding. CLEAN network rebuild.
+---
+ port/native-probe/compile-network.py | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/port/native-probe/compile-network.py b/port/native-probe/compile-network.py
+index a11aad7..f906076 100644
+--- a/port/native-probe/compile-network.py
++++ b/port/native-probe/compile-network.py
+@@ -150,6 +150,26 @@ if 'ss3ds 0195' not in _svl_src:
+     if _svl_src.count(_svl_old) != 1:
+         sys.exit('ss3ds 0195: expected dwc_svl.c StartThread priority 0x69 text not found exactly once')
+     _svl_path.write_text(_svl_src.replace(_svl_old, _svl_new, 1))
++# ss3ds 0196: Nd setupHttp had getDSdesc commented out and tested uninitialized iVar1;
++# -O2 folded DWCi_NdGetFileListNumAsync to always set error 8 and return FALSE (run 111:
++# NdGetFileListNumAsync -> 0 after successful SVCLOC/NdSetAttr, no DLS HTTP). Also fix
++# attr2/attr3 pointers and getMacAddress hex encoding. CLEAN network rebuild.
++_fa_path = b / 'libntrdwc/libraries/nd/src/dwci_nd_fileapi.c'
++_fa_src = _fa_path.read_text()
++if 'ss3ds 0196' not in _fa_src:
++    _fa_old = 'static int setupHttp(tagDWCi_Ndi_HTTPREQ **param_1,NHTTPReq **param_2,char *postAction,char *buf,u32 len)\n{\n  int iVar1;\n  tagDWCi_Ndi_HTTPREQ *httpReq;\n  NHTTPReq *req;\n  BOOL BVar2;\n\n  BVar2 = 1;\n  \n  //iVar1 = DWCi_Ndi_getDSdesc(rhgamecode,userid);\n  if (iVar1 == 0) {\n    DWCi_Ndi_error = 8;\n    iVar1 = 0;\n  } else {\n    httpReq = (tagDWCi_Ndi_HTTPREQ *)(*DWCi_Ndi_alloc)(sizeof(tagDWCi_Ndi_HTTPREQ),4);\n    if (httpReq == NULL) {\n      DWCi_Ndi_error = 1;\n      iVar1 = 0;\n    } else {\n      httpReq->callback = DWCi_Ndi_dlcallback;\n      httpReq->threadEvent = (void *)0x0;\n      iVar1 = DWCi_Ndi_prepareHttpCallback();\n      if (iVar1 == 0) {\n        (*DWCi_Ndi_free)(httpReq);\n        DWCi_Ndi_error = 2;\n        iVar1 = 0;\n      } else {\n        req = NHTTP_CreateRequest(DWCi_Ndi_serverURL,1,buf,len,req_callback,httpReq);\n        if (req == (NHTTPReq *)0x0) {\n          DWCi_Ndi_unprepareHttpCallback();\n          (*DWCi_Ndi_free)(httpReq);\n          DWCi_Ndi_error = 3;\n          iVar1 = 0;\n        } else {\n          *param_1 = httpReq;\n          *param_2 = req;\n          iVar1 = NHTTP_SetCAChain(req, ca_array, 1);\n          if ((((((((BVar2 == 0) ||\n                   (BVar2 = NHTTP_AddHeaderField(req, "User-Agent",DWCi_Ndi_userAgent), BVar2 == 0)) ||\n                  (BVar2 = NHTTP_AddPostDataAscii(req, "gamecd",DWCi_Ndi_dwcgamecd), BVar2 == 0)) ||\n                 ((BVar2 = NHTTP_AddPostDataAscii(req, "rhgamecd",rhgamecode), BVar2 == 0 ||\n                  (BVar2 = NHTTP_AddPostDataAscii(req, "passwd",DWCi_Ndi_password), BVar2 == 0)))) ||\n                ((BVar2 = NHTTP_AddPostDataAscii(req, "token",DWCi_Ndi_authtoken), BVar2 == 0 ||\n                 ((BVar2 = NHTTP_AddPostDataAscii(req, "userid",userid), BVar2 == 0 ||\n                  (BVar2 = NHTTP_AddPostDataAscii(req, "macadr",DWCi_Ndi_macaddr), BVar2 == 0)))))) ||\n               (BVar2 = NHTTP_AddPostDataAscii(req, "action",postAction), BVar2 == 0)) ||\n              (((DWCi_Ndi_dlattr != (char *)0x0 &&\n                (BVar2 = NHTTP_AddPostDataAscii(req, "attr1",DWCi_Ndi_dlattr[0]), BVar2 == 0)) ||\n               ((DWCi_Ndi_isExistApinfo != (char *)0x0 &&\n                (BVar2 = NHTTP_AddPostDataAscii(req, "attr2",(char *)&DWCi_Ndi_isExistApinfo), BVar2 == 0))))))\n             || (((DWCi_Ndi_strApinfo != (char *)0x0 &&\n                  (BVar2 = NHTTP_AddPostDataAscii(req, "attr3",DWCi_Ndi_strApinfo), BVar2 == 0)) ||\n                 ((DWCi_Ndi_isExistApinfo != (char *)0x0 &&\n                  (BVar2 = NHTTP_AddPostDataAscii(req, "apinfo",DWCi_Ndi_strApinfo),\n                  BVar2 == 0)))))) {\n            freeHttp(httpReq,req);\n            DWCi_Ndi_error = 1;\n            iVar1 = 0;\n          }\n          else {\n            iVar1 = 1;\n          }\n        }\n      }\n    }\n  }\n  return iVar1;\n}\n'
++    _fa_new = 'static int setupHttp(tagDWCi_Ndi_HTTPREQ **param_1,NHTTPReq **param_2,char *postAction,char *buf,u32 len)\n{\n  /* ss3ds 0196: the decompiler left getDSdesc commented out and then tested the\n     uninitialized iVar1; -O2 folded every Nd Get* into DWCi_Ndi_error=8 / FALSE\n     (run 111: NdGetFileListNumAsync -> 0, no HTTP). Also attr2/attr3 used the wrong\n     pointers (isExistApinfo / strApinfo instead of dlattr[1]/[2]). */\n  int iVar1;\n  int n;\n  tagDWCi_Ndi_HTTPREQ *httpReq;\n  NHTTPReq *req;\n  BOOL ok;\n  char uidasc[16];\n  u8 mac[6];\n\n  /* rhgamecd mirrors the Nd gamecd (already base64). userid = base64(decimal) from MAC. */\n  for (n = 0; n < 9; n++) rhgamecode[n] = DWCi_Ndi_dwcgamecd[n];\n  OS_GetMacAddress(mac);\n  OS_SNPrintf(uidasc, sizeof(uidasc), "%u",\n              ((unsigned)mac[2] << 24) | ((unsigned)mac[3] << 16) |\n              ((unsigned)mac[4] << 8) | (unsigned)mac[5]);\n  if (uidasc[0] == \'0\' && uidasc[1] == \'\\0\') { uidasc[0] = \'1\'; uidasc[1] = \'\\0\'; }\n  n = DWCi_Ndi_encodeBASE64(userid, uidasc, DWCi_Ndi_strlen(uidasc));\n  if (n < 0) {\n    DWCi_Ndi_error = 8;\n    return 0;\n  }\n  userid[n] = \'\\0\';\n\n  httpReq = (tagDWCi_Ndi_HTTPREQ *)(*DWCi_Ndi_alloc)(sizeof(tagDWCi_Ndi_HTTPREQ), 4);\n  if (httpReq == NULL) {\n    DWCi_Ndi_error = 1;\n    return 0;\n  }\n  httpReq->callback = DWCi_Ndi_dlcallback;\n  httpReq->threadEvent = (void *)0x0;\n  iVar1 = DWCi_Ndi_prepareHttpCallback();\n  if (iVar1 == 0) {\n    (*DWCi_Ndi_free)(httpReq);\n    DWCi_Ndi_error = 2;\n    return 0;\n  }\n  req = NHTTP_CreateRequest(DWCi_Ndi_serverURL, 1, buf, len, req_callback, httpReq);\n  if (req == (NHTTPReq *)0x0) {\n    DWCi_Ndi_unprepareHttpCallback();\n    (*DWCi_Ndi_free)(httpReq);\n    DWCi_Ndi_error = 3;\n    return 0;\n  }\n  *param_1 = httpReq;\n  *param_2 = req;\n  (void)NHTTP_SetCAChain(req, ca_array, 1);\n  ok = NHTTP_AddHeaderField(req, "User-Agent", DWCi_Ndi_userAgent);\n  if (ok) ok = NHTTP_AddPostDataAscii(req, "gamecd", DWCi_Ndi_dwcgamecd);\n  if (ok) ok = NHTTP_AddPostDataAscii(req, "rhgamecd", rhgamecode);\n  if (ok) ok = NHTTP_AddPostDataAscii(req, "passwd", DWCi_Ndi_password);\n  if (ok) ok = NHTTP_AddPostDataAscii(req, "token", DWCi_Ndi_authtoken);\n  if (ok) ok = NHTTP_AddPostDataAscii(req, "userid", userid);\n  if (ok) ok = NHTTP_AddPostDataAscii(req, "macadr", DWCi_Ndi_macaddr);\n  if (ok) ok = NHTTP_AddPostDataAscii(req, "action", postAction);\n  if (ok && DWCi_Ndi_dlattr[0] != NULL)\n    ok = NHTTP_AddPostDataAscii(req, "attr1", DWCi_Ndi_dlattr[0]);\n  if (ok && DWCi_Ndi_dlattr[1] != NULL)\n    ok = NHTTP_AddPostDataAscii(req, "attr2", DWCi_Ndi_dlattr[1]);\n  if (ok && DWCi_Ndi_dlattr[2] != NULL)\n    ok = NHTTP_AddPostDataAscii(req, "attr3", DWCi_Ndi_dlattr[2]);\n  if (ok && DWCi_Ndi_isExistApinfo != 0)\n    ok = NHTTP_AddPostDataAscii(req, "apinfo", DWCi_Ndi_strApinfo);\n  if (!ok) {\n    freeHttp(httpReq, req);\n    DWCi_Ndi_error = 1;\n    return 0;\n  }\n  return 1;\n}\n'
++    if _fa_src.count(_fa_old) != 1:
++        sys.exit('ss3ds 0196: expected broken dwci_nd_fileapi.c setupHttp not found exactly once')
++    _fa_path.write_text(_fa_src.replace(_fa_old, _fa_new, 1))
++_mac_path = b / 'libntrdwc/libraries/nd/src/dwci_nd_os_nitro.c'
++_mac_src = _mac_path.read_text()
++if 'ss3ds 0196' not in _mac_src:
++    _mac_old = 'void DWCi_Ndi_getMacAddress(char *aMacAddr)\n{\n  int iVar1;\n  u8 local_30 [24];\n  \n  OS_GetMacAddress(local_30);\n  for (iVar1 = 0; iVar1 < 6; iVar1 = iVar1 + 1) {\n    //DWCi_Ndi_hexToStrFigure(local_30 + iVar1 * 2 + 6,local_30[iVar1],2);\n  }\n  DWCi_Ndi_encodeBASE64(aMacAddr, local_30 + 6,0xc);\n  return;\n}\n'
++    _mac_new = 'void DWCi_Ndi_getMacAddress(char *aMacAddr)\n{\n  /* ss3ds 0196: hexToStrFigure was commented out and encodeBASE64 read 12 bytes of\n     uninitialized stack after the 6-byte MAC. Encode 12 hex digits then base64. */\n  int iVar1;\n  u8 local_30[6];\n  char hex[12];\n  static const char *hv = "0123456789abcdef";\n\n  OS_GetMacAddress(local_30);\n  for (iVar1 = 0; iVar1 < 6; iVar1 = iVar1 + 1) {\n    hex[iVar1 * 2] = hv[(local_30[iVar1] >> 4) & 0xf];\n    hex[iVar1 * 2 + 1] = hv[local_30[iVar1] & 0xf];\n  }\n  iVar1 = DWCi_Ndi_encodeBASE64(aMacAddr, hex, 12);\n  if (iVar1 < 0) iVar1 = 0;\n  aMacAddr[iVar1] = \'\\0\';\n  return;\n}\n'
++    if _mac_src.count(_mac_old) != 1:
++        sys.exit('ss3ds 0196: expected broken DWCi_Ndi_getMacAddress not found exactly once')
++    _mac_path.write_text(_mac_src.replace(_mac_old, _mac_new, 1))
+ def comp(p):
+  name=str(p.relative_to(b)).replace('/','__');f=flags+['-I'+str(p.parent),'-I'+str(p.parent.parent/'include'),'-I'+str(p.parent.parent),'-include','pspkernel.h']
+  if p.name=='network.c':f+=['-include','sys/socket.h','-include','netinet/in.h','-include','arpa/inet.h']
+-- 
+2.47.3
+

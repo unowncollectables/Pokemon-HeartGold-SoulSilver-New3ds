@@ -17,12 +17,14 @@
 - 0188: CRYPTO_SetAllocator (no-op) and CRYPTO_VerifySignature (returns TRUE) done natively; ParseSignHash and the BN_* RSA code are ARM and failed with 'unsupported stack layout'.
 - 0189: native SVC_GetCRC16 + CRYPTO_RC4Init in missing.c; ov00_* wifi calls from ov74_02236AE0 stubbed with Missing() (download path, needs real DWC later).
 
+- 0196 (Grok): Nd setupHttp - restore getDSdesc/attrs/mac so GetFileListNumAsync is not folded to FALSE (run 111). CLEAN network rebuild.
 - 0195 (Grok): SVL Http_StartThread priority - compile-network.py rewrites dwc_svl.c 0x69 to 16 (CreateThreadReal aborts on >31; run 110 abort). CLEAN network rebuild.
 - 0194 (Grok): MG WFC path — log DWC_Init in sub_02039FD8; platform wraps ov74_0222A560/A4CC so wireless=2 redirects GET VIA WIRELESS to WFC download; ov00_021EC294 is real DWC_SetMemFunc.
 - 0193 (Grok): Mystery Gift WFC download — drop Missing() on 10 ov00 Nd/inet trampolines; real DWC_Nd* + CleanupInetAsync + NASLoginAbort in ss3ds_dwcstub.c; plain HTTP DLS URL + NdCancel fill in compile-network.py; IPGE→IPKE. Need ONLINE.
 - 0192 (Grok): Mystery Gift cursor diagnostic — native ov74_02235FF8 + [SS-MG-CURSOR] logs in ListMenuUpdateCursorObj (MG-gated via gSS_MG_CursorDiag). No behavior change beyond PlaySE still firing on move.
 
 ## Run log (Grok Bot)
+- run 112: Run 111 SVCLOC OK (svchost=dls1.ilostmymind.xyz) and NdSetAttr OK, but NdGetFileListNumAsync returned 0 with no DLS HTTP. ELF showed DWCi_NdGetFileListNumAsync always sets error 8: setupHttp tested uninitialized iVar1 after commented getDSdesc and -O2 folded the failure path. Fix: patch 0196 rewrites setupHttp (fill rhgamecd/userid, correct attr1-3) and getMacAddress. GTS untouched. CLEAN network rebuild required.
 - run 111: Run 110 aborted in OS_CreateThreadReal (0x16bf58) during NdInit/SVL: DWC_Svl_GetTokenAsync passed Nitro priority 0x68 (>31). Fix: clamp in __wrap_DWC_Http_StartThread + pspoke-patch 0195 sets SVL prio to 16; MG NdInit also SetCustomNas(http) + ignoreca and forces IPKE in cal when ROM header is IPGE. GTS StartThread uses prio 0 (unchanged).
 - run 110: Run 109 crashed in DWC_Http_Create (pc=0 lr=0x61d010) during NdInitAsync/SVL: DWCauthhttpparam.alloc was NULL because NAS login is skipped. Fix: MG-only NdInit wrapper sets DWCauthhttpparam.alloc/free to DWC_Alloc/DWC_Free and re-asserts SetMemFunc; null-guards on later Nd Get* wrappers. GTS-shared EC294/ConnectInet/NAS login unchanged.
 - run 109: reverted the run 108 real DWC_SetMemFunc (ov00_021EC294) to the old stub; GTS shares it and was working. Kept only the MG-only redirect + logs.

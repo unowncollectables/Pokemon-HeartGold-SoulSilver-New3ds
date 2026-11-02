@@ -107,6 +107,9 @@ extern int DWC_NdInitAsync(SS3DS_NdCallback cb, char *gamecd, char *passwd);
 extern int DWC_NdCleanupAsync(SS3DS_NdCleanupCallback cb);
 extern int DWC_NdSetAttr(const char *a, const char *b, const char *c);
 extern int DWC_NdGetFileListNumAsync(int *entrynum);
+extern int DWCi_Ndi_error;
+extern int DWCi_Ndi_isOpened;
+extern char *DWCi_Ndi_serverURL;
 extern int DWC_NdGetFileListAsync(void *filelist, unsigned offset, unsigned num);
 extern int DWC_NdGetFileAsync(void *fileinfo, char *buf, unsigned size);
 extern int DWC_NdCancelAsync(void);
@@ -213,7 +216,9 @@ unsigned int ov00_021ED388(int *entrynum)
     ss3ds_mg_ensure_http_alloc();
     {
         int r = DWC_NdGetFileListNumAsync(entrynum);
-        PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d (num ptr %p)", r, (void *)entrynum);
+        PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d (num ptr %p) opened=%d ndi_err=%d url=%s",
+                        r, (void *)entrynum, DWCi_Ndi_isOpened, DWCi_Ndi_error,
+                        DWCi_Ndi_serverURL ? DWCi_Ndi_serverURL : "(null)");
         return (unsigned)r;
     }
 }
@@ -226,7 +231,8 @@ unsigned int ov00_021ED3AC(void *filelist, unsigned offset, unsigned num)
     ss3ds_mg_ensure_http_alloc();
     {
         int r = DWC_NdGetFileListAsync(filelist, offset, num);
-        PSPNativeMemLog("[SS-MG] NdGetFileListAsync off=%u num=%u -> %d", offset, num, r);
+        PSPNativeMemLog("[SS-MG] NdGetFileListAsync off=%u num=%u -> %d ndi_err=%d",
+                        offset, num, r, DWCi_Ndi_error);
         return (unsigned)r;
     }
 }
@@ -240,7 +246,7 @@ unsigned int ov00_021ED3F4(void *fileinfo, char *buf, unsigned size)
     ss3ds_mg_ensure_http_alloc();
     {
         int r = DWC_NdGetFileAsync(fileinfo, buf, size);
-        PSPNativeMemLog("[SS-MG] NdGetFileAsync size=%u -> %d", size, r);
+        PSPNativeMemLog("[SS-MG] NdGetFileAsync size=%u -> %d ndi_err=%d", size, r, DWCi_Ndi_error);
         return (unsigned)r;
     }
 }
