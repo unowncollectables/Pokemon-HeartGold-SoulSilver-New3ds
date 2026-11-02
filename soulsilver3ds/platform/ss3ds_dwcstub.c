@@ -64,6 +64,26 @@ extern int P3DS_GhttpStart(const char *url, void *cb, void *ud);
 extern int P3DS_GhttpThink(void);
 int ov00_021FA21C(const char *url, void *cb, void *ud) { return P3DS_GhttpStart(url, cb, ud); }
 unsigned int ov00_021FA118(void) { return (unsigned int)P3DS_GhttpThink(); }
+/* DWC_Base64Encode(src, dst, srclen, mode) = ov00_021FFC18. mode 1: "[]_", mode 2 (URL-safe, used by the GTS data= field): "-_=", else "+/=". Writes dst, NUL-terminated;
+   returns the number of characters written (the GTS caller ignores it). */
+unsigned int ov00_021FFC18(const unsigned char *src, char *dst, int srclen, int mode)
+{
+    static const char a[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const char *x = mode == 1 ? "[]_" : mode == 2 ? "-_=" : "+/=";
+    int o = 0;
+    for (int i = 0; i < srclen; i += 3) {
+        unsigned v = (unsigned)src[i] << 16; int n = srclen - i;
+        if (n > 1) v |= (unsigned)src[i + 1] << 8;
+        if (n > 2) v |= src[i + 2];
+        for (int k = 0; k < 4; k++) {
+            int idx = (v >> (18 - 6 * k)) & 63;
+            if (k > n) dst[o++] = x[2];
+            else dst[o++] = idx < 62 ? a[idx] : x[idx - 62];
+        }
+    }
+    dst[o] = 0;
+    return (unsigned)o;
+}
 unsigned int ov00_021ECDC8(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck poll (ss3ds) -> 3 = ok (#%d)", n); return 3; }
 
 /* overlay 0 and overlay 45 Wi-Fi glue (ARM asm in lib/NitroDWC, plus overlay 45 Thumb pointer-table targets) */
@@ -120,7 +140,6 @@ DWC_STUB(ov00_021ECB94)
 DWC_STUB(ov00_021EDB1C)
 DWC_STUB(ov00_021EE490)
 DWC_STUB(ov00_021EE4FC)
-DWC_STUB(ov00_021FFC18)
 DWC_STUB(ov45_0222CF00)
 DWC_STUB(ov45_0222CF24)
 DWC_STUB(ov45_0222CF40)
