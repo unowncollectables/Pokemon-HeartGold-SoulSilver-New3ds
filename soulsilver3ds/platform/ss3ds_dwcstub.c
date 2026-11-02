@@ -56,6 +56,9 @@ unsigned int ov00_021ECD04(void) { static int n = 0; if (n++ < 2) PSPNativeMemLo
 static int s_ss3ds_ghttp_ref = 0;
 unsigned int ov00_021FA0B4(void) { s_ss3ds_ghttp_ref++; return 1; }
 unsigned int ov00_021FA0D8(void) { if (s_ss3ds_ghttp_ref > 0) s_ss3ds_ghttp_ref--; return 1; }
+/* DWC_Alloc(name,size) / DWC_Free(name,ptr,size): the game calls these directly after the netcheck; a NULL from the stub made it hang. */
+void *ov00_021EC2A8(int name, unsigned int size) { static int n = 0; void *p; (void)name; p = memalign(32, size ? size : 1); if (n++ < 4) PSPNativeMemLog("[COMM] DWC_Alloc(%u) -> %p (#%d)", size, p, n); return p; }
+void ov00_021EC2EC(int name, void *ptr, unsigned int size) { (void)name; (void)size; free(ptr); }
 unsigned int ov00_021ECDC8(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck poll (ss3ds) -> 3 = ok (#%d)", n); return 3; }
 
 /* overlay 0 and overlay 45 Wi-Fi glue (ARM asm in lib/NitroDWC, plus overlay 45 Thumb pointer-table targets) */
@@ -107,8 +110,6 @@ DWC_STUB(ov00_021E714C)
 DWC_STUB(ov00_021E7220)
 DWC_STUB(ov00_021E7328)
 DWC_STUB(ov00_021EC0FC)
-DWC_STUB(ov00_021EC2A8)
-DWC_STUB(ov00_021EC2EC)
 DWC_STUB(ov00_021EC454)
 DWC_STUB(ov00_021ECB94)
 DWC_STUB(ov00_021EDB1C)
