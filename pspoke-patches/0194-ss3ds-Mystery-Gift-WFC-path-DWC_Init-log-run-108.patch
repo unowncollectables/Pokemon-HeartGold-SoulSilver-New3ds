@@ -1,0 +1,37 @@
+From 3c00f1e1f7beeb8d56294b7b4a6860411de85670 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 08:04:12 -0500
+Subject: [PATCH] ss3ds: Mystery Gift WFC path log + note (run 108 / 0194)
+
+Log DWC_Init in sub_02039FD8 so a WFC-download attempt is visible in log.txt.
+Platform wrap (soulsilver3ds) redirects GET VIA WIRELESS to WFC when wireless=2.
+---
+ port/soulsilver-native-islands/wfc_startup.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/port/soulsilver-native-islands/wfc_startup.c b/port/soulsilver-native-islands/wfc_startup.c
+index d91ab25..eebc557 100644
+--- a/port/soulsilver-native-islands/wfc_startup.c
++++ b/port/soulsilver-native-islands/wfc_startup.c
+@@ -5,11 +5,18 @@
+ extern int DWC_Init(void *alignedWork);
+ extern void LoadDwcOverlay(void), LoadOVY38(void);
+ extern void UnloadDwcOverlay(void), UnloadOVY38(void);
++extern void PSPNativeMemLog(const char *fmt, ...);
+ int sub_02039FD8(enum HeapID heapID)
+ {
++    /* ss3ds 0194: MG WFC download (ov74_02236AE0 case 0) and GTS both call this
++       after LoadDwcOverlay. A log here proves the WFC-download state machine
++       entered DWC_Init; run 107 never printed it because Receive took the local
++       wireless path (WM stand-in) instead. */
+     void *allocation=Heap_Alloc(heapID,0x720);
+     void *aligned=(void *)(((uintptr_t)allocation+31u)&~(uintptr_t)31u);
++    PSPNativeMemLog("[SS-MG] DWC_Init (sub_02039FD8) heap=%d", (int)heapID);
+     int result=DWC_Init(aligned);
++    PSPNativeMemLog("[SS-MG] DWC_Init -> %d", result);
+     Heap_Free(allocation);
+     return result;
+ }
+-- 
+2.47.3
+

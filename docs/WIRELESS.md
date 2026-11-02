@@ -264,6 +264,12 @@ With ONLINE on, the connection task now runs and the game loads overlay 70 (the 
 
 Build follow-ups: 0165 binds variadic sprintf in the translator; 0168 fixes the main 3ee693f link (14 names added to native-provided.json: LoadDwcOverlay, LoadOVY38, UnloadDwcOverlay, UnloadOVY38, sub_0202DB54..DBA0 and the ov00_021E6A70 trap; 12 overlay 0 helpers ov00_021EC0FC/EC2A8/EC2EC/EC9E0/ECB94/ECD04/ECDC8/FA0B4/FA0D8/FA118/FA21C/FFC18 seeded). Not compiled in the cloud; the next builder log shows whether more names surface.
 
+## Mystery Gift over Nintendo WFC (run 108)
+
+**Run 107 stall:** device log after Receive never reached `ov74_02236AE0` / `DWC_Nd*`. It called `WM_Initialize` and sat on the WM stand-in ("no other DS in range") with wireless-icon redraws — that is **GET VIA WIRELESS** (`ov74_0222CEE0`), not WFC download. Receive submenu order is Friend, Wireless, WFC, Cancel; `itemsAbove=1` + `cursorPos=0` is Wireless. No `[SS-MG]`, no ConnectInet, no DWC_Init.
+
+**Run 108 fix:** with `wireless=2`, confirming GET VIA WIRELESS redirects to the WFC download entry (local parent search cannot work in ONLINE mode). Choosing GET VIA NINTENDO WFC is unchanged. Logs: `[SS-MG] path=WFC-download` / `path=local-wireless` / `DWC_Init (sub_02039FD8)` / existing Nd and ConnectInet lines.
+
 ## Mystery Gift over Nintendo WFC (run 106)
 
 The game’s own Mystery Gift → **Receive gift** → **Get via Nintendo WFC** path (overlay 74 → `ov74_02236AE0`) now calls libntrdwc’s `DWC_Nd*` download API through the same ONLINE stack as the GTS (3DS sockets, community DNS, NAS login during netcheck).

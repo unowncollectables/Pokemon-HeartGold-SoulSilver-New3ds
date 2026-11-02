@@ -203,7 +203,49 @@ unsigned int ov00_021ECB40(void)
     return (unsigned)DWC_UpdateConnection();
 }
 
-DWC_STUB(ov00_021EC294)
+/* ss3ds 0194 / run 108: ov00_021EC294 is DWC_SetMemFunc (stores alloc/free into
+   ov00_0221A754). Was a 0-returning stub; MG WFC case 1 and GTS both call it with the
+   game's Heap allocators before ConnectInet. Register them for real; ConnectInet's own
+   SetMemFunc (ss3ds malloc) still runs later and wins for the ONLINE stack. */
+extern void DWC_SetMemFunc(void *(*alloc)(int name, unsigned int size, int align),
+                           void (*freef)(int name, void *ptr, unsigned int size));
+unsigned int ov00_021EC294(void *(*alloc)(int, unsigned, int), void (*freef)(int, void *, unsigned))
+{
+    static int n;
+    if (n++ < 4)
+        PSPNativeMemLog("[SS-MG] SetMemFunc (ov00_021EC294) alloc=%p free=%p (#%d)",
+                        (void *)alloc, (void *)freef, n);
+    if (alloc && freef)
+        DWC_SetMemFunc(alloc, freef);
+    return 0;
+}
+
+/* ss3ds 0194 / run 108: Mystery Gift receive path discrimination.
+   Run 107 log showed WM_Initialize + wireless-icon redraw and NO [SS-MG] Nd / ConnectInet
+   lines: that is ov74_0222CEE0 (local "GET VIA WIRELESS" search on the WM stand-in), not
+   ov74_02236AE0 (WFC download). Receive submenu order is Friend, Wireless, WFC, Cancel;
+   itemsAbove=1 + cursorPos=0 selects Wireless. With wireless=2 (ONLINE) local DS parent
+   search can never succeed, so redirect Wireless confirm to the WFC download entry
+   (same as GET VIA NINTENDO WFC). wireless=0/1 keep the translated local path. */
+extern int P3DS_CfgInt(const char *key, int def);
+extern unsigned int __real_ov74_0222A560(void *man);
+extern unsigned int __real_ov74_0222A4CC(void *man);
+unsigned int __wrap_ov74_0222A560(void *man)
+{
+    PSPNativeMemLog("[SS-MG] path=WFC-download entry (ov74_0222A560) -> state 0x1b / ov74_02236AE0");
+    return __real_ov74_0222A560(man);
+}
+unsigned int __wrap_ov74_0222A4CC(void *man)
+{
+    int w = P3DS_CfgInt("wireless", 1);
+    if (w == 2) {
+        PSPNativeMemLog("[SS-MG] path=WIRELESS confirm with wireless=2: redirect to WFC-download (local WM search cannot find a parent in ONLINE mode)");
+        return __wrap_ov74_0222A560(man);
+    }
+    PSPNativeMemLog("[SS-MG] path=local-wireless entry (ov74_0222A4CC) wireless=%d -> state 0x20 / ov74_0222CEE0", w);
+    return __real_ov74_0222A4CC(man);
+}
+
 DWC_STUB(ov00_021EC3F0)
 DWC_STUB(ov00_021EC8D8)
 DWC_STUB(ov00_021EC9D4)
