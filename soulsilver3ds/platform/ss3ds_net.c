@@ -406,3 +406,46 @@ int P3DS_LoginPoll(void)
     { static int told; if (!told) { told = 1; NLOG("[LOGIN] failed or skipped: continuing without a profile id (the GTS will use -1 as before)"); } }
     return 3;
 }
+
+/* ---- run 88: host name lookups for the library's NAS login and the GameSpy GP connection ----------------------------------------
+ * Run 87 crashed in SOCL_Resolve (SOC stack never started on the 3DS). The NAS HTTP step (NHTTPi_resolveHostname -> SOCL_Resolve) and
+ * GameSpy GP (gethostbyname("gpcm.gs.nintendowifi.net")) both need names that only the community DNS knows, so all three go through the
+ * same direct UDP query to wifi_dns used for ghttp (ghResolve). Strong definitions here win over the library's (platform objects link
+ * first, and the link allows duplicates). Online mode only. */
+typedef struct { char *h_name; char **h_aliases; int h_addrtype; int h_length; char **h_addr_list; } SS3DSHostent; /* same layout as struct hostent; not including <netdb.h> */
+
+/* returns the IPv4 address in HOST order, 0 when it cannot be resolved (libntrwifi/CPS convention) */
+unsigned int SOCL_Resolve(const char *host)
+{
+    in_addr_t a = 0;
+    if (!host || !host[0]) return 0;
+    a = inet_addr(host);
+    if (a == (in_addr_t)-1) {
+        if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit() || ghResolve(host, &a) != 0) { NLOG("[DNS] %s: not resolved", host); return 0; }
+        NLOG("[DNS] %s -> %s", host, inet_ntoa(*(struct in_addr *)&a));
+    }
+    return ntohl(a);
+}
+
+typedef struct { char *name; char **aliases; short addrType; short length; unsigned char **addrList; } SS3DSSocHostEnt;
+SS3DSSocHostEnt *SOC_GetHostByName(const char *name)
+{
+    static SS3DSSocHostEnt he; static char hn[128]; static char *al[1]; static unsigned char ip[4]; static unsigned char *list[2];
+    unsigned int h = SOCL_Resolve(name);
+    if (!h) return NULL;
+    snprintf(hn, sizeof hn, "%s", name);
+    ip[0] = h >> 24; ip[1] = h >> 16; ip[2] = h >> 8; ip[3] = h; list[0] = ip; list[1] = NULL; al[0] = NULL;
+    he.name = hn; he.aliases = al; he.addrType = 2; he.length = 4; he.addrList = list;
+    return &he;
+}
+
+SS3DSHostent *gethostbyname(const char *name)
+{
+    static SS3DSHostent he; static char hn[128]; static char *al[1]; static unsigned char ip[4]; static char *list[2];
+    unsigned int h = SOCL_Resolve(name);
+    if (!h) return NULL;
+    snprintf(hn, sizeof hn, "%s", name);
+    ip[0] = h >> 24; ip[1] = h >> 16; ip[2] = h >> 8; ip[3] = h; list[0] = (char *)ip; list[1] = NULL; al[0] = NULL;
+    he.h_name = hn; he.h_aliases = al; he.h_addrtype = AF_INET; he.h_length = 4; he.h_addr_list = list;
+    return &he;
+}
