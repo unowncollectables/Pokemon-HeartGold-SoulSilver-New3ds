@@ -171,9 +171,10 @@ static void hardExit(int code) {
     static int once; if (once++) exit(code);
     quitting = 1; PSPNativeMemLog("[3DS] exit: stopping threads");
     { extern void P3DS_HuntFlush(void); extern void P3DS_HuntWait(void); P3DS_HuntFlush(); P3DS_HuntWait(); } /* shiny_suite: hunt time since the last write */
+    /* save first: ShutdownThreads frees the game's partition blocks, which the backup close may still touch */
+    extern BOOL PSPNative_CloseBackup(void); PSPNative_CloseBackup(); ssSaveBackup("exit");
     P3DS_ShutdownThreads(); P3DS_ShutdownSDL();
     { extern void P3U_ClearPending(void); P3U_ClearPending(); }
-    extern BOOL PSPNative_CloseBackup(void); PSPNative_CloseBackup(); ssSaveBackup("exit");
     { extern void P3DS_UseSummary(const char *); P3DS_UseSummary("clean exit"); }
     PSPNativeMemLog("[3DS] exit: clean");
     P3DS_LogFlushSync(); aptUnhook(&hookCookie); gfxExit(); exit(code);
