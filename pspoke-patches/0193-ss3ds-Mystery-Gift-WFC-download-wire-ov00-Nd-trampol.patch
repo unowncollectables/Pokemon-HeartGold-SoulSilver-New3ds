@@ -1,8 +1,8 @@
 From c7034c2882a21a34db53d897a8b4f73f410836d8 Mon Sep 17 00:00:00 2001
 From: platinum3ds <local@box>
 Date: Mon, 2 Nov 2026 03:16:32 -0500
-Subject: [PATCH] =?UTF-8?q?ss3ds:=20Mystery=20Gift=20WFC=20download=20?=
- =?UTF-8?q?=E2=80=94=20wire=20ov00=20Nd=20trampolines=20(run=20106)?=
+Subject: [PATCH] ss3ds: Mystery Gift WFC download - wire ov00 Nd trampolines
+ (run 106)
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -24,7 +24,7 @@ index 2863690..c9572d6 100644
      if _a4_src.count(_a4_old) != 1:
          sys.exit('ss3ds 0184: dwc_auth.c acctcreate success text not found exactly once; refusing to build without the login follow-up')
      _a4_path.write_text(_a4_src.replace(_a4_old, _a4_new, 1))
-+# ss3ds 0193: Mystery Gift Nd download. (1) Force plain http:// for the DLS URL — revival
++# ss3ds 0193: Mystery Gift Nd download. (1) Force plain http:// for the DLS URL - revival
 +# servers terminate or accept HTTP the same way NAS does; Nitro SSL over 3DS sockets is unproven
 +# and GTS already uses plain HTTP. (2) Fill the empty SDK_PORT DWCi_NdCancelAsync body so cancel
 +# returns TRUE instead of falling off the end. CLEAN BUILD REQUIRED (network phase).
@@ -66,7 +66,7 @@ index e30a02b..a1dd8f3 100644
 -__attribute__((noreturn)) void ov00_021ED354(void){Missing("ov00_021ED354");}
 -__attribute__((noreturn)) void ov00_021ECEC0(void){Missing("ov00_021ECEC0");}
 +/* ss3ds 0193: ov00_021ED388/ED308/ED428/EC938/ED3F4/ED3AC/ED444/ED1F0/ED354/ECEC0
-+ * removed — real DWC_Nd* / CleanupInetAsync / NASLoginAbort wrappers live in
++ * removed - real DWC_Nd* / CleanupInetAsync / NASLoginAbort wrappers live in
 + * soulsilver3ds/platform/ss3ds_dwcstub.c (Mystery Gift WFC download path).
 + */
  /* SS3DS run 105: Mystery Gift cursor diagnostic (ListMenu moveCursorFunc). Sets a flag so
