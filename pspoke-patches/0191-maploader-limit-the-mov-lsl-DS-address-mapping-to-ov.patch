@@ -1,0 +1,26 @@
+From 1383c70a27b96ddb2ca80fdedd292767c6e76fac Mon Sep 17 00:00:00 2001
+From: platinum3ds <local@box>
+Date: Mon, 2 Nov 2026 02:27:56 -0500
+Subject: [PATCH] maploader: limit the mov/lsl DS-address mapping to overlay 74
+ (Mystery Gift) only
+
+---
+ port/soulsilver-native-play/maploader/translate2.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/port/soulsilver-native-play/maploader/translate2.py b/port/soulsilver-native-play/maploader/translate2.py
+index f915952..2d7c109 100644
+--- a/port/soulsilver-native-play/maploader/translate2.py
++++ b/port/soulsilver-native-play/maploader/translate2.py
+@@ -145,7 +145,7 @@ def _prepare(name, body, relocs):  # noqa
+         _l = _raw.split(';')[0].strip()
+         _m = re.fullmatch(r'movs?\s+(r\d),\s*#([5-7])', _l)
+         _k = re.fullmatch(r'lsls?\s+(r\d),\s*(r\d),\s*#(?:0x18|24)', _l)
+-        if _k and _k[1] == _k[2] and _k[1] in _pend:
++        if _k and _k[1] == _k[2] and _k[1] in _pend and name.startswith('ov74_'):  # Mystery Gift only, nothing else changes
+             _hw = _hw_literal(hex(_pend[_k[1]] << 24))
+             if _hw:
+                 _lab = f'_ss_hw_{_pend[_k[1]]}'
+-- 
+2.47.3
+

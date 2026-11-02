@@ -20,3 +20,4 @@
 ## Run log (Grok Bot)
 - Run 102 (Claude): quit save before thread teardown. Device log: Mystery Gift opened, then crashed in native_ov74_0222AB70 (DS BG palette 0x05000000 built as mov #5; lsl #24, unmapped on 3DS).
 - Run 103 (patches 0187-0190): Mystery Gift builds (native RC4/CRC16/signature, ov00 wifi stubs) + maploader maps mov #5-7/lsl #24 DS palette/VRAM/OAM bases to the backing arrays.
+- Run 104 (patch 0191): same fix limited to ov74_* functions so nothing outside Mystery Gift changes.
