@@ -229,13 +229,3 @@ This project is licensed under **GPL-3.0** — see [`LICENSE`](LICENSE). pspoke 
 **No ROMs, assets, saves, or builds are included or distributed.** You must dump your own cartridge. Game data and assets belong to their copyright holders and are read only from the dump you provide.
 
 Pokémon is a trademark of Nintendo / Game Freak / The Pokémon Company. This is an unofficial, personal-use fan project and is **not affiliated with, endorsed by, or connected to** Nintendo, Game Freak, or The Pokémon Company.
-
----
-
-<p align="center">
-  <sub>
-    Made with care in Barrie, Ontario ·
-    <a href="https://github.com/unowncollectables">Unown Collectables</a>
-    — cards, collectables, and the odd New 3DS experiment
-  </sub>
-</p>
