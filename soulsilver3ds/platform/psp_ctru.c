@@ -17,10 +17,14 @@ static void initBig(void) { if (!bigInit) { RecursiveLock_Init(&big); bigInit = 
 /* ss3ds run 74: who holds the big "interrupts off" lock? Run 73 (GTS) deadlocked with main stuck in intrlock-wait and nothing said which
    thread owned it. Remember the last acquirer (thread slot + caller) so the watchdog can print it; two plain stores per acquire. */
 static volatile unsigned bigLr; static volatile int bigTid;
-unsigned int sceKernelCpuSuspendIntr(void) { initBig(); if (!RecursiveLock_TryLock(&big)) { CRUMB("intrlock-wait"); RecursiveLock_Lock(&big); } bigLr = (unsigned)__builtin_return_address(0); bigTid = tlsId; return 1; }
+/* run 79: slot 0 is also what every non-psp thread (libntrdwc/CPS network threads) reports, so "main" in run 74-78 may really be one of
+   those. Keep the real thread pointer too, and snapshot who held the lock at the moment someone had to wait (the last wait = the deadlock). */
+static volatile unsigned bigThr, cLr, cThr, cMe, cCnt;
+unsigned int sceKernelCpuSuspendIntr(void) { initBig(); if (!RecursiveLock_TryLock(&big)) { cLr = bigLr; cThr = bigThr; cMe = (unsigned)threadGetCurrent(); cCnt++; CRUMB("intrlock-wait"); RecursiveLock_Lock(&big); } bigLr = (unsigned)__builtin_return_address(0); bigTid = tlsId; bigThr = (unsigned)threadGetCurrent(); return 1; }
 void P3DS_BigLockInfo(char *b, int n) {
     int t = bigTid; if (t < 0 || t > MAXT) t = 0;
     int w = snprintf(b, n, "big lock last taken by thread slot %d (%s) from %p; threads:", t, pts[t].name[0] ? pts[t].name : (t ? "?" : "main"), (void *)bigLr);
+    if (w > 0 && w < n - 120) w += snprintf(b + w, n - w, " | last take thread %08x | last WAIT: waiter thread %08x, holder was thread %08x taken from %08x (%u waits);", bigThr, cMe, cThr, cLr, cCnt);
     for (int i = 1; i <= MAXT && w > 0 && w < n - 40; i++) if (pts[i].used) w += snprintf(b + w, n - w, " [%d %s%s]", i, pts[i].name, pts[i].started ? "" : " (not started)");
 }
 void sceKernelCpuResumeIntr(unsigned int f) { (void)f; RecursiveLock_Unlock(&big); }
