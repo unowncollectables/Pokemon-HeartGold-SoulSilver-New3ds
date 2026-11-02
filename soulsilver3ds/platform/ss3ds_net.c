@@ -280,9 +280,11 @@ static void ghWork(void *arg)
                 if (send(fd, req, rl, 0) == rl) {
                     for (;;) {
                         struct pollfd pf = { fd, POLLIN, 0 };
-                        if (poll(&pf, 1, 6000) <= 0) break;
+                        int pr = poll(&pf, 1, 20000);
+                        if (pr <= 0) { NLOG("[GHTTP] no reply within 20 s (poll %d, errno %d), %d bytes so far", pr, errno, tot); break; }
                         int m = recv(fd, resp + tot, (int)sizeof resp - 1 - tot, 0);
-                        if (m <= 0) break;
+                        if (m < 0) NLOG("[GHTTP] recv error errno %d after %d bytes", errno, tot);
+                        if (m <= 0) { if (m == 0 && tot == 0) NLOG("[GHTTP] server closed the connection without a reply"); break; }
                         tot += m; if (tot >= (int)sizeof resp - 1) break;
                     }
                 }
