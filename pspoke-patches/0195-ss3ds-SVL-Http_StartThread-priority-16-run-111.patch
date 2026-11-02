@@ -1,0 +1,37 @@
+From ad55a189a0aadad2f115a56bc41907ee682822de Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 08:40:06 -0500
+Subject: [PATCH] ss3ds: SVL Http_StartThread priority 16 (run 111 / 0195)
+
+DWC_Svl_GetTokenAsync used Nitro OS priority 0x69-1=104; OS_CreateThreadReal
+aborts on priority>31. Mystery Gift NdInit/SVL hit that after the NAS cal fill.
+---
+ port/native-probe/compile-network.py | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/port/native-probe/compile-network.py b/port/native-probe/compile-network.py
+index 82e6095..a11aad7 100644
+--- a/port/native-probe/compile-network.py
++++ b/port/native-probe/compile-network.py
+@@ -138,6 +138,18 @@ if 'ss3ds 0193' not in _nd_src:
+         sys.exit('ss3ds 0193: expected empty SDK_PORT DWCi_NdCancelAsync not found exactly once')
+     _nd_src = _nd_src.replace(_nd_oldc, _nd_newc, 1)
+     _nd_path.write_text(_nd_src)
++# ss3ds 0195: DWC_Svl_GetTokenAsync hardcodes Nitro OS priority 0x69 then StartThread(0x68).
++# OS_CreateThreadReal aborts when priority>31 (run 110: abort() from 0x16bf58 right after
++# [LOGIN] NAS request during NdInit/SVL). Use 16 (same as NdInit's SVL wait thread / Auth).
++# CLEAN network rebuild. Idempotent.
++_svl_path = b / 'libntrdwc/libraries/auth/src/dwc_svl.c'
++_svl_src = _svl_path.read_text()
++if 'ss3ds 0195' not in _svl_src:
++    _svl_old = '          //TODO: Get the proper thread priority.\n          iVar1 = 0x69;\n          DWC_Http_StartThread(&intwork->http, iVar1 + -1);'
++    _svl_new = '          /* ss3ds 0195: Nitro used 0x69; CreateThreadReal only allows 0..31 */\n          iVar1 = 16;\n          DWC_Http_StartThread(&intwork->http, iVar1);'
++    if _svl_src.count(_svl_old) != 1:
++        sys.exit('ss3ds 0195: expected dwc_svl.c StartThread priority 0x69 text not found exactly once')
++    _svl_path.write_text(_svl_src.replace(_svl_old, _svl_new, 1))
+ def comp(p):
+  name=str(p.relative_to(b)).replace('/','__');f=flags+['-I'+str(p.parent),'-I'+str(p.parent.parent/'include'),'-I'+str(p.parent.parent),'-include','pspkernel.h']
+  if p.name=='network.c':f+=['-include','sys/socket.h','-include','netinet/in.h','-include','arpa/inet.h']
+-- 
+2.47.3
+

@@ -143,6 +143,9 @@ typedef struct {
 extern SS3DS_DWCHttpParam DWCauthhttpparam;
 extern void *DWC_Alloc(int name, unsigned int size);
 extern void DWC_Free(int name, void *ptr, unsigned int size);
+extern void DWC_Auth_SetCustomNas(const char *url);
+/* Set by NdInit so the shared SetCalInfoToHttp wrap can force IPKE for MG SVL only. */
+int gSS_MG_NdSvlActive;
 
 static void ss3ds_mg_ensure_http_alloc(void)
 {
@@ -151,6 +154,23 @@ static void ss3ds_mg_ensure_http_alloc(void)
         DWCauthhttpparam.free = (SS3DS_DWCAuthFree)DWC_Free;
         PSPNativeMemLog("[SS-MG] DWCauthhttpparam.alloc/free set (NAS login skipped)");
     }
+    /* Auth_Create sets ignoreca when the NAS URL is not the stock https:// one. Login was
+       skipped so do the same here once SetCustomNas pointed us at plain http://. */
+    if (DWCauthhttpparam.ignoreca == 0)
+        DWCauthhttpparam.ignoreca = 1;
+}
+
+/* run 111: SVL used Nitro priority 0x68; CreateThreadReal aborts if prio>31. Clamp here so
+   MG works even before a CLEAN network rebuild picks up pspoke-patch 0195. GTS Auth calls
+   StartThread with prio 0, so this wrap is a no-op on the GTS path. */
+extern void __real_DWC_Http_StartThread(void *http, unsigned prio);
+void __wrap_DWC_Http_StartThread(void *http, unsigned prio)
+{
+    if (prio > 31u) {
+        PSPNativeMemLog("[SS-MG] Http_StartThread prio %u clamped to 16 (OS max 31)", prio);
+        prio = 16u;
+    }
+    __real_DWC_Http_StartThread(http, prio);
 }
 
 unsigned int ov00_021ED1F0(SS3DS_NdCallback cb, char *gamecd, char *passwd)
@@ -160,8 +180,12 @@ unsigned int ov00_021ED1F0(SS3DS_NdCallback cb, char *gamecd, char *passwd)
     /* Keep s_alloc registered for DWCi_NdAlloc/DWC_AllocEx; ConnectInet already did
        this, but re-set here so the Nd path does not depend on GTS-shared EC294. */
     DWC_SetMemFunc(ss3ds_dwc_alloc, ss3ds_dwc_free);
+    /* LoginStart (which calls SetCustomNas) was skipped when userdata was null; SVL still
+       posts SVCLOC through DWCauthhttpparam and needs the plain-http revival NAS URL. */
+    DWC_Auth_SetCustomNas("http://nas.nintendowifi.net/ac");
+    gSS_MG_NdSvlActive = 1;
     ss3ds_mg_ensure_http_alloc();
-    PSPNativeMemLog("[SS-MG] NdInitAsync gamecd=%s (in=%s) passwd=%s",
+    PSPNativeMemLog("[SS-MG] NdInitAsync gamecd=%s (in=%s) passwd=%s (NAS http + SVL)",
                     gc ? gc : "(null)", gamecd ? gamecd : "(null)", passwd ? passwd : "(null)");
     r = DWC_NdInitAsync(cb, gc, passwd);
     PSPNativeMemLog("[SS-MG] NdInitAsync -> %d", r);
@@ -169,6 +193,7 @@ unsigned int ov00_021ED1F0(SS3DS_NdCallback cb, char *gamecd, char *passwd)
 }
 unsigned int ov00_021ED308(SS3DS_NdCleanupCallback cb)
 {
+    gSS_MG_NdSvlActive = 0;
     int r = DWC_NdCleanupAsync(cb);
     PSPNativeMemLog("[SS-MG] NdCleanupAsync -> %d", r);
     return (unsigned)r;

@@ -695,6 +695,7 @@ unsigned int CPS_TcpClose(void) { cpsClose(); return 0; }
  * port, so Wiimmfi refused the login (error #23934, "Invalid login parameter", empty gamecd=/makercd=). Fill them from the ROM file's header
  * (read only) right before the request is built. cal layout (DWCCalInfo): gamecd[5] at +0x15, makercd[3] at +0x1a. */
 extern void __real_DWC_Auth_SetCalInfoToHttp(void *aHttp, char *cal, int withSsid);
+extern int gSS_MG_NdSvlActive;
 void __wrap_DWC_Auth_SetCalInfoToHttp(void *aHttp, char *cal, int withSsid)
 {
     if (cal && cal[0x15] == 0) {
@@ -705,6 +706,15 @@ void __wrap_DWC_Auth_SetCalInfoToHttp(void *aHttp, char *cal, int withSsid)
             NLOG("[LOGIN] NAS request: game code %.4s, maker code %.2s from the ROM header", cal + 0x15, cal + 0x1a);
         } else NLOG("[LOGIN] NAS request: could not read the ROM header for the game code");
         if (f) fclose(f);
+    }
+    /* MG Nd/SVL only (gSS_MG_NdSvlActive): NdInit rewrites the download gamecd to IPKE
+       (SoulSilver). If the ROM header is IPGE (HeartGold dump), force IPKE so the SVCLOC
+       token matches the Nd password/gamecd. GTS never sets the flag. */
+    if (cal && gSS_MG_NdSvlActive) {
+        if (cal[0x15] != 'I' || cal[0x16] != 'P' || cal[0x17] != 'K' || cal[0x18] != 'E') {
+            cal[0x15] = 'I'; cal[0x16] = 'P'; cal[0x17] = 'K'; cal[0x18] = 'E'; cal[0x19] = 0;
+            NLOG("[SS-MG] NAS cal gamecd forced IPKE for Nd/SVL");
+        }
     }
     __real_DWC_Auth_SetCalInfoToHttp(aHttp, cal, withSsid);
 }
