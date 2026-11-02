@@ -1,5 +1,5 @@
 /* ss3ds: one version string for the log header, the settings app and the HOME Menu title. Bump on each delivered build. */
 #ifndef SS3DS_VERSION_H
 #define SS3DS_VERSION_H
-#define SS3DS_VERSION "run 89: GTS login on 3DS sockets"
+#define SS3DS_VERSION "run 90: GTS login, socket call trace"
 #endif

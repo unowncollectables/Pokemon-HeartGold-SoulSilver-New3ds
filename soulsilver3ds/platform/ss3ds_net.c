@@ -13,6 +13,7 @@
  *      __wrap_DWC_CheckValidConsole / __wrap_DWC_Auth_GetId (link wraps, soulsilver3ds/full/Makefile).
  * 5. the cheat gate: online mode is refused while any cheat_* option is on (no sockets, no identity, no traffic).
  * Nothing here touches the save. Log tag [NET]; every step is flushed to the SD card at once. */
+#include <stdarg.h>
 #include <3ds.h>
 #include <stdlib.h>
 #include <string.h>
@@ -494,6 +495,17 @@ static void fromBsd(const struct sockaddr_in *b, SS3DSSockAddrIn *a)
     a->len = 8; a->family = 2; a->port = b->sin_port; a->addr = b->sin_addr.s_addr;
 }
 
+static void soctr(const char *fmt, ...)
+{
+    static int n; char b[160]; va_list ap;
+    if (n >= 60) return;
+    n++;
+    va_start(ap, fmt); vsnprintf(b, sizeof b, fmt, ap); va_end(ap);
+    NLOG("[SOCT] %s", b);
+    { extern void P3DS_LogRequestSync(void); P3DS_LogRequestSync(); }
+    svcSleepThread(150000000LL); /* let the log writer commit it: run 89 died without a crash report, so the last call matters */
+}
+
 int SOC_Socket(int pf, int type, int protocol)
 {
     (void)pf; (void)protocol;
@@ -502,10 +514,11 @@ int SOC_Socket(int pf, int type, int protocol)
     static int n; if (n++ < 6) NLOG("[SOC] socket(%s) -> %d", type == 2 ? "udp" : "tcp", fd);
     return fd < 0 ? socErr() : fd;
 }
-int SOC_Bind(int s, const void *sa) { struct sockaddr_in b; toBsd(sa, &b); return bind(s, (struct sockaddr *)&b, sizeof b) < 0 ? socErr() : 0; }
+int SOC_Bind(int s, const void *sa) { soctr("bind %d", s); struct sockaddr_in b; toBsd(sa, &b); return bind(s, (struct sockaddr *)&b, sizeof b) < 0 ? socErr() : 0; }
 int SOC_Connect(int s, const void *sa)
 {
     struct sockaddr_in b; toBsd(sa, &b);
+    soctr("connect %d", s);
     int r = connect(s, (struct sockaddr *)&b, sizeof b);
     int e = r < 0 ? socErr() : 0;
     static int n; if (n++ < 8) NLOG("[SOC] connect(%d, %s:%u) -> %d", s, inet_ntoa(b.sin_addr), (unsigned)ntohs(b.sin_port), e);
@@ -520,10 +533,10 @@ int SOC_Accept(int s, void *sa)
     if (sa) fromBsd(&b, sa);
     return fd;
 }
-int SOC_Read(int s, void *buf, int len) { int r = read(s, buf, len); return r < 0 ? socErr() : r; }
-int SOC_Recv(int s, void *buf, int len, int flags) { (void)flags; int r = recv(s, buf, len, 0); return r < 0 ? socErr() : r; }
+int SOC_Read(int s, void *buf, int len) { soctr("read %d len %d", s, len); int r = read(s, buf, len); return r < 0 ? socErr() : r; }
+int SOC_Recv(int s, void *buf, int len, int flags) { soctr("recv %d len %d", s, len); (void)flags; int r = recv(s, buf, len, 0); return r < 0 ? socErr() : r; }
 int SOC_RecvFrom(int s, void *buf, int len, int flags, void *sa)
-{
+{ soctr("recvfrom %d len %d", s, len);
     struct sockaddr_in b; socklen_t l = sizeof b; (void)flags;
     memset(&b, 0, sizeof b);
     int r = recvfrom(s, buf, len, 0, (struct sockaddr *)&b, &l);
@@ -531,17 +544,17 @@ int SOC_RecvFrom(int s, void *buf, int len, int flags, void *sa)
     if (sa) fromBsd(&b, sa);
     return r;
 }
-int SOC_Write(int s, const void *buf, int len) { int r = write(s, buf, len); return r < 0 ? socErr() : r; }
-int SOC_Send(int s, const void *buf, int len, int flags) { (void)flags; int r = send(s, buf, len, 0); return r < 0 ? socErr() : r; }
+int SOC_Write(int s, const void *buf, int len) { soctr("write %d len %d", s, len); int r = write(s, buf, len); return r < 0 ? socErr() : r; }
+int SOC_Send(int s, const void *buf, int len, int flags) { soctr("send %d len %d", s, len); (void)flags; int r = send(s, buf, len, 0); return r < 0 ? socErr() : r; }
 int SOC_SendTo(int s, const void *buf, int len, int flags, const void *sa)
-{
+{ soctr("sendto %d len %d %s", s, len, sa ? "addr" : "noaddr");
     struct sockaddr_in b; (void)flags;
     int r;
     if (sa) { toBsd(sa, &b); r = sendto(s, buf, len, 0, (struct sockaddr *)&b, sizeof b); }
     else r = send(s, buf, len, 0);
     return r < 0 ? socErr() : r;
 }
-int SOC_Close(int s) { return close(s) < 0 ? socErr() : 0; }
+int SOC_Close(int s) { soctr("close %d", s); return close(s) < 0 ? socErr() : 0; }
 int SOC_Shutdown(int s, int how) { return shutdown(s, how) < 0 ? socErr() : 0; }
 int SOC_GetSockName(int s, void *sa)
 {
@@ -553,7 +566,7 @@ int SOC_GetSockName(int s, void *sa)
 }
 long SOC_GetHostID(void) { return (long)gethostid(); }
 int SOC_Fcntl(int s, int cmd, int mode)
-{
+{ soctr("fcntl %d cmd %d mode %d", s, cmd, mode);
     int fl = fcntl(s, F_GETFL, 0);
     if (fl < 0) return socErr();
     if (cmd == 3) return (fl & O_NONBLOCK) ? 0x04 : 0;           /* SOC_F_GETFL -> SOC_O_NONBLOCK bit */
@@ -561,7 +574,7 @@ int SOC_Fcntl(int s, int cmd, int mode)
     return -28;
 }
 int SOC_Poll(SS3DSPollFD fds[], unsigned nfds, long long timeout)
-{
+{ soctr("poll n=%u t=%lld", nfds, timeout);
     struct pollfd p[8]; unsigned i;
     if (nfds > 8) nfds = 8;
     for (i = 0; i < nfds; i++) {
