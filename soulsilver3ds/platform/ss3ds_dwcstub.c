@@ -28,7 +28,7 @@ unsigned int ov00_021EC11C(int *errorCode, int *errorType) { return (unsigned)DW
    already set, and re-initialises after DWC_CleanupInet cleared it, so a second GTS visit works too. 512 bytes is far larger
    than DWCInetControl, which only holds a few state fields. */
 extern void DWC_InitInet(void *inetCntl);
-static unsigned char s_ss3ds_inet[512] __attribute__((aligned(32)));
+static unsigned char s_ss3ds_inet[16384] __attribute__((aligned(32)));
 /* ss3ds run 72: run 71 got past -50199 and crashed in DWC_Alloc (pc=0): libntrdwc's DWC_MEMFUNC calls its registered allocator
    s_alloc(name, size, align) / s_free(name, ptr, size), and the game's DWC_SetMemFunc call is one of the stubs, so s_alloc was NULL.
    Register a malloc-backed pair here (before the first DWC_Alloc, which DWC_AC_Create makes). DWC_AllocEx adds a 32-byte header and
