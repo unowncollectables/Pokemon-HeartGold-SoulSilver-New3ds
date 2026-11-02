@@ -783,3 +783,25 @@ void MD5Digest(unsigned char *input, unsigned int len, char output[33])
         NLOG("[LOGIN] MD5 self-test: %s", !strcmp(t, "900150983cd24fb0d6963f7d28e17f72") ? "ok" : "FAILED");
     }
 }
+
+/* ---- run 99: use the real GameSpy profile id in the GTS ------------------------------------------------------------------------
+ * Run 98: the login worked (profile id 603803353) but every GTS request still said pid=-1. The game keeps the id in SysInfo
+ * (Save_SysInfo_GetDwcProfileId); earlier test runs stored -1 there, Save_SysInfo_SetDwcProfileId only writes when the field is 0, and
+ * the game reads the field instead of asking DWC again. So: while this run's login succeeded, a stored 0 or -1 reads as the real id,
+ * and a -1 that is about to be stored becomes the real id. Never touches the save except through the game's own setter. */
+extern int __real_Save_SysInfo_GetDwcProfileId(void *sysInfo);
+extern void __real_Save_SysInfo_SetDwcProfileId(void *sysInfo, int profileId);
+int __wrap_Save_SysInfo_GetDwcProfileId(void *sysInfo)
+{
+    int v = __real_Save_SysInfo_GetDwcProfileId(sysInfo);
+    if ((v == -1 || v == 0) && sLoginDone == 2 && sLoginPid > 0) {
+        static int told; if (!told) { told = 1; NLOG("[LOGIN] GTS profile id: save held %d, using the login's %d", v, sLoginPid); }
+        return sLoginPid;
+    }
+    return v;
+}
+void __wrap_Save_SysInfo_SetDwcProfileId(void *sysInfo, int profileId)
+{
+    if (profileId == -1 && sLoginDone == 2 && sLoginPid > 0) { NLOG("[LOGIN] storing the login's profile id %d instead of -1", sLoginPid); profileId = sLoginPid; }
+    __real_Save_SysInfo_SetDwcProfileId(sysInfo, profileId);
+}
