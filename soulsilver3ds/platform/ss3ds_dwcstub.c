@@ -59,10 +59,11 @@ unsigned int ov00_021FA0D8(void) { if (s_ss3ds_ghttp_ref > 0) s_ss3ds_ghttp_ref-
 /* DWC_Alloc(name,size) / DWC_Free(name,ptr,size): the game calls these directly after the netcheck; a NULL from the stub made it hang. */
 void *ov00_021EC2A8(int name, unsigned int size) { static int n = 0; void *p; (void)name; p = memalign(32, size ? size : 1); if (n++ < 4) PSPNativeMemLog("[COMM] DWC_Alloc(%u) -> %p (#%d)", size, p, n); return p; }
 void ov00_021EC2EC(int name, void *ptr, unsigned int size) { (void)name; (void)size; free(ptr); }
-/* ghttp wrappers (GTS auth challenge). No real HTTP yet: fail cleanly so the game's state machine goes idle/error instead of waiting forever for a callback that never comes.
-   FA21C(url,cb,ud) -> request id, or -5 on failure; FA118() -> 0 means error state. */
-int ov00_021FA21C(const char *url, void *cb, void *ud) { static int n = 0; (void)cb; (void)ud; if (n++ < 4) PSPNativeMemLog("[COMM] ghttp GET %s -> -5 (no HTTP yet, clean failure) (#%d)", url ? url : "(null)", n); return -5; }
-unsigned int ov00_021FA118(void) { return 0; }
+/* ghttp wrappers (GTS login): real HTTP GET in ss3ds_net.c (P3DS_GhttpStart/Think). FA21C(url,cb,ud) -> request id or -5; FA118() -> 0 means DWC error. */
+extern int P3DS_GhttpStart(const char *url, void *cb, void *ud);
+extern int P3DS_GhttpThink(void);
+int ov00_021FA21C(const char *url, void *cb, void *ud) { return P3DS_GhttpStart(url, cb, ud); }
+unsigned int ov00_021FA118(void) { return (unsigned int)P3DS_GhttpThink(); }
 unsigned int ov00_021ECDC8(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck poll (ss3ds) -> 3 = ok (#%d)", n); return 3; }
 
 /* overlay 0 and overlay 45 Wi-Fi glue (ARM asm in lib/NitroDWC, plus overlay 45 Thumb pointer-table targets) */
