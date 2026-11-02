@@ -263,3 +263,18 @@ With Wireless = ONLINE the port adopts the user id already stored in the save (r
 With ONLINE on, the connection task now runs and the game loads overlay 70 (the online app), stopping at `[SS-MISSING] ov70_02238430`. Patch 0164 seeds that app's entry points and `overlay_70.s` into the maploader translator. The translator then reports what else it needs (DWC/overlay 38 pieces), handled in follow-up patches. Not yet compiled: needs a translator run on the PC.
 
 Build follow-ups: 0165 binds variadic sprintf in the translator; 0168 fixes the main 3ee693f link (14 names added to native-provided.json: LoadDwcOverlay, LoadOVY38, UnloadDwcOverlay, UnloadOVY38, sub_0202DB54..DBA0 and the ov00_021E6A70 trap; 12 overlay 0 helpers ov00_021EC0FC/EC2A8/EC2EC/EC9E0/ECB94/ECD04/ECDC8/FA0B4/FA0D8/FA118/FA21C/FFC18 seeded). Not compiled in the cloud; the next builder log shows whether more names surface.
+
+## Mystery Gift over Nintendo WFC (run 106)
+
+The game’s own Mystery Gift → **Receive gift** → **Get via Nintendo WFC** path (overlay 74 → `ov74_02236AE0`) now calls libntrdwc’s `DWC_Nd*` download API through the same ONLINE stack as the GTS (3DS sockets, community DNS, NAS login during netcheck).
+
+**To try a gift on hardware**
+
+1. Settings → Play → **Wireless = ONLINE** (`wireless=2`). Turn **off** every cheat option (online mode refuses cheats).
+2. DNS is already the community resolver by default (`wifi_dns=178.62.43.212`, same as GTS / Poké Classic Network + Wiimmfi). Override only if you use another revival DNS.
+3. Title screen → **Mystery Gift** → Receive gift → **Get via Nintendo WFC** (not the local “DS Wireless Communications” option).
+4. Watch `log.txt` for `[SS-MG]` lines: `NdInitAsync` → `NdSetAttr` → `NdGetFileListNumAsync` → `NdGetFileListAsync` → `NdGetFileAsync` / `NdGetProgress`. A successful download is written by the game’s own MG save path (never edit the `.sav`).
+5. After a gift lands, pick it up from the Poké Mart deliveryman in-game.
+
+**Not this path:** local wireless Mystery Gift (friend / distribution) still searches forever without a real DS parent — that is the absent-WM case described above, separate from WFC download.
+

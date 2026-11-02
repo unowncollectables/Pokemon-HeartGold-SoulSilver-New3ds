@@ -95,11 +95,119 @@ unsigned int ov00_021ECDC8(void) { static int n = 0; int r = P3DS_LoginPoll(); i
    calls ClearError every frame in its error loop, so uncapped logging spams the log). */
 extern void DWC_ClearError(void);
 unsigned int ov00_021EC210(void) { int code = 0, type = 0; int err = DWC_GetLastErrorEx(&code, &type); static int n = 0, lastErr = -1, lastCode = 0, lastType = 0; if (n++ < 8 || err != lastErr || code != lastCode || type != lastType) { PSPNativeMemLog("[COMM] DWC ClearError: last error %d code %d type %d", err, code, type); lastErr = err; lastCode = code; lastType = type; } DWC_ClearError(); return 0; }
+
+/* ss3ds 0193: Mystery Gift WFC download (ov74_02236AE0). Overlay 0 ARM trampolines that
+   the maploader cannot translate — map them onto libntrdwc's DWC_Nd* (already in
+   libnetwork-probe.a) the same way GTS mapped ConnectInet/CheckInet/ghttp. Requires
+   Settings > Play > Wireless = ONLINE (wireless=2). Local wireless MG receive is unchanged.
+   Gamecode: pokeheartgold overlay data has "IPGE" (HeartGold); this is SoulSilver so rewrite to IPKE. */
+typedef void (*SS3DS_NdCallback)(int reason, int error, int servererror);
+typedef void (*SS3DS_NdCleanupCallback)(void);
+extern int DWC_NdInitAsync(SS3DS_NdCallback cb, char *gamecd, char *passwd);
+extern int DWC_NdCleanupAsync(SS3DS_NdCleanupCallback cb);
+extern int DWC_NdSetAttr(const char *a, const char *b, const char *c);
+extern int DWC_NdGetFileListNumAsync(int *entrynum);
+extern int DWC_NdGetFileListAsync(void *filelist, unsigned offset, unsigned num);
+extern int DWC_NdGetFileAsync(void *fileinfo, char *buf, unsigned size);
+extern int DWC_NdCancelAsync(void);
+extern int DWC_NdGetProgress(unsigned *received, unsigned *contentlen);
+extern int DWC_CleanupInetAsync(void);
+extern void DWC_NASLoginAbort(void);
+extern int DWC_UpdateConnection(void);
+
+static char *ss3ds_mg_gamecd(char *gamecd)
+{
+    static char ipke[] = "IPKE";
+    if (gamecd && gamecd[0] == 'I' && gamecd[1] == 'P' && gamecd[2] == 'G' && gamecd[3] == 'E')
+        return ipke;
+    return gamecd;
+}
+
+unsigned int ov00_021ED1F0(SS3DS_NdCallback cb, char *gamecd, char *passwd)
+{
+    char *gc = ss3ds_mg_gamecd(gamecd);
+    int r;
+    PSPNativeMemLog("[SS-MG] NdInitAsync gamecd=%s (in=%s) passwd=%s",
+                    gc ? gc : "(null)", gamecd ? gamecd : "(null)", passwd ? passwd : "(null)");
+    r = DWC_NdInitAsync(cb, gc, passwd);
+    PSPNativeMemLog("[SS-MG] NdInitAsync -> %d", r);
+    return (unsigned)r;
+}
+unsigned int ov00_021ED308(SS3DS_NdCleanupCallback cb)
+{
+    int r = DWC_NdCleanupAsync(cb);
+    PSPNativeMemLog("[SS-MG] NdCleanupAsync -> %d", r);
+    return (unsigned)r;
+}
+unsigned int ov00_021ED354(const char *a, const char *b, const char *c)
+{
+    int r = DWC_NdSetAttr(a ? a : "", b ? b : "", c ? c : "");
+    PSPNativeMemLog("[SS-MG] NdSetAttr -> %d", r);
+    return (unsigned)r;
+}
+unsigned int ov00_021ED388(int *entrynum)
+{
+    int r = DWC_NdGetFileListNumAsync(entrynum);
+    PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d (num ptr %p)", r, (void *)entrynum);
+    return (unsigned)r;
+}
+unsigned int ov00_021ED3AC(void *filelist, unsigned offset, unsigned num)
+{
+    int r = DWC_NdGetFileListAsync(filelist, offset, num);
+    PSPNativeMemLog("[SS-MG] NdGetFileListAsync off=%u num=%u -> %d", offset, num, r);
+    return (unsigned)r;
+}
+unsigned int ov00_021ED3F4(void *fileinfo, char *buf, unsigned size)
+{
+    int r = DWC_NdGetFileAsync(fileinfo, buf, size);
+    PSPNativeMemLog("[SS-MG] NdGetFileAsync size=%u -> %d", size, r);
+    return (unsigned)r;
+}
+unsigned int ov00_021ED444(unsigned *received, unsigned *contentlen)
+{
+    int r = DWC_NdGetProgress(received, contentlen);
+    static int n;
+    if (n++ < 8 || (received && contentlen && n % 30 == 0))
+        PSPNativeMemLog("[SS-MG] NdGetProgress -> %d recv=%u len=%u (#%d)", r,
+                        received ? *received : 0u, contentlen ? *contentlen : 0u, n);
+    return (unsigned)r;
+}
+unsigned int ov00_021ED428(void)
+{
+    int r = DWC_NdCancelAsync();
+    PSPNativeMemLog("[SS-MG] NdCancelAsync -> %d", r);
+    return (unsigned)r;
+}
+unsigned int ov00_021ECEC0(void)
+{
+    /* B during netcheck: abort NAS/login wait (Platinum: DWC_NASLoginAbort). */
+    PSPNativeMemLog("[SS-MG] netcheck abort (NASLoginAbort)");
+    DWC_NASLoginAbort();
+    return 0;
+}
+unsigned int ov00_021EC938(void)
+{
+    int r = DWC_CleanupInetAsync();
+    static int n, last = -99;
+    if (n++ < 8 || r != last) {
+        PSPNativeMemLog("[SS-MG] CleanupInetAsync -> %d (#%d)", r, n);
+        last = r;
+    }
+    return (unsigned)r;
+}
+/* Per-frame connection keep-alive while MG (and GTS) hold the inet session: ProcessInet + UpdateConnection.
+   Returns 1 when the connection dropped (ov74 error path). Replaces the 0-returning DWC_STUB. */
+unsigned int ov00_021ECB40(void)
+{
+    DWC_ProcessInet();
+    return (unsigned)DWC_UpdateConnection();
+}
+
 DWC_STUB(ov00_021EC294)
 DWC_STUB(ov00_021EC3F0)
 DWC_STUB(ov00_021EC8D8)
 DWC_STUB(ov00_021EC9D4)
-DWC_STUB(ov00_021ECB40)
+/* ov00_021ECB40: real keep-alive above (ss3ds 0193) */
 DWC_STUB(ov00_021ED730)
 DWC_STUB(ov00_021ED9B4)
 DWC_STUB(ov00_021EDD6C)

@@ -17,9 +17,11 @@
 - 0188: CRYPTO_SetAllocator (no-op) and CRYPTO_VerifySignature (returns TRUE) done natively; ParseSignHash and the BN_* RSA code are ARM and failed with 'unsupported stack layout'.
 - 0189: native SVC_GetCRC16 + CRYPTO_RC4Init in missing.c; ov00_* wifi calls from ov74_02236AE0 stubbed with Missing() (download path, needs real DWC later).
 
+- 0193 (Grok): Mystery Gift WFC download — drop Missing() on 10 ov00 Nd/inet trampolines; real DWC_Nd* + CleanupInetAsync + NASLoginAbort in ss3ds_dwcstub.c; plain HTTP DLS URL + NdCancel fill in compile-network.py; IPGE→IPKE. Need ONLINE.
 - 0192 (Grok): Mystery Gift cursor diagnostic — native ov74_02235FF8 + [SS-MG-CURSOR] logs in ListMenuUpdateCursorObj (MG-gated via gSS_MG_CursorDiag). No behavior change beyond PlaySE still firing on move.
 
 ## Run log (Grok Bot)
+- Run 106 (patch 0193): Mystery Gift Wi-Fi download path wired to libntrdwc DWC_Nd* (same ONLINE stack as GTS). ov00_021ED1F0/ED354/ED388/ED3AC/ED3F4/ED444/ED428/ED308/ECEC0/EC938 no longer Missing(); [SS-MG] logs each stage. DLS URL forced to http://; SoulSilver gamecode IPKE. Test: Settings > Play > Wireless = ONLINE, no cheats, Mystery Gift > Receive > Nintendo WFC. Local wireless MG search still hangs (documented). Leftover: confirm SVL/Nd HTTP against the revival DLS host on hardware; NASLogin vs FriendsMatch if NdInit fails after netcheck.
 - Run 102 (Claude): quit save before thread teardown. Device log: Mystery Gift opened, then crashed in native_ov74_0222AB70 (DS BG palette 0x05000000 built as mov #5; lsl #24, unmapped on 3DS).
 - Run 103 (patches 0187-0190): Mystery Gift builds (native RC4/CRC16/signature, ov00 wifi stubs) + maploader maps mov #5-7/lsl #24 DS palette/VRAM/OAM bases to the backing arrays.
 - Run 104 (patch 0191): same fix limited to ov74_* functions so nothing outside Mystery Gift changes.
