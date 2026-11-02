@@ -51,7 +51,8 @@ unsigned int ov00_021EC724(void) { int r = DWC_GetInetStatus(); static int last 
    - ov00_021ECDC8 = its per-frame poll: 1/2 still running, 3 = success (the flow then goes on to the profile and login steps),
      0/4/5 = failure. The 3DS already proved it is online (soc + a successful AC connect), so report success (3) at once. */
 unsigned int ov00_021EC9E0(unsigned char *apInfo) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC GetApInfo (ss3ds) -> 1 (#%d)", n); if (apInfo) { int i; for (i = 0; i < 0x3C; i++) apInfo[i] = 0; *(int *)(apInfo + 4) = 0xFF; } return 1; }
-unsigned int ov00_021ECD04(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck start (ss3ds) -> 1 (#%d)", n); return 1; }
+extern void P3DS_LoginStart(void); extern int P3DS_LoginPoll(void);
+unsigned int ov00_021ECD04(void) { static int n = 0; P3DS_LoginStart(); if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck start (ss3ds) -> 1 (#%d)", n); return 1; }
 /* GHTTP init/release refcount (ov00_021FA0B4 / ov00_021FA0D8); both return 1, callers ignore it. Real GHTTP is not used yet. */
 static int s_ss3ds_ghttp_ref = 0;
 unsigned int ov00_021FA0B4(void) { s_ss3ds_ghttp_ref++; return 1; }
@@ -84,7 +85,7 @@ unsigned int ov00_021FFC18(const unsigned char *src, char *dst, int srclen, int 
     dst[o] = 0;
     return (unsigned)o;
 }
-unsigned int ov00_021ECDC8(void) { static int n = 0; if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck poll (ss3ds) -> 3 = ok (#%d)", n); return 3; }
+unsigned int ov00_021ECDC8(void) { static int n = 0; int r = P3DS_LoginPoll(); if (n++ < 2) PSPNativeMemLog("[COMM] DWC netcheck poll (ss3ds) -> %d (login-driven) (#%d)", r, n); return (unsigned)r; }
 
 /* overlay 0 and overlay 45 Wi-Fi glue (ARM asm in lib/NitroDWC, plus overlay 45 Thumb pointer-table targets) */
 /* GTS error capture (0177 follow-up): ClearError used to be a 0-returning stub, so the
