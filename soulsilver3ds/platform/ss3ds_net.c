@@ -805,3 +805,15 @@ void __wrap_Save_SysInfo_SetDwcProfileId(void *sysInfo, int profileId)
     if (profileId == -1 && sLoginDone == 2 && sLoginPid > 0) { NLOG("[LOGIN] storing the login's profile id %d instead of -1", sLoginPid); profileId = sLoginPid; }
     __real_Save_SysInfo_SetDwcProfileId(sysInfo, profileId);
 }
+
+/* ---- run 101: say which GTS state machine ends in the comm-error screen -------------------------------------------------------------
+ * Run 100 log: after a finished deposit the game froze on its comm-error screen (error 4 = the ov70 state machines' 3600-frame wait
+ * timeout, then a hard spin). The callers are lifted functions; the return address tells which one and the code says why it waited. */
+extern void __real_ShowCommunicationError(unsigned heapID, unsigned error, unsigned errorCode);
+void __wrap_ShowCommunicationError(unsigned heapID, unsigned error, unsigned errorCode)
+{
+    extern int DWC_GetLastError(int *code); int dcode = 0, derr = DWC_GetLastError(&dcode);
+    NLOG("[COMM] ShowCommunicationError(heap %u, error %u, code %u) called from %p; DWC last error %d code %d; login %d pid %d",
+         heapID, error, errorCode, __builtin_return_address(0), derr, dcode, sLoginDone, sLoginPid);
+    __real_ShowCommunicationError(heapID, error, errorCode);
+}
