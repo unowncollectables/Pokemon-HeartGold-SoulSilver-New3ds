@@ -1,0 +1,38 @@
+From 70f34d78629cfdd87271f797b56102de7b27353a Mon Sep 17 00:00:00 2001
+From: platinum3ds <local@box>
+Date: Mon, 2 Nov 2026 02:09:27 -0500
+Subject: [PATCH] native CRYPTO_SetAllocator/VerifySignature (ARM RSA code the
+ maploader can't translate)
+
+---
+ port/soulsilver-native-core/nitromain-perf/missing.c       | 3 +++
+ port/soulsilver-native-play/maploader/native-provided.json | 2 ++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index 3e7cb1f..e534601 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -709,3 +709,6 @@ __attribute__((noreturn)) void sub_02096BF8(void){Missing("sub_02096BF8");}
+ __attribute__((noreturn)) void sub_02096C40(void){Missing("sub_02096C40");}
+ /* NitroSDK CRYPTO_RC4Encrypt (ARM in the ROM, which the Thumb translator can't take). Context: i@0, j@1, S[256]@4. */
+ void CRYPTO_RC4Encrypt(void *ctx,const void *in,unsigned len,void *out){unsigned char *c=ctx,*s=c+4;const unsigned char *p=in;unsigned char *o=out;unsigned i=c[0],j=c[1];while(len--){i=(i+1)&0xff;unsigned char a=s[i];j=(j+a)&0xff;unsigned char b=s[j];s[i]=b;s[j]=a;*o++=*p++^s[(a+b)&0xff];}c[0]=i;c[1]=j;}
++/* NitroSDK RSA signature check (all ARM bignum code). Native: allocator is a no-op and gift signatures are accepted. */
++void CRYPTO_SetAllocator(void *a,void *f){(void)a;(void)f;}
++int CRYPTO_VerifySignature(const void *d,int len,const void *sig,const void *key){(void)d;(void)len;(void)sig;(void)key;return 1;}
+diff --git a/port/soulsilver-native-play/maploader/native-provided.json b/port/soulsilver-native-play/maploader/native-provided.json
+index 7384bf0..03e7209 100644
+--- a/port/soulsilver-native-play/maploader/native-provided.json
++++ b/port/soulsilver-native-play/maploader/native-provided.json
+@@ -5,6 +5,8 @@
+ "AreaDataManager_GetMapTexture",
+ "BeginNormalPaletteFade",
+ "CRYPTO_RC4Encrypt",
++"CRYPTO_SetAllocator",
++"CRYPTO_VerifySignature",
+ "CalcAngleBetweenVecs",
+ "ClearFrameAndWindow2",
+ "CreateFieldEscapeRopeTaskEnv",
+-- 
+2.47.3
+

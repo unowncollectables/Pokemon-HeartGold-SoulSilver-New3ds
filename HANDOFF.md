@@ -14,3 +14,4 @@
 - 0185 (Grok): seed Mystery Gift (overlay 74 / overlay_74_thumb.s); drop 58 ov74_ Missing() stubs so Init ov74_0222AE6C / Main / Exit are translated (mirror of 0164 Global Terminal).
 - 0186 (Grok): maploader translate2 accepts `$` in literal-pool symbols (nitrocrypto TEMPNAME__$p16 etc. pulled in by Mystery Gift RC4 after 0185).
 - 0187: CRYPTO_RC4Encrypt done natively in missing.c (it's an ARM routine, translator raised 'fallthrough without return'); added to native-provided.json.
+- 0188: CRYPTO_SetAllocator (no-op) and CRYPTO_VerifySignature (returns TRUE) done natively; ParseSignHash and the BN_* RSA code are ARM and failed with 'unsupported stack layout'.
