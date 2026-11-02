@@ -1,0 +1,42 @@
+From cbcb56b774536eacef585bb77466ae0f9cc0d102 Mon Sep 17 00:00:00 2001
+From: Grok <grok@localhost>
+Date: Mon, 2 Nov 2026 01:48:16 -0500
+Subject: [PATCH] ss3ds: accept '$' in maploader literal-pool symbol names
+
+Mystery Gift (0185) pulls nitrocrypto via CRYPTO_RC4*; its .word pools
+reference TEMPNAME__$p16 / TEMPNAME__$p4 / TEMPNAME__$p2 (and bits$7808).
+The translator's symbol regex rejected '$', aborting ss-maploader with
+unsupported literal expression: TEMPNAME__$p16.
+---
+ port/soulsilver-native-play/maploader/translate2.py | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/port/soulsilver-native-play/maploader/translate2.py b/port/soulsilver-native-play/maploader/translate2.py
+index 0261ff7..ad54ea5 100644
+--- a/port/soulsilver-native-play/maploader/translate2.py
++++ b/port/soulsilver-native-play/maploader/translate2.py
+@@ -184,17 +184,18 @@ def _prepare(name, body, relocs):  # noqa
+                     raise ValueError('possible fixed DS memory/MMIO literal ' + name + ' ' + expr)
+                 # 0x05F5E100 (100,000,000), odd values etc.: constants, not addresses.
+                 literals[label] = expr
+-            elif re.fullmatch(r'[A-Za-z_]\w*(?:\s*[+]\s*(?:0x[0-9a-fA-F]+|[0-9]+))?', expr):
++            # ss3ds: allow '$' in GAS labels (nitrocrypto TEMPNAME__$p16 / bits$7808; Mystery Gift RC4).
++            elif re.fullmatch(r'[A-Za-z_][\w$]*(?:\s*[+]\s*(?:0x[0-9a-fA-F]+|[0-9]+))?', expr):
+                 pieces = re.split(r'\s*[+]\s*', expr)
+                 symbol = relocs.get(pieces[0], pieces[0])
+                 externs.add(symbol)
+                 literals[label] = f'(uint32_t)(uintptr_t){symbol}' + (' + ' + pieces[1] if len(pieces) > 1 else '')
+-            elif re.fullmatch(r'[A-Za-z_]\w*\s*[+\-]\s*[\s0-9a-fA-FxX()+\-*/<>]+', expr) and re.fullmatch(
++            elif re.fullmatch(r'[A-Za-z_][\w$]*\s*[+\-]\s*[\s0-9a-fA-FxX()+\-*/<>]+', expr) and re.fullmatch(
+                     r'[\s()+\-*/<>]*(?:0x[0-9a-fA-F]+|[0-9]+)(?:[\s()+\-*/<>]+(?:0x[0-9a-fA-F]+|[0-9]+))*[\s()+\-*/<>]*',
+                     re.split(r'\s*[+\-]\s*', expr, 1)[1]):
+                 # Symbol plus constant arithmetic, e.g. `ov18_021F9DE4 + 7 * 8 + 2` (struct array
+                 # element address): evaluate the offset, keep the symbol relocatable.
+-                m_sym = re.match(r'([A-Za-z_]\w*)\s*([+\-])\s*(.*)$', expr, re.S)
++                m_sym = re.match(r'([A-Za-z_][\w$]*)\s*([+\-])\s*(.*)$', expr, re.S)
+                 off = eval(m_sym[3], {'__builtins__': {}}, {})
+                 if m_sym[2] == '-':
+                     off = -off
+-- 
+2.47.3
+
