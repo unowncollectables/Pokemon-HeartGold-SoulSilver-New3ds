@@ -364,6 +364,7 @@ int P3DS_TouchRead(int *x, int *y) {
     if (dx < 0 || dx > 255 || dy < 0 || dy > 191) return 0;
     { extern int P3DS_StripOn; if (P3DS_StripOn && dy >= 176 && dx >= 8 && dx < 208) { touchPrev = 1; return 0; } } /* run 78 bottom strip owns these taps */
     { extern volatile int P3DS_BmOn; if (P3DS_BmOn) { touchPrev = 1; return 0; } } /* ss3ds 0060: bottom-screen Start-menu tiles own the touch screen */
+    { extern volatile int P3DS_PanelPartyOn; if (P3DS_PanelPartyOn) { touchPrev = 1; return 0; } } /* run 120: party-in-panel uses D-pad/A/B; stylus would miss the scaled panel */
     *x = dx; *y = dy; touchPrev = 1; return 1;
 }
 /* Watchdog: if no game frame is presented for ~3 s after the game started, log the breadcrumb and show the

@@ -1,0 +1,97 @@
+From 51fd268b5ac3cf309525ead4389118d5a238df21 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 15:04:18 -0500
+Subject: [PATCH] ss3ds: hook 0201 party-in-panel gate for panel_party (run
+ 120)
+
+PartyMenuApp_Init honors P3DS_PanelPartyWant from the JOHTO PARTY tab;
+sets P3DS_PanelPartyOn for the compositor. Cleared on Exit. Off path unchanged.
+---
+ scripts/ss3ds_hooks.d/0201_panelparty.py | 63 ++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0201_panelparty.sh |  4 ++
+ 2 files changed, 67 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0201_panelparty.py
+ create mode 100755 scripts/ss3ds_hooks.d/0201_panelparty.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0201_panelparty.py b/scripts/ss3ds_hooks.d/0201_panelparty.py
+new file mode 100755
+index 0000000..61c0bf1
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0201_panelparty.py
+@@ -0,0 +1,63 @@
++#!/usr/bin/env python3
++"""ss3ds 0201: party-in-panel gate for run 120 (panel_party).
++When the platform sets P3DS_PanelPartyWant before StartReq Pokemon, PartyMenuApp_Init
++sets P3DS_PanelPartyOn so the compositor holds the field on top and draws this menu
++into the JOHTO left panel. Cleared on Exit. X-menu / side-tile Party leaves Want=0
++so behaviour stays full-screen. Idempotent ('SS3DS 0201'). ASCII only."""
++import sys
++
++p = 'src/party_menu.c'
++s = open(p).read()
++if 'SS3DS 0201' in s:
++    sys.exit(0)
++
++def once(old, new, label):
++    global s
++    if s.count(old) != 1:
++        sys.exit('0201_panelparty: %s anchor not found exactly once: %s' % (label, old[:80]))
++    s = s.replace(old, new)
++
++once(
++'''static BOOL PartyMenuApp_Init(OverlayManager *manager, int *pState) {
++    PartyMenu *partyMenu;
++    NARC *narc;
++
++    Main_SetVBlankIntrCB(NULL, NULL);
++''',
++'''static BOOL PartyMenuApp_Init(OverlayManager *manager, int *pState) {
++    PartyMenu *partyMenu;
++    NARC *narc;
++    { /* SS3DS 0201: panel_party */
++        extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn;
++        extern void PSPNativeMemLog(const char *, ...);
++        if (P3DS_PanelPartyWant) {
++            P3DS_PanelPartyWant = 0;
++            P3DS_PanelPartyOn = 1;
++            PSPNativeMemLog("[PANEL] party_menu Init: On=1 (in JOHTO panel)");
++        } else {
++            P3DS_PanelPartyOn = 0;
++        }
++    }
++
++    Main_SetVBlankIntrCB(NULL, NULL);
++''', 'init')
++
++once(
++'''static BOOL PartyMenuApp_Exit(OverlayManager *manager, int *pState) {
++    u32 i;
++    PartyMenu *partyMenu = (PartyMenu *)OverlayManager_GetData(manager);
++''',
++'''static BOOL PartyMenuApp_Exit(OverlayManager *manager, int *pState) {
++    u32 i;
++    PartyMenu *partyMenu = (PartyMenu *)OverlayManager_GetData(manager);
++    { /* SS3DS 0201 */
++        extern volatile int P3DS_PanelPartyOn, P3DS_PanelPartyWant;
++        extern void PSPNativeMemLog(const char *, ...);
++        if (P3DS_PanelPartyOn) PSPNativeMemLog("[PANEL] party_menu Exit: On=0");
++        P3DS_PanelPartyOn = 0;
++        P3DS_PanelPartyWant = 0;
++    }
++''', 'exit')
++
++open(p, 'w').write(s)
++print('0201_panelparty: party_menu.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0201_panelparty.sh b/scripts/ss3ds_hooks.d/0201_panelparty.sh
+new file mode 100755
+index 0000000..15656d5
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0201_panelparty.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0201: party-in-panel (run 120 panel_party). Not fatal: without it Want is ignored and Party stays full-screen.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0201_panelparty.py" && bash rebuild_game_object.sh src/party_menu.c party_menu.o none); then
++  log "ss3ds 0201 panel_party hook NOT applied (see message above); PARTY tab stays full-screen even with panel_party=1"
++fi
+-- 
+2.47.3
+

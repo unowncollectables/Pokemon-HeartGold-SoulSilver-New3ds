@@ -298,6 +298,8 @@ int P3DS_CfgSoftReset(void) { static int v = -1; if (v < 0) v = P3DS_CfgInt("sof
 volatile int P3DS_RunToggle;
 volatile int P3DS_TileOn, P3DS_TileCur = -1; volatile unsigned P3DS_TileKeys; extern volatile int P3DS_BmOn;
 volatile unsigned P3DS_InjectKeys; volatile int P3DS_InjectFrames; volatile int P3DS_StartReq = -1, P3DS_StartReqFound, P3DS_StartClose; volatile int P3DS_StartPrompt, P3DS_StartIdle; /* hook 0116 */
+/* run 120 panel_party: Want set by PARTY tab when panel_party=1; On set by party_menu Init (hook 0201), cleared on Exit */
+volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn;
 /* ss3ds 0060 bottom_menu: ticks while the game's Start menu task runs; bit n set = StartMenuAction n is in the menu (0xFFFF until it has been opened once) */
 volatile unsigned P3DS_StartMenuTick, P3DS_StartAvail = 0xFFFF;
 /* ss3ds 0080 mini map: written by the game thread once per player step (hook in field_control.c), read by the Bottom menu in render3ds.cpp */
