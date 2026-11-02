@@ -157,9 +157,7 @@ static unsigned reg16(unsigned off){return *(volatile u16*)(PSPNative_GfxRegiste
 static unsigned reg32(unsigned off){return *(volatile u32*)(PSPNative_GfxRegisters+off);}
 #include "../native-render-opt/bottom_cache.h"
 extern "C" { volatile unsigned P3DS_SceneGen; int P3DS_LandFast; }
-/* run 120: last JOHTO chrome frame for party-in-panel compose */
-static u32 *sJohtoChrome; static int sJohtoChromeOk;
-static void saveJohtoChrome(const u32 *b){if(!sJohtoChrome)sJohtoChrome=(u32*)malloc(256*192*4);if(sJohtoChrome){memcpy(sJohtoChrome,b,256*192*4);sJohtoChromeOk=1;}}
+/* run 121: dropped saveJohtoChrome (stale 256x192 snapshot with short DEX/PKMN alts; panel uses live ppChrome + bottom_hd) */
 /* ss3ds run 17: BLINV = bottomCache.valid=false + a generation bump, so the JOHTO/tiles overlay image (blCache) is redrawn only when something it shows changed */
 static unsigned blGen;static bool blSameFrame;
 #define BLINV (bottomCache.valid=false,blGen++)
@@ -1650,16 +1648,22 @@ static int Present(bool){
      if(rightPar)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dL.bmp",GPU3D::NativeFrame,true);if(t3R)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dR.bmp",t3R,true);}}}}
  /* POWCNT1 bit15: engine A on top screen. */
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
- /* run 120 panel_party: keep the last overworld top frame while the Pokemon menu is in the JOHTO panel */
- static u32 sFieldHold[256*192]; static int sFieldHoldOk;
- if(P3DS_InField&&(power&0x8000)&&display[0]){memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;}
- if(P3DS_PanelPartyOn&&P3DS_InField){P3DS_PanelPartyOn=0;P3DS_PanelPartyWant=0;PSPNativeMemLog("[PANEL] cleared On (back in the field)");}
+ /* run 121 panel_party: freeze the last clean overworld top when Want/On (do not capture fade-to-black);
+    snap the party framebuffer before JOHTO chrome paints over the same bot buffer. */
+ static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk;
+ if(!(P3DS_PanelPartyWant||P3DS_PanelPartyOn)){
+  if(P3DS_InField&&(power&0x8000)&&display[0]){memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;}
+ }else if(P3DS_InField&&(power&0x8000)&&display[0]&&!sFieldHoldOk){
+  memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;
+ }
+ if(P3DS_PanelPartyOn&&!P3DS_InField&&bot){memcpy(sPartySnap,bot,sizeof sPartySnap);sPartySnapOk=1;}
+ if(P3DS_PanelPartyOn&&P3DS_InField){P3DS_PanelPartyOn=0;P3DS_PanelPartyWant=0;sPartySnapOk=0;PSPNativeMemLog("[PANEL] cleared On (back in the field)");}
  u64 tComp=svcGetSystemTick();
  /* run 54 wide_fx: before the save box / toast / fps overlay are drawn onto the centre */
  static bool fillReady;fillReady=false;
  static bool wnReady;wnReady=false;
  {static bool wbPrev;const bool wbNow=wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg());if(wbNow&&!wbPrev)PSPNativeMemLog("[WIDE] battle entered (wide_battle=1, wide native pass)");wbPrev=wbNow;}
- if(wideCfg>0&&P3DS_ScaleMode()==1&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
+ if(wideCfg>0&&P3DS_ScaleMode()==1&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
   /* run 18: HGSS menu screens (wide_pokedex / wide_pc / wide_menu_screens): strip pixels no layer covered take the final
      picture's edge pixel of that row (DS x 0 / 255) instead of the backdrop (often black) */
   /* run 18b: rows whose strip does not continue the picture (no layer covered it, or its inner pixel differs from the
@@ -1672,7 +1676,7 @@ static int Present(bool){
    for(int y=0;y<192;y++)for(int side=0;side<2;side++)if(!bad[side*192+y])memcpy(P3DS_WideFillBuf+y*64+side*32,keep+y*64+side*32,32*4);}}
  /* run 18: the Pokedex (and other HGSS screens) put engine B on the top screen (POWCNT bit 15 clear), which wideNative
     does not read: the menu screens' strips are then the top picture's edge pixel per row, clamped outwards */
- else if(wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_InWideKind>0&&!P3DS_InBattle&&((P3DS_InWideKind==1&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(power&0x8000)){
+ else if(wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_InWideKind>0&&!P3DS_InBattle&&!P3DS_PanelPartyOn&&((P3DS_InWideKind==1&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(power&0x8000)){
   if(P3DS_InWideKind>=2)wideTile(display[1]);else wideFill(display[1]);/* run 21: kinds 2/3 tiled. engine B is the top screen here (display[0] = engine A = the touch screen) */
   wnReady=true;static int lg;if(lg!=P3DS_InWideKind){lg=P3DS_InWideKind;PSPNativeMemLog("[WIDE] screen kind %d on engine B (top): %s strips",lg,lg>=2?"tiled":"wide_fill mirrored");}}
  else if(wideCfg>0&&P3DS_ScaleMode()==1&&wideFillCfg()&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)){wideFill(display[0]);fillReady=true;}
@@ -1730,7 +1734,8 @@ static int Present(bool){
      overlay only rebuilds the touch screen a few frames later (the log shows 60-90 ms frames there), so the old Start menu was on the bottom screen in the gap.
      Keep our tiles for bmEnter frames after a tile-launched sub-screen starts. */
   const bool bmGap=bmEnter>0;if(bmEnter)bmEnter--;
-  const bool show=bmAny&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&((P3DS_InField&&!bmPrompt&&(!subBusyV||((bmHold||bmFlow||bmGrace)&&P3DS_SubMode<=1)))||bmGap);
+  const bool ppChrome=P3DS_PanelPartyOn&&panelPartyCfg()&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom(); /* run 121: live JOHTO + bottom_hd column while party is in the panel */
+  const bool show=bmAny&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&((P3DS_InField&&!bmPrompt&&(!subBusyV||((bmHold||bmFlow||bmGrace)&&P3DS_SubMode<=1)))||bmGap||ppChrome);
   {static bool pl;if(bmPrompt!=pl){pl=bmPrompt;PSPNativeMemLog("[BMENU] game Save prompt %s: tiles %s so the game's own touch screen is visible",bmPrompt?"up":"done",bmPrompt?"hidden":"back");}}
   /* a Start menu nobody is using (Save cancelled, or opened with X while the tiles cover it) would freeze the player: close it through hook 0102 */
   {static unsigned idleT,idleTries;if(bmHold&&P3DS_StartIdle&&P3DS_StartReq<0){++idleT;if(idleT>=45&&idleT%30==15&&idleTries<6&&!P3DS_StartClose){idleTries++;P3DS_StartClose=1;PSPNativeMemLog("[BMENU] idle Start menu nobody is using: closing it (hook 0102, try %u)",idleTries);}}
@@ -1810,6 +1815,7 @@ static int Present(bool){
     else if(bmDown==21&&pxPane()==3){
       if(tDrag)PSPNativeMemLog("[VIEW] party tap ignored: drag");
       else if(!((P3DS_StartAvail>>1)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[VIEW] party tap: not in the game's menu (avail mask %04x)",P3DS_StartAvail);}
+      else if(P3DS_PanelPartyOn){PSPNativeMemLog("[PANEL] party tab tap ignored (already in panel)");}
       else if(P3DS_StartReq<0){const int slot=pxPartyAt(tY0);P3DS_VwPartySlot=slot>=0?slot+1:0;if(panelPartyCfg()){P3DS_PanelPartyWant=1;PSPNativeMemLog("[PANEL] party tap: Want=1 (panel_party ON)");}else P3DS_PanelPartyWant=0;P3DS_StartReq=1;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}if(slot>=0)PSPNativeMemLog("[VIEW] party tap slot %d -> open Pokemon menu%s, %s",slot,panelPartyCfg()?" (panel)":"",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");else PSPNativeMemLog("[VIEW] party tap -> open Pokemon menu%s, %s",panelPartyCfg()?" (panel)":"",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
       else PSPNativeMemLog("[VIEW] party tap ignored: a menu request is already running");}
     else if(bmDown==21&&pxPane()==4){
@@ -1836,13 +1842,14 @@ static int Present(bool){
     else if(bmDown==20){P3DS_InjectKeys=KEY_Y;P3DS_InjectFrames=2;PSPNativeMemLog("[BMENU] tap Y ITEM -> pressing Y (registered item)");}
     else{const int act=kAct[bmDown];
     if(!((P3DS_StartAvail>>act)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[BMENU] %s tapped but not in the game's menu (avail mask %04x)",kNm[bmDown],P3DS_StartAvail);}
+    else if(P3DS_PanelPartyOn){PSPNativeMemLog("[PANEL] ignore %s tap while party is in the panel",kNm[bmDown]);}
     else if(P3DS_StartReq<0){P3DS_StartReq=act;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[BMENU] tap %s -> action %d, %s",kNm[bmDown],act,bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}}}
    if(!tNow)bmDown=-1;bmPrev=tNow;
    P3DS_OvN=0;
    u32*b=(u32*)bot;const bool blink=((svcGetSystemTick()/(SYSCLOCK_ARM11/2))&1)!=0;
    {static const char*const kBl[10]={"POKEDEX","POKEMON","BAG","POKEGEAR","TRAINER","SAVE","OPTIONS","MAP","Y ITEM","RUN"},*const kBlA[10]={"DEX","PKMN","BAG","GEAR","CARD","SAVE","OPTS","MAP","ITEM","RUN"};extern volatile int P3DS_RunToggle;
     static const char*const kMapBl[3]={"INFO","WORLD","LOCAL"};const char*lb[10];bool on[10];for(int i=0;i<10;i++){lb[i]=kBl[i];on[i]=i<7?((P3DS_StartAvail>>kAct[i])&1)!=0:true;}
-    extern volatile int P3DS_RunShown;const int runNow=P3DS_RunShown>=0?P3DS_RunShown:P3DS_RunToggle;lb[9]=P3DS_PgShoes!=1?"NO SHOES":runNow?"RUN ON":"RUN OFF";on[9]=P3DS_PgShoes==1&&runNow;const char*al[10];for(int i=0;i<10;i++)al[i]=kBlA[i];al[9]=P3DS_PgShoes!=1?"--":runNow?"ON":"OFF";lb[7]=blMode<0?"JOHTO":kMapBl[blMode];if(pxRinging()){lb[3]="ANSWER";al[3]="CALL";}
+    extern volatile int P3DS_RunShown;const int runNow=P3DS_RunShown>=0?P3DS_RunShown:P3DS_RunToggle;lb[9]=P3DS_PgShoes!=1?"NO SHOES":runNow?"RUN ON":"RUN OFF";on[9]=P3DS_PgShoes==1&&runNow;const char*al[10];for(int i=0;i<10;i++)al[i]=(P3DS_PanelPartyOn?lb[i]:kBlA[i]);al[9]=P3DS_PgShoes!=1?(P3DS_PanelPartyOn?"NO SHOES":"--"):(runNow?(P3DS_PanelPartyOn?"RUN ON":"ON"):(P3DS_PanelPartyOn?"RUN OFF":"OFF")); /* run 121: no short DEX/PKMN column while party is in the panel */lb[7]=blMode<0?"JOHTO":kMapBl[blMode];if(pxRinging()){lb[3]="ANSWER";al[3]="CALL";}
     static unsigned icMask;static int icItem=-2,icGender=-2;static bool icTried;
     if(P3DS_PgReady&&(!icTried||icItem!=P3DS_PgItem||icGender!=P3DS_PgGender)){icTried=true;icItem=P3DS_PgItem;icGender=P3DS_PgGender;icMask=blBuildIcons();
      PSPNativeMemLog("[ICONS] game icons from the ROM: buttons %02x item %d heads %d (item %d, gender %d)",icMask&0x7F,(icMask>>8)&1,(icMask>>16)&3,P3DS_PgItem,P3DS_PgGender);}
@@ -1869,7 +1876,7 @@ static int Present(bool){
      /* fps_tweaks >= 2: the unchanged picture was force-repainted every 60 frames (idle log: 4 to 6 repaints per 300 at ~10.7 ms, a hitch every 2 s). Input and state changes already bump blGen/key, so the safety refresh is now every 20 s. */
      static const u32*blShown; /* the cached picture presented last frame: only that one lets the GPU present skip the bottom upload */
      if(cc&&cGen==blGen&&cKey==key&&++cAge<(P3DS_FpsTweaks()>=2?600:60)){memcpy(b,cc,256*192*4);blReuse++;blSameFrame=cc==blShown;blShown=cc;}
-     else{blShown=cc;const u64 t0b=svcGetSystemTick();cAge=0;cGen=blGen;cKey=key;gPg.moving=false;blDraw(b,kSuiText,mm,blMode<0?-1:blMode,blink,lb,al,on,pressShow==20?8:pressShow==22?9:pressShow);if(gPg.moving){static unsigned mvT;if(P3DS_FpsTweaks()<5||(mvT++&1)==0)BLINV;}if(cc)memcpy(cc,b,256*192*4);saveJohtoChrome(b);blRedraw++;pfBlRep++;blUs+=(svcGetSystemTick()-t0b)/CPU_TICKS_PER_USEC;}
+     else{blShown=cc;const u64 t0b=svcGetSystemTick();cAge=0;cGen=blGen;cKey=key;gPg.moving=false;blDraw(b,kSuiText,mm,blMode<0?-1:blMode,blink,lb,al,on,pressShow==20?8:pressShow==22?9:pressShow);if(gPg.moving){static unsigned mvT;if(P3DS_FpsTweaks()<5||(mvT++&1)==0)BLINV;}if(cc)memcpy(cc,b,256*192*4);blRedraw++;pfBlRep++;blUs+=(svcGetSystemTick()-t0b)/CPU_TICKS_PER_USEC;}
      {static unsigned lg;if(++lg%300==0){PSPNativeMemLog("[BMENU] overlay cache: reused %u, repainted %u of last 300 (%u us per repaint)",blReuse,blRedraw,blRedraw?(unsigned)(blUs/blRedraw):0);blReuse=blRedraw=0;blUs=0;}}} /* run 16: map still sliding to the new location */
     /* run 18 bottom_hd=1 (default): the button column at native 320x240 (ss3ds_blnative.h, after GabeSud0's port_lowermenu.c); 0 = the run 17 stretched column */
     static int bnX[10],bnY[10];static unsigned bnKey=~0u;const int bhd=bottomHdCfg()&&P3DS_ScaleMode()!=0;static int bhdPrev=-1;if(bhd!=bhdPrev){bhdPrev=bhd;bnKey=~0u;gBlHd=bhd;BLINV;}
@@ -1921,19 +1928,23 @@ static int Present(bool){
      whole read + bind + init in one task step (ROM is cached; ~100-200 KiB). */
   static int landCfg=-1;if(landCfg<0){landCfg=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"land_fastload=%d",&x)==1)landCfg=x;fclose(f);}PSPNativeMemLog("[WIDE] land_fastload=%d",landCfg);}
   P3DS_LandFast=landCfg==2||(landCfg==1&&act);}
- /* run 120 panel_party compose: hold field on top; blit the real party (bot) into the JOHTO left panel */
+ /* run 121 panel_party compose: top = frozen field (no wide strips); bot already has live JOHTO chrome +
+    bottom_hd overlays from ppChrome; paste party 1:1 (cropped, never scaled) into the left panel. */
  if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()){
-  static u32 sPanelBot[256*192]; static unsigned ppLog;
-  const u32 *party=bot; /* engine showing the Pokemon menu after GX_DISP_SELECT_SUB_MAIN */
-  if(sJohtoChromeOk&&sJohtoChrome)memcpy(sPanelBot,sJohtoChrome,sizeof sPanelBot);
-  else{for(int i=0;i<256*192;i++)sPanelBot[i]=0xFF284878u;} /* navy fill if no chrome yet */
-  {const int x0=kBlPanX0,y0=kBlPanY0+17,x1=kBlPanX1,y1=kBlPanY1,dw=x1-x0,dh=y1-y0;
-   if(dw>0&&dh>0&&party){for(int y=0;y<dh;y++){const int sy=y*192/dh;const u32 *src=party+sy*256;u32 *dst=sPanelBot+(y0+y)*256+x0;
-    for(int x=0;x<dw;x++)dst[x]=src[x*256/dw];}}
-   /* title strip: remind the player this is the in-panel party */
-   for(int y=kBlPanY0;y<kBlPanY0+16;y++)for(int x=kBlPanX0;x<kBlPanX1;x++){/* keep chrome title */} }
-  if(sFieldHoldOk)top=sFieldHold;bot=sPanelBot;P3DS_OvN=0; /* no icon overlay over the scaled party */
-  if((++ppLog%120)==1)PSPNativeMemLog("[PANEL] composing party into JOHTO panel (hold field=%d)",sFieldHoldOk);
+  static unsigned ppLog;
+  if(sPartySnapOk&&bot){
+   u32 *dst=(u32*)bot;
+   const int x0=kBlPanX0,y0=kBlPanY0+17,x1=kBlPanX1,y1=kBlPanY1,dw=x1-x0,dh=y1-y0;
+   if(dw>0&&dh>0){
+    for(int y=0;y<dh;y++){const u32 *src=sPartySnap+y*256;u32 *row=dst+(y0+y)*256+x0;
+     for(int x=0;x<dw;x++)row[x]=src[x];} /* 1:1 crop: crisp game text, no NN downscale */
+   }
+  }
+  if(sFieldHoldOk)top=sFieldHold;
+  P3DS_WideStrip[0]=P3DS_WideStrip[1]=nullptr; /* cyan edge bars were wide strips over a black/missing hold */
+  G3G_Wide=0;
+  /* keep P3DS_OvN: live bottom_hd POKEDEX/POKEMON column (never clear overlays - that dug up the legacy DEX/PKMN alts) */
+  if((++ppLog%120)==1)PSPNativeMemLog("[PANEL] compose: hold=%d partySnap=%d ovN=%d (1:1 crop, live chrome)",sFieldHoldOk,sPartySnapOk,P3DS_OvN);
  }
  if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=(power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty;btnDirty=false;/* run 41: !fpsOn removed (FPS text is drawn on the top screen; it blocked every skip) */{const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
  else{present(GFX_TOP,400,top,0);if(!P3DS_ConsoleOnBottom())present(GFX_BOTTOM,320,bot,0);gfxFlushBuffers();gfxSwapBuffers();}

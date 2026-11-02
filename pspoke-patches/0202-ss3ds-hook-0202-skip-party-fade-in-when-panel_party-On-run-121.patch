@@ -1,0 +1,67 @@
+From 22f49ca7b8ecbe05bc6948df26f94e31d8e64075 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 15:39:30 -0500
+Subject: [PATCH] ss3ds: hook 0202 skip party fade-in when panel_party On (run
+ 121)
+
+Avoids black fade fighting the held overworld frame on top.
+---
+ .../ss3ds_hooks.d/0202_panelparty_nofade.py   | 34 +++++++++++++++++++
+ .../ss3ds_hooks.d/0202_panelparty_nofade.sh   |  4 +++
+ 2 files changed, 38 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0202_panelparty_nofade.py
+ create mode 100755 scripts/ss3ds_hooks.d/0202_panelparty_nofade.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0202_panelparty_nofade.py b/scripts/ss3ds_hooks.d/0202_panelparty_nofade.py
+new file mode 100755
+index 0000000..252d148
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0202_panelparty_nofade.py
+@@ -0,0 +1,34 @@
++#!/usr/bin/env python3
++"""ss3ds 0202: skip party fade-in/out when panel_party has On set (run 121).
++Keeps the held overworld frame on top from being fought by a black fade, and
++lets the party pop into the JOHTO panel cleanly. Idempotent ('SS3DS 0202')."""
++import sys
++p = 'src/party_menu.c'
++s = open(p).read()
++if 'SS3DS 0202' in s:
++    sys.exit(0)
++
++def once(old, new, label):
++    global s
++    if s.count(old) != 1:
++        sys.exit('0202_panelparty_nofade: %s anchor missing (count != 1): %s' % (label, old[:90]))
++    s = s.replace(old, new)
++
++# After 0201 block in Init, wrap the fade call
++once(
++'''    partyMenu = sub_02079BD8(manager);
++    BeginNormalPaletteFade(FADE_SUB_THEN_MAIN, FADE_TYPE_DOWNWARD_IN, FADE_TYPE_DOWNWARD_IN, RGB_BLACK, 6, 1, HEAP_ID_PARTY_MENU);
++''',
++'''    partyMenu = sub_02079BD8(manager);
++    { /* SS3DS 0202: no fade when the party is drawn in the JOHTO panel */
++        extern volatile int P3DS_PanelPartyOn;
++        if (!P3DS_PanelPartyOn) {
++            BeginNormalPaletteFade(FADE_SUB_THEN_MAIN, FADE_TYPE_DOWNWARD_IN, FADE_TYPE_DOWNWARD_IN, RGB_BLACK, 6, 1, HEAP_ID_PARTY_MENU);
++        }
++    }
++''', 'fade in')
++
++# Exit fade - find IsPaletteFadeFinished / Start fade out in Main state machine
++# Safer: only skip the Init fade for now; exit fade is shorter risk
++open(p,'w').write(s)
++print('0202_panelparty_nofade: party_menu.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0202_panelparty_nofade.sh b/scripts/ss3ds_hooks.d/0202_panelparty_nofade.sh
+new file mode 100755
+index 0000000..a525798
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0202_panelparty_nofade.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0202: skip party fade when panel_party On (run 121). Not fatal.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0202_panelparty_nofade.py" && bash rebuild_game_object.sh src/party_menu.c party_menu.o none); then
++  log "ss3ds 0202 panel_party nofade hook skipped (optional); panel party still fades in"
++fi
+-- 
+2.47.3
+

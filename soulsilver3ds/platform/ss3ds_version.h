@@ -1,5 +1,5 @@
 /* ss3ds: one version string for the log header, the settings app and the HOME Menu title. Bump on each delivered build. */
 #ifndef SS3DS_VERSION_H
 #define SS3DS_VERSION_H
-#define SS3DS_VERSION "run 120: party-in-panel (panel_party, default OFF)"
+#define SS3DS_VERSION "run 121: panel_party hold field + 1:1 crop + live HD chrome"
 #endif
