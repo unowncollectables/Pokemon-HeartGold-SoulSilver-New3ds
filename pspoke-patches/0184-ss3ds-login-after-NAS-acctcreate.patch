@@ -1,0 +1,37 @@
+From 5a1c0e0000000000000000000000000000000184 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 2 Nov 2026 05:20:00 +0000
+Subject: [PATCH] ss3ds: 0184 send the login request after a successful NAS
+ acctcreate
+
+---
+ port/native-probe/compile-network.py | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/port/native-probe/compile-network.py b/port/native-probe/compile-network.py
+index e3cf133..d0e1840 100644
+--- a/port/native-probe/compile-network.py
++++ b/port/native-probe/compile-network.py
+@@ -105,6 +105,19 @@
+         sys.exit('ss3ds 0183: dwc_http.c raw-offset text not found as expected (%d of 3); refusing to build with a faulting HTTP client' % _h_n)
+     _h_src = _h_src.replace('*(int *)(http + 0x1a34)', 'http->receivedbody_len').replace('*(int *)(http + 0x1a30)', 'http->content_len')
+     _h_path.write_text(_h_src)
++# ss3ds 0184: the decompiled NAS client stops after a successful acctcreate (returncd 002): ParseHttp promotes the local id with
++# DWCi_AUTH_UpDateWiFiID and returns FINISH, with an empty token and challenge, and the login then hands those to GameSpy (GP parameter
++# error -61002, run 95 with Wiimmfi). The real flow is acctcreate followed by a `login` POST. DWCi_Auth_Thread already retries on
++# DWCAUTH_E_NASALREADYEXIST keeping the in-memory wifi info (getwifiinfofromflash = FALSE), and DWCi_Auth_Prepare_FirstPost sends
++# `login` (with gsbrcd) once attestedUserId is set, so return that after the id was promoted. Idempotent; fails loudly if the text moved.
++_a4_path = b / 'libntrdwc/libraries/auth/src/dwc_auth.c'
++_a4_src = _a4_path.read_text()
++_a4_old = '      (*freeFunc)((int)"FREE bmwork", pvVar2, 0);\n    }\n    return DWCAUTH_E_FINISH;\n'
++_a4_new = '      (*freeFunc)((int)"FREE bmwork", pvVar2, 0);\n      DWC_Printf(DWC_REPORTFLAG_AUTH, "\\tAuth : ss3ds 0184 account created, sending the login request\\n");\n      return DWCAUTH_E_NASALREADYEXIST;\n    }\n    return DWCAUTH_E_FINISH;\n'
++if 'ss3ds 0184' not in _a4_src:
++    if _a4_src.count(_a4_old) != 1:
++        sys.exit('ss3ds 0184: dwc_auth.c acctcreate success text not found exactly once; refusing to build without the login follow-up')
++    _a4_path.write_text(_a4_src.replace(_a4_old, _a4_new, 1))
+ def comp(p):
+  name=str(p.relative_to(b)).replace('/','__');f=flags+['-I'+str(p.parent),'-I'+str(p.parent.parent/'include'),'-I'+str(p.parent.parent),'-include','pspkernel.h']
+  if p.name=='network.c':f+=['-include','sys/socket.h','-include','netinet/in.h','-include','arpa/inet.h']
+-- 
+2.43.0
+
