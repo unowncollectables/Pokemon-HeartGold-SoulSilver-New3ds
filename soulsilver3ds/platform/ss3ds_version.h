@@ -1,5 +1,5 @@
 /* ss3ds: one version string for the log header, the settings app and the HOME Menu title. Bump on each delivered build. */
 #ifndef SS3DS_VERSION_H
 #define SS3DS_VERSION_H
-#define SS3DS_VERSION "run 112: fix Nd setupHttp always-FALSE"
+#define SS3DS_VERSION "run 113: SOC_Cleanup no-op + MG Nd callback log"
 #endif

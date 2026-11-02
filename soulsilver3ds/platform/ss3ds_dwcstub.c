@@ -150,6 +150,20 @@ extern void DWC_Auth_SetCustomNas(const char *url);
 /* Set by NdInit so the shared SetCalInfoToHttp wrap can force IPKE for MG SVL only. */
 int gSS_MG_NdSvlActive;
 
+/* run 113: log Nd callbacks (gift count / errors). Run 112 had HTTP/1.1 200 then
+   NdCleanup with no callback line, so the DLS gift count was unknown. */
+static SS3DS_NdCallback s_mg_nd_cb;
+static int *s_mg_entrynum;
+
+static void ss3ds_mg_nd_cb(int reason, int error, int servererror)
+{
+    int n = s_mg_entrynum ? *s_mg_entrynum : -999;
+    PSPNativeMemLog("[SS-MG] NdCallback reason=%d err=%d server=%d entrynum=%d",
+                    reason, error, servererror, n);
+    if (s_mg_nd_cb)
+        s_mg_nd_cb(reason, error, servererror);
+}
+
 static void ss3ds_mg_ensure_http_alloc(void)
 {
     if (DWCauthhttpparam.alloc == 0 || DWCauthhttpparam.free == 0) {
@@ -188,9 +202,11 @@ unsigned int ov00_021ED1F0(SS3DS_NdCallback cb, char *gamecd, char *passwd)
     DWC_Auth_SetCustomNas("http://nas.nintendowifi.net/ac");
     gSS_MG_NdSvlActive = 1;
     ss3ds_mg_ensure_http_alloc();
+    s_mg_nd_cb = cb;
+    s_mg_entrynum = 0;
     PSPNativeMemLog("[SS-MG] NdInitAsync gamecd=%s (in=%s) passwd=%s (NAS http + SVL)",
                     gc ? gc : "(null)", gamecd ? gamecd : "(null)", passwd ? passwd : "(null)");
-    r = DWC_NdInitAsync(cb, gc, passwd);
+    r = DWC_NdInitAsync(ss3ds_mg_nd_cb, gc, passwd);
     PSPNativeMemLog("[SS-MG] NdInitAsync -> %d", r);
     return (unsigned)r;
 }
@@ -214,6 +230,7 @@ unsigned int ov00_021ED388(int *entrynum)
         return 0;
     }
     ss3ds_mg_ensure_http_alloc();
+    s_mg_entrynum = entrynum;
     {
         int r = DWC_NdGetFileListNumAsync(entrynum);
         PSPNativeMemLog("[SS-MG] NdGetFileListNumAsync -> %d (num ptr %p) opened=%d ndi_err=%d url=%s",

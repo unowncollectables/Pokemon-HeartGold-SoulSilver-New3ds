@@ -498,12 +498,17 @@ static void fromBsd(const struct sockaddr_in *b, SS3DSSockAddrIn *a)
 static void soctr(const char *fmt, ...)
 {
     static int n; char b[160]; va_list ap;
+    extern int gSS_MG_NdSvlActive;
     if (n >= 60) return;
     n++;
     va_start(ap, fmt); vsnprintf(b, sizeof b, fmt, ap); va_end(ap);
     NLOG("[SOCT] %s", b);
     { extern void P3DS_LogRequestSync(void); P3DS_LogRequestSync(); }
-    svcSleepThread(150000000LL); /* let the log writer commit it: run 89 died without a crash report, so the last call matters */
+    /* run 113: skip the 150ms sync sleep during MG Nd/SVL. CPS/NHTTP reads the DLS
+       reply one byte at a time; the sleep made the HTTP/1.1 200 headers take many
+       seconds and the count stage never finished before NdCleanup (run 112). */
+    if (!gSS_MG_NdSvlActive)
+        svcSleepThread(150000000LL); /* let the log writer commit it: run 89 died without a crash report, so the last call matters */
 }
 
 int SOC_Socket(int pf, int type, int protocol)
@@ -596,6 +601,24 @@ int SOC_Poll(SS3DSPollFD fds[], unsigned nfds, long long timeout)
         fds[i].revents = rv;
     }
     return r;
+}
+
+/* ---- run 113: SOC_Cleanup / SOCL_Cleanup must not touch the DS-addressed SOCL BSS ----
+ * Run 112: after NdCleanup, AC CloseSocket called SOC_Cleanup -> SOCL_Cleanup ->
+ * SOCLi_CleanupCommandPacketQueue which loads SOCLiConfigPtr from literal 0x02238428
+ * (untranslated DS BSS) and then config->free at +28: crash pc=0x63d958 lr=0x63d4d4
+ * far=0 r0=0 r4=0x02238410. The 3DS path never SOCL_Startup (SOC_* are BSD shims),
+ * so a successful no-op is correct. Strong symbols override libntrwifi. MG cleanup
+ * path; GTS never started SOCL either so this only turns a latent crash into success. */
+int SOCL_Cleanup(void)
+{
+    NLOG("[SOC] SOCL_Cleanup no-op (SOCL not started on 3DS)");
+    return 0;
+}
+int SOC_Cleanup(void)
+{
+    NLOG("[SOC] SOC_Cleanup no-op (SOCL not started on 3DS)");
+    return 0;
 }
 
 /* ---- run 91: the library's CPS socket layer (used by the NAS/auth HTTP client dwc_http.c) on 3DS sockets --------------------------
