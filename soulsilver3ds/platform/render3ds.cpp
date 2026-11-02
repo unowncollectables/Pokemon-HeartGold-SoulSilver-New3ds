@@ -1648,8 +1648,8 @@ static int Present(bool){
      if(rightPar)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dL.bmp",GPU3D::NativeFrame,true);if(t3R)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dR.bmp",t3R,true);}}}}
  /* POWCNT1 bit15: engine A on top screen. */
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
- /* run 124 panel_party: freeze clean overworld; snap LCD-top (SUB_MAIN -> party on top).
-    RGB is bits 0..23 (A often 0xFF): old "nonblack" counted opaque blacks. Stats use RGB only. */
+ /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
+    Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
  static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged;
  auto ppRgbNz=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFFu)!=0)n++;return n;};
  auto ppDistinct=[](const u32 *p)->int{if(!p)return 0;u32 seen[48];int ns=0;for(int i=0;i<256*192;i+=11){const u32 r=p[i]&0xFFFFFFu;int f=0;for(int k=0;k<ns;k++)if(seen[k]==r){f=1;break;}if(!f&&ns<(int)(sizeof seen/sizeof *seen))seen[ns++]=r;}return ns;};
@@ -1659,14 +1659,14 @@ static int Present(bool){
   memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;
  }
  if(P3DS_PanelPartyOn&&!P3DS_InField){
-  const int nTop=ppRgbNz(top),nBot=ppRgbNz(bot);const u32 *src=top;const char *tag="top";
-  if(nBot>nTop){src=bot;tag="bot";}
-  /* only replace snap when the source has RGB content; keep last good frame otherwise */
-  if(src&&(nTop>64||nBot>64)){memcpy(sPartySnap,src,sizeof sPartySnap);sPartySnapOk=1;}
-  if(!sPartySrcLogged&&(nTop>64||nBot>64)){sPartySrcLogged=1;const u32 *S=src?src:top;
-   PSPNativeMemLog("[PANEL] party source %s (rgbNz top=%d bot=%d distinct~%d pow=%04x kind=%d samp %08x %08x %08x %08x) /* once per open */",
-    tag,nTop,nBot,ppDistinct(S),(unsigned)power,P3DS_InWideKind,
-    S?S[0]:0,S?S[128+96*256]:0,S?S[255+191*256]:0,S?S[40+40*256]:0);}
+  /* run 126: party is on LCD-top after GX_DISP_SELECT_SUB_MAIN. NEVER snap bot / sPanelBot /
+     chrome leftover in display[0] (that caused a recursive JOHTO panel). Only `top`. */
+  const u32 *src=top;const int nTop=ppRgbNz(top),nBot=ppRgbNz(bot);
+  if(src&&nTop>64){memcpy(sPartySnap,src,sizeof sPartySnap);sPartySnapOk=1;}
+  if(!sPartySrcLogged&&nTop>64){sPartySrcLogged=1;
+   PSPNativeMemLog("[PANEL] party source top-only (rgbNz top=%d bot=%d distinct~%d pow=%04x kind=%d samp %08x %08x %08x %08x) /* once per open */",
+    nTop,nBot,ppDistinct(src),(unsigned)power,P3DS_InWideKind,
+    src[0],src[128+96*256],src[255+191*256],src[40+40*256]);}
  }
  if(P3DS_PanelPartyOn&&P3DS_InField){P3DS_PanelPartyOn=0;P3DS_PanelPartyWant=0;sPartySnapOk=0;sPartySrcLogged=0;sPartyNbLogged=0;PSPNativeMemLog("[PANEL] cleared On (back in the field)");}
  u64 tComp=svcGetSystemTick();
