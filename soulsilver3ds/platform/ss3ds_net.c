@@ -595,3 +595,88 @@ int SOC_Poll(SS3DSPollFD fds[], unsigned nfds, long long timeout)
     }
     return r;
 }
+
+/* ---- run 91: the library's CPS socket layer (used by the NAS/auth HTTP client dwc_http.c) on 3DS sockets --------------------------
+ * Run 90 fault: DWCi_Http_Thread -> CPS_SocBind -> SDL_LockMutex(NULL). CPS is the DS TCP/IP stack; its mutexes only exist after
+ * CPS_Startup, which never runs here. DWCi_Http_Thread calls exactly these functions, in this order: SocRegister, Resolve, SocUse,
+ * (SetRootCa/SetSsl when ssl), SocBind, TcpConnect, SocWrite, SocFlush, then SocGetLength/SocRead/SocConsume until done, then
+ * TcpShutdown, TcpClose, SocRelease, SocUnRegister. One request at a time, so one static slot. Addresses/ports are host order.
+ * GetLength returns bytes waiting, 0 = nothing yet, -1 = closed (empty) or failed. The library's receive loop has no timeout on this
+ * port, so GetLength gives up after 30 s of silence. Plain http only (the custom NAS URL is http). Online mode only. */
+extern unsigned int CPSMyIp; /* library global: the receive loop treats 0 as "no connection" */
+static struct { int fd; unsigned short rport; unsigned int rip; unsigned char rx[8192]; unsigned rxn; unsigned rxPos; int eof; unsigned idle; } sCps = { -1 };
+
+static void cpsClose(void) { if (sCps.fd >= 0) { close(sCps.fd); sCps.fd = -1; } sCps.rxn = sCps.rxPos = 0; sCps.eof = 0; sCps.idle = 0; }
+
+void CPS_SocRegister(void *soc) { (void)soc; NLOG("[CPS] SocRegister"); cpsClose(); }
+void CPS_SocUnRegister(void) { cpsClose(); }
+void CPS_SocUse(void) { cpsClose(); }
+void CPS_SocRelease(void) { cpsClose(); }
+unsigned int CPS_Resolve(const char *host) { return SOCL_Resolve(host); }
+void CPS_SetRootCa(const void *a, int n) { (void)a; (void)n; }
+void CPS_SetSsl(int on) { if (on) NLOG("[CPS] ssl requested: not supported on 3DS, request will fail"); }
+void CPS_SocBind(unsigned short lport, unsigned short rport, unsigned int rip) { (void)lport; sCps.rport = rport; sCps.rip = rip; NLOG("[CPS] bind -> %s:%u", inet_ntoa((struct in_addr){ htonl(rip) }), (unsigned)rport); }
+
+unsigned int CPS_TcpConnect(void)
+{
+    struct sockaddr_in a; struct pollfd p; int fl, r, e;
+    if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit()) { NLOG("[CPS] connect refused (online mode off, cheat on, or sockets down)"); return 1; }
+    cpsClose();
+    sCps.fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sCps.fd < 0) { NLOG("[CPS] socket failed errno %d", errno); return 1; }
+    memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_port = htons(sCps.rport); a.sin_addr.s_addr = htonl(sCps.rip);
+    fl = fcntl(sCps.fd, F_GETFL, 0); fcntl(sCps.fd, F_SETFL, fl | O_NONBLOCK);
+    r = connect(sCps.fd, (struct sockaddr *)&a, sizeof a); e = errno;
+    if (r < 0 && e == EINPROGRESS) {
+        p.fd = sCps.fd; p.events = POLLOUT; p.revents = 0;
+        r = poll(&p, 1, 10000);
+        if (r > 0 && !(p.revents & (POLLERR | POLLHUP))) { socklen_t l = sizeof e; e = 0; getsockopt(sCps.fd, SOL_SOCKET, SO_ERROR, &e, &l); r = e ? -1 : 0; }
+        else { if (r == 0) e = ETIMEDOUT; r = -1; }
+    }
+    if (r < 0) { NLOG("[CPS] connect failed errno %d", e); cpsClose(); return 1; }
+    CPSMyIp = ntohl((unsigned)gethostid()); if (!CPSMyIp) CPSMyIp = 0x0a000002;
+    NLOG("[CPS] connected");
+    return 0;
+}
+
+unsigned int CPS_SocWrite(const unsigned char *buf, unsigned len)
+{
+    unsigned off = 0, tries = 0;
+    if (sCps.fd < 0) return 0;
+    while (off < len) {
+        int r = send(sCps.fd, buf + off, len - off, 0);
+        if (r > 0) { off += r; tries = 0; continue; }
+        if (r < 0 && errno == EAGAIN && ++tries < 2000) { svcSleepThread(5000000LL); continue; }
+        NLOG("[CPS] send failed errno %d", errno); return off;
+    }
+    NLOG("[CPS] sent %u bytes", off);
+    return off;
+}
+void CPS_SocFlush(void) {}
+
+int CPS_SocGetLength(void)
+{
+    if (sCps.fd < 0) return -1;
+    if (sCps.rxn - sCps.rxPos == 0) { sCps.rxn = sCps.rxPos = 0; }
+    if (!sCps.eof && sCps.rxn < sizeof sCps.rx) {
+        int r = recv(sCps.fd, sCps.rx + sCps.rxn, sizeof sCps.rx - sCps.rxn, 0);
+        if (r > 0) { sCps.rxn += r; sCps.idle = 0; static int told; if (told++ < 4) NLOG("[CPS] received %d bytes", r); }
+        else if (r == 0) { sCps.eof = 1; NLOG("[CPS] server closed the connection"); }
+        else if (errno != EAGAIN) { NLOG("[CPS] recv failed errno %d", errno); sCps.eof = 1; }
+    }
+    if (sCps.rxn - sCps.rxPos > 0) return (int)(sCps.rxn - sCps.rxPos);
+    if (sCps.eof) return -1;
+    if (++sCps.idle > 30 * 200) { NLOG("[CPS] no reply for 30 s: giving up"); return -1; }
+    svcSleepThread(5000000LL); /* 5 ms per empty poll */
+    return 0;
+}
+unsigned char *CPS_SocRead(unsigned *len)
+{
+    unsigned n = sCps.rxn - sCps.rxPos;
+    if (sCps.fd < 0 || n == 0) { *len = 0; return NULL; }
+    *len = n;
+    return sCps.rx + sCps.rxPos;
+}
+void CPS_SocConsume(unsigned len) { unsigned n = sCps.rxn - sCps.rxPos; sCps.rxPos += len < n ? len : n; }
+unsigned int CPS_TcpShutdown(void) { if (sCps.fd >= 0) shutdown(sCps.fd, 2); return 0; }
+unsigned int CPS_TcpClose(void) { cpsClose(); return 0; }
