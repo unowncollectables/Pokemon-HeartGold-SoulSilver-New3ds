@@ -15,11 +15,18 @@ int sceKernelCreateLwMutex(SceLwMutexWorkarea *work, const char *name, SceUInt a
 /* run 81: --wrap=SSRomLock. Run 80 showed the ROM lock itself is fine (ready, free), so main is looping through ROM file calls; remember which
    FS functions call it (return address of each call) and how often, so addr2line can name the loop. */
 extern void __real_SSRomLock(void);
+static volatile unsigned rlChain[40], rlChainN;
 static volatile unsigned rlCaller[8], rlCount[8], rlTotal, rlLast[16], rlPos;
 void __wrap_SSRomLock(void) {
     unsigned c = (unsigned)__builtin_return_address(0); int k;
     rlTotal++; rlLast[rlPos++ & 15] = c;
     for (k = 0; k < 8; k++) { if (rlCaller[k] == c) { rlCount[k]++; break; } if (!rlCaller[k]) { rlCaller[k] = c; rlCount[k] = 1; break; } }
+    /* run 82: once it is clearly looping, keep the call chain of the latest call: code-looking words on the stack above us, nearest frame first. */
+    if (rlTotal > 3000 && (rlTotal & 255) == 0) {
+        volatile unsigned *sp = (volatile unsigned *)__builtin_frame_address(0); int m = 0;
+        for (int i = 0; i < 400 && m < 40; i++) { unsigned v = sp[i]; if (v >= 0x100000 && v < 0x738000 && (v & 3) != 2) rlChain[m++] = v; }
+        rlChainN = m;
+    }
     __real_SSRomLock();
 }
 void P3DS_RomCallerInfo(char *b, int n) {
@@ -27,6 +34,8 @@ void P3DS_RomCallerInfo(char *b, int n) {
     for (int k = 0; k < 8 && rlCaller[k] && w < n - 30; k++) w += snprintf(b + w, n - w, " %08x x%u", rlCaller[k], rlCount[k]);
     w += snprintf(b + w, n - w, " | last 16:");
     for (int k = 0; k < 16 && w < n - 12; k++) w += snprintf(b + w, n - w, " %08x", rlLast[(rlPos + k) & 15]);
+    w += snprintf(b + w, n - w, " | stack chain:");
+    for (unsigned k = 0; k < rlChainN && w < n - 12; k++) w += snprintf(b + w, n - w, " %08x", rlChain[k]);
 }
 void P3DS_RomLockInfo(char *b, int n) {
     if (!romWork) { snprintf(b, n, "ROM lock mutex was NEVER created (SSRomLock stuck before init finished)"); return; }
