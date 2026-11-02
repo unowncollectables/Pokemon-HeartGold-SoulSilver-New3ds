@@ -88,7 +88,9 @@ int P3DS_GameFontWidth(int font, const char *t) { int x = 0, w; for (; *t; t++) 
 /* draw into a u32 0x00BBGGRR image (stride, clip w x h); scale 1 or 2; shadow 0 = none. Returns width drawn. */
 int P3DS_GameFontDraw(uint32_t *img, int stride, int cw, int ch, int x, int y, const char *t, uint32_t fg, uint32_t sh, int scale, int font) {
   int x0 = x; if (scale < 1) scale = 1;
-  for (; *t; t++) { int w; const uint8_t *g = glyph(font, *t, &w); if (!g) continue;
+  for (; *t; t++) { int w; const uint8_t *g = glyph(font, *t, &w); if (!g) { if (*t == ' ') x += 3 * scale; continue; }
+    /* run 118: space charcode 0x1DE is correct per HGSS charmap, but the NFTR bitmap can paint a low bar that looks like '_'. Advance only. */
+    if (*t == ' ') { x += (w > 0 ? w : 3) * scale; continue; }
     for (int py = 0; py < 16; py++) for (int px = 0; px < w && px < 16; px++) {
       int tile = (py >> 3) * 2 + (px >> 3); const uint8_t *row = g + tile * 16 + (py & 7) * 2; int bx = (px & 7) >> 2;
       int v = (row[bx ^ 1] >> (6 - 2 * (px & 3))) & 3; if (v != 1 && !(v == 2 && sh)) continue; uint32_t col = v == 1 ? fg : sh;
@@ -101,7 +103,9 @@ static int ovl(int o, int s) { const int a = o * 4, b = a + 4, c = s * 3, d = c 
 int P3DS_GameFontWidth34(int font, const char *t) { int x = 0, w; for (; *t; t++) if (glyph(font, *t, &w)) x += w; return (x * 3 + 2) / 4; }
 int P3DS_GameFontDraw34(uint32_t *img, int stride, int cw, int ch, int x, int y, const char *t, uint32_t fg, int font) {
   int x0 = x, acc = 0;
-  for (; *t; t++) { int w; const uint8_t *g = glyph(font, *t, &w); if (!g) continue; if (w > 16) w = 16;
+  for (; *t; t++) { int w; const uint8_t *g = glyph(font, *t, &w); if (!g) { if (*t == ' ') { acc += 3; x = x0 + (acc * 3 + 2) / 4; } continue; }
+    if (*t == ' ') { acc += (w > 0 ? w : 3); x = x0 + (acc * 3 + 2) / 4; continue; } /* run 118: space = advance only */
+    if (w > 16) w = 16;
     uint8_t ink[16][16]; memset(ink, 0, sizeof ink);
     for (int py = 0; py < 16; py++) for (int px = 0; px < w; px++) { int tile = (py >> 3) * 2 + (px >> 3); const uint8_t *row = g + tile * 16 + (py & 7) * 2; int bx = (px & 7) >> 2;
       ink[py][px] = ((row[bx ^ 1] >> (6 - 2 * (px & 3))) & 3) == 1; }

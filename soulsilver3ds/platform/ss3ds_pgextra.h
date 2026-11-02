@@ -69,7 +69,15 @@ static void pxBack(uint32_t *b, int X0, int Y0, int X1, int Y1, int h) {
   for (int x = X0; x < X1; x++) suiPx(b, x, Y0 + h, kBlNavy); }
 static void pxFit(const SUiText &T, char *out, int sz, const char *s, int maxW) {
   snprintf(out, sz, "%s", s); int k = (int)strlen(out);
-  while (k > 1 && T.width(out) > maxW) out[--k] = 0; }
+  if (maxW <= 0) { out[0] = 0; return; }
+  if (T.width(out) <= maxW) return;
+  /* run 118: hard-chop then ".." ellipsis so names are not silently truncated mid-word */
+  while (k > 0) {
+    if (k + 2 < sz) { out[k] = '.'; out[k + 1] = '.'; out[k + 2] = 0; } else { out[k] = 0; }
+    if (T.width(out) <= maxW) return;
+    k--; out[k] = 0;
+  }
+  out[0] = 0; }
 
 /* ---- phone list ---- */
 static int pxCmpMode;
@@ -201,7 +209,7 @@ static void pxRadio(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y
     char ln[64]; if (sub[0]) snprintf(ln, sizeof ln, "Today: %s", sub); else if (until >= 0) snprintf(ln, sizeof ln, "Changes at %02d:00", until); else snprintf(ln, sizeof ln, "On the air all day");
     T.draw(b, X0 + 18, y0 + 13, ln, fg, sh); } }
 
-/* ---- the PARTY and BAG panes (read-only viewer, hook 0167): what the game's own Pokemon and Bag screens list, drawn here while you keep walking ---- */
+/* ---- the PARTY and BAG panes (hook 0167 data; run 118: tap opens the real Pokemon / Bag Start-menu apps) ---- */
 /* the game's item name with its accent restored ("Pok Ball" -> "Poke Ball"; the text pipe drops the e-acute) */
 static void pxItemName(int id, char *out, int sz) {
   const char *n = id > 0 && id < 540 && P3DS_VwItem[id][0] ? P3DS_VwItem[id] : "?"; int o = 0;
@@ -215,7 +223,8 @@ static void pxVwWait(uint32_t *b, const SUiText &T, int X0, int Y) {
 static void pxParty(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
   const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
-  T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *vo = "VIEW ONLY"; T.draw(b, X1 - 4 - T.width(vo), Y0 + 2, vo, SUI_RGB(200, 214, 244), kBlNavy);
+  gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1; /* run 118: hit-test geometry for tap-to-open */
+  T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *hint = "TAP TO OPEN"; T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 214, 244), kBlNavy);
   if (!P3DS_VwReady) { pxVwWait(b, T, X0, Y0 + kPxSubH + 6); return; }
   if (!P3DS_VwPartyN) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "No Pokemon in the party.", wh, SUI_RGB(40, 64, 120)); return; }
   for (int i = 0; i < P3DS_VwPartyN && i < 6; i++) { const uint16_t *m = P3DS_VwParty[i]; const int y0 = Y0 + kPxSubH + 1 + i * 25, y1 = y0 + 24; if (y1 > Y1) break;
@@ -284,9 +293,11 @@ static void pxFrame(bool touching) {
   if (gPx.pane == 2) { const time_t now = time(0); const int m = (int)(now / 60); if (m != gPx.minute) { gPx.minute = m; BLINV; } } }
 /* finger down / held on the panel (x,y in DS pixels); first = this frame the touch started */
 static int pxRowAt(int x, int y);
-static void pxDrag(int x, int y, bool first) {
+/* run 118: scroll=false until the finger has moved past the tap threshold (render3ds tDrag), so jitter does not steal taps */
+static void pxDrag(int x, int y, bool first, bool scroll) {
   if (!(gPx.pane == 1 || gPx.pane == 4)) return;
   if (first) { gPx.lastY = y; gPx.vel = 0; gPx.moved = false; gPx.pressId = pxRowAt(x, y); BLINV; gPx.scrub = pxMaxScroll() > 0 && x >= gPx.listX1 - 14 && y >= gPx.listY0; }
+  if (!scroll && !gPx.scrub) { gPx.lastY = y; return; }
   if (gPx.scrub) { const int h = gPx.listY1 - gPx.listY0, ms = pxMaxScroll(); float s = (float)(y - gPx.listY0) * ms / (h > 0 ? h : 1); if (s < 0) s = 0; if (s > ms) s = (float)ms; if (s != gPx.scroll) { gPx.scroll = s; BLINV; } return; }
   const int dy = y - gPx.lastY; if (dy) { gPx.moved = true; gPx.scroll -= dy; gPx.vel = -(float)dy; const int ms = pxMaxScroll(); if (gPx.scroll < 0) gPx.scroll = 0; if (gPx.scroll > ms) gPx.scroll = (float)ms; gPx.lastY = y; BLINV; } }
 /* tap on the tab bar */
@@ -305,6 +316,11 @@ static bool pxBagTap(int x, int y) {
   if (gPx.pane != 4 || y < gPx.listY0 - kPxSubH || y >= gPx.listY0) return false;
   int d = 0; if (x >= gPx.bagLX0 - 2 && x < gPx.bagLX1 + 2) d = -1; else if (x >= gPx.bagRX0 - 2 && x < gPx.bagRX1 + 2) d = 1; if (!d) return false;
   gPx.bag = (gPx.bag + d + 8) % 8; gPx.scroll = 0; gPx.vel = 0; BLINV; PSPNativeMemLog("[VIEW] bag pocket -> %s", kVwPocket[gPx.bag]); return true; }
+/* run 118: true if (x,y) is on the PARTY/BAG list body (open the real menu), not the title strip */
+static bool pxViewerListHit(int y) {
+  if (gPx.pane == 3) return y >= gPx.listY0 - kPxSubH && y < gPx.listY1; /* party: whole pane incl. title */
+  if (gPx.pane == 4) return y >= gPx.listY0 && y < gPx.listY1; /* bag: list rows only; title arrows = pxBagTap */
+  return false; }
 static bool pxSortTap(int x, int y) {
   if (gPx.pane != 1 || y < gPx.listY0 - kPxSubH || y >= gPx.listY0 || x < gPx.sortX0 - 2 || x >= gPx.sortX1 + 2) return false;
   gPx.sort = (gPx.sort + 1) % 3; gPx.built = false; gPx.scroll = 0; gPx.vel = 0; BLINV; static const char *const k[3] = { "A-Z", "PLACE", "REMATCH first" };
@@ -313,19 +329,28 @@ static bool pxSortTap(int x, int y) {
 /* ---- incoming call banner (hook 0125 publishes whether the Pokegear is ringing). Tapping it = the POKEGEAR button: the game's
    Pokegear opens on the phone and answers (FieldSystem_InitPokegearArgs_Phone). Drawn over any pane, bottom of the panel. ---- */
 enum { kPxRingX0 = kBlPanX0 + 2, kPxRingX1 = kBlPanX1 - 2, kPxRingY0 = kBlPanY1 - 21, kPxRingY1 = kBlPanY1 - 2 };
-static inline bool pxRinging() { return pxOn() && P3DS_PhRing > 0; }
+/* run 118: GearPhoneRingManager_IsRinging can flap between ring beeps; hold the banner ~20 quiet frames so it does not flicker off */
+static int pxRingHold, pxRingVal;
+static int pxRingShown() {
+  const int r = P3DS_PhRing;
+  if (r > 0) { pxRingVal = r; pxRingHold = 20; }
+  else if (pxRingHold > 0) pxRingHold--;
+  else pxRingVal = 0;
+  return pxOn() ? pxRingVal : 0;
+}
+static inline bool pxRinging() { return pxRingShown() > 0; }
 static bool pxRingHit(int x, int y) { return pxRinging() && x >= kPxRingX0 && x < kPxRingX1 && y >= kPxRingY0 && y < kPxRingY1; }
 static void pxRingDraw(uint32_t *b, const SUiText &T, bool blink) {
-  if (!pxRinging()) return;
+  const int ring = pxRingShown(); if (!ring) return;
   const uint32_t bg = blink ? SUI_RGB(255, 214, 64) : SUI_RGB(255, 170, 40);
   for (int y = kPxRingY0; y < kPxRingY1; y++) for (int x = kPxRingX0; x < kPxRingX1; x++) suiPx(b, x, y, bg);
   mmFrame(b, kPxRingX0, kPxRingY0, kPxRingX1, kPxRingY1, kBlNavy);
-  const int id = P3DS_PhRing - 2; char t[48]; snprintf(t, sizeof t, "CALL: %s", id >= 0 && id < 75 ? kPxName[id] : "?"); char fit[48]; pxFit(T, fit, sizeof fit, t, kPxRingX1 - kPxRingX0 - 60);
+  const int id = ring - 2; char t[48]; snprintf(t, sizeof t, "CALL: %s", id >= 0 && id < 75 ? kPxName[id] : "?"); char fit[48]; pxFit(T, fit, sizeof fit, t, kPxRingX1 - kPxRingX0 - 60);
   T.draw(b, kPxRingX0 + 4, kPxRingY0 + 4, fit, kBlNavy, bg);
   const int w = T.width("ANSWER") + 8, x1 = kPxRingX1 - 3, x0 = x1 - w;
   pxBtn(b, x0, kPxRingY0 + 3, x1, kPxRingY1 - 3, SUI_RGB(90, 150, 230), kBlNavy, kBlNavy);
   T.draw(b, x0 + 4, kPxRingY0 + 4, "ANSWER", SUI_RGB(255, 255, 255), kBlNavy); }
-/* every frame: redraw and log when the ringing state changes */
+/* every frame: redraw and log when the (sticky) ringing display changes */
 static void pxRingFrame() {
-  static int last; if (!pxOn()) return; const int r = P3DS_PhRing;
+  static int last; if (!pxOn()) return; const int r = pxRingShown();
   if (r != last) { last = r; BLINV; if (r > 0) PSPNativeMemLog("[PHONE] Pokegear ringing: caller %d '%s' (tap ANSWER or POKEGEAR)", r - 2, r >= 2 && r - 2 < 75 ? kPxName[r - 2] : "?"); else PSPNativeMemLog("[PHONE] ringing stopped"); } }

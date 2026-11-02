@@ -1755,9 +1755,10 @@ static int Present(bool){
    static int tX0,tY0,tXl,tYl,tXp;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
    if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){hit=blHit(x,y);if(hit==10&&pxRingHit(x,y))hit=3;if(hit==10)hit=21;else if(hit==8)hit=20;else if(hit==9)hit=22;else if(hit==11)hit=pxOn()?23:-1;tXl=x;tYl=y;}}
    if(tNow&&!bmPrev){bmDown=hit;tX0=tXp=tXl;tY0=tYl;tDrag=false;}
-   pxFrame(tNow&&bmDown==21&&pxScrolls());pxRingFrame();
-   if(tNow&&bmDown==21&&pxPane()){if(abs(tXl-tX0)+abs(tYl-tY0)>6)tDrag=true;pxDrag(tXl,tYl,!bmPrev);}
-   if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){if(abs(tXl-tX0)+abs(tYl-tY0)>6)tDrag=true;static int tYp;if(tNow&&!bmPrev)tYp=tYl;if(tDrag&&(gPg.ov||gPg.achOpen)){if(tYl!=tYp){(gPg.achOpen?gPg.achScroll:gPg.ovScroll)-=tYl-tYp;BLINV;}}else if(tDrag&&tXl!=tXp){gPg.glide=false;gPg.viewX-=tXl-tXp;BLINV;}tXp=tXl;tYp=tYl;}
+   pxFrame(tNow&&bmDown==21&&pxScrolls());pxRingFrame();if(pxPane())gPg.markOk=false; /* run 118 B3 */
+   /* run 118 A1: tap vs drag threshold 16 DS px (was 6); list scroll only after drag so stylus jitter does not eat row taps */
+   if(tNow&&bmDown==21&&pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);if(dist>16){if(!tDrag){tDrag=true;PSPNativeMemLog("[BMENU] panel drag (dist %d): row tap suppressed until release without drag",dist);} }pxDrag(tXl,tYl,!bmPrev,tDrag);}
+   if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){if(abs(tXl-tX0)+abs(tYl-tY0)>16)tDrag=true;static int tYp;if(tNow&&!bmPrev)tYp=tYl;if(tDrag&&(gPg.ov||gPg.achOpen)){if(tYl!=tYp){(gPg.achOpen?gPg.achScroll:gPg.ovScroll)-=tYl-tYp;BLINV;}}else if(tDrag&&tXl!=tXp){gPg.glide=false;gPg.viewX-=tXl-tXp;BLINV;}tXp=tXl;tYp=tYl;}
    const int press=(tNow&&hit==bmDown)?bmDown:-1;
    /* run 49 (Nathan): X is a tile cursor, not a wave. psp_ctru.c swallows X (and A/B/D-pad while the cursor is up) and queues the presses in P3DS_TileKeys;
       X opens the cursor (a second X closes it), D-pad right/down steps to the next usable tile, D-pad left/up to the previous, A taps it, B or 6 s idle drops it. */
@@ -1777,18 +1778,35 @@ static int Present(bool){
    const int pressShow=press>=0?press:tCur;
    if(kbFire||(!tNow&&bmPrev&&bmDown>=0)){
     if(bmDown==23){pxChipTap(kSuiText,kBlPanX1,kBlPanY0,tX0);}
-    else if(bmDown==21&&pxPane()==2){if(!tDrag){const int rs=pxRadioAt(tX0,tY0);if(rs>=0){/* tap a station = open the Pokegear on the radio tuned to it (hook 0129), like the POKEGEAR tile */
-       if(!P3DS_RadCard){P3DS_Toast("NO RADIO CARD YET");PSPNativeMemLog("[RADIO] tune station %d: no Radio Card yet",rs);}
-       else if(!((P3DS_StartAvail>>11)&1)){P3DS_Toast("NO POKEGEAR YET");PSPNativeMemLog("[RADIO] tune station %d: the game's menu has no Pokegear entry (avail mask %04x)",rs,P3DS_StartAvail);}
-       else if(P3DS_StartReq<0){P3DS_RadTuneReq=rs+1;P3DS_StartReq=11;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[RADIO] tune station %d: opening the Pokegear, %s",rs,bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
-       else PSPNativeMemLog("[RADIO] tune station %d ignored: a menu request is already running",rs);}}}
-    else if(bmDown==21&&pxPane()){if(!tDrag){if(pxSortTap(tX0,tY0)||pxBagTap(tX0,tY0)){}else{const int id=pxRowAt(tX0,tY0);if(id>=0){const int l=P3DS_PhLoc[id];
-      if(!pxTapIsPlace(kSuiText,id,tX0)){/* tap the row = the game's real outgoing call: open the Pokegear on the phone (like the POKEGEAR tile) and let hook 0128 dial */
-       if(!((P3DS_StartAvail>>11)&1)){P3DS_Toast("NO POKEGEAR YET");PSPNativeMemLog("[PHONE] call %s: the game's menu has no Pokegear entry (avail mask %04x)",kPxName[id],P3DS_StartAvail);}
-       else if(P3DS_StartReq<0){P3DS_PhCallReq=id+1;P3DS_StartReq=11;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PHONE] call %s (contact %d): opening the Pokegear, %s",kPxName[id],id,bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
-       else PSPNativeMemLog("[PHONE] call %s ignored: a menu request is already running",kPxName[id]);}
-      else if(l>=0&&l<kPgN&&gPg.decoded){pxSetPane(0,"contact tapped");gPg.ov=false;gPg.sel=l;gPg.page=0;gPg.glide=false;int x,y,w,h;pgSpecRect(l,&x,&y,&w,&h);gPg.viewX=x*8+w*4-(kBlPanX1-kBlPanX0-4)/2;if(gPg.viewX<0)gPg.viewX=0;BLINV;PSPNativeMemLog("[PHONE] tap %s -> map location %d '%s'",kPxName[id],l,P3DS_PgName[l]);}
-      else{P3DS_Toast("NO MAP SPOT");PSPNativeMemLog("[PHONE] tap %s: no place on the Pokegear map (loc %d)",kPxName[id],l);}}}}}
+    else if(bmDown==21&&pxPane()==2){
+      if(tDrag)PSPNativeMemLog("[RADIO] station tap ignored: drag");
+      else{const int rs=pxRadioAt(tX0,tY0);if(rs>=0){/* A4 */
+        if(!P3DS_RadCard){P3DS_Toast("NO RADIO CARD YET");PSPNativeMemLog("[RADIO] tune station %d: no Radio Card yet",rs);}
+        else if(!((P3DS_StartAvail>>11)&1)){P3DS_Toast("NO POKEGEAR YET");PSPNativeMemLog("[RADIO] tune station %d: the game's menu has no Pokegear entry (avail mask %04x)",rs,P3DS_StartAvail);}
+        else if(P3DS_StartReq<0){P3DS_RadTuneReq=rs+1;P3DS_StartReq=11;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[RADIO] tune station %d: opening the Pokegear, %s",rs,bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+        else PSPNativeMemLog("[RADIO] tune station %d ignored: a menu request is already running",rs);}}}
+    else if(bmDown==21&&pxPane()==1){
+      if(tDrag)PSPNativeMemLog("[PHONE] row tap ignored: drag");
+      else if(pxSortTap(tX0,tY0)){}
+      else{const int id=pxRowAt(tX0,tY0);if(id>=0){const int l=P3DS_PhLoc[id];
+        if(!pxTapIsPlace(kSuiText,id,tX0)){/* A2 */
+          if(!((P3DS_StartAvail>>11)&1)){P3DS_Toast("NO POKEGEAR YET");PSPNativeMemLog("[PHONE] call %s: the game's menu has no Pokegear entry (avail mask %04x)",kPxName[id],P3DS_StartAvail);}
+          else if(P3DS_StartReq<0){P3DS_PhCallReq=id+1;P3DS_StartReq=11;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PHONE] call %s (contact %d): opening the Pokegear, %s",kPxName[id],id,bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+          else PSPNativeMemLog("[PHONE] call %s ignored: a menu request is already running",kPxName[id]);}
+        else if(l>=0&&l<kPgN&&gPg.decoded){pxSetPane(0,"contact MAP chip");gPg.ov=false;gPg.sel=l;gPg.page=0;gPg.glide=false;int x,y,w,h;pgSpecRect(l,&x,&y,&w,&h);gPg.viewX=x*8+w*4-(kBlPanX1-kBlPanX0-4)/2;if(gPg.viewX<0)gPg.viewX=0;BLINV;PSPNativeMemLog("[PHONE] tap %s -> map location %d '%s'",kPxName[id],l,P3DS_PgName[l]);}
+        else{P3DS_Toast("NO MAP SPOT");PSPNativeMemLog("[PHONE] tap %s: no place on the Pokegear map (loc %d)",kPxName[id],l);}}}}
+    else if(bmDown==21&&pxPane()==3){
+      if(tDrag)PSPNativeMemLog("[VIEW] party tap ignored: drag");
+      else if(!((P3DS_StartAvail>>1)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[VIEW] party tap: not in the game's menu (avail mask %04x)",P3DS_StartAvail);}
+      else if(P3DS_StartReq<0){P3DS_StartReq=1;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[VIEW] party tap -> open Pokemon menu, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+      else PSPNativeMemLog("[VIEW] party tap ignored: a menu request is already running");}
+    else if(bmDown==21&&pxPane()==4){
+      if(tDrag)PSPNativeMemLog("[VIEW] bag tap ignored: drag");
+      else if(pxBagTap(tX0,tY0)){}
+      else if(pxViewerListHit(tY0)){
+        if(!((P3DS_StartAvail>>2)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[VIEW] bag tap: not in the game's menu (avail mask %04x)",P3DS_StartAvail);}
+        else if(P3DS_StartReq<0){P3DS_StartReq=2;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[VIEW] bag tap -> open Bag, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+        else PSPNativeMemLog("[VIEW] bag tap ignored: a menu request is already running");}}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&!tDrag&&tX0>=gPg.achX0&&tX0<gPg.achX1&&tY0>=gPg.achY0&&tY0<gPg.achY1){gPg.achOpen=!gPg.achOpen;gPg.ov=false;gPg.sel=-1;gPg.achScroll=0;if(gPg.achOpen)P3DS_AchViewed();BLINV;PSPNativeMemLog("[ACH] list %s",gPg.achOpen?"open":"closed");}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&!tDrag&&tX0>=gPg.dotsX0-3&&tX0<gPg.dotsX1+3&&tY0>=gPg.dotsY0-3&&tY0<gPg.dotsY1+3){gPg.achOpen=false;gPg.ov=!gPg.ov;gPg.sel=-1;gPg.ovScroll=0;BLINV;PSPNativeMemLog("[PGSTAT] overview %s",gPg.ov?"open":"closed");}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&gPg.ov){if(!tDrag){const int l=pgOvHit(gPg,tY0);if(l>=0){gPg.ov=false;gPg.sel=l;int x,y,w,h;pgSpecRect(l,&x,&y,&w,&h);gPg.viewX=x*8+w*4-(kBlPanX1-kBlPanX0-4)/2;if(gPg.viewX<0)gPg.viewX=0;BLINV;
@@ -1829,7 +1847,7 @@ static int Present(bool){
     else{
     {/* run 17: the overlay was repainted (gradient, map, 10 buttons, text) and re-uploaded 30x/s = +10.4 ms present (log 2026-10-26: 22 fps with tiles, 30 without). Paint into blCache only when an input changed, copy it otherwise, and tell the GPU path the bottom texture is unchanged. */
      static u32*blCache;static unsigned blSeenGen=~0u,blKey,blRedraw,blReuse,blAge;static u64 blUs;
-     unsigned key=(unsigned)pressShow+16u*blink+64u*(unsigned)(blMode+1)+512u*P3DS_StartAvail+0x40000000u*(P3DS_PgShoes==1)+0x20000000u*(runNow!=0);for(int i=0;i<10;i++)key=key*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;key=key*31u+icMask;key=key*31u+(unsigned)native;
+     unsigned key=(unsigned)pressShow+16u*blink+64u*(unsigned)(blMode+1)+512u*P3DS_StartAvail+0x40000000u*(P3DS_PgShoes==1)+0x20000000u*(runNow!=0);for(int i=0;i<10;i++)key=key*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;key=key*31u+icMask;key=key*31u+(unsigned)native;key=key*31u+(unsigned)pxPane();key=key*31u+(unsigned)(pxRinging()?pxRingShown():0); /* run 118: pane + sticky ring so ANSWER banner is never stuck in the overlay cache */
      if(!blCache)blCache=(u32*)malloc(256*192*4);
      /* fps_tweaks >= 2 (2026-10-27): the blink flips twice a second and each flip repainted the whole overlay (~10.7 ms,
         log run 24: 20 of ~25 repaints per 300 frames, a dropped frame each). Keep one cached picture per blink state. */
@@ -1849,8 +1867,8 @@ static int Present(bool){
       R(235,0,85,240,256,0);R(0,0,235,4,0,160);R(0,236,235,4,0,164);R(0,4,4,232,344,0);}
      for(int i=0;i<7;i++)if(native&&((icMask>>i)&1)){int x0,y0,x1,y1;blRect(i,&x0,&y0,&x1,&y1);if(bhd)R(bnX[i],bnY[i],20,22,i*20,0);else R(x0*5/4+1,(y0*5+3)/4-1,20,22,i*20,0); /* run 13: 22 rows, the top one in the 1 px gap, so the Pokedex symbol is not clipped */}
      if(native&&((icMask>>8)&1)){int x0,y0,x1,y1;blRect(8,&x0,&y0,&x1,&y1);if(bhd)R(bnX[8],bnY[8],32,32,64,32);else R((x0+x1)*5/8-16,y0*5/4+2,32,32,64,32);}
-     if(blMode<0&&gPg.decoded&&gPg.gameIco)for(int k=0;k<gPg.nIco;k++)R(gPg.ico[k].x*5/4,gPg.ico[k].y*5/4+1,10,11,gPg.ico[k].k*12,64);
-     if(gPg.gameMarker&&gPg.markOk&&blMode<0&&gPg.decoded)R(gPg.markX*5/4-16,gPg.markY*5/4-18,32,32,g*32,32);
+     if(blMode<0&&gPg.decoded&&gPg.gameIco&&!pxPane())for(int k=0;k<gPg.nIco;k++)R(gPg.ico[k].x*5/4,gPg.ico[k].y*5/4+1,10,11,gPg.ico[k].k*12,64);
+     if(gPg.gameMarker&&gPg.markOk&&blMode<0&&gPg.decoded&&!pxPane())R(gPg.markX*5/4-16,gPg.markY*5/4-18,32,32,g*32,32); /* run 118 B3: no stale MAP head on list panes */
      P3DS_OvN=n;}
     } /* run 22 blReady */
     {static bool once;if(!once){once=true;PSPNativeMemLog("[BMENU] layout JOHTO: map panel %dx%d, 8 buttons + Y item square",kBlPanX1-kBlPanX0,kBlPanY1-kBlPanY0);}}}
