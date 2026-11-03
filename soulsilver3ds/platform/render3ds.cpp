@@ -1665,7 +1665,7 @@ static int Present(bool){
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
  /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
     Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
- static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sRetHold,sRetN; /* run 143: after the app closes keep the held field + strips until the live field's fade-in from black is done */ static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged; static unsigned sPartySnapGen;
+ static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sRetHold,sRetN,sSwapAct; /* run 144: tab swap under way: freeze/hide the app picture so the Cancel press is never seen */ /* run 143: after the app closes keep the held field + strips until the live field's fade-in from black is done */ static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged; static unsigned sPartySnapGen;
  static u32 sStripHold[2][64*192]; static int sStripHoldOk; /* run 136 */
  auto ppRgbNz=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFFu)!=0)n++;return n;};
  auto ppDistinct=[](const u32 *p)->int{if(!p)return 0;u32 seen[48];int ns=0;for(int i=0;i<256*192;i+=11){const u32 r=p[i]&0xFFFFFFu;int f=0;for(int k=0;k<ns;k++)if(seen[k]==r){f=1;break;}if(!f&&ns<(int)(sizeof seen/sizeof *seen))seen[ns++]=r;}return ns;};
@@ -1687,7 +1687,7 @@ static int Present(bool){
   const u32 *src=(power&0x8000)?display[1]:display[0];const int nSrc=ppRgbNz(src); /* run 132: summary/bag may put engine B on the bottom LCD (POWCNT bit15 set) */
   /* run 137: flashing fix. A frame where the engine buffer is mid-redraw/cleared (or the source engine just swapped) has few lit pixels; showing it flashed the panel. Take a frame only if it is not far emptier than the held one, or it persists 4 frames (a real screen change). */
   static int ppHeldNz,ppLowRun;const bool ppTake=nSrc>64&&(!sPartySnapOk||nSrc*10>=ppHeldNz*6||++ppLowRun>=4);if(ppTake){ppLowRun=0;ppHeldNz=nSrc;}else if(nSrc>=ppHeldNz*6/10)ppLowRun=0;
-  if(ppTake){memcpy(sPartySnap,src,sizeof sPartySnap);for(int i=0;i<256*192;i++)sPartySnap[i]|=0xFF000000u;sPartySnapOk=1;sPartySnapGen++;} /* run 134: engine B pixels have alpha 0 */
+  if(ppTake&&!sSwapAct){memcpy(sPartySnap,src,sizeof sPartySnap);for(int i=0;i<256*192;i++)sPartySnap[i]|=0xFF000000u;sPartySnapOk=1;sPartySnapGen++;} /* run 134: engine B pixels have alpha 0 */
   if(!sPartySrcLogged&&nSrc>64){sPartySrcLogged=1;
    PSPNativeMemLog("[PANEL] party source engine A (display[0]) rgbNz=%d distinct~%d pow=%04x /* once per open */",nSrc,ppDistinct(src),(unsigned)power);}
  }
@@ -1811,14 +1811,14 @@ static int Present(bool){
     if(P3DS_PanelPartyOn&&bmFlow==2&&panelPartyCfg()){
      if(swTouch&&!swPrev&&swTgt<0){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)&&blHit(x,y)==11&&pxOn()){const int t=pxChipHit(kSuiText,kBlPanX1,kBlPanY0,x);if(t>=0&&t!=pxPane()){swTgt=t;swT=0;PSPNativeMemLog("[PANEL] tab swap: %s tapped while an app is open, closing it first",kPxTabs[t]);}}}
      if(swTgt>=0){swT++;if(swT%24==6&&swT<400){P3DS_InjectKeys=KEY_B;P3DS_InjectFrames=2;}if(swT>=420){PSPNativeMemLog("[PANEL] tab swap to %s gave up after %u frames",kPxTabs[swTgt],swT);swTgt=-1;}}}
-    swPrev=swTouch;}
+    sSwapAct=swTgt>=0&&P3DS_PanelPartyOn;swPrev=swTouch;}
    static int tX0,tY0,tXl,tYl,tXp;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
    if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){hit=blHit(x,y);if(hit==10&&pxRingHit(x,y))hit=3;if(hit==10)hit=21;else if(hit==8)hit=20;else if(hit==9)hit=22;else if(hit==11)hit=pxOn()?23:-1;tXl=x;tYl=y;}}
    if(tNow&&!bmPrev){bmDown=hit;tX0=tXp=tXl;tY0=tYl;tDrag=false;}
    {/* run 128 panel_party: tapping the PARTY tab itself opens the real party in the panel (no row tap needed); leaving the party returns the panel to MAP so the next PARTY tap is a fresh tap */
     static int ppPane,ppWasOn;const int pn=pxPane();
     if(P3DS_PanelPartyOn){ppWasOn=1;}
-    else if(ppWasOn){ppWasOn=0;const int swGo=swTgt;swTgt=-1;pxSetPane(swGo>=0?swGo:0,swGo>=0?"tab swap":"left the panel party");}
+    else if(ppWasOn){ppWasOn=0;const int swGo=swTgt;swTgt=-1;sSwapAct=0;pxSetPane(swGo>=0?swGo:0,swGo>=0?"tab swap":"left the panel party");}
     }
    pxFrame(tNow&&bmDown==21&&pxScrolls());pxRingFrame();if(pxPane())gPg.markOk=false; /* run 118 B3 */
    {/* run 141: the tab handler runs after pxFrame so the tap that switches the pane also starts the open, not the next frame (was +1 frame) */
@@ -1990,7 +1990,7 @@ static int Present(bool){
  const bool ppSnapWait=P3DS_PanelPartyOn&&!P3DS_InField&&!sPartySnapOk; /* run 141: app is up but its first picture is not: keep the previous panel and the held field, no blank frame */
  if((P3DS_PanelPartyWant||ppSnapWait)&&(!P3DS_PanelPartyOn||ppSnapWait)&&sFieldHoldOk&&!P3DS_MenuOpen){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;P3DS_WideStrip[0]=(sStripHoldOk&1)?sStripHold[0]:nullptr;P3DS_WideStrip[1]=(sStripHoldOk&2)?sStripHold[1]:nullptr;if(P3DS_WideStrip[0])P3DS_WideFxOn=1;} /* run 143: the held strips too while the app opens (the wide strips went black for ~9 frames); run 140: 3D slider on: both eyes show the held field, not the app's own top screen */
  if(sRetHold&&sFieldHoldOk&&!P3DS_MenuOpen){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;P3DS_WideStrip[0]=(sStripHoldOk&1)?sStripHold[0]:nullptr;P3DS_WideStrip[1]=(sStripHoldOk&2)?sStripHold[1]:nullptr;if(P3DS_WideStrip[0])P3DS_WideFxOn=1;} /* run 143: the field fades in from black after the app closes (SS-FADE steps=6); show the last field frame and its strips until the live brightness is back */
- if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&!ppSnapWait){
+ if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&!ppSnapWait&&!sSwapAct){
   static unsigned ppLog;static u32 sPanelBot[256*192];int dx0=0,dy0=0,dx1=0,dy1=0;
   if(bot){
    memcpy(sPanelBot,bot,sizeof sPanelBot); /* chrome (and any game bottom) snapshot */
