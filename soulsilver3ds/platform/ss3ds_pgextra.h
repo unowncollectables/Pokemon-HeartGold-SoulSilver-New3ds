@@ -277,6 +277,9 @@ static void pxBag(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1)
   const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(40, 64, 120);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
   gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1;
+  { extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; /* run 136: plain BAG header while the game's own bag is in the panel (the viewer arrows never follow it; < > have no glyph) */
+    if (P3DS_PanelPartyWant || P3DS_PanelPartyOn) { gPx.bagLX0 = gPx.bagLX1 = gPx.bagRX0 = gPx.bagRX1 = 0; T.draw(b, X0 + 4, Y0 + 2, "BAG", wh, kBlNavy);
+      if (!P3DS_PanelPartyOn) T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening bag...", wh, dk); return; } }
   pxBagBuild();
   /* < pocket name (count) >: tap the arrows to change pocket */
   gPx.bagLX0 = X0 + 2; gPx.bagLX1 = X0 + 16; gPx.bagRX1 = X1 - 3; gPx.bagRX0 = X1 - 17;
