@@ -248,6 +248,8 @@ static void pxParty(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
   gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1; /* run 118: hit-test geometry for tap-to-open */
   T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *hint = "TAP TO OPEN"; T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 214, 244), kBlNavy);
+  { extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; /* run 131: panel_party: the real party is opening here, so do not flash the read-only list for the ~0.3 s the Start menu takes */
+    if (P3DS_PanelPartyWant || P3DS_PanelPartyOn) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening party...", wh, SUI_RGB(40, 64, 120)); return; } }
   if (!P3DS_VwReady) { pxVwWait(b, T, X0, Y0 + kPxSubH + 6); return; }
   if (!P3DS_VwPartyN) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "No Pokemon in the party.", wh, SUI_RGB(40, 64, 120)); return; }
   for (int i = 0; i < P3DS_VwPartyN && i < 6; i++) { const uint16_t *m = P3DS_VwParty[i]; const int y0 = Y0 + kPxSubH + 1 + i * 25, y1 = y0 + 24; if (y1 > Y1) break;
