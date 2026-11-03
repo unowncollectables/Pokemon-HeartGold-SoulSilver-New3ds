@@ -336,7 +336,14 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
     clearRGBA = ((r << 2 | r >> 4) << 24) | ((g << 2 | g >> 4) << 16) | ((b << 2 | b >> 4) << 8) | (a * 255 / 31);
     clearD = clearDepth16 / 65535.0f; eyes = stereo ? 2 : 1; vn[0] = vn[1] = bn[0] = bn[1] = 0;
     { static int stLast = -1; if (stereo != stLast) { if (stLast >= 0 && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the 3D slider changed"); } stLast = stereo; }
-      const int want = G3G_Wide && !wideFail && !G3G_Async && rbSyncOn() ? 320 : 256;
+      /* run 141: while a panel app (party/bag/summary in the JOHTO panel) is opening or open, keep the current eye targets: it draws no 3D the player
+         sees (the held field is on top), and re-making the targets (VRAM free + alloc + the 2x scale-target dance) cost a ~100 ms frame at every open. */
+      extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; extern int P3DS_InField;
+      static int ppHold, ppBack;   /* held from the tab tap until the overworld is back (wide view on again, or 90 field frames), so the close does not re-make them either */
+      if (P3DS_PanelPartyWant || P3DS_PanelPartyOn) { ppHold = 1; ppBack = 0; }
+      else if (ppHold && P3DS_InField && (G3G_Wide || ++ppBack >= 90)) ppHold = 0;
+      const int ppKeep = ppHold && ok == 1 && curW > 0 && curHi >= 0;
+      const int want = ppKeep ? curW : (G3G_Wide && !wideFail && !G3G_Async && rbSyncOn() ? 320 : 256);
       if (res3dCfg < 0) { res3dCfg = 0; PSPNativeMemLog("[3DRES] res3d disabled (run 52: broken on hardware; config res3d ignored)"); }
       /* 2026-10-26 g3_smooth (default 1, Settings > 3D > Smooth title 3D): the title Lugia (DS W-buffer frames; on the BOTTOM screen via the POWCNT
          swap, so never stereo: P3DS_StereoShiftNow is 0 there) uses the res3d 2x target + hardware 2x2 box downscale, i.e. 4x supersampled edges. At 1x Nathan found the title
@@ -377,7 +384,7 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
             gvN = 0; gvAcc = 0; } } }
       const int fastMono = shCfg && P3DS_CfgInt("g3_sharp", 0) >= 2 && P3DS_CfgInt("g3_sharp", 0) != 4 && (monoRun >= 30 || gvDown);
       if (fastMono != monoLast) { monoLast = fastMono; PSPNativeMemLog("[3DRES] FAST 3D: mono (slider 0) draws at %s", fastMono ? "1x (crisp textures)" : "2x / stereo"); }
-      const int wantHi = (res3dCfg == 2 || sm || (sh && !fastMono)) && !res3dFail && !G3G_Async && rbSyncOn() ? 1 : 0;
+      const int wantHi = ppKeep ? curHi : ((res3dCfg == 2 || sm || (sh && !fastMono)) && !res3dFail && !G3G_Async && rbSyncOn() ? 1 : 0);
       if ((want != curW || wantHi != curHi) && ok == 1) {
         /* 2026-10-28: the 2x target only works in VRAM (run 49), and VRAM is full of the scale targets: free them first,
            make the 2x target, then get the scale targets back at 16 bits (gpuscale.c P3DS_UpAlloc). Back at 1x: RGBA8 again. */
