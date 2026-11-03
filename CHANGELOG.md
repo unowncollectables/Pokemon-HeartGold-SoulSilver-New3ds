@@ -8,6 +8,10 @@ All notable changes to this project will be documented here.
 - New toggle Settings > Battle "Damage check" (`dmg_check`, default OFF). When on, the Y foe-info screen gets a last page "YOUR MOVES VS <foe>": your four moves with a rough damage range and % of the foe's HP (KO / may KO / x2 / x1/2 flags), plus both speeds and who moves first (paralysis counted). Works in wild and trainer singles battles; ignores crits, items, abilities, weather, stat stages and priority.
 - Hook 0208 (new patch, after 0031) snapshots stats, moves, types and power into `P3DS_DmgInfo`; the maths is in the port. Log tag `[DMG]` on open. Stat names/APIs mirror hooks 0031 and 0121; if the build log says "0208 dmgcheck hook NOT applied" or a compile error, fix there.
 
+### Pokedex encounter finder, hook 0209 (run 146, not compiled, untested)
+- JOHTO map: tap a place, tap its card for the wild list, tap a Pokemon name and the map pins every place that species lives (red diamonds, count in the banner). Chips ANY / MORN / DAY / NITE filter by time of day (current period underlined); X clears. Surf, fishing and Rock Smash count at any time.
+- Toggle: Settings > Input > "Pokedex finder" (`pg_find`, default OFF until tested). Hook 0209 records the morning/day/night slots into `P3DS_PsTm` while 0083 builds its ROM tables (read-only, never touches the save); without it only ANY works. Build log check: `ss3ds 0209 pgfind hook NOT applied`. Log `[FIND]`. Not covered: Headbutt trees, swarms, radio and Hoenn/Sinnoh sound slots, Safari/Bug Contest.
+
 ### Bottom-screen PARTY and BAG viewer, hook 0167 (not compiled, untested)
 - Two new tabs on the JOHTO panel's top bar (under Settings > Input > Pokegear tabs): PARTY (species, level, HP bar, status, held item, eggs) and BAG (pocket arrows < >, item names and counts, drag to scroll). Read-only, live while you walk. New hook 0167 (field_control.c + field_system.c) publishes the data only while one of these tabs is open; item names come from the game's own text. Log tag `[VIEW]`.
 - The launcher part of the brief (tap tiles, X cursor, straight back to walking) already exists (0060/0102/0116, run 49); nothing changed there.

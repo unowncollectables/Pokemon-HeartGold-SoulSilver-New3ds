@@ -1,0 +1,59 @@
+From 459e1952cd435c157dd1ed50a39f42fd5569f549 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 21:03:37 +0000
+Subject: [PATCH] ss3ds: hook 0209 encounter finder times (morning/day/night
+ per species per location)
+
+Read-only: records when each wild species is found into P3DS_PsTm (platform memory) while 0083 builds its ROM tables. New numbered patch.
+---
+ scripts/ss3ds_hooks.d/0209_pgfind.py | 25 +++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0209_pgfind.sh |  5 +++++
+ 2 files changed, 30 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0209_pgfind.py
+ create mode 100644 scripts/ss3ds_hooks.d/0209_pgfind.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0209_pgfind.py b/scripts/ss3ds_hooks.d/0209_pgfind.py
+new file mode 100755
+index 0000000..b3408d3
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0209_pgfind.py
+@@ -0,0 +1,25 @@
++#!/usr/bin/env python3
++"""ss3ds 0209: Pokedex encounter finder data. Applied after 0083 (r16) to src/field/field_control.c. Idempotent ('SS3DS 0209' marker).
++READ-ONLY. Extends 0083's one-time ROM table build: besides the per-location species set it records WHEN a species is found,
++P3DS_PsTm[location][t][species bitset]: t 0 morning, 1 day, 2 night (land slots), 3 any time (surf, rock smash, rods).
++The table lives in the platform (ss3ds_pgmap.h), like the other 0083 tables, because the overlay .bss is cleared on reload.
++Nothing is written to the save."""
++import sys
++p = 'src/field/field_control.c'
++s = open(p).read()
++if 'SS3DS 0209' in s:
++    sys.exit(0)
++if 'SS3DS 0083 r16' not in s:
++    sys.exit('0209_pgfind: hook 0083 r16 is not in field_control.c')
++def sub1(s, old, new):
++    if s.count(old) != 1:
++        sys.exit('0209_pgfind: anchor not found exactly once: ' + old[:70])
++    return s.replace(old, new)
++s = sub1(s, 'static u8 sPsEv[0x800];\n', 'static u8 sPsEv[0x800];\nextern u8 P3DS_PsTm[100][4][64]; /* SS3DS 0209: when a species is found: 0 morn, 1 day, 2 night, 3 any time */\nstatic int sPsTmCur = 3;\n')
++s = sub1(s, '    if (sp != 0 && sp <= 493) sPsSp[loc][sp >> 3] |= (u8)(1 << (sp & 7));\n',
++         '    if (sp != 0 && sp <= 493) { sPsSp[loc][sp >> 3] |= (u8)(1 << (sp & 7)); P3DS_PsTm[loc][sPsTmCur][sp >> 3] |= (u8)(1 << (sp & 7)); }\n')
++s = sub1(s, 'for (k = 0; k < NUM_ENCOUNTERS_LAND; k++) { SS3DS_PsSp(i, sPsEnc.landSlots.species_morn[k]); SS3DS_PsSp(i, sPsEnc.landSlots.species_day[k]); SS3DS_PsSp(i, sPsEnc.landSlots.species_nite[k]); }',
++         'for (k = 0; k < NUM_ENCOUNTERS_LAND; k++) { sPsTmCur = 0; SS3DS_PsSp(i, sPsEnc.landSlots.species_morn[k]); sPsTmCur = 1; SS3DS_PsSp(i, sPsEnc.landSlots.species_day[k]); sPsTmCur = 2; SS3DS_PsSp(i, sPsEnc.landSlots.species_nite[k]); sPsTmCur = 3; }')
++s += '\n/* SS3DS 0209 done: encounter finder times recorded by SS3DS_PsBuild */\n'
++open(p, 'w').write(s)
++print('0209_pgfind: field_control.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0209_pgfind.sh b/scripts/ss3ds_hooks.d/0209_pgfind.sh
+new file mode 100644
+index 0000000..17579e6
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0209_pgfind.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0209: encounter finder times (morning / day / night per species per location), read-only, after 0083 (same object).
++# Not fatal: without it the finder still shows where a species lives, just without the time filter.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0209_pgfind.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
++  log "ss3ds 0209 pgfind hook NOT applied (see message above); the encounter finder has no time filter"
++fi
+-- 
+2.43.0
+

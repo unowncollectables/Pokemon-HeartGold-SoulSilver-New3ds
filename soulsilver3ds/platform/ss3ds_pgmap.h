@@ -30,6 +30,8 @@ uint16_t P3DS_PsKId[2400]; uint8_t P3DS_PsKLoc[2400], P3DS_PsKKind[2400], P3DS_P
 volatile int P3DS_PsReady; volatile uint32_t P3DS_PsTick; uint16_t P3DS_PsStat[101][9];
 /* run 16: hook 0084 publishes the wild species set per location (bit = species 1..493) and which of them are caught */
 uint8_t P3DS_PsSp[100][64], P3DS_PsCg[100][64];
+/* run 146 / hook 0209 (pg_find): when a species is found per location, [t]: 0 morning, 1 day, 2 night (land), 3 any time (water, rock smash); kept here like P3DS_PsK* */
+uint8_t P3DS_PsTm[100][4][64];
 void *P3DS_PgAlloc(int key, uint32_t size) {
   if (key < 0 || key > 255 || size < 16 || size > 64 * 1024) return 0;
   if (key >= 200 && key <= 201) { if (size > 0x4000) return 0; if (!pgRaw[key]) pgRaw[key] = (uint8_t *)malloc(0x4000); pgRawSz[key] = pgRaw[key] ? size : 0; return pgRaw[key]; }
@@ -49,6 +51,7 @@ struct SPg {
   struct { short x, y; uint8_t k; } ico[48]; int nIco; bool gameIco; /* small stat icons drawn by the native overlay */
   int dotsX0, dotsY0, dotsX1, dotsY1;
   bool achOpen; int achScroll, achX0, achY0, achX1, achY1; /* achievements list (achievements.c), button left of the dots */
+  int find, findTm; /* run 146 pg_find: species being looked for (0 none) and the time filter (0 any, 1 morning, 2 day, 3 night) */
   int page; /* run 16: info card page, 0 = info, 1 = wild Pokemon list (tap the card to flip) */
   bool glide, moving; /* run 16: view slides to the player's new location instead of jumping; moving = still sliding (redraw) */
   int kantoX = -2, kantoAlways = -1; bool kantoOpen; uint8_t hide[47 * 20]; /* run 16: Kanto hidden until a Kanto place is visited */
@@ -218,6 +221,48 @@ static int pgWild(int loc, int *out, int max, int *caught) {
   for (int sp = 1; sp <= 493; sp++) if (P3DS_PsSp[loc][sp >> 3] >> (sp & 7) & 1) { if (n < max) out[n] = sp; n++; if (P3DS_PsCg[loc][sp >> 3] >> (sp & 7) & 1) (*caught)++; }
   return n; }
 
+/* ---- run 146: Pokedex encounter finder (pg_find). Tap a name on the wild list and the map pins every place that species lives, with a morning/day/night filter ---- */
+static bool pgFindCfg(); /* render3ds.cpp */
+static const char *const kPgFindTm[4] = { "ANY", "MORN", "DAY", "NITE" };
+static int pgTimeNow() { const time_t now = time(0); struct tm tmv; const struct tm *lt = localtime_r(&now, &tmv); const int h = lt ? lt->tm_hour : 12; return h >= 4 && h < 10 ? 1 : h >= 10 && h < 20 ? 2 : 3; }
+static bool pgTmHave() { for (int l = 0; l < 100; l++) for (int t = 0; t < 4; t++) for (int i = 0; i < 64; i++) if (P3DS_PsTm[l][t][i]) return true; return false; }
+static bool pgFindAt(int loc, int sp, int tm, bool tmOk) {
+  const uint8_t m = (uint8_t)(1 << (sp & 7)); const int o = sp >> 3;
+  if (tm == 0 || !tmOk) return (P3DS_PsSp[loc][o] & m) != 0;
+  return ((P3DS_PsTm[loc][tm - 1][o] | P3DS_PsTm[loc][3][o]) & m) != 0; }
+static int pgFindCount(const SPg &p) { if (p.find <= 0 || p.find > 493) return 0; const bool ok = pgTmHave(); int n = 0; for (int l = 0; l < kPgN && l < 100; l++) n += pgFindAt(l, p.find, p.findTm, ok); return n; }
+static void pgWildLayout(int aw, int ch, int wn, int *cw, int *rows, int *shown) { *cw = (aw - 8) / 3; *rows = (ch - 18) / 10; const int slots = *rows * 3; *shown = wn > slots ? slots - 1 : wn; }
+/* species under a tap on the wild list page (card spans the panel's bottom), 0 = none */
+static int pgWildHit(const SPg &p, int x, int y) {
+  if (p.sel < 0 || !p.page) return 0; const int X0 = kBlPanX0 + 2, aw = (kBlPanX1 - 2) - X0, ch = pgCardH(p), cy0 = (kBlPanY1 - 2) - ch;
+  int wl[64], cg = 0; const int wn = pgWild(p.sel, wl, 64, &cg); if (!wn) return 0; int cw, rows, shown; pgWildLayout(aw, ch, wn, &cw, &rows, &shown);
+  const int col = (x - (X0 + 4)) / cw, row = (y - (cy0 + 16)) / 10; if (x < X0 + 4 || y < cy0 + 16 || col < 0 || col > 2 || row < 0 || row >= rows) return 0;
+  const int i = col * rows + row; return i < shown ? wl[i] : 0; }
+/* finder strip hit: 1 = clear (X), 2..5 = time filter 0..3 */
+static int pgFindHit(const SPg &p, int Y0, int x, int y) {
+  if (p.find <= 0) return 0; const int X0 = kBlPanX0 + 2;
+  if (x >= X0 + 2 && x < X0 + 16 && y >= Y0 + 2 && y < Y0 + 13) return 1;
+  if (y >= Y0 + 14 && y < Y0 + 25) { const int i = (x - (X0 + 2)) / 36; if (x >= X0 + 2 && i >= 0 && i < 4) return 2 + i; }
+  return 0; }
+static void pgFindPins(uint32_t *b, const SPg &p, int X0, int X1, int oy) {
+  const bool ok = pgTmHave();
+  for (int l = 0; l < 100 && l < kPgN; l++) { if (!pgFindAt(l, p.find, p.findTm, ok)) continue; int x, y, w, h; pgSpecRect(l, &x, &y, &w, &h);
+    if (pgHiddenAt(p, x * 8 + w * 4, y * 8 + h * 4)) continue; const int px = X0 + x * 8 + w * 4 - p.viewX, py = oy + y * 8 + h * 4; if (px < X0 + 4 || px >= X1 - 4) continue;
+    for (int yy = -4; yy <= 4; yy++) for (int xx = -4; xx <= 4; xx++) { const int d = abs(xx) + abs(yy); if (d <= 4) suiPx(b, px + xx, py + yy, d == 4 ? SUI_RGB(255, 255, 255) : d == 3 ? SUI_RGB(120, 16, 16) : SUI_RGB(236, 56, 48)); } } }
+static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, int Y0, int X1) {
+  const uint32_t ink = SUI_RGB(255, 255, 255), bar = SUI_RGB(30, 48, 96);
+  for (int y = Y0; y < Y0 + 26; y++) for (int x = X0; x < X1 - (y < Y0 + 14 ? 42 : 0); x++) suiPx(b, x, y, y == Y0 + 25 || y == Y0 + 13 ? SUI_RGB(120, 140, 190) : bar);
+  for (int y = Y0 + 2; y < Y0 + 13; y++) for (int x = X0 + 2; x < X0 + 16; x++) suiPx(b, x, y, SUI_RGB(200, 60, 52));
+  T.draw(b, X0 + 6, Y0 + 3, "X", ink, SUI_RGB(200, 60, 52));
+  char t[48]; const int n = pgFindCount(p); snprintf(t, sizeof t, "%s  %d", kP3dsSpecies[p.find], n); int k = (int)strlen(t);
+  const int room = (X1 - X0) - 18 - 44; while (k > 3 && T.width(t) > room) t[--k] = 0;
+  T.draw(b, X0 + 19, Y0 + 3, t, ink, bar);
+  const int now = pgTimeNow(), have = pgTmHave();
+  for (int i = 0; i < 4; i++) { const int x0 = X0 + 2 + i * 36; const bool on = p.findTm == i, dim = i > 0 && !have;
+    for (int y = Y0 + 14; y < Y0 + 25; y++) for (int x = x0; x < x0 + 34; x++) suiPx(b, x, y, on ? SUI_RGB(246, 214, 96) : SUI_RGB(70, 90, 140));
+    T.draw(b, x0 + 3, Y0 + 15, kPgFindTm[i], on ? bar : dim ? SUI_RGB(140, 150, 180) : ink, on ? SUI_RGB(246, 214, 96) : SUI_RGB(70, 90, 140));
+    if (i == now) for (int x = x0 + 2; x < x0 + 32; x++) suiPx(b, x, Y0 + 24, SUI_RGB(120, 230, 140)); } }
+
 /* draw the map into the panel interior (X0,Y0)-(X1,Y1); the view follows the player's location unless panned */
 static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int viewX); /* ss3ds_pgextra.h: phone contact pins */
 static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW);
@@ -262,6 +307,7 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       if (p.hide[(my / 8) * 47 + mx / 8]) { suiPx(b, x, y, SUI_RGB(16, 32, 72)); continue; }
       const uint32_t c = p.img[my * kPgW + mx]; suiPx(b, x, y, p.lit[(my / 8) * 47 + mx / 8] ? c : suiMix(c, dimTo, 5, 8)); } }
   pxMapPins(b, p, X0, X1, oy, p.viewX);
+  if (p.find > 0 && pgFindCfg()) pgFindPins(b, p, X0, X1, oy);
   /* selected location outline, then the player marker */
   if (p.sel >= 0) { int x, y, w, h; pgSpecRect(p.sel, &x, &y, &w, &h); const int sx = X0 + x * 8 - p.viewX, sy = oy + y * 8;
     for (int k = 0; k < 2; k++) for (int xx = sx - k; xx < sx + w * 8 + k; xx++) { if (xx >= X0 && xx < X1) { suiPx(b, xx, sy - 1 - k, SUI_RGB(255, 224, 64)); suiPx(b, xx, sy + h * 8 + k, SUI_RGB(255, 224, 64)); } }
@@ -283,12 +329,13 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
     const uint32_t sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(56, 64, 88);
     int wl[64], cg = 0; const int wn = pgWild(p.sel, wl, 64, &cg); const bool hasWild = P3DS_PsReady && P3DS_PsStat[p.sel][0];
     if (p.page) { /* wild Pokemon list: three columns, caught ones in green */
-      char hd[24]; if (wn) snprintf(hd, sizeof hd, "CAUGHT %d/%d", cg, wn); else snprintf(hd, sizeof hd, "WILD");
+      char hd[32]; if (wn) snprintf(hd, sizeof hd, "CAUGHT %d/%d", cg, wn); else snprintf(hd, sizeof hd, "WILD");
+      if (wn && pgFindCfg()) { char h2[40]; snprintf(h2, sizeof h2, "TAP=FIND  %s", hd); if (T.width(h2) + T.width(P3DS_PgName[p.sel]) + 14 < aw) snprintf(hd, sizeof hd, "%s", h2); }
       T.draw(b, X1 - 4 - T.width(hd), cy0 + 3, hd, cg >= wn && wn ? SUI_RGB(40, 120, 64) : fg, sh);
       if (!P3DS_PsReady) T.draw(b, X0 + 4, cy0 + 18, "Take a step to count.", fg, sh);
       else if (!hasWild) T.draw(b, X0 + 4, cy0 + 18, "No wild Pokemon here.", fg, sh);
       else if (!wn) { T.draw(b, X0 + 4, cy0 + 18, "Wild list needs hook 0084,", fg, sh); T.draw(b, X0 + 4, cy0 + 28, "not in this build.", fg, sh); }
-      else { const int cw = (aw - 8) / 3, rows = (ch - 18) / 10, slots = rows * 3, shown = wn > slots ? slots - 1 : wn;
+      else { int cw, rows, shown; pgWildLayout(aw, ch, wn, &cw, &rows, &shown);
         for (int i = 0; i < shown; i++) { const int sp = wl[i], cx0 = X0 + 4 + (i / rows) * cw, cy = cy0 + 16 + (i % rows) * 10; const bool c = P3DS_PsCg[p.sel][sp >> 3] >> (sp & 7) & 1;
           char nm[16]; snprintf(nm, sizeof nm, "%s", kP3dsSpecies[sp]); int k = (int)strlen(nm); while (k > 1 && T.width(nm) > cw - 3) nm[--k] = 0;
           T.draw(b, cx0, cy, nm, c ? SUI_RGB(40, 120, 64) : fg, sh); }
@@ -300,6 +347,7 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
     const int n = fl > 0 ? pgWrap(T, P3DS_PgText[p.sel], aw - 8, ln, fl) : 0; for (int i = 0; i < n; i++) T.draw(b, X0 + 4, ty + i * 10, ln[i], fg, sh);
     if (hasWild) { const char *h = "Tap card: wild Pokemon"; T.draw(b, X1 - 4 - T.width(h), Y1 - 11, h, SUI_RGB(40, 88, 208), sh); }
     if (hasPc) T.draw(b, X0 + 4, Y1 - 11, pcl, SUI_RGB(30, 48, 96), sh); } }
+  if (p.find > 0 && pgFindCfg()) pgFindBanner(b, T, p, X0, Y0, X1);
   pgDots(b, p, X1, Y0); }
 
 /* ---- run 11: the game's own icons, decoded from the members above (nothing is written anywhere) ---- */

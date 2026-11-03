@@ -432,3 +432,4 @@ Visible wild Pokemon (SoulSilver hook 0110, Settings > Play, all live, default O
   wild_vis_cries=1    1 = a Pokemon that notices you (3 tiles) plays its cry (it always hops and shows a "!")
   Behaviour: about half wander, some walk up to you and wait (curious), some run away (shy; roamers always run).
   In tall grass the lower part is hidden; elsewhere on land they cast a soft shadow. Log: [WILD] spawn / noticed / contact / removed lines.
+pg_find=0               (2026-11-03, default 0; Settings > Input > Pokedex finder) Pokedex encounter finder on the JOHTO map: tap a place, tap its card (wild list), tap a Pokemon name and the map pins every place that species lives. Chips ANY / MORN / DAY / NITE filter by time of day (MORN 4-10h, DAY 10-20h, NITE 20-4h; surf, fishing and Rock Smash count at any time); X clears. Times come from hook 0209 (without it only ANY works). Read-only, never touches the save. Log [FIND].
