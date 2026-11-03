@@ -1970,7 +1970,7 @@ static int Present(bool){
     was visible in CPU samples then lost: engine A / GPU compose can rewrite that buffer before upload.
     Scratch is not a game framebuffer, so the upload sees what we composed. */
  /* run 133: between the tab tap (Want=1) and the app's Init (~9 frames) the game fades the field to black (SS-FADE, MBRIGHT 8005->8010), which showed as a pause and a black top screen; keep showing the last field frame from the tap on */
- if(P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&sFieldHoldOk&&!P3DS_MenuOpen)top=sFieldHold;
+ if(P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&sFieldHoldOk&&!P3DS_MenuOpen){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;} /* run 140: 3D slider on: both eyes show the held field, not the app's own top screen */
  if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()){
   static unsigned ppLog;static u32 sPanelBot[256*192];int dx0=0,dy0=0,dx1=0,dy1=0;
   if(bot){
@@ -2000,7 +2000,7 @@ static int Present(bool){
    bot=sPanelBot; /* GpuPresent must upload THIS, not display[] */
    blSameFrame=false;
   }
-  if(sFieldHoldOk)top=sFieldHold;
+  if(sFieldHoldOk){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;} /* run 140 */
   P3DS_WideStrip[0]=(sStripHoldOk&1)&&sFieldHoldOk?sStripHold[0]:nullptr;P3DS_WideStrip[1]=(sStripHoldOk&2)&&sFieldHoldOk?sStripHold[1]:nullptr;if(P3DS_WideStrip[0])P3DS_WideFxOn=1;G3G_Wide=0; /* run 136: keep the wide strips with the held field frame */
   {int nz=0;if(sPartySnapOk)for(int i=0;i<256*192;i++)if((sPartySnap[i]&0xFFFFFFu)!=0)nz++;
    if(!sPartyNbLogged){sPartyNbLogged=1;const u32 *D=bot;
