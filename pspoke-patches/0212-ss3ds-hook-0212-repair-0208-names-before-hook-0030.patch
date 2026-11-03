@@ -1,0 +1,26 @@
+From 8a337d1088d1158ed7776ad8d212418ea91e136a Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 21:22:53 +0000
+Subject: [PATCH] ss3ds: hook 0212 repair 0208 stat names in an already staged
+ tree before hook 0030 compiles
+
+A staged battle_controller_player.c can already contain MON_DATA_SPATK/SPDEF from the first 0208; hook 0030 recompiles it before 0208 runs, so the 0211 repair came too late.
+---
+ scripts/ss3ds_hooks.d/0001_fix0208names.sh | 5 +++++
+ 1 file changed, 5 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0001_fix0208names.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0001_fix0208names.sh b/scripts/ss3ds_hooks.d/0001_fix0208names.sh
+new file mode 100644
+index 0000000..4b2f542
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0001_fix0208names.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0212: runs before every other hook. A staged tree may already hold hook 0208's source with the wrong stat names
++# (MON_DATA_SPATK/SPDEF); hook 0030 recompiles that file first and would fail on them, so repair the staged source here. No-op otherwise.
++if [ -f "$C/src/battle/battle_controller_player.c" ]; then
++  sed -i 's/MON_DATA_SPATK/MON_DATA_SP_ATK/g; s/MON_DATA_SPDEF/MON_DATA_SP_DEF/g' "$C/src/battle/battle_controller_player.c"
++fi
+-- 
+2.43.0
+
