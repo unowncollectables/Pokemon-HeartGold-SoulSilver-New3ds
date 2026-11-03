@@ -2016,6 +2016,7 @@ static int Present(bool){
           else PSPNativeMemLog("[PHONE] call %s ignored: a menu request is already running",kPxName[id]);}
         else if(l>=0&&l<kPgN&&gPg.decoded){pxSetPane(0,"contact MAP chip");gPg.ov=false;gPg.sel=l;gPg.page=0;gPg.glide=false;int x,y,w,h;pgSpecRect(l,&x,&y,&w,&h);gPg.viewX=x*8+w*4-(kBlPanX1-kBlPanX0-4)/2;if(gPg.viewX<0)gPg.viewX=0;BLINV;PSPNativeMemLog("[PHONE] tap %s -> map location %d '%s'",kPxName[id],l,P3DS_PgName[l]);}
         else{P3DS_Toast("NO MAP SPOT");PSPNativeMemLog("[PHONE] tap %s: no place on the Pokegear map (loc %d)",kPxName[id],l);}}}}
+    else if(bmDown==21&&(pxPane()==3||pxPane()==4)&&panelLiveCfg()&&gPx.lvSheet&&!tDrag&&pxLiveSheetTap(tX0,tY0)){}
     else if(bmDown==21&&pxPane()==3&&panelLiveCfg()&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant){if(tDrag)PSPNativeMemLog("[LIVE] party tap ignored: drag");else pxLiveTapParty(tX0,tY0);}
     else if(bmDown==21&&pxPane()==3){
       if(tDrag)PSPNativeMemLog("[VIEW] party tap ignored: drag");

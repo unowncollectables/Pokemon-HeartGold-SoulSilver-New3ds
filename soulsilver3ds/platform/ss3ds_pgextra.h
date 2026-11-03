@@ -60,6 +60,7 @@ struct SPx {
   int radN, radSt[5], radY0[5], radY1[5], radX0, radX1; /* RADIO pane rows (game station ids and rects), set while drawing */
   int pressId; bool moved;        /* contact under the finger (-1 none) for the pressed highlight */
   int lvSel, lvItem, lvPocket, lvSlot; /* run 145 panel_live: picked party slot + 1 (0 none); picked medicine id (0 none), its pocket and slot */
+  int lvSheet, lvSheetSlot, lvBtn[3][4], lvBtnN; /* run 147: action card over the live pane (1 party Pokemon, 2 bag item), its target, button rects x0 y0 x1 y1 */
   int lvWait, lvKind, lvB, lvOpen, lvOpenSlot, lvMenuX0; unsigned lvSeen; /* frames waiting for the game, last request, open-the-real-menu request (1 party, 2 bag), header chip x */
 };
 static SPx gPx;
@@ -247,7 +248,7 @@ static void pxSetPane(int p, const char *why);
 static void pxLivePost(int kind, int a, int b) {
   P3DS_LvA = a; P3DS_LvB = b; P3DS_LvReq = kind; gPx.lvWait = 1; gPx.lvKind = kind; gPx.lvB = b; BLINV;
   PSPNativeMemLog("[LIVE] request %s a %d b %d", kind == 1 ? "swap" : "use item", a, b); }
-static void pxLiveClear() { gPx.lvSel = 0; gPx.lvItem = 0; BLINV; }
+static void pxLiveClear() { gPx.lvSel = 0; gPx.lvItem = 0; gPx.lvSheet = 0; BLINV; }
 static void pxLiveResult(int r) {
   char it[24]; pxItemName(gPx.lvItem, it, sizeof it);
   PSPNativeMemLog("[LIVE] result %d for %s (item %d '%s', slot %d)", r, gPx.lvKind == 1 ? "swap" : "use item", gPx.lvItem, it, gPx.lvB);
@@ -261,6 +262,7 @@ static void pxLiveResult(int r) {
 /* every frame (from pxFrame) */
 static void pxLiveFrame() {
   if (gPx.pane != 3 && !gPx.lvWait && (gPx.lvSel || gPx.lvItem)) pxLiveClear();
+  if (gPx.lvSheet && gPx.pane != (gPx.lvSheet == 1 ? 3 : 4)) { gPx.lvSheet = 0; BLINV; }
   if (P3DS_LvDone != gPx.lvSeen) { gPx.lvSeen = P3DS_LvDone; if (gPx.lvWait) { gPx.lvWait = 0; pxLiveResult(P3DS_LvRes); } }
   else if (gPx.lvWait && ++gPx.lvWait > 150) { P3DS_LvReq = 0; gPx.lvWait = 0; pxLiveClear(); P3DS_Toast("NOT RIGHT NOW");
     PSPNativeMemLog("[LIVE] no answer from the game in 150 frames (hook 0207 missing, or a script/menu kept the player busy)"); } }
@@ -289,17 +291,53 @@ static void pxLiveTapParty(int x, int y) {
     return; }
   const int s = pxPartyAt(y); if (s < 0) return;
   if (gPx.lvItem) { pxLivePost(2, gPx.lvItem, s); return; }
-  if (!gPx.lvSel) { gPx.lvSel = s + 1; BLINV; PSPNativeMemLog("[LIVE] picked party slot %d to swap", s); return; }
+  if (!gPx.lvSel) { gPx.lvSheet = 1; gPx.lvSheetSlot = s; BLINV; PSPNativeMemLog("[LIVE] party slot %d: action card", s); return; }
   if (gPx.lvSel == s + 1) { pxLiveClear(); PSPNativeMemLog("[LIVE] swap cancelled (same slot)"); return; }
   pxLivePost(1, gPx.lvSel - 1, s); }
 static int pxBagRowAt(int x, int y);
 /* tap on the BAG list in live mode: a MEDICINE row picks it and shows the party; true = handled (other pockets open the real bag as before) */
 static bool pxLiveTapBag(int x, int y) {
-  if (gPx.bag != 1 || gPx.lvWait) return false;
+  if (gPx.lvWait) return false;
   const int r = pxBagRowAt(x, y); if (r < 0) return false;
-  const int slot = gPx.bagList[r], id = P3DS_VwBagId[1][slot]; if (!id) return false;
-  gPx.lvSel = 0; gPx.lvItem = id; gPx.lvPocket = 1; gPx.lvSlot = slot; char it[24]; pxItemName(id, it, sizeof it);
-  PSPNativeMemLog("[LIVE] picked medicine %d '%s' (slot %d): pick a Pokemon", id, it, slot); pxSetPane(3, "live: pick a Pokemon"); BLINV; return true; }
+  const int slot = gPx.bagList[r], id = P3DS_VwBagId[gPx.bag][slot]; if (!id) return false;
+  gPx.lvSheet = 2; gPx.lvSheetSlot = slot; BLINV; PSPNativeMemLog("[LIVE] bag pocket %d slot %d item %d: action card", gPx.bag, slot, id); return true; }
+
+/* run 147: styled action card over the live PARTY / BAG pane (same navy/silver look as the rest of the panel) */
+static void pxLiveSheet(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
+  gPx.lvBtnN = 0; if (!gPx.lvSheet || !panelLiveCfg()) return;
+  const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), wh = SUI_RGB(255, 255, 255);
+  char title[40], sub[40] = "", l0[16], l1[16] = "";
+  if (gPx.lvSheet == 1) { const uint16_t *m = P3DS_VwParty[gPx.lvSheetSlot]; snprintf(title, sizeof title, "%s", m[6] ? "EGG" : m[0] > 0 && m[0] < 494 ? kP3dsSpecies[m[0]] : "?");
+    if (!m[6]) snprintf(sub, sizeof sub, "Lv%d  HP %d/%d", (int)m[1], (int)m[2], (int)m[3]); snprintf(l0, sizeof l0, "SWITCH"); snprintf(l1, sizeof l1, "OPEN MENU"); }
+  else { const int id = P3DS_VwBagId[gPx.bag][gPx.lvSheetSlot]; pxItemName(id, title, sizeof title); snprintf(sub, sizeof sub, "x%d", P3DS_VwBagQty[gPx.bag][gPx.lvSheetSlot]);
+    snprintf(l0, sizeof l0, gPx.bag == 1 ? "USE ON..." : "OPEN BAG"); }
+  const int nb = gPx.lvSheet == 1 ? 3 : 2, w = 130, h = 20 + nb * 19, x0 = (X0 + X1 - w) / 2, y0 = Y0 + kPxSubH + 10;
+  for (int y = Y0 + kPxSubH; y < Y1; y++) for (int x = X0; x < X1; x++) if (((x + y) & 1) == 0) suiPx(b, x, y, SUI_RGB(24, 36, 80)); /* dim the list behind */
+  pxBtn(b, x0, y0, x0 + w, y0 + h, SUI_RGB(252, 253, 255), SUI_RGB(214, 222, 240), kBlNavy);
+  for (int y = y0 + 1; y < y0 + 13; y++) for (int x = x0 + 1; x < x0 + w; x++) suiPx(b, x, y, kBlNavy);
+  char fit[40]; pxFit(T, fit, sizeof fit, title, w - 8); T.draw(b, x0 + 4, y0 + 1, fit, wh, kBlNavy);
+  if (sub[0]) T.draw(b, x0 + w - 4 - T.width(sub), y0 + 1, sub, SUI_RGB(200, 214, 244), kBlNavy);
+  const char *lab[3] = { l0, gPx.lvSheet == 1 ? l1 : "CANCEL", "CANCEL" };
+  for (int i = 0; i < nb; i++) { const int by0 = y0 + 16 + i * 19, by1 = by0 + 17, bx0 = x0 + 6, bx1 = x0 + w - 6;
+    gPx.lvBtn[i][0] = bx0; gPx.lvBtn[i][1] = by0; gPx.lvBtn[i][2] = bx1; gPx.lvBtn[i][3] = by1;
+    pxBtn(b, bx0, by0, bx1, by1, SUI_RGB(250, 252, 255), kBlSilverLo, kBlNavy); T.draw(b, (bx0 + bx1 - T.width(lab[i])) / 2, by0 + 3, lab[i], ink, sh); }
+  gPx.lvBtnN = nb; }
+/* tap on the card: true = consumed */
+static bool pxLiveSheetTap(int x, int y) {
+  if (!gPx.lvSheet) return false;
+  int hit = -1; for (int i = 0; i < gPx.lvBtnN; i++) if (x >= gPx.lvBtn[i][0] && x < gPx.lvBtn[i][2] && y >= gPx.lvBtn[i][1] && y < gPx.lvBtn[i][3]) hit = i;
+  const int kind = gPx.lvSheet, slot = gPx.lvSheetSlot; gPx.lvSheet = 0; BLINV;
+  if (hit < 0) { PSPNativeMemLog("[LIVE] card closed (tap outside)"); return true; }
+  if (kind == 1) {
+    if (hit == 0) { gPx.lvSel = slot + 1; PSPNativeMemLog("[LIVE] card: SWITCH slot %d, pick the other Pokemon", slot); }
+    else if (hit == 1) { gPx.lvOpen = 1; gPx.lvOpenSlot = slot; PSPNativeMemLog("[LIVE] card: open the real Pokemon menu at slot %d", slot); }
+    else PSPNativeMemLog("[LIVE] card: cancel"); }
+  else {
+    if (hit == 0) { const int id = P3DS_VwBagId[gPx.bag][slot];
+      if (gPx.bag == 1) { gPx.lvSel = 0; gPx.lvItem = id; gPx.lvPocket = 1; gPx.lvSlot = slot; PSPNativeMemLog("[LIVE] card: USE item %d, pick a Pokemon", id); pxSetPane(3, "live: pick a Pokemon"); }
+      else { gPx.lvOpen = 2; gPx.lvPocket = gPx.bag; gPx.lvSlot = slot; gPx.lvOpenSlot = -1; PSPNativeMemLog("[LIVE] card: open the real bag at pocket %d slot %d", gPx.bag, slot); } }
+    else PSPNativeMemLog("[LIVE] card: cancel"); }
+  return true; }
 
 static void pxParty(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
   const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255);
@@ -404,7 +442,7 @@ static void pxBreed(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y
 static bool pxPaneDraw(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
   const int p = pxPane(); if (!p) return false;
   if (p == 1) { pxPhone(b, T, X0, Y0, X1, Y1); if (!gPx.loggedPhone) { gPx.loggedPhone = true; PSPNativeMemLog("[PHONE] phone pane open: %d contacts%s", gPx.n, P3DS_PhReady ? "" : " (no data from the game yet: hook 0122 not in this build, or no field step yet)"); } }
-  else if (p == 3 || p == 4) { if (p == 3) pxParty(b, T, X0, Y0, X1, Y1); else pxBag(b, T, X0, Y0, X1, Y1);
+  else if (p == 3 || p == 4) { if (p == 3) pxParty(b, T, X0, Y0, X1, Y1); else pxBag(b, T, X0, Y0, X1, Y1); pxLiveSheet(b, T, X0, Y0, X1, Y1);
     if (!gPx.vwLogged) { gPx.vwLogged = true; PSPNativeMemLog("[VIEW] %s pane open: %s", p == 3 ? "party" : "bag", P3DS_VwReady ? "data already here" : "waiting for hook 0167 data"); } }
   else if (p == 5) { pxBreed(b, T, X0, Y0, X1, Y1);
     if (!gPx.brLogged) { gPx.brLogged = true; PSPNativeMemLog("[BREED] pane open: %s", P3DS_BrReady ? "data already here" : "waiting for hook 0210 data"); } }
