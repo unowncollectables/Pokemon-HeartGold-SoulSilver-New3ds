@@ -1653,6 +1653,7 @@ static int Present(bool){
  /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
     Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
  static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged;
+ static u32 sStripHold[2][64*192]; static int sStripHoldOk; /* run 136 */
  auto ppRgbNz=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFFu)!=0)n++;return n;};
  auto ppDistinct=[](const u32 *p)->int{if(!p)return 0;u32 seen[48];int ns=0;for(int i=0;i<256*192;i+=11){const u32 r=p[i]&0xFFFFFFu;int f=0;for(int k=0;k<ns;k++)if(seen[k]==r){f=1;break;}if(!f&&ns<(int)(sizeof seen/sizeof *seen))seen[ns++]=r;}return ns;};
  if(!(P3DS_PanelPartyWant||P3DS_PanelPartyOn)){
@@ -1939,6 +1940,7 @@ static int Present(bool){
   if(!P3DS_WideStrip[0]&&fillReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=P3DS_WideFillBuf;P3DS_WideFxOn=1;}
   if(!P3DS_WideStrip[0]&&wnReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=stereo?P3DS_WideFillBuf:nullptr;} /* run 65 wide_menus (fade applied in strips()) */
   if(P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
+  if(panelPartyCfg()&&P3DS_InField&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn){sStripHoldOk=0;for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){memcpy(sStripHold[e],P3DS_WideStrip[e],sizeof sStripHold[e]);sStripHoldOk|=1<<e;}} /* run 136 */
   G3G_Wide=act;
   /* run 45 wide_cull=1 (default; only while wideview is active): the game's box test (map props / buildings) uses a
      1.25x wider view so the side strips are populated. 0 = DS culling (edge pop-in). */
@@ -1977,7 +1979,7 @@ static int Present(bool){
    blSameFrame=false;
   }
   if(sFieldHoldOk)top=sFieldHold;
-  P3DS_WideStrip[0]=P3DS_WideStrip[1]=nullptr;G3G_Wide=0;
+  P3DS_WideStrip[0]=(sStripHoldOk&1)&&sFieldHoldOk?sStripHold[0]:nullptr;P3DS_WideStrip[1]=(sStripHoldOk&2)&&sFieldHoldOk?sStripHold[1]:nullptr;if(P3DS_WideStrip[0])P3DS_WideFxOn=1;G3G_Wide=0; /* run 136: keep the wide strips with the held field frame */
   {int nz=0;if(sPartySnapOk)for(int i=0;i<256*192;i++)if((sPartySnap[i]&0xFFFFFFu)!=0)nz++;
    if(!sPartyNbLogged){sPartyNbLogged=1;const u32 *D=bot;
     PSPNativeMemLog("[PANEL] scratch present dest=(%d,%d)-(%d,%d) rgbNz=%d hold=%d ovN=%d panelSamp %08x %08x %08x /* once per open */",
