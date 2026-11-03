@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 17:50:00 +0000
+Subject: [PATCH] ss3ds: palette fades take 1 step while a JOHTO panel app is opening/open (run 141)
+
+fade_trace.c __wrap_BeginNormalPaletteFade: the game's 6-step fades before the bag/party open only add dead frames.
+---
+ port/soulsilver-native-core/nitromain-perf/fade_trace.c | 8 +++++++-
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/fade_trace.c b/port/soulsilver-native-core/nitromain-perf/fade_trace.c
+index 7f4781e..713222f 100644
+--- a/port/soulsilver-native-core/nitromain-perf/fade_trace.c
++++ b/port/soulsilver-native-core/nitromain-perf/fade_trace.c
+@@ -1,4 +1,10 @@
+ #include <stdio.h>
+ #include <stdint.h>
+ extern void __real_BeginNormalPaletteFade(int,int,int,uint16_t,int,int,int);
+-void __wrap_BeginNormalPaletteFade(int mode,int top,int bottom,uint16_t color,int steps,int period,int heap){printf("[SS-FADE] mode=%d types=%d/%d color=%04x steps=%d period=%d heap=%d\n",mode,top,bottom,color,steps,period,heap);__real_BeginNormalPaletteFade(mode,top,bottom,color,steps,period,heap);}
++extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn;
++void __wrap_BeginNormalPaletteFade(int mode,int top,int bottom,uint16_t color,int steps,int period,int heap){
++    printf("[SS-FADE] mode=%d types=%d/%d color=%04x steps=%d period=%d heap=%d\n",mode,top,bottom,color,steps,period,heap);
++    /* run 141: while a panel app is opening/open (JOHTO panel) the held field is on top and the platform draws the picture; the game's 6-step fades only add dead frames before the panel shows */
++    if((P3DS_PanelPartyWant||P3DS_PanelPartyOn)&&steps>1)steps=1;
++    __real_BeginNormalPaletteFade(mode,top,bottom,color,steps,period,heap);
++}
+-- 
+2.47.3
+

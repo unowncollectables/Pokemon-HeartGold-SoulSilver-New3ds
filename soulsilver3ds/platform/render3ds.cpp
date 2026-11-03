@@ -1514,6 +1514,7 @@ static void ppFinalResample(const u32*snap,u32*out,int fw,int fh){
   for(int x=0;x<fw;x++){unsigned r=0,g=0,b=0;
    for(int j=b0/fh;j<=(b1-1)/fh;j++){const int lo=j*fh>b0?j*fh:b0,hi=(j+1)*fh<b1?(j+1)*fh:b1,w=hi-lo;const u16*t=tmp+(j*fw+x)*3;r+=t[0]*w;g+=t[1]*w;b+=t[2]*w;}
    r=(r+24576)/49152;g=(g+24576)/49152;b=(b+24576)/49152;o[x]=(r<<24)|(g<<16)|(b<<8)|0xFFu;}}}
+static unsigned ppTapF;static int ppLatPend; /* run 141: tab-tap frame / latency log pending */
 static int Present(bool){
  if(!openFrame)return -1;
  allocBufs();
@@ -1805,10 +1806,13 @@ static int Present(bool){
     static int ppPane,ppWasOn;const int pn=pxPane();
     if(P3DS_PanelPartyOn){ppWasOn=1;}
     else if(ppWasOn){ppWasOn=0;pxSetPane(0,"left the panel party");}
-    if(pn==3&&ppPane!=3&&panelPartyCfg()&&!P3DS_PanelPartyOn&&P3DS_StartReq<0&&((P3DS_StartAvail>>1)&1)){P3DS_VwPartySlot=0;P3DS_PanelPartyWant=1;P3DS_StartReq=1;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PANEL] PARTY tab: open the party in the panel, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
-    if(pn==4&&ppPane!=4&&panelPartyCfg()&&!P3DS_PanelPartyOn&&P3DS_StartReq<0&&((P3DS_StartAvail>>2)&1)){P3DS_VwBagPocket=-1;P3DS_VwBagSlot=-1;P3DS_PanelPartyWant=1;P3DS_StartReq=2;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PANEL] BAG tab: open the bag in the panel, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");} /* run 132 */
-    ppPane=pn;}
+    }
    pxFrame(tNow&&bmDown==21&&pxScrolls());pxRingFrame();if(pxPane())gPg.markOk=false; /* run 118 B3 */
+   {/* run 141: the tab handler runs after pxFrame so the tap that switches the pane also starts the open, not the next frame (was +1 frame) */
+    static int ppPane;const int pn=pxPane();
+    if(pn==3&&ppPane!=3&&panelPartyCfg()&&!P3DS_PanelPartyOn&&P3DS_StartReq<0&&((P3DS_StartAvail>>1)&1)){P3DS_VwPartySlot=0;P3DS_PanelPartyWant=1;ppTapF=frames;ppLatPend=1;P3DS_StartReq=1;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PANEL] PARTY tab: open the party in the panel, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+    if(pn==4&&ppPane!=4&&panelPartyCfg()&&!P3DS_PanelPartyOn&&P3DS_StartReq<0&&((P3DS_StartAvail>>2)&1)){P3DS_VwBagPocket=-1;P3DS_VwBagSlot=-1;P3DS_PanelPartyWant=1;ppTapF=frames;ppLatPend=1;P3DS_StartReq=2;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PANEL] BAG tab: open the bag in the panel, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");} /* run 132 */
+    ppPane=pn;}
    /* run 118 A1: tap vs drag threshold 16 DS px (was 6); list scroll only after drag so stylus jitter does not eat row taps */
    if(tNow&&bmDown==21&&pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);if(dist>16){if(!tDrag){tDrag=true;PSPNativeMemLog("[BMENU] panel drag (dist %d): row tap suppressed until release without drag",dist);} }pxDrag(tXl,tYl,!bmPrev,tDrag);}
    if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){if(abs(tXl-tX0)+abs(tYl-tY0)>16)tDrag=true;static int tYp;if(tNow&&!bmPrev)tYp=tYl;if(tDrag&&(gPg.ov||gPg.achOpen)){if(tYl!=tYp){(gPg.achOpen?gPg.achScroll:gPg.ovScroll)-=tYl-tYp;BLINV;}}else if(tDrag&&tXl!=tXp){gPg.glide=false;gPg.viewX-=tXl-tXp;BLINV;}tXp=tXl;tYp=tYl;}
@@ -1970,8 +1974,9 @@ static int Present(bool){
     was visible in CPU samples then lost: engine A / GPU compose can rewrite that buffer before upload.
     Scratch is not a game framebuffer, so the upload sees what we composed. */
  /* run 133: between the tab tap (Want=1) and the app's Init (~9 frames) the game fades the field to black (SS-FADE, MBRIGHT 8005->8010), which showed as a pause and a black top screen; keep showing the last field frame from the tap on */
- if(P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&sFieldHoldOk&&!P3DS_MenuOpen){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;} /* run 140: 3D slider on: both eyes show the held field, not the app's own top screen */
- if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()){
+ const bool ppSnapWait=P3DS_PanelPartyOn&&!P3DS_InField&&!sPartySnapOk; /* run 141: app is up but its first picture is not: keep the previous panel and the held field, no blank frame */
+ if((P3DS_PanelPartyWant||ppSnapWait)&&(!P3DS_PanelPartyOn||ppSnapWait)&&sFieldHoldOk&&!P3DS_MenuOpen){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;} /* run 140: 3D slider on: both eyes show the held field, not the app's own top screen */
+ if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&!ppSnapWait){
   static unsigned ppLog;static u32 sPanelBot[256*192];int dx0=0,dy0=0,dx1=0,dy1=0;
   if(bot){
    memcpy(sPanelBot,bot,sizeof sPanelBot); /* chrome (and any game bottom) snapshot */
@@ -1996,6 +2001,7 @@ static int Present(bool){
        row[x]=((a/n)<<24)|((r/n)<<16)|((g/n)<<8)|(b/n);}}}
     }
    }
+   if(ppLatPend&&sPartySnapOk){ppLatPend=0;PSPNativeMemLog("[PANEL] latency: tab tap f=%u -> panel picture presented f=%u (%u frames)",ppTapF,frames,frames-ppTapF);}
    P3DS_PanelDest[3]=dy1;P3DS_PanelDest[2]=dx1;P3DS_PanelDest[1]=dy0;P3DS_PanelDest[0]=dx0; /* run 130: stylus taps in this rect drive the party (main3ds.c) */
    bot=sPanelBot; /* GpuPresent must upload THIS, not display[] */
    blSameFrame=false;
