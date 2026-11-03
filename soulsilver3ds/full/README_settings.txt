@@ -142,7 +142,7 @@ SAVING
 
 BUTTONS (New 3DS)
   Circle pad  walks like the D-pad (4 directions, small dead zone).
-  ZR          uses your registered key item (same as Y, e.g. the bike).
+  ZR          uses your registered key item (same as Y, e.g. the bike). (Not while hunt_stats=1: ZR then opens the hunt stats page.)
   ZL          running on/off (with it on you run without holding B; hold B to walk). A box shows RUN ON / RUN OFF.
   C-stick     works like the D-pad (walk, menus). With cstick_mode=1: up/down = Poketch side button instead.
   Soft reset (L+R+START+SELECT) closes the save file cleanly and restarts the game. If your homebrew loader can't
@@ -351,7 +351,7 @@ Run 76
                        Rock Smash, surfing, fishing, Headbutt; the visible sparkle (wild_vis_shiny) uses the same odds. Not gifts, eggs, roamers, Safari, Contest.
                        The game's own shiny code makes the Pokemon (like the Poke Radar); the extra roll is the port's own generator, never the game's RNG.
   battery_warn=0       (Battle tab "Low battery warning") at 1 bar or less and not charging: "BATTERY LOW: SAVE NOW" once a minute and hunt.txt is written at once.
-  hunt_stats=0         (Battle tab "Hunt stats (Y)") Y in the overworld opens a read-only page from hunt.txt: 1/4 overview (met, encounters, shinies, time, best shiny streak, current hunt), 2/4 most met species, 3/4 timeline by first-met date, 4/4 best streaks (fewest encounters before a shiny). Needs shiny_suite=1 or hunt_counter=1. Nothing is written.
+  hunt_stats=0         (Battle tab "Hunt stats (ZR)") ZR (back trigger) in the overworld opens a read-only page from hunt.txt: 1/4 overview (met, encounters, shinies, time, best shiny streak, current hunt), 2/4 most met species, 3/4 timeline by first-met date, 4/4 best streaks (fewest encounters before a shiny). Needs shiny_suite=1 or hunt_counter=1. Nothing is written.
 type_hint=0           (Battle tab "Move type hint") while the FIGHT menu is open, each damaging move button on the TOUCH screen gets a small tag: SUPER EFFECTIVE (green), NOT VERY EFF. (red) or NO EFFECT (grey); nothing for neutral or status moves (doubles show the better of the two foes). Gen 4 chart; abilities/items not considered. Hook 0121, read-only. Log tag [HINT] (also prints a colour profile of the bottom image so the tag position can be checked).
 dmg_check=0           (Battle tab "Damage check", hook 0208) the Y foe screen gets a last page: a rough damage range (and % of the foe's HP) for each of your moves, and who moves first. Singles only; ignores crits, items, abilities, weather, priority. Default OFF until tested.
   tod_tint=0           (1 = soft evening / night tint outdoors; follows cheat_time when set)

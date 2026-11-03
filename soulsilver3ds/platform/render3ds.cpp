@@ -1079,7 +1079,7 @@ static const MItem mItems[]={
  /* 122 (run 146, hook 0208): dmg_check, default OFF until tested: Y foe screen gets a YOUR MOVES page (damage range per move, who moves first) */
  {"DAMAGE CHECK","dmg_check",2,{"OFF","ON"}},
  /* 123 (2026-11-03, hunt stats page): hunt_stats, default OFF: Y in the overworld opens a read-only stats page from hunt.txt (Battle tab) */
- {"HUNT STATS (Y)","hunt_stats",2,{"OFF","ON"}},
+ {"HUNT STATS (ZR)","hunt_stats",2,{"OFF","ON"}},
  /* 124 (run 146): pg_find, default OFF: tap a name on the JOHTO map's wild list and the map pins every place that Pokemon lives, with a morning/day/night filter (hook 0209 for the times). */
  {"POKEDEX FINDER","pg_find",2,{"OFF","ON"}},
  /* 125 (run 146, hook 0210): breed_tab, default OFF: an EGGS tab on the Pokegear panel (Day-Care Pokemon, levels gained, egg chance and
@@ -1298,7 +1298,7 @@ static const SAppTab kTabs[8]={
       {79,"Skip intro on reset","After a soft reset, skips the logos and title straight to the menu."},
       {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
       {105,"Low battery warning","Reminds you to save when the battery is at one bar and not charging."},
-      {123,"Hunt stats (Y)","Y in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
+      {123,"Hunt stats (ZR)","ZR (back trigger) in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
       {97,"Visible wild Pokemon","Wild Pokemon walk about in grass and caves; walk into one to battle."},
       {98,"Visible at once","How many visible wild Pokemon can be around you at once."},
       {99,"Visible shiny sparkle","A visible Pokemon can be shiny: it sparkles and a chime plays."},
@@ -1559,8 +1559,8 @@ static void runCatch(const u32*top,int mode,bool gpu){
  PSPNativeMemLog("[CATCH] screen closed after %u ms",(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_MSEC));
  tPrevEnd=svcGetSystemTick();secStart=0;secFrames=secG3=secComp=secGpu=secGame=secTris=0;secG3G=0;
 }
-/* hunt_stats (2026-11-03, Battle tab, default OFF): read-only pages from the hunt counters (hunt.txt), opened with Y in the
-   overworld. 1 overview + best shiny, 2 most met species, 3 timeline (first met, newest first), 4 best streaks (fewest
+/* hunt_stats (2026-11-03, Battle tab, default OFF): read-only pages from the hunt counters (hunt.txt), opened with ZR in the
+   overworld (ZR then no longer sends Y, even with zr_item=1; Y stays the bike/item). 1 overview + best shiny, 2 most met species, 3 timeline (first met, newest first), 4 best streaks (fewest
    encounters before a shiny). Only the existing counters are used: a shiny has no date of its own. */
 static const long kHsNone=-1000000000L;
 static long hsKeyEnc(const P3DS_HuntRec&r){return r.enc>0?(long)r.enc:kHsNone;}
@@ -2249,7 +2249,7 @@ static int Present(bool){
   if(!tNow)bIn=false;bPrev=tNow;}
  {u32 kd=hidKeysDown(),kh=hidKeysHeld();catchTick();
   if((kd&KEY_Y)&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&!P3DS_InField&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))runCatch(stereo?eyeL:top,mode,mode&&gpuOk==1);
-  else if((kd&KEY_Y)&&!(kh&(KEY_L|KEY_R|KEY_X|KEY_ZR))&&P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&P3DS_CfgInt("hunt_stats",0)&&P3DS_HuntCounting())runHuntStats(stereo?eyeL:top,mode,mode&&gpuOk==1);
+  else if((kd&KEY_ZR)&&!(kh&(KEY_L|KEY_R|KEY_X|KEY_Y))&&P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&P3DS_CfgInt("hunt_stats",0)&&P3DS_HuntCounting())runHuntStats(stereo?eyeL:top,mode,mode&&gpuOk==1);
   else if(cornerOpen||btnOpen||((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R)&&!(kh&KEY_X)&&menuCfg())){if(!P3DS_ConsoleOnBottom())runApp(stereo?eyeL:top,mode,mode&&gpuOk==1);BLINV;}}
  return 0;
 }

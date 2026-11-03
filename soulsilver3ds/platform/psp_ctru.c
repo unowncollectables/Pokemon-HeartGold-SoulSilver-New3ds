@@ -345,7 +345,7 @@ int sceCtrlPeekBufferPositive(SceCtrlData *d, int n) {
           P3DS_RunToggle = P3DS_CfgInt("auto_run", 0) != 0; if (P3DS_RunToggle) PSPNativeMemLog("[RUN] auto_run=1: run starts ON (B walks; ZL / RUN tile flip it)");
           PSPNativeMemLog("[3DS] controls: zr_item=%d zl_run=%d cpad_dpad=%d soft_reset=%d cstick_mode=%d", zr, zl, cp, P3DS_CfgSoftReset(), P3DS_CstickMode()); }
       const u32 kh = hidKeysHeld(); u32 kd = hidKeysDown() & ~(KEY_ZL | KEY_ZR);
-      if (zr && (kh & KEY_ZR)) { k |= KEY_Y; if (kd & KEY_ZR) PSPNativeMemLog("[QUICK] ZR -> Y (item shortcut)"); }
+      if (zr && (kh & KEY_ZR) && !P3DS_CfgInt("hunt_stats", 0)) { /* hunt_stats=1 gives ZR to the hunt page */ k |= KEY_Y; if (kd & KEY_ZR) PSPNativeMemLog("[QUICK] ZR -> Y (item shortcut)"); }
       /* run 17: ZL/ZR edges from our own held history, not hidKeysDown(): any other hidScanInput() between two game polls
          (settings app, boot prompts) clears the "down" bit, and run 7/15 hardware logs never showed a ZL/ZR press. The
          first ZL or ZR seen at all is logged once so a device log tells "never pressed" from "not delivered". */
