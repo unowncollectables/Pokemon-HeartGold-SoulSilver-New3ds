@@ -1953,6 +1953,8 @@ static int Present(bool){
  /* run 125: present party+chrome from a private scratch buffer. Painting into display[0]/bot)
     was visible in CPU samples then lost: engine A / GPU compose can rewrite that buffer before upload.
     Scratch is not a game framebuffer, so the upload sees what we composed. */
+ /* run 133: between the tab tap (Want=1) and the app's Init (~9 frames) the game fades the field to black (SS-FADE, MBRIGHT 8005->8010), which showed as a pause and a black top screen; keep showing the last field frame from the tap on */
+ if(P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&sFieldHoldOk&&!P3DS_MenuOpen)top=sFieldHold;
  if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()){
   static unsigned ppLog;static u32 sPanelBot[256*192];int dx0=0,dy0=0,dx1=0,dy1=0;
   if(bot){
