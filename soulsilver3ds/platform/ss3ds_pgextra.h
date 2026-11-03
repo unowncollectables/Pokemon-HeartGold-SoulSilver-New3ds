@@ -25,6 +25,9 @@ extern "C" {
 volatile int P3DS_PhReady, P3DS_RadSel, P3DS_RadNat, P3DS_RadGb, P3DS_RadCard, P3DS_PhRing, P3DS_PhCallReq, P3DS_RadTuneReq; /* RadTuneReq: station id + 1 to tune from the RADIO tab (hook 0129), 0 none; PhCallReq: contact id + 1 to call from the PHONE tab (hook 0128), 0 none; RadCard: Radio card registered; PhRing: 0 quiet, 1 ringing (caller unknown), 2+id = contact id ringing (hook 0125) */ volatile uint32_t P3DS_PhTick;
 /* published by hook 0167 (field_control.c / field_system.c) while a PARTY or BAG tab is open: party slots {species, level, hp, max hp, held item, status bits, egg}, every bag slot of the eight pockets in the game's pocket order (ITEMS, MEDICINE, BALLS, TM/HM, BERRIES, MAIL, BATTLE, KEY), item names read from the game's own text */
 volatile int P3DS_VwOn, P3DS_VwReady; volatile unsigned P3DS_VwTick; int P3DS_VwPartyN; uint16_t P3DS_VwParty[6][7]; uint16_t P3DS_VwBagId[8][165], P3DS_VwBagQty[8][165]; char P3DS_VwItem[540][20]; /* run 119 / hook 0200: row tap selects this mon/item when opening Party/Bag */ volatile int P3DS_VwPartySlot; /* 0 none, 1..6 = party index+1 */ volatile int P3DS_VwBagPocket; /* -1 none, 0..7 pocket */ volatile int P3DS_VwBagSlot; /* -1 none, pocket slot index */
+/* run 145 / hook 0207 (panel_live): one live action for the game thread. Req 1 = swap party slots A and B, 2 = use item A on party slot B;
+   the game clears Req, sets Res (1 swapped, 2 used, -2 lead change, -3 no effect, -4 needs the full menu, -5 not in the bag, -6 bad) and bumps Done */
+volatile int P3DS_LvReq, P3DS_LvA, P3DS_LvB, P3DS_LvRes; volatile unsigned P3DS_LvDone;
 uint8_t P3DS_PhFlag[75], P3DS_PhLoc[75]; /* flag bit0 registered, bit1 rematch, bit2 gift; loc = Pokegear location 0..99 or 255 */
 }
 
@@ -53,6 +56,8 @@ struct SPx {
   bool loggedPhone, loggedRadio;
   int radN, radSt[5], radY0[5], radY1[5], radX0, radX1; /* RADIO pane rows (game station ids and rects), set while drawing */
   int pressId; bool moved;        /* contact under the finger (-1 none) for the pressed highlight */
+  int lvSel, lvItem, lvPocket, lvSlot; /* run 145 panel_live: picked party slot + 1 (0 none); picked medicine id (0 none), its pocket and slot */
+  int lvWait, lvKind, lvB, lvOpen, lvOpenSlot, lvMenuX0; unsigned lvSeen; /* frames waiting for the game, last request, open-the-real-menu request (1 party, 2 bag), header chip x */
 };
 static SPx gPx;
 /* pxOn() / pxOnV (the pg_extras setting) live in render3ds.cpp next to the settings rows */
@@ -232,20 +237,80 @@ static void pxVwWait(uint32_t *b, const SUiText &T, int X0, int Y) {
   const uint32_t wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(40, 64, 120);
   if (gPx.vwWait < 90) { T.draw(b, X0 + 4, Y, "Reading your save...", wh, dk); return; }
   T.draw(b, X0 + 4, Y, "No data from the game yet.", wh, dk); T.draw(b, X0 + 4, Y + 10, "Hook 0167 is missing from", wh, dk); T.draw(b, X0 + 4, Y + 20, "this build, or the field", wh, dk); T.draw(b, X0 + 4, Y + 30, "is not running.", wh, dk); }
+/* ---- run 145 panel_live: PARTY / BAG actions with the world running (hook 0207 does them on the game thread) ---- */
+static void pxSetPane(int p, const char *why);
+static void pxLivePost(int kind, int a, int b) {
+  P3DS_LvA = a; P3DS_LvB = b; P3DS_LvReq = kind; gPx.lvWait = 1; gPx.lvKind = kind; gPx.lvB = b; BLINV;
+  PSPNativeMemLog("[LIVE] request %s a %d b %d", kind == 1 ? "swap" : "use item", a, b); }
+static void pxLiveClear() { gPx.lvSel = 0; gPx.lvItem = 0; BLINV; }
+static void pxLiveResult(int r) {
+  char it[24]; pxItemName(gPx.lvItem, it, sizeof it);
+  PSPNativeMemLog("[LIVE] result %d for %s (item %d '%s', slot %d)", r, gPx.lvKind == 1 ? "swap" : "use item", gPx.lvItem, it, gPx.lvB);
+  if (r == 1) { pxLiveClear(); return; }
+  if (r == 2) { char t[40]; snprintf(t, sizeof t, "USED %s", it); for (char *c = t; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32; P3DS_Toast(t); pxLiveClear(); pxSetPane(4, "live: item used"); return; }
+  if (r == -2) { P3DS_Toast("NEW LEAD: OPENING MENU"); gPx.lvOpen = gPx.lvKind == 1 ? 1 : 2; gPx.lvOpenSlot = gPx.lvB; pxLiveClear(); return; }
+  if (r == -3) { P3DS_Toast("IT WON'T HAVE ANY EFFECT"); return; } /* keep the medicine picked: tap another Pokemon */
+  if (r == -4) { gPx.lvOpen = 2; gPx.lvOpenSlot = gPx.lvB; pxLiveClear(); return; }
+  if (r == -5) { P3DS_Toast("NONE LEFT"); pxLiveClear(); pxSetPane(4, "live: none left"); return; }
+  P3DS_Toast("CAN'T DO THAT"); pxLiveClear(); }
+/* every frame (from pxFrame) */
+static void pxLiveFrame() {
+  if (gPx.pane != 3 && !gPx.lvWait && (gPx.lvSel || gPx.lvItem)) pxLiveClear();
+  if (P3DS_LvDone != gPx.lvSeen) { gPx.lvSeen = P3DS_LvDone; if (gPx.lvWait) { gPx.lvWait = 0; pxLiveResult(P3DS_LvRes); } }
+  else if (gPx.lvWait && ++gPx.lvWait > 150) { P3DS_LvReq = 0; gPx.lvWait = 0; pxLiveClear(); P3DS_Toast("NOT RIGHT NOW");
+    PSPNativeMemLog("[LIVE] no answer from the game in 150 frames (hook 0207 missing, or a script/menu kept the player busy)"); } }
+/* PARTY title strip in live mode: title + MENU / CANCEL chip; false = not live (draw the normal strip) */
+static bool pxLiveHeader(uint32_t *b, const SUiText &T, int X0, int Y0, int X1) {
+  extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn;
+  if (!panelLiveCfg() || P3DS_PanelPartyWant || P3DS_PanelPartyOn) return false;
+  const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), wh = SUI_RGB(255, 255, 255);
+  const char *c = (gPx.lvSel || gPx.lvItem) ? "CANCEL" : "MENU"; const int w = T.width(c) + 8, x1 = X1 - 3, x0 = x1 - w; gPx.lvMenuX0 = x0;
+  pxBtn(b, x0, Y0 + 1, x1, Y0 + kPxSubH - 2, SUI_RGB(250, 252, 255), kBlSilverLo, kBlNavy); T.draw(b, x0 + 4, Y0 + 1, c, ink, sh);
+  char t[40], fit[40];
+  if (gPx.lvWait) snprintf(t, sizeof t, "...");
+  else if (gPx.lvItem) { char it[24]; pxItemName(gPx.lvItem, it, sizeof it); snprintf(t, sizeof t, "USE %s ON:", it); }
+  else if (gPx.lvSel) snprintf(t, sizeof t, "SWAP WITH:");
+  else snprintf(t, sizeof t, "PARTY");
+  pxFit(T, fit, sizeof fit, t, x0 - X0 - 8); T.draw(b, X0 + 4, Y0 + 2, fit, wh, kBlNavy); return true; }
+static int pxPartyAt(int y);
+/* tap on the PARTY pane in live mode */
+static void pxLiveTapParty(int x, int y) {
+  if (gPx.lvWait) { PSPNativeMemLog("[LIVE] tap ignored: waiting for the game"); return; }
+  if (y >= gPx.listY0 - kPxSubH && y < gPx.listY0) {
+    if (x < gPx.lvMenuX0 - 2) return;
+    if (gPx.lvItem) { pxLiveClear(); pxSetPane(4, "live: cancel item"); PSPNativeMemLog("[LIVE] item cancelled"); }
+    else if (gPx.lvSel) { pxLiveClear(); PSPNativeMemLog("[LIVE] swap cancelled"); }
+    else { gPx.lvOpen = 1; gPx.lvOpenSlot = -1; PSPNativeMemLog("[LIVE] MENU chip: open the real Pokemon menu"); }
+    return; }
+  const int s = pxPartyAt(y); if (s < 0) return;
+  if (gPx.lvItem) { pxLivePost(2, gPx.lvItem, s); return; }
+  if (!gPx.lvSel) { gPx.lvSel = s + 1; BLINV; PSPNativeMemLog("[LIVE] picked party slot %d to swap", s); return; }
+  if (gPx.lvSel == s + 1) { pxLiveClear(); PSPNativeMemLog("[LIVE] swap cancelled (same slot)"); return; }
+  pxLivePost(1, gPx.lvSel - 1, s); }
+static int pxBagRowAt(int x, int y);
+/* tap on the BAG list in live mode: a MEDICINE row picks it and shows the party; true = handled (other pockets open the real bag as before) */
+static bool pxLiveTapBag(int x, int y) {
+  if (gPx.bag != 1 || gPx.lvWait) return false;
+  const int r = pxBagRowAt(x, y); if (r < 0) return false;
+  const int slot = gPx.bagList[r], id = P3DS_VwBagId[1][slot]; if (!id) return false;
+  gPx.lvSel = 0; gPx.lvItem = id; gPx.lvPocket = 1; gPx.lvSlot = slot; char it[24]; pxItemName(id, it, sizeof it);
+  PSPNativeMemLog("[LIVE] picked medicine %d '%s' (slot %d): pick a Pokemon", id, it, slot); pxSetPane(3, "live: pick a Pokemon"); BLINV; return true; }
+
 static void pxParty(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
   const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
   gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1; /* run 118: hit-test geometry for tap-to-open */
-  T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *hint = (P3DS_PanelPartyWant||P3DS_PanelPartyOn)?"":"TAP TO OPEN"; T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 214, 244), kBlNavy);
+  if (!pxLiveHeader(b, T, X0, Y0, X1)) { T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *hint = (P3DS_PanelPartyWant||P3DS_PanelPartyOn)?"":"TAP TO OPEN"; T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 214, 244), kBlNavy); }
   { extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; /* run 131: panel_party: the real party is opening here, so do not flash the read-only list for the ~0.3 s the Start menu takes */
     if (P3DS_PanelPartyWant || P3DS_PanelPartyOn) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening party...", wh, SUI_RGB(40, 64, 120)); return; } }
   if (!P3DS_VwReady) { /* run 133: with panel_party a tap on this tab always opens the real party, so do not flash "Reading your save..." before the first open */
     extern int P3DS_CfgInt(const char *, int); static int ppc = -1; if (ppc < 0) ppc = P3DS_CfgInt("panel_party", 0) != 0;
-    if (ppc) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening party...", wh, SUI_RGB(40, 64, 120)); return; }
+    if (ppc && !panelLiveCfg()) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening party...", wh, SUI_RGB(40, 64, 120)); return; }
     pxVwWait(b, T, X0, Y0 + kPxSubH + 6); return; }
   if (!P3DS_VwPartyN) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "No Pokemon in the party.", wh, SUI_RGB(40, 64, 120)); return; }
   for (int i = 0; i < P3DS_VwPartyN && i < 6; i++) { const uint16_t *m = P3DS_VwParty[i]; const int y0 = Y0 + kPxSubH + 1 + i * 25, y1 = y0 + 24; if (y1 > Y1) break;
-    pxBtn(b, X0 + 2, y0, X1 - 2, y1, SUI_RGB(252, 253, 255), (i & 1) ? SUI_RGB(214, 222, 240) : SUI_RGB(226, 232, 246), kBlNavy);
+    const bool lvS = gPx.lvSel == i + 1; /* run 145: the Pokemon picked to swap */
+    pxBtn(b, X0 + 2, y0, X1 - 2, y1, lvS ? SUI_RGB(255, 244, 196) : SUI_RGB(252, 253, 255), lvS ? SUI_RGB(240, 200, 96) : (i & 1) ? SUI_RGB(214, 222, 240) : SUI_RGB(226, 232, 246), kBlNavy);
     char nm[32]; if (m[6]) snprintf(nm, sizeof nm, "EGG"); else snprintf(nm, sizeof nm, "%s", m[0] > 0 && m[0] < 494 ? kP3dsSpecies[m[0]] : "?");
     T.draw(b, X0 + 5, y0 + 2, nm, ink, sh);
     if (m[6]) { T.draw(b, X0 + 5, y0 + 13, "It has not hatched yet.", fg, sh); continue; }
@@ -312,6 +377,7 @@ static void pxFrame(bool touching) {
   else if (!touching) gPx.vel = 0;
   { const bool vw = gPx.pane == 3 || gPx.pane == 4; P3DS_VwOn = vw ? 1 : 0;
     if (vw) { if (!P3DS_VwReady) gPx.vwWait++; if (P3DS_VwTick != gPx.vwSeen) { gPx.vwSeen = P3DS_VwTick; BLINV; if (gPx.vwWait) { PSPNativeMemLog("[VIEW] data from the game after %d frames: %d party Pokemon", gPx.vwWait, P3DS_VwPartyN); gPx.vwWait = 0; } } } }
+  pxLiveFrame();
   if (gPx.pane == 2) { const time_t now = time(0); const int m = (int)(now / 60); if (m != gPx.minute) { gPx.minute = m; BLINV; } } }
 /* finger down / held on the panel (x,y in DS pixels); first = this frame the touch started */
 static int pxRowAt(int x, int y);
