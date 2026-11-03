@@ -1527,6 +1527,8 @@ static int Present(bool){
  if(P3DS_GpuComposeCfg()==1){gcAnalyze(0,P3DS_InField);gcAnalyze(1,P3DS_InField);}
  u32 hash0=P3DS_FpsTweaks()>=5?0:stateHash();  /* level 5: the mid-composite change check is a diagnostic only */
  if(!earlyB){mapMemory();engineB.Enabled=(power&512)!=0;bindRegisters(engineB,0x1000);} /* early_b: already mapped; the worker may be reading it */
+ /* run 128 panel_party: hook 0202 skips the party fade-in, so engine A keeps the field->party fade-to-black in MASTER_BRIGHT (0x6c) and the party list rendered pure black (run 126: bot rgbNz=0). Clear it while the party is in the panel. */
+ if(P3DS_PanelPartyOn&&!P3DS_InField)*(volatile u16*)(PSPNative_GfxRegisters+0x6c)=0;
  engineA.Enabled=(power&2)!=0;bindRegisters(engineA,0);
  /* run 76 display capture through the renderer's own DoCapture (melonDS): source A = 2D+3D composite or 3D, source B =
     VRAM, blend A/B. Motion blur at Spear Pillar (Dialga/Palkia) shows VRAM C fed by capture; ignored it was black. */
@@ -1650,7 +1652,7 @@ static int Present(bool){
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
  /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
     Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
- static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged,sPartyDiag,sPartyDiagN;
+ static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged;
  auto ppRgbNz=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFFu)!=0)n++;return n;};
  auto ppDistinct=[](const u32 *p)->int{if(!p)return 0;u32 seen[48];int ns=0;for(int i=0;i<256*192;i+=11){const u32 r=p[i]&0xFFFFFFu;int f=0;for(int k=0;k<ns;k++)if(seen[k]==r){f=1;break;}if(!f&&ns<(int)(sizeof seen/sizeof *seen))seen[ns++]=r;}return ns;};
  if(!(P3DS_PanelPartyWant||P3DS_PanelPartyOn)){
@@ -1660,18 +1662,14 @@ static int Present(bool){
  }
  {/* run 127: new open => forget the previous open's snapshot (run 126 log: 2nd open showed the 1st open's stale snap=1 frame; Exit
      clears On before the InField branch, so sPartySnapOk was never reset) */
-  static int ppPrevOn;if(P3DS_PanelPartyOn&&!ppPrevOn){sPartySnapOk=0;sPartySrcLogged=0;sPartyNbLogged=0;sPartyDiag=0;}ppPrevOn=P3DS_PanelPartyOn;}
+  static int ppPrevOn;if(P3DS_PanelPartyOn&&!ppPrevOn){sPartySnapOk=0;sPartySrcLogged=0;sPartyNbLogged=0;}ppPrevOn=P3DS_PanelPartyOn;}
  if(P3DS_PanelPartyOn&&!P3DS_InField){
-  /* run 127 diag (max 8 lines per open, every 15 frames): which buffer holds the live party UI? top=engine B, bot=engine A (display[0]) */
-  if(sPartyDiag<8&&(++sPartyDiagN%15)==1){sPartyDiag++;PSPNativeMemLog("[PANEL] diag top nz=%d dist=%d | bot nz=%d dist=%d | pow=%04x",ppRgbNz(top),ppDistinct(top),ppRgbNz(bot),ppDistinct(bot),(unsigned)power);}
-  /* run 126: party is on LCD-top after GX_DISP_SELECT_SUB_MAIN. NEVER snap bot / sPanelBot /
-     chrome leftover in display[0] (that caused a recursive JOHTO panel). Only `top`. */
-  const u32 *src=top;const int nTop=ppRgbNz(top),nBot=ppRgbNz(bot);
-  if(src&&nTop>64){memcpy(sPartySnap,src,sizeof sPartySnap);sPartySnapOk=1;}
-  if(!sPartySrcLogged&&nTop>64){sPartySrcLogged=1;
-   PSPNativeMemLog("[PANEL] party source top-only (rgbNz top=%d bot=%d distinct~%d pow=%04x kind=%d samp %08x %08x %08x %08x) /* once per open */",
-    nTop,nBot,ppDistinct(src),(unsigned)power,P3DS_InWideKind,
-    src[0],src[128+96*256],src[255+191*256],src[40+40*256]);}
+  /* run 128: the party list is engine A (GX_DISP_SELECT_SUB_MAIN: main engine on the bottom LCD, POWCNT bit15 clear), i.e. display[0]; engine B (top) only has a backdrop
+     (plus, until redrawn, the chrome this code painted into display[1] in the field). Snap display[0] here, before the chrome is painted onto it. */
+  const u32 *src=display[0];const int nSrc=ppRgbNz(src);
+  if(nSrc>64){memcpy(sPartySnap,src,sizeof sPartySnap);sPartySnapOk=1;}
+  if(!sPartySrcLogged&&nSrc>64){sPartySrcLogged=1;
+   PSPNativeMemLog("[PANEL] party source engine A (display[0]) rgbNz=%d distinct~%d pow=%04x /* once per open */",nSrc,ppDistinct(src),(unsigned)power);}
  }
  if(P3DS_PanelPartyOn&&P3DS_InField){P3DS_PanelPartyOn=0;P3DS_PanelPartyWant=0;sPartySnapOk=0;sPartySrcLogged=0;sPartyNbLogged=0;PSPNativeMemLog("[PANEL] cleared On (back in the field)");}
  u64 tComp=svcGetSystemTick();
@@ -1788,6 +1786,12 @@ static int Present(bool){
    static int tX0,tY0,tXl,tYl,tXp;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
    if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){hit=blHit(x,y);if(hit==10&&pxRingHit(x,y))hit=3;if(hit==10)hit=21;else if(hit==8)hit=20;else if(hit==9)hit=22;else if(hit==11)hit=pxOn()?23:-1;tXl=x;tYl=y;}}
    if(tNow&&!bmPrev){bmDown=hit;tX0=tXp=tXl;tY0=tYl;tDrag=false;}
+   {/* run 128 panel_party: tapping the PARTY tab itself opens the real party in the panel (no row tap needed); leaving the party returns the panel to MAP so the next PARTY tap is a fresh tap */
+    static int ppPane,ppWasOn;const int pn=pxPane();
+    if(P3DS_PanelPartyOn){ppWasOn=1;}
+    else if(ppWasOn){ppWasOn=0;pxSetPane(0,"left the panel party");}
+    if(pn==3&&ppPane!=3&&panelPartyCfg()&&!P3DS_PanelPartyOn&&P3DS_StartReq<0&&((P3DS_StartAvail>>1)&1)){P3DS_VwPartySlot=0;P3DS_PanelPartyWant=1;P3DS_StartReq=1;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PANEL] PARTY tab: open the party in the panel, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+    ppPane=pn;}
    pxFrame(tNow&&bmDown==21&&pxScrolls());pxRingFrame();if(pxPane())gPg.markOk=false; /* run 118 B3 */
    /* run 118 A1: tap vs drag threshold 16 DS px (was 6); list scroll only after drag so stylus jitter does not eat row taps */
    if(tNow&&bmDown==21&&pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);if(dist>16){if(!tDrag){tDrag=true;PSPNativeMemLog("[BMENU] panel drag (dist %d): row tap suppressed until release without drag",dist);} }pxDrag(tXl,tYl,!bmPrev,tDrag);}
@@ -1957,8 +1961,11 @@ static int Present(bool){
      int outW,outH;if(dw*192<=dh*256){outW=dw;outH=(192*dw+128)/256;}else{outH=dh;outW=(256*dh+96)/192;}
      if(outW<1)outW=1;if(outH<1)outH=1;if(outW>dw)outW=dw;if(outH>dh)outH=dh;
      const int ox=x0+(dw-outW)/2,oy=y0+(dh-outH)/2;dx0=ox;dy0=oy;dx1=ox+outW;dy1=oy+outH;
-     for(int y=0;y<outH;y++){const int sy=y*192/outH;const u32 *src=sPartySnap+sy*256;u32 *row=sPanelBot+(oy+y)*256+ox;
-      for(int x=0;x<outW;x++)row[x]=src[x*256/outW];}
+     /* run 128: box (area-average) downscale; nearest-neighbour dropped pixels unevenly and made the party text look blurry/garbled */
+     for(int y=0;y<outH;y++){const int sy0=y*192/outH;int sy1=(y+1)*192/outH;if(sy1<=sy0)sy1=sy0+1;u32 *row=sPanelBot+(oy+y)*256+ox;
+      for(int x=0;x<outW;x++){const int sx0=x*256/outW;int sx1=(x+1)*256/outW;if(sx1<=sx0)sx1=sx0+1;
+       unsigned a=0,r=0,g=0,b=0,n=0;for(int yy=sy0;yy<sy1;yy++){const u32 *sp=sPartySnap+yy*256;for(int xx=sx0;xx<sx1;xx++){const u32 c=sp[xx];a+=c>>24;r+=(c>>16)&255;g+=(c>>8)&255;b+=c&255;n++;}}
+       row[x]=((a/n)<<24)|((r/n)<<16)|((g/n)<<8)|(b/n);}}
     }
    }
    bot=sPanelBot; /* GpuPresent must upload THIS, not display[] */
