@@ -1,0 +1,150 @@
+From 59ca9af9ca0ac4d1880b4bf176a4e082a97661e2 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 19:51:07 +0000
+Subject: [PATCH] ss3ds: hook 0207 live PARTY/BAG actions (swap, healing items)
+ with the world running
+
+panel_live (Settings > Input, default OFF): the platform posts a swap or item-use request; the game thread runs it with the game's own functions while the player could walk. Lead changes with the follower out and items that need the party menu's own flow refuse, and the platform opens the real menu instead. New numbered patch.
+---
+ scripts/ss3ds_hooks.d/0207_live.py | 116 +++++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0207_live.sh |   5 ++
+ 2 files changed, 121 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0207_live.py
+ create mode 100644 scripts/ss3ds_hooks.d/0207_live.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0207_live.py b/scripts/ss3ds_hooks.d/0207_live.py
+new file mode 100755
+index 0000000..219cbfd
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0207_live.py
+@@ -0,0 +1,116 @@
++#!/usr/bin/env python3
++"""ss3ds 0207: live PARTY / BAG actions on the JOHTO panel (render3ds.cpp panel_live, default OFF). Applied after 0167 to
++src/field/field_control.c (SS3DS_LvStep) and src/field_system.c (FieldSystem_Main calls it). Idempotent ('SS3DS 0207' marker).
++The platform posts one request (P3DS_LvReq): 1 = swap party slots A and B, 2 = use item A on party slot B. The game thread runs it
++only while the player could walk (FieldSystem_IsPlayerMovementAllowed: no script, menu or task), with the game's own functions
++(Party_SwapSlots; CanUseItemOnPokemon / Bag_TakeItem / UseItemOnPokemon as the party menu does), so the world never stops.
++Anything the plain call cannot do the way the party menu would refuses and the platform opens the real menu instead:
++ - a change of the first healthy Pokemon while the follower is out (the follower would keep the old Pokemon's sprite);
++ - Rare Candy (level up, moves, evolution), evolution stones, Sacred Ash, PP Up / PP Max / Ether (pick a move), Gracidea.
++Result in P3DS_LvRes, P3DS_LvDone++ when done: 1 swapped, 2 item used, -2 lead change, -3 no effect, -4 needs the full menu,
++-5 item not in the bag, -6 bad slot. The 0167 viewer data is republished on the next frame."""
++import sys
++
++def sub1(s, old, new):
++    if s.count(old) != 1:
++        sys.exit('0207_live: anchor not found exactly once: ' + old[:70])
++    return s.replace(old, new)
++
++p = 'src/field/field_control.c'
++s = open(p).read()
++if 'SS3DS 0207' in s:
++    sys.exit(0)
++if 'SS3DS 0167' not in s:
++    sys.exit('0207_live: hook 0167 is not in field_control.c')
++s = sub1(s, '#include "party.h" /* SS3DS 0167 */\n', '#include "party.h" /* SS3DS 0167 */\n#include "use_item_on_mon.h" /* SS3DS 0207 */\n')
++s = sub1(s, '/* SS3DS 0167 bottom-screen party/bag viewer data (read-only) */\n',
++         'static int SS3DS_LvForce; /* SS3DS 0207: republish the viewer data on the next frame */\n'
++         '/* SS3DS 0167 bottom-screen party/bag viewer data (read-only) */\n')
++s = sub1(s, '    if (++sWait < 15) return;\n', '    if (SS3DS_LvForce) { SS3DS_LvForce = 0; sWait = 15; } /* SS3DS 0207 */\n    if (++sWait < 15) return;\n')
++helper = r'''/* SS3DS 0207 live PARTY / BAG actions from the bottom screen */
++extern volatile int P3DS_LvReq, P3DS_LvA, P3DS_LvB, P3DS_LvRes;
++extern volatile unsigned P3DS_LvDone;
++extern void PSPNativeMemLog(const char *fmt, ...);
++static BOOL SS3DS_LvAlive(Pokemon *mon) {
++    return GetMonData(mon, MON_DATA_HP, NULL) != 0 && !GetMonData(mon, MON_DATA_IS_EGG, NULL);
++}
++/* index of the first healthy Pokemon after slot a and slot b trade places (-1 none) */
++static int SS3DS_LvFirstAlive(Party *party, int n, int a, int b) {
++    int i;
++    for (i = 0; i < n; i++) {
++        int k = i == a ? b : i == b ? a : i;
++        if (SS3DS_LvAlive(Party_GetMonByIndex(party, k))) return k;
++    }
++    return -1;
++}
++static int SS3DS_LvRun(FieldSystem *fieldSystem, int req, int a, int b) {
++    Party *party = SaveArray_Party_Get(fieldSystem->saveData);
++    int n = Party_GetCount(party);
++    BOOL follow = FollowMon_IsActive(fieldSystem);
++    if (req == 1) {
++        if (a < 0 || b < 0 || a >= n || b >= n || a == b) return -6;
++        if (follow && SS3DS_LvFirstAlive(party, n, a, b) != SS3DS_LvFirstAlive(party, n, -1, -1)) return -2;
++        Party_SwapSlots(party, a, b);
++        PlaySE(SEQ_SE_DP_SELECT);
++        return 1;
++    }
++    if (req == 2) {
++        u16 item = (u16)a;
++        Pokemon *mon;
++        ItemData *data;
++        int hard, rev;
++        Bag *bag = Save_Bag_Get(fieldSystem->saveData);
++        if (b < 0 || b >= n || item == 0) return -6;
++        if (!Bag_HasItem(bag, item, 1, HEAP_ID_FIELD1)) return -5;
++        mon = Party_GetMonByIndex(party, b);
++        if (GetMonData(mon, MON_DATA_IS_EGG, NULL)) return -3;
++        data = LoadItemDataOrGfx(item, ITEMNARC_PARAM, HEAP_ID_FIELD1);
++        if (GetItemAttr_PreloadedItemData(data, ITEMATTR_PARTY_USE) != 1) { Heap_Free(data); return -4; }
++        hard = GetItemAttr_PreloadedItemData(data, ITEMATTR_LEVEL_UP) || GetItemAttr_PreloadedItemData(data, ITEMATTR_EVOLVE)
++            || GetItemAttr_PreloadedItemData(data, ITEMATTR_REVIVE_ALL) || GetItemAttr_PreloadedItemData(data, ITEMATTR_PP_UP)
++            || GetItemAttr_PreloadedItemData(data, ITEMATTR_PP_MAX)
++            || (GetItemAttr_PreloadedItemData(data, ITEMATTR_PP_RESTORE) && !GetItemAttr_PreloadedItemData(data, ITEMATTR_PP_RESTORE_ALL))
++            || item == ITEM_GRACIDEA;
++        rev = GetItemAttr_PreloadedItemData(data, ITEMATTR_REVIVE);
++        Heap_Free(data);
++        if (hard) return -4;
++        if (!CanUseItemOnPokemon(mon, item, 0, HEAP_ID_FIELD1)) return -3;
++        /* a revive ahead of the follower would make it the new lead */
++        if (follow && rev && GetMonData(mon, MON_DATA_HP, NULL) == 0) {
++            int f = SS3DS_LvFirstAlive(party, n, -1, -1);
++            if (f < 0 || b < f) return -2;
++        }
++        Bag_TakeItem(bag, item, 1, HEAP_ID_FIELD1);
++        UseItemOnPokemon(mon, item, 0, MapHeader_GetMapSec(fieldSystem->location->mapId), HEAP_ID_FIELD1);
++        PlaySE(SEQ_SE_DP_KAIFUKU);
++        return 2;
++    }
++    return -6;
++}
++void SS3DS_LvStep(FieldSystem *fieldSystem) {
++    int req = P3DS_LvReq, a, b, r;
++    if (!req || !FieldSystem_IsPlayerMovementAllowed(fieldSystem)) return;
++    a = P3DS_LvA;
++    b = P3DS_LvB;
++    r = SS3DS_LvRun(fieldSystem, req, a, b);
++    P3DS_LvRes = r;
++    P3DS_LvReq = 0;
++    P3DS_LvDone++;
++    SS3DS_LvForce = 1;
++    PSPNativeMemLog("[LIVE] game: req %d a %d b %d -> %d", req, a, b, r);
++}
++
++'''
++s = sub1(s, 'static void SS3DS_MinimapStep(FieldSystem *fieldSystem, int x, int z) {', helper + 'static void SS3DS_MinimapStep(FieldSystem *fieldSystem, int x, int z) {')
++open(p, 'w').write(s)
++
++p = 'src/field_system.c'
++s = open(p).read()
++if 'SS3DS 0207' in s:
++    sys.exit(0)
++s = sub1(s, 'void SS3DS_VwPublish(FieldSystem *fieldSystem); /* SS3DS 0167 */\n',
++         'void SS3DS_VwPublish(FieldSystem *fieldSystem); /* SS3DS 0167 */\nvoid SS3DS_LvStep(FieldSystem *fieldSystem); /* SS3DS 0207 */\n')
++s = sub1(s, '        SS3DS_VwPublish(fieldSystem); /* SS3DS 0167 */\n',
++         '        SS3DS_LvStep(fieldSystem); /* SS3DS 0207 */\n        SS3DS_VwPublish(fieldSystem); /* SS3DS 0167 */\n')
++open(p, 'w').write(s)
++print('0207_live: field_control.c and field_system.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0207_live.sh b/scripts/ss3ds_hooks.d/0207_live.sh
+new file mode 100644
+index 0000000..d0c7563
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0207_live.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0207: live PARTY / BAG actions (swap, healing items) with the world running, after 0167. Not fatal: without it the
++# platform's requests time out ("[LIVE] no answer") and the tabs keep opening the real menus.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0207_live.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1 && bash rebuild_game_object.sh src/field_system.c field_system.o none); then
++  log "ss3ds 0207 live party/bag hook NOT applied (see message above); live actions will time out"
++fi
+-- 
+2.43.0
+
