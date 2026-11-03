@@ -333,6 +333,15 @@ int P3DS_TouchRead(int *x, int *y) {
     { static int polled; if (!polled) { polled = 1; PSPNativeMemLog("[3DS] touch: game is polling the touch screen (bottom=%s)", conOnBottom ? "console" : "game"); } }
     if (conOnBottom) return 0;
     { extern volatile int P3DS_PromptOpen; if (P3DS_PromptOpen == 1) return 0; } /* run 64 repel_prompt */
+    { /* run 148 (Nathan: stray Trainer card): the game must never see the finger that was on our panel/tiles. While our tiles, the panel
+         or a menu request own the touch screen, remember it; once they let go, the game gets no touch until the finger has lifted and
+         12 more polls (~0.4 s) have passed, so a tap that ends one of our screens cannot land on the game's Start menu / Trainer card. */
+      extern volatile int P3DS_BmOn, P3DS_BmBlock, P3DS_PanelPartyOn, P3DS_StartReq; static int cool, logged;
+      const int ours = (P3DS_BmOn && !P3DS_PanelPartyOn) || P3DS_BmBlock || P3DS_StartReq >= 0;
+      if (ours) cool = 12;
+      else if (cool > 0 && !P3DS_PanelPartyOn) { if (!(hidKeysHeld() & KEY_TOUCH)) cool--;
+          if ((hidKeysHeld() & KEY_TOUCH) && logged < 20) { logged++; PSPNativeMemLog("[3DS] touch hand-off guard: touch held back from the game (%d polls left)", cool); }
+          touchPrev = 1; return 0; } }
     touchPosition t; int dx, dy;
     { /* run 53 cstick_poketch=1 (default): C-stick up/down = tap the Poketch's side button (next / previous app),
          only in the overworld and only when the stylus isn't down. One short tap per flick (stick must return). */
