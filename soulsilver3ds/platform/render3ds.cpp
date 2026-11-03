@@ -1528,7 +1528,7 @@ static int Present(bool){
  u32 hash0=P3DS_FpsTweaks()>=5?0:stateHash();  /* level 5: the mid-composite change check is a diagnostic only */
  if(!earlyB){mapMemory();engineB.Enabled=(power&512)!=0;bindRegisters(engineB,0x1000);} /* early_b: already mapped; the worker may be reading it */
  /* run 128 panel_party: hook 0202 skips the party fade-in, so engine A keeps the field->party fade-to-black in MASTER_BRIGHT (0x6c) and the party list rendered pure black (run 126: bot rgbNz=0). Clear it while the party is in the panel. */
- if(P3DS_PanelPartyOn&&!P3DS_InField)*(volatile u16*)(PSPNative_GfxRegisters+0x6c)=0;
+ if(P3DS_PanelPartyOn&&!P3DS_InField){*(volatile u16*)(PSPNative_GfxRegisters+0x6c)=0;*(volatile u16*)(PSPNative_GfxRegisters+0x106c)=0;}
  engineA.Enabled=(power&2)!=0;bindRegisters(engineA,0);
  /* run 76 display capture through the renderer's own DoCapture (melonDS): source A = 2D+3D composite or 3D, source B =
     VRAM, blend A/B. Motion blur at Spear Pillar (Dialga/Palkia) shows VRAM C fed by capture; ignored it was black. */
@@ -1666,7 +1666,7 @@ static int Present(bool){
  if(P3DS_PanelPartyOn&&!P3DS_InField){
   /* run 128: the party list is engine A (GX_DISP_SELECT_SUB_MAIN: main engine on the bottom LCD, POWCNT bit15 clear), i.e. display[0]; engine B (top) only has a backdrop
      (plus, until redrawn, the chrome this code painted into display[1] in the field). Snap display[0] here, before the chrome is painted onto it. */
-  const u32 *src=display[0];const int nSrc=ppRgbNz(src);
+  const u32 *src=(power&0x8000)?display[1]:display[0];const int nSrc=ppRgbNz(src); /* run 132: summary/bag may put engine B on the bottom LCD (POWCNT bit15 set) */
   if(nSrc>64){memcpy(sPartySnap,src,sizeof sPartySnap);sPartySnapOk=1;}
   if(!sPartySrcLogged&&nSrc>64){sPartySrcLogged=1;
    PSPNativeMemLog("[PANEL] party source engine A (display[0]) rgbNz=%d distinct~%d pow=%04x /* once per open */",nSrc,ppDistinct(src),(unsigned)power);}
@@ -1791,6 +1791,7 @@ static int Present(bool){
     if(P3DS_PanelPartyOn){ppWasOn=1;}
     else if(ppWasOn){ppWasOn=0;pxSetPane(0,"left the panel party");}
     if(pn==3&&ppPane!=3&&panelPartyCfg()&&!P3DS_PanelPartyOn&&P3DS_StartReq<0&&((P3DS_StartAvail>>1)&1)){P3DS_VwPartySlot=0;P3DS_PanelPartyWant=1;P3DS_StartReq=1;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PANEL] PARTY tab: open the party in the panel, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
+    if(pn==4&&ppPane!=4&&panelPartyCfg()&&!P3DS_PanelPartyOn&&P3DS_StartReq<0&&((P3DS_StartAvail>>2)&1)){P3DS_VwBagPocket=-1;P3DS_VwBagSlot=-1;P3DS_PanelPartyWant=1;P3DS_StartReq=2;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}PSPNativeMemLog("[PANEL] BAG tab: open the bag in the panel, %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");} /* run 132 */
     ppPane=pn;}
    pxFrame(tNow&&bmDown==21&&pxScrolls());pxRingFrame();if(pxPane())gPg.markOk=false; /* run 118 B3 */
    /* run 118 A1: tap vs drag threshold 16 DS px (was 6); list scroll only after drag so stylus jitter does not eat row taps */
@@ -1840,6 +1841,7 @@ static int Present(bool){
       else PSPNativeMemLog("[VIEW] party tap ignored: a menu request is already running");}
     else if(bmDown==21&&pxPane()==4){
       if(tDrag)PSPNativeMemLog("[VIEW] bag tap ignored: drag");
+      else if(P3DS_PanelPartyOn||P3DS_PanelPartyWant){PSPNativeMemLog("[PANEL] bag tab tap ignored (already in panel)");}
       else if(pxBagTap(tX0,tY0)){}
       else if(pxViewerListHit(tY0)){
         if(!((P3DS_StartAvail>>2)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[VIEW] bag tap: not in the game's menu (avail mask %04x)",P3DS_StartAvail);}
