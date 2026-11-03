@@ -1,0 +1,48 @@
+From ad2406d289a91000f11a2816f2889f62dd1a2bf3 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 18:37:33 +0000
+Subject: [PATCH] ss3ds: visible wild count auto-scales to the usable tiles in
+ view (the count setting is the cap)
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 15a4209..17e445c 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -209,6 +209,20 @@ static SS3DSWildState *SS3DS_WildGet(void) {
+     return S;
+ }
+ 
++// Auto scale: the count setting is the cap; small patches of grass get 1, big open areas get the full amount
++static int SS3DS_WildAutoMax(FieldSystem *fieldSystem, int px, int pz, int cap) {
++    int tiles = 0;
++    for (int dz = -6; dz <= 6; dz++) {
++        for (int dx = -8; dx <= 8; dx++) {
++            if (SS3DS_WildTileKind(fieldSystem, px + dx, pz + dz) & 3) {
++                tiles++;
++            }
++        }
++    }
++    int want = 1 + tiles / 20; // about one per 20 usable tiles in view (221 tiles in view)
++    return want < cap ? want : cap;
++}
++
+ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     SS3DSWildState *S = SS3DS_WildGet();
+     int i;
+@@ -244,6 +258,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     if (S->spawnT > 0) {
+         S->spawnT--;
+     }
++    if (S->spawnT == 0) {
++        mx = SS3DS_WildAutoMax(fieldSystem, px, pz, mx);
++    }
+     if (S->spawnT == 0 && n < mx) {
+         S->spawnT = 90 + (int)SS3DS_WildRand(S, 60);
+         for (int tries = 0; tries < 8; tries++) {
+-- 
+2.43.0
+
