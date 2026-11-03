@@ -178,10 +178,10 @@ static void pxPhone(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y
     if (f & 2) { for (int yy = 0; yy < 10; yy++) for (int xx = 0; xx < 10; xx++) { const int d = (xx - 5) * (xx - 5) + (yy - 5) * (yy - 5); if (d <= 25) suiPx(b, bx + xx, y0 + 3 + yy, d > 16 ? kBlNavy : SUI_RGB(255, 200, 40)); } T.draw(b, bx + 3, y0 + 2, "!", kBlNavy, SUI_RGB(255, 200, 40)); }
     bx += 12;
     if (f & 4) { for (int yy = 0; yy < 10; yy++) for (int xx = 0; xx < 10; xx++) suiPx(b, bx + xx, y0 + 3 + yy, (xx == 0 || yy == 0 || xx == 9 || yy == 9) ? kBlNavy : SUI_RGB(120, 190, 120)); T.draw(b, bx + 2, y0 + 2, "G", kBlNavy, SUI_RGB(120, 190, 120)); }
-    const int nx = X0 + 32; T.draw(b, nx, ty - 1, kPxName[id], ink, sh);
+    const int nx = X0 + 32; T.draw(b, nx, ty - 3, kPxName[id], ink, sh);
     const int loc = P3DS_PhLoc[id]; if (loc >= 0 && loc < 100 && P3DS_PgName[loc][0]) { char pl[24]; const int cw = pxMapChipW(T), room = listR - 4 - cw - 4 - (nx + T.width(kPxName[id]) + 6);
-      pxBtn(b, listR - 2 - cw, y0 + 3, listR - 3, y1 - 3, SUI_RGB(250, 252, 255), kBlSilverLo, kBlNavy); T.draw(b, listR - 2 - cw + 3, ty - 1, "MAP", ink, sh); /* MAP chip = jump to the place; the rest of the row calls */
-      if (room > 18) { pxFit(T, pl, sizeof pl, P3DS_PgName[loc], room); T.draw(b, listR - 2 - cw - 4 - T.width(pl), ty - 1, pl, fg, sh); } } }
+      pxBtn(b, listR - 2 - cw, y0 + 3, listR - 3, y1 - 3, SUI_RGB(250, 252, 255), kBlSilverLo, kBlNavy); T.draw(b, listR - 2 - cw + 3, ty - 3, "MAP", ink, sh); /* MAP chip = jump to the place; the rest of the row calls */
+      if (room > 18) { pxFit(T, pl, sizeof pl, P3DS_PgName[loc], room); T.draw(b, listR - 2 - cw - 4 - T.width(pl), ty - 3, pl, fg, sh); } } }
   if (ms > 0) { const int h = gPx.listY1 - gPx.listY0, bh = h * h / (h + ms) < 8 ? 8 : h * h / (h + ms), by = gPx.listY0 + (h - bh) * sc / ms;
     for (int y = gPx.listY0; y < gPx.listY1; y++) for (int x = X1 - 10; x < X1 - 3; x++) suiPx(b, x, y, SUI_RGB(96, 120, 176));
     for (int y = by; y < by + bh; y++) for (int x = X1 - 10; x < X1 - 3; x++) suiPx(b, x, y, (gPx.scrub || gPx.touching) ? SUI_RGB(64, 112, 200) : SUI_RGB(104, 120, 168)); } }
@@ -228,9 +228,9 @@ static void pxRadio(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y
     for (int y = y0 + 1; y < y1 - 1; y++) for (int x = X0 + 3; x < X0 + 5; x++) suiPx(b, x, y, kBlBlue); /* accent stripe */
     /* the "on air" lamp */
     for (int yy = 0; yy < 7; yy++) for (int xx = 0; xx < 7; xx++) { const int d = (xx - 3) * (xx - 3) + (yy - 3) * (yy - 3); if (d <= 10) suiPx(b, X0 + 7 + xx, y0 + 4 + yy, d > 6 ? SUI_RGB(30, 120, 60) : SUI_RGB(90, 220, 120)); }
-    char nm[40]; pxFit(T, nm, sizeof nm, what, X1 - X0 - 24 - 6); T.draw(b, X0 + 18, y0 + 2, nm, ink, sh);
+    char nm[40]; pxFit(T, nm, sizeof nm, what, X1 - X0 - 24 - 6); T.draw(b, X0 + 18, y0 + 1, nm, ink, sh);
     char ln[64]; if (sub[0]) snprintf(ln, sizeof ln, "Today: %s", sub); else if (until >= 0) snprintf(ln, sizeof ln, "Changes at %02d:00", until); else snprintf(ln, sizeof ln, "On the air all day");
-    T.draw(b, X0 + 18, y0 + 13, ln, fg, sh); } }
+    suiSDraw(T, b, X0 + 18, y0 + 12, ln, fg, sh); } }
 
 /* ---- the PARTY and BAG panes (hook 0167 data; run 118: tap opens the real Pokemon / Bag Start-menu apps) ---- */
 /* the game's item name with its accent restored ("Pok Ball" -> "Poke Ball"; the text pipe drops the e-acute) */
