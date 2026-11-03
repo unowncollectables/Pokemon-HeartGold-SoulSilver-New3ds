@@ -1,0 +1,88 @@
+From f041a25be817289d1ab90d2557bd95e6767672cc Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 21:03:13 +0000
+Subject: [PATCH] ss3ds: hook 0208 battle damage/speed check snapshot
+ (battle_controller_player.c)
+
+Read-only P3DS_DmgInfo snapshot (my active mon stats, moves, types, power vs the foe) taken at the command menu; the port draws the damage range and speed page on the Y foe screen.
+---
+ scripts/ss3ds_hooks.d/0208_dmgcheck.py | 55 ++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0208_dmgcheck.sh |  4 ++
+ 2 files changed, 59 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0208_dmgcheck.py
+ create mode 100644 scripts/ss3ds_hooks.d/0208_dmgcheck.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0208_dmgcheck.py b/scripts/ss3ds_hooks.d/0208_dmgcheck.py
+new file mode 100755
+index 0000000..f7864d7
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0208_dmgcheck.py
+@@ -0,0 +1,55 @@
++#!/usr/bin/env python3
++"""ss3ds 0208: battle damage / speed check snapshot P3DS_DmgInfo[32] for the port's Y foe-info screen (Settings > Battle
++"Damage check", dmg_check). Taken right after 0031's block when the command menu opens (battle_controller_player.c).
++Read-only, singles only. The port does the maths. Idempotent ('SS3DS 0208'). Layout:
++ [0] valid  [1] counter  [2] my level [3] atk [4] spatk [5] speed [6] status [7..8] types
++ [9] foe level [10] def [11] spdef [12] speed [13] hp [14..15] types [16] status [17] species [18..21] my move ids
++ [22..25] move types [26..29] move power [30] foe max hp"""
++import sys
++p = 'src/battle/battle_controller_player.c'
++s = open(p).read()
++if 'SS3DS 0208' in s:
++    sys.exit(0)
++old = '        } else {\n            P3DS_FoeInfo[0] = 0;\n        }\n    }\n'
++if 'SS3DS 0031' not in s or s.count(old) != 1:
++    sys.exit('0208_dmgcheck: 0031 foe info block not found exactly once')
++new = old + (
++ '    { /* SS3DS 0208 damage check: read-only snapshot of my active Pokemon vs the foe (singles only) */\n'
++ '        extern volatile int P3DS_DmgInfo[32];\n'
++ '        BattleMon *dm = &ctx->battleMons[0];\n'
++ '        BattleMon *de = &ctx->battleMons[1];\n'
++ '        if (!(BattleSystem_GetBattleType(battleSystem) & BATTLE_TYPE_DOUBLES) && dm->hp > 0 && de->hp > 0) {\n'
++ '            int i;\n'
++ '            Pokemon *dmy = BattleSystem_GetPartyMon(battleSystem, 0, ctx->selectedMonIndex[0]);\n'
++ '            Pokemon *dfo = BattleSystem_GetPartyMon(battleSystem, 1, ctx->selectedMonIndex[1]);\n'
++ '            P3DS_DmgInfo[2] = dm->level;\n'
++ '            P3DS_DmgInfo[3] = GetMonData(dmy, MON_DATA_ATK, NULL);\n'
++ '            P3DS_DmgInfo[4] = GetMonData(dmy, MON_DATA_SPATK, NULL);\n'
++ '            P3DS_DmgInfo[5] = GetMonData(dmy, MON_DATA_SPEED, NULL);\n'
++ '            P3DS_DmgInfo[6] = dm->status;\n'
++ '            P3DS_DmgInfo[7] = dm->type1;\n'
++ '            P3DS_DmgInfo[8] = dm->type2;\n'
++ '            P3DS_DmgInfo[9] = de->level;\n'
++ '            P3DS_DmgInfo[10] = GetMonData(dfo, MON_DATA_DEF, NULL);\n'
++ '            P3DS_DmgInfo[11] = GetMonData(dfo, MON_DATA_SPDEF, NULL);\n'
++ '            P3DS_DmgInfo[12] = GetMonData(dfo, MON_DATA_SPEED, NULL);\n'
++ '            P3DS_DmgInfo[13] = de->hp;\n'
++ '            P3DS_DmgInfo[14] = de->type1;\n'
++ '            P3DS_DmgInfo[15] = de->type2;\n'
++ '            P3DS_DmgInfo[16] = de->status;\n'
++ '            P3DS_DmgInfo[17] = de->species;\n'
++ '            P3DS_DmgInfo[30] = de->maxHp;\n'
++ '            for (i = 0; i < 4; i++) {\n'
++ '                u16 dmv = GetMonData(dmy, MON_DATA_MOVE1 + i, NULL);\n'
++ '                P3DS_DmgInfo[18 + i] = dmv;\n'
++ '                P3DS_DmgInfo[22 + i] = dmv ? (int)GetMoveAttr(dmv, MOVEATTR_TYPE) : 255;\n'
++ '                P3DS_DmgInfo[26 + i] = dmv ? (int)GetMoveAttr(dmv, MOVEATTR_POWER) : 0;\n'
++ '            }\n'
++ '            P3DS_DmgInfo[1] = P3DS_DmgInfo[1] + 1;\n'
++ '            P3DS_DmgInfo[0] = 1;\n'
++ '        } else {\n'
++ '            P3DS_DmgInfo[0] = 0;\n'
++ '        }\n'
++ '    }\n')
++open(p, 'w').write(s.replace(old, new))
++print('0208_dmgcheck: battle_controller_player.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0208_dmgcheck.sh b/scripts/ss3ds_hooks.d/0208_dmgcheck.sh
+new file mode 100644
+index 0000000..cdb0e56
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0208_dmgcheck.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0208: battle damage/speed check snapshot (after 0031, same object). Not fatal: without it the damage page says "no data".
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0208_dmgcheck.py" && bash rebuild_game_object.sh src/battle/battle_controller_player.c battle__battle_controller_player.o 12); then
++  log "ss3ds 0208 dmgcheck hook NOT applied (see message above); the damage check page has no data"
++fi
+-- 
+2.43.0
+

@@ -352,6 +352,7 @@ Run 76
                        The game's own shiny code makes the Pokemon (like the Poke Radar); the extra roll is the port's own generator, never the game's RNG.
   battery_warn=0       (Battle tab "Low battery warning") at 1 bar or less and not charging: "BATTERY LOW: SAVE NOW" once a minute and hunt.txt is written at once.
 type_hint=0           (Battle tab "Move type hint") while the FIGHT menu is open, each damaging move button on the TOUCH screen gets a small tag: SUPER EFFECTIVE (green), NOT VERY EFF. (red) or NO EFFECT (grey); nothing for neutral or status moves (doubles show the better of the two foes). Gen 4 chart; abilities/items not considered. Hook 0121, read-only. Log tag [HINT] (also prints a colour profile of the bottom image so the tag position can be checked).
+dmg_check=0           (Battle tab "Damage check", hook 0208) the Y foe screen gets a last page: a rough damage range (and % of the foe's HP) for each of your moves, and who moves first. Singles only; ignores crits, items, abilities, weather, priority. Default OFF until tested.
   tod_tint=0           (1 = soft evening / night tint outdoors; follows cheat_time when set)
   bottom_vramgen=1     (Underground fix: bottom screen redraws when its VRAM is written; 0 = old reuse)
   Ball tab now also lists Dusk and Net Ball odds. Log adds [PERF3] (worst frame, bottom reuse) every ~10 s.
