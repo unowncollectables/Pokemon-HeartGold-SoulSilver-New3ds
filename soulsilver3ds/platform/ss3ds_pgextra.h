@@ -96,7 +96,7 @@ static inline bool pxScrolls() { return pxPane() == 1 || pxPane() == 4; } /* pan
 static inline int pxMaxScroll() { const int h = gPx.listY1 - gPx.listY0; const int m = (gPx.pane == 4 ? gPx.bagN : gPx.n) * kPxRowH - h; return m > 0 ? m : 0; }
 
 /* ---- tab bar (run 122: even-width rounded JOHTO tabs; hit rects match draw) ---- */
-enum { kPxNTab = 5, kPxTabGap = 2, kPxTabPad = 5 };
+enum { kPxNTab = 5, kPxTabGap = 2, kPxTabPad = 3 };
 static const char *const kPxTabs[kPxNTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG" };
 static void pxTabEdge(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t c) {
   const int r = 2;
@@ -107,9 +107,8 @@ static void pxTabEdge(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t c) {
   suiPx(b, x0 + 1, y1 - 1, c); suiPx(b, x0 + 0, y1 - 2, c);
   suiPx(b, x1 - 2, y1 - 1, c); suiPx(b, x1 - 1, y1 - 2, c); }
 static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0, int *y1) {
-  int maxW = 0; for (int i = 0; i < kPxNTab; i++) { const int w = suiSWidth(T, kPxTabs[i]); if (w > maxW) maxW = w; }
-  const int tabW = maxW + kPxTabPad * 2; /* equal width for every tab */
-  int right = X1 - 2; for (int i = kPxNTab - 1; i >= 0; i--) { x0[i] = right - tabW; x1[i] = right; right -= tabW + kPxTabGap; }
+  /* run 128: each chip is as wide as its own label (+ small pad). Equal-width chips (widest label + 10) ran the whole bar and covered the location name on the MAP pane. */
+  int right = X1 - 2; for (int i = kPxNTab - 1; i >= 0; i--) { const int tabW = suiSWidth(T, kPxTabs[i]) + kPxTabPad * 2; x0[i] = right - tabW; x1[i] = right; right -= tabW + kPxTabGap; }
   *y0 = Y0 + 1; *y1 = Y0 + 15; }
 /* location bar: name on the left (MAP pane), even tabs on the right */
 static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
