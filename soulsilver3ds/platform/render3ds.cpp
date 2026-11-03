@@ -1667,7 +1667,7 @@ static int Present(bool){
   /* run 128: the party list is engine A (GX_DISP_SELECT_SUB_MAIN: main engine on the bottom LCD, POWCNT bit15 clear), i.e. display[0]; engine B (top) only has a backdrop
      (plus, until redrawn, the chrome this code painted into display[1] in the field). Snap display[0] here, before the chrome is painted onto it. */
   const u32 *src=(power&0x8000)?display[1]:display[0];const int nSrc=ppRgbNz(src); /* run 132: summary/bag may put engine B on the bottom LCD (POWCNT bit15 set) */
-  if(nSrc>64){memcpy(sPartySnap,src,sizeof sPartySnap);sPartySnapOk=1;}
+  if(nSrc>64){memcpy(sPartySnap,src,sizeof sPartySnap);for(int i=0;i<256*192;i++)sPartySnap[i]|=0xFF000000u;sPartySnapOk=1;} /* run 134: engine B pixels have alpha 0 */
   if(!sPartySrcLogged&&nSrc>64){sPartySrcLogged=1;
    PSPNativeMemLog("[PANEL] party source engine A (display[0]) rgbNz=%d distinct~%d pow=%04x /* once per open */",nSrc,ppDistinct(src),(unsigned)power);}
  }
@@ -1917,7 +1917,7 @@ static int Present(bool){
  pfT[PF_BMENU]+=svcGetSystemTick()-tBm0;
  /* fps_tweaks >= 2: this frame's Bottom menu painted the whole bottom image (blDraw / blCache / blank / suiBackground cover
     256x192), so next frame engine B is not composed; the frame it hides again, the bottom shows the last menu picture once */
- bHideB=P3DS_FpsTweaks()>=2&&bmShow&&(power&0x8000)&&!P3DS_ConsoleOnBottom();
+ bHideB=P3DS_FpsTweaks()>=2&&bmShow&&(power&0x8000)&&!P3DS_ConsoleOnBottom()&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant; /* run 134: bag/summary in the panel is engine B on the bottom LCD, so it must be drawn */
  /* ss3ds menu_button (default LEFT): small button in a corner of the touch screen, overworld only, tap = settings app.
     Drawn into the composed bottom image every frame (idempotent), so a reused bottom frame keeps it. */
  static bool btnPressed,btnDirty,btnWas;
