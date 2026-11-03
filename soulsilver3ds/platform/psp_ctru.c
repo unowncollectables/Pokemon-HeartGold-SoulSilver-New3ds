@@ -391,6 +391,7 @@ int sceCtrlPeekBufferPositive(SceCtrlData *d, int n) {
       if ((up || (grace && P3DS_InField)) && !(h & (KEY_L | KEY_R))) {
           if (up && (dn & KEY_X || (P3DS_TileCur >= 0 && (dn & nav)))) P3DS_TileKeys |= dn & nav;
           k &= ~KEY_X; if (P3DS_TileCur >= 0) k &= ~(KEY_A | KEY_B | KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT); } }
+    { extern volatile int P3DS_BmBlock; if (P3DS_BmBlock) k &= ~(KEY_A | KEY_B | KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT); } /* run 142: the game's Start menu is alive under our panel: its cursor is not reachable (injected B below still gets through) */
     if (P3DS_InjectFrames > 0) { k |= P3DS_InjectKeys; P3DS_InjectFrames--; } /* run 64: touch Start menu app (one press) */
     for (unsigned i = 0; i < sizeof map / sizeof map[0]; i++) if (k & map[i][0]) b |= map[i][1];
     circlePosition c; hidCircleRead(&c);

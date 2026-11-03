@@ -98,40 +98,29 @@ static inline int pxMaxScroll() { const int h = gPx.listY1 - gPx.listY0; const i
 /* ---- tab bar (run 122: even-width rounded JOHTO tabs; hit rects match draw) ---- */
 enum { kPxNTab = 5, kPxTabGap = 2, kPxTabPad = 3 };
 static const char *const kPxTabs[kPxNTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG" };
-static void pxTabEdge(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t c) {
-  const int r = 2;
-  for (int x = x0 + r; x < x1 - r; x++) { suiPx(b, x, y0, c); suiPx(b, x, y1 - 1, c); }
-  for (int y = y0 + r; y < y1 - r; y++) { suiPx(b, x0, y, c); suiPx(b, x1 - 1, y, c); }
-  suiPx(b, x0 + 1, y0 + 0, c); suiPx(b, x0 + 0, y0 + 1, c);
-  suiPx(b, x1 - 2, y0 + 0, c); suiPx(b, x1 - 1, y0 + 1, c);
-  suiPx(b, x0 + 1, y1 - 1, c); suiPx(b, x0 + 0, y1 - 2, c);
-  suiPx(b, x1 - 2, y1 - 1, c); suiPx(b, x1 - 1, y1 - 2, c); }
 static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0, int *y1) {
-  /* run 128: each chip is as wide as its own label (+ small pad). Equal-width chips (widest label + 10) ran the whole bar and covered the location name on the MAP pane. */
-  int right = X1 - 2; for (int i = kPxNTab - 1; i >= 0; i--) { const int tabW = suiSWidth(T, kPxTabs[i]) + kPxTabPad * 2; x0[i] = right - tabW; x1[i] = right; right -= tabW + kPxTabGap; }
+  /* run 142: the tabs span the whole bar in five even buttons (the name has its own strip below, pxNameStrip), and use the side column's silver button look. X1 is the panel's right edge, the bar starts at kBlPanX0. */
+  (void)T; const int L = kBlPanX0 + 2, R = X1 - 2, W = R - L - (kPxNTab - 1) * kPxTabGap;
+  for (int i = 0; i < kPxNTab; i++) { x0[i] = L + i * (kPxTabGap) + W * i / kPxNTab; x1[i] = L + i * kPxTabGap + W * (i + 1) / kPxNTab; }
   *y0 = Y0 + 1; *y1 = Y0 + 15; }
-/* location bar: name on the left (MAP pane), even tabs on the right */
+/* run 142: the area name on its own full-width line under the tab row (MAP pane only; the map panel starts below it, see blNameH) */
+static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
+  const int y0 = Y0 + 15, y1 = y0 + kBlNameH + 1;
+  for (int y = y0; y < y1; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - y0, y1 - y0); for (int x = X0; x < X1; x++) suiPx(b, x, y, c); }
+  mmFrame(b, X0, y0, X1, y1, kBlNavy);
+  char nm[48]; pxFit(T, nm, sizeof nm, name, X1 - X0 - 8);
+  suiSDraw(T, b, X0 + 4, y0 + (y1 - y0 - 9) / 2, nm, kBlNavy, kBlSilverHi); }
+/* tab row: same look as the side column's buttons (silver gradient, white top lip, navy frame); the open tab takes the pressed blue */
 static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
-  int cx0[kPxNTab], cx1[kPxNTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
-  if (gPx.pane == 0) { char nm[40]; snprintf(nm, sizeof nm, "%s", name); for (int k = (int)strlen(nm); k > 1 && suiSWidth(T, nm) > cx0[0] - 4 - (X0 + 5); ) nm[--k] = 0; suiSDraw(T, b, X0 + 5, Y0 + 3, nm, kBlNavy, kBlSilverHi); }
+  (void)X0; (void)name; int cx0[kPxNTab], cx1[kPxNTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
   for (int i = 0; i < kPxNTab; i++) { const bool on = gPx.pane == i;
-    const uint32_t fill0 = on ? kBlBlue : SUI_RGB(250, 252, 255);
-    const uint32_t fill1 = on ? SUI_RGB(40, 80, 168) : kBlSilverLo;
-    const int h = cy1 - cy0, r = 2;
-    for (int y = cy0; y < cy1; y++) {
-      const uint32_t c = suiMix(fill0, fill1, y - cy0, h > 1 ? h - 1 : 1);
-      for (int x = cx0[i]; x < cx1[i]; x++) {
-        const int dx = x < cx0[i] + r ? cx0[i] + r - x : (x >= cx1[i] - r ? x - (cx1[i] - 1 - r) : 0);
-        const int dy = y < cy0 + r ? cy0 + r - y : (y >= cy1 - r ? y - (cy1 - 1 - r) : 0);
-        if (dx && dy && dx + dy > r + 1) continue;
-        suiPx(b, x, y, c); } }
-    pxTabEdge(b, cx0[i], cy0, cx1[i], cy1, kBlNavy);
-    if (on) { /* selected: bright top lip + dark bottom bar so the active tab is obvious */
-      for (int x = cx0[i] + 2; x < cx1[i] - 2; x++) { suiPx(b, x, cy0 + 1, SUI_RGB(160, 200, 255)); suiPx(b, x, cy1 - 2, SUI_RGB(20, 36, 80)); } }
+    for (int y = cy0; y < cy1; y++) { const uint32_t c = on ? suiMix(kBlPress, SUI_RGB(92, 140, 214), y - cy0, cy1 - cy0) : suiMix(kBlSilverHi, kBlSilverLo, y - cy0, cy1 - cy0);
+      for (int x = cx0[i]; x < cx1[i]; x++) suiPx(b, x, y, c); }
+    mmFrame(b, cx0[i], cy0, cx1[i], cy1, kBlNavy);
+    for (int x = cx0[i] + 1; x < cx1[i] - 1; x++) suiPx(b, x, cy0 + 1, SUI_RGB(255, 255, 255));
+    if (on) for (int x = cx0[i] + 1; x < cx1[i] - 1; x++) suiPx(b, x, cy1 - 2, kBlBlue);
     const int tw = suiSWidth(T, kPxTabs[i]);
-    const int tx = cx0[i] + (cx1[i] - cx0[i] - tw) / 2;
-    const int ty = cy0 + (cy1 - cy0 - 9) / 2; /* ~9 px gamefont-3/4 glyph height */
-    suiSDraw(T, b, tx, ty, kPxTabs[i], on ? SUI_RGB(255, 255, 255) : kBlNavy, on ? SUI_RGB(40, 80, 168) : kBlSilverHi); } }
+    suiSDraw(T, b, cx0[i] + (cx1[i] - cx0[i] - tw) / 2, cy0 + (cy1 - cy0 - 9) / 2, kPxTabs[i], kBlNavy, on ? kBlPress : kBlSilverHi); } }
 /* tab index under bar x, -1 none (same layout as pxBar) */
 static int pxChipHit(const SUiText &T, int X1, int Y0, int x) {
   int cx0[kPxNTab], cx1[kPxNTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
