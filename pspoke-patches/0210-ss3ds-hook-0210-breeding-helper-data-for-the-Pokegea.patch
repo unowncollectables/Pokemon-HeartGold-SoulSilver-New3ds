@@ -1,0 +1,148 @@
+From 02ebea9efcb9d788e81b51b8ef9cf4a8d44719c8 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 21:04:49 +0000
+Subject: [PATCH] ss3ds: hook 0210 breeding helper data for the Pokegear BREED
+ tab (read-only, field_control.c / field_system.c)
+
+Publishes the Day-Care (species, level now, levels gained, egg chance, Masuda, egg waiting, steps to the next roll) and every party egg (cycles and steps left to hatch, Flame Body / Magma Armor aware) about every 2 s, only while the BREED tab is open. New numbered patch.
+---
+ scripts/ss3ds_hooks.d/0210_breed.py | 112 ++++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0210_breed.sh |   7 ++
+ 2 files changed, 119 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0210_breed.py
+ create mode 100755 scripts/ss3ds_hooks.d/0210_breed.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0210_breed.py b/scripts/ss3ds_hooks.d/0210_breed.py
+new file mode 100755
+index 0000000..0ab8421
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0210_breed.py
+@@ -0,0 +1,112 @@
++#!/usr/bin/env python3
++"""ss3ds 0210: breeding helper data for the Pokegear BREED tab (Settings > Input > Breeding tab, default OFF), applied after
++0120/0167 to src/field/field_control.c (publisher) and src/field_system.c (FieldSystem_Main calls it). Idempotent ('SS3DS 0210'
++marker). READ-ONLY: only getters, nothing is written to the save. While the platform has the BREED tab open (P3DS_BrOn) the game
++thread publishes, about every 2 seconds and only when something changed, 40 ints into P3DS_BrD:
++ 0 Day-Care Pokemon count, 1/2 species, 3/4 level now (level at drop-off + DaycareMon_CalcLevelGrowth), 5/6 levels gained,
++ 7 egg chance % per roll (70/50/20/0), 8 Masuda (language mismatch), 9 egg waiting, 10 steps to the next egg roll (-1 none),
++ 11 egg cycle counter (steps into the current cycle), 12 cycles subtracted per cycle (2 with a Magma Armor / Flame Body Pokemon
++ in the party, else 1), 13 number of eggs in the party, 14..19 party slot of each egg, 20..25 its cycles left, 26..31 steps until
++ it hatches (cycle length 255, see HandleDaycareStep in get_egg.c; special dates use 230, not modelled), 32 party size."""
++import sys
++
++def sub1(s, old, new):
++    if s.count(old) != 1:
++        sys.exit('0210_breed: anchor not found exactly once: ' + old[:70])
++    return s.replace(old, new)
++
++p = 'src/field/field_control.c'
++s = open(p).read()
++if 'SS3DS 0210' in s:
++    sys.exit(0)
++if 'SS3DS 0120' not in s or 'SS3DS 0167' not in s:
++    sys.exit('0210_breed: hooks 0120 and 0167 are not in field_control.c')
++helper = r'''/* SS3DS 0210 breeding helper data (read-only) */
++extern volatile int P3DS_BrOn;
++extern volatile unsigned P3DS_BrTick;
++extern volatile int P3DS_BrReady;
++extern int P3DS_BrD[40];
++void SS3DS_BrPublish(FieldSystem *fieldSystem) {
++    static const int sCompat[4] = { 70, 50, 20, 0 };
++    static int sWait = 119;
++    static int sD[40];
++    int d[40], i, n = 0, sp[2] = { 0, 0 }, lv[2] = { 0, 0 }, gain[2] = { 0, 0 }, toSub = 1, nEgg = 0, partyN;
++    Daycare *dc;
++    Party *party;
++    if (!P3DS_BrOn) { sWait = 119; return; }
++    if (++sWait < 120) return;
++    sWait = 0;
++    for (i = 0; i < 40; i++) d[i] = 0;
++    dc = Save_Daycare_Get(fieldSystem->saveData);
++    for (i = 0; i < 2; i++) {
++        DaycareMon *dm = Save_Daycare_GetMonX(dc, i);
++        BoxPokemon *bp = DaycareMon_GetBoxMon(dm);
++        if (GetBoxMonData(bp, MON_DATA_SPECIES_EXISTS, NULL)) {
++            sp[i] = (int)GetBoxMonData(bp, MON_DATA_SPECIES, NULL);
++            gain[i] = DaycareMon_CalcLevelGrowth(dm);
++            lv[i] = CalcBoxMonLevel(bp) + gain[i];
++            n++;
++        }
++    }
++    d[0] = n;
++    d[1] = sp[0];
++    d[2] = sp[1];
++    d[3] = lv[0];
++    d[4] = lv[1];
++    d[5] = gain[0];
++    d[6] = gain[1];
++    d[7] = n == 2 ? sCompat[Save_Daycare_CalcCompatibility(dc) & 3] : 0;
++    d[8] = n == 2 && Save_Daycare_MasudaCheck(dc) ? 1 : 0;
++    d[9] = Save_Daycare_HasEgg(dc) ? 1 : 0;
++    d[10] = n == 2 && !d[9] ? (255 - (int)(u8)DaycareMon_GetSteps(Save_Daycare_GetMonX(dc, 1))) & 255 : -1;
++    d[11] = (int)Save_Daycare_GetEggCycleCounter(dc);
++    party = SaveArray_Party_Get(fieldSystem->saveData);
++    partyN = Party_GetCount(party);
++    if (partyN > 6) partyN = 6;
++    for (i = 0; i < partyN; i++) {
++        Pokemon *mon = Party_GetMonByIndex(party, i);
++        if (!GetMonData(mon, MON_DATA_IS_EGG, NULL)) {
++            int ab = (int)GetMonData(mon, MON_DATA_ABILITY, NULL);
++            if (ab == 40 || ab == 49) toSub = 2; /* Magma Armor, Flame Body */
++        }
++    }
++    d[12] = toSub;
++    for (i = 0; i < partyN; i++) {
++        Pokemon *mon = Party_GetMonByIndex(party, i);
++        if (GetMonData(mon, MON_DATA_IS_EGG, NULL) && !GetMonData(mon, MON_DATA_CHECKSUM_FAILED, NULL)) {
++            int cyc = (int)GetMonData(mon, MON_DATA_EGG_CYCLES, NULL);
++            int rolls = (cyc + toSub - 1) / toSub;
++            int toNext = 255 - d[11];
++            if (toNext < 1) toNext = 1;
++            d[14 + nEgg] = i;
++            d[20 + nEgg] = cyc;
++            d[26 + nEgg] = toNext + rolls * 255;
++            nEgg++;
++        }
++    }
++    d[13] = nEgg;
++    d[32] = partyN;
++    if (!P3DS_BrReady || memcmp(sD, d, sizeof d) != 0) {
++        memcpy(sD, d, sizeof d);
++        memcpy(P3DS_BrD, d, sizeof d);
++        P3DS_BrReady = 1;
++        P3DS_BrTick++;
++    }
++}
++
++'''
++s = sub1(s, 'static void SS3DS_MinimapStep(FieldSystem *fieldSystem, int x, int z) {', helper + 'static void SS3DS_MinimapStep(FieldSystem *fieldSystem, int x, int z) {')
++open(p, 'w').write(s)
++
++p = 'src/field_system.c'
++s = open(p).read()
++if 'SS3DS 0210' in s:
++    sys.exit(0)
++if 'SS3DS 0167' not in s:
++    sys.exit('0210_breed: hook 0167 is not in field_system.c')
++s = sub1(s, 'void SS3DS_VwPublish(FieldSystem *fieldSystem); /* SS3DS 0167 */\n',
++         'void SS3DS_VwPublish(FieldSystem *fieldSystem); /* SS3DS 0167 */\nvoid SS3DS_BrPublish(FieldSystem *fieldSystem); /* SS3DS 0210 */\n')
++s = sub1(s, '        SS3DS_VwPublish(fieldSystem); /* SS3DS 0167 */\n',
++         '        SS3DS_VwPublish(fieldSystem); /* SS3DS 0167 */\n        SS3DS_BrPublish(fieldSystem); /* SS3DS 0210 */\n')
++open(p, 'w').write(s)
++print('0210_breed: field_control.c and field_system.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0210_breed.sh b/scripts/ss3ds_hooks.d/0210_breed.sh
+new file mode 100755
+index 0000000..5ff2959
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0210_breed.sh
+@@ -0,0 +1,7 @@
++# ss3ds 0210: breeding helper data for the Pokegear BREED tab (read-only), after 0120/0167/0207. Optional: without it the BREED tab says
++# the hook is missing. If an edited file does not compile, both pre-0210 files are put back so later hooks and builds are unaffected.
++if ! (cd "$C" && cp src/field/field_control.c src/field/field_control.c.pre0210 && cp src/field_system.c src/field_system.c.pre0210 && python3 "$ROOT/scripts/ss3ds_hooks.d/0210_breed.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1 && bash rebuild_game_object.sh src/field_system.c field_system.o none); then
++  log "ss3ds 0210 breed hook skipped (see message above); the BREED tab has no game data"
++  [ -f "$C/src/field/field_control.c.pre0210" ] && cp "$C/src/field/field_control.c.pre0210" "$C/src/field/field_control.c"
++  [ -f "$C/src/field_system.c.pre0210" ] && cp "$C/src/field_system.c.pre0210" "$C/src/field_system.c"
++fi
+-- 
+2.43.0
+

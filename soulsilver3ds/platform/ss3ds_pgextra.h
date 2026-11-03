@@ -28,6 +28,8 @@ volatile int P3DS_VwOn, P3DS_VwReady; volatile unsigned P3DS_VwTick; int P3DS_Vw
 /* run 145 / hook 0207 (panel_live): one live action for the game thread. Req 1 = swap party slots A and B, 2 = use item A on party slot B;
    the game clears Req, sets Res (1 swapped, 2 used, -2 lead change, -3 no effect, -4 needs the full menu, -5 not in the bag, -6 bad) and bumps Done */
 volatile int P3DS_LvReq, P3DS_LvA, P3DS_LvB, P3DS_LvRes; volatile unsigned P3DS_LvDone;
+/* published by hook 0210 (field_control.c / field_system.c) while the BREED tab is open: layout in pspoke-patches/0210 (d[0..32]) */
+volatile int P3DS_BrOn, P3DS_BrReady; volatile unsigned P3DS_BrTick; int P3DS_BrD[40];
 uint8_t P3DS_PhFlag[75], P3DS_PhLoc[75]; /* flag bit0 registered, bit1 rematch, bit2 gift; loc = Pokegear location 0..99 or 255 */
 }
 
@@ -43,7 +45,8 @@ static const char *const kPxName[75] = {
 
 enum { kPxRowH = 17, kPxSubH = 14 };
 struct SPx {
-  int pane;                       /* 0 MAP, 1 PHONE, 2 RADIO, 3 PARTY, 4 BAG */
+  int pane;                       /* 0 MAP, 1 PHONE, 2 RADIO, 3 PARTY, 4 BAG, 5 EGGS = the breeding tab (breed_tab) */
+  unsigned brSeen; bool brLogged; int brLast[8]; /* BREED: last data tick, first-open logged, last logged facts */
   int bagLX0, bagLX1, bagRX0, bagRX1; /* BAG pocket arrows, set while drawing */
   int bag, bagN, bagList[165]; unsigned vwSeen; int vwWait; bool vwLogged; /* BAG pocket (0..7), its non-empty slots, last data tick, frames waiting for data */
   int sort;                       /* 0 A-Z, 1 PLACE, 2 REMATCH first */
@@ -101,12 +104,14 @@ static inline bool pxScrolls() { return pxPane() == 1 || pxPane() == 4; } /* pan
 static inline int pxMaxScroll() { const int h = gPx.listY1 - gPx.listY0; const int m = (gPx.pane == 4 ? gPx.bagN : gPx.n) * kPxRowH - h; return m > 0 ? m : 0; }
 
 /* ---- tab bar (run 122: even-width rounded JOHTO tabs; hit rects match draw) ---- */
-enum { kPxNTab = 5, kPxTabGap = 2, kPxTabPad = 3 };
-static const char *const kPxTabs[kPxNTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG" };
+enum { kPxMaxTab = 6, kPxTabGap = 2, kPxTabPad = 3 };
+static bool brCfg();
+static inline int pxNTab() { return brCfg() ? 6 : 5; } /* the BREED tab only exists with breed_tab on */
+static const char *const kPxTabs[kPxMaxTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG", "EGGS" };
 static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0, int *y1) {
   /* run 142: the tabs span the whole bar in five even buttons (the name has its own strip below, pxNameStrip), and use the side column's silver button look. X1 is the panel's right edge, the bar starts at kBlPanX0. */
-  (void)T; const int L = kBlPanX0 + 2, R = X1 - 2, W = R - L - (kPxNTab - 1) * kPxTabGap;
-  for (int i = 0; i < kPxNTab; i++) { x0[i] = L + i * (kPxTabGap) + W * i / kPxNTab; x1[i] = L + i * kPxTabGap + W * (i + 1) / kPxNTab; }
+  (void)T; const int L = kBlPanX0 + 2, R = X1 - 2, N = pxNTab(), W = R - L - (N - 1) * kPxTabGap;
+  for (int i = 0; i < N; i++) { x0[i] = L + i * (kPxTabGap) + W * i / N; x1[i] = L + i * kPxTabGap + W * (i + 1) / N; }
   *y0 = Y0 + 1; *y1 = Y0 + 15; }
 /* run 142: the area name on its own full-width line under the tab row (MAP pane only; the map panel starts below it, see blNameH) */
 static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
@@ -117,8 +122,8 @@ static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, c
   suiSDraw(T, b, X0 + 4, y0 + (y1 - y0 - 9) / 2, nm, kBlNavy, kBlSilverHi); }
 /* tab row: same look as the side column's buttons (silver gradient, white top lip, navy frame); the open tab takes the pressed blue */
 static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
-  (void)X0; (void)name; int cx0[kPxNTab], cx1[kPxNTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
-  for (int i = 0; i < kPxNTab; i++) { const bool on = gPx.pane == i;
+  (void)X0; (void)name; int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
+  for (int i = 0; i < pxNTab(); i++) { const bool on = gPx.pane == i;
     for (int y = cy0; y < cy1; y++) { const uint32_t c = on ? suiMix(kBlPress, SUI_RGB(92, 140, 214), y - cy0, cy1 - cy0) : suiMix(kBlSilverHi, kBlSilverLo, y - cy0, cy1 - cy0);
       for (int x = cx0[i]; x < cx1[i]; x++) suiPx(b, x, y, c); }
     mmFrame(b, cx0[i], cy0, cx1[i], cy1, kBlNavy);
@@ -128,8 +133,8 @@ static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const c
     suiSDraw(T, b, cx0[i] + (cx1[i] - cx0[i] - tw) / 2, cy0 + (cy1 - cy0 - 9) / 2, kPxTabs[i], kBlNavy, on ? kBlPress : kBlSilverHi); } }
 /* tab index under bar x, -1 none (same layout as pxBar) */
 static int pxChipHit(const SUiText &T, int X1, int Y0, int x) {
-  int cx0[kPxNTab], cx1[kPxNTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
-  for (int i = 0; i < kPxNTab; i++) if (x >= cx0[i] - 1 && x < cx1[i] + 1) return i; return -1; }
+  int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
+  for (int i = 0; i < pxNTab(); i++) if (x >= cx0[i] - 1 && x < cx1[i] + 1) return i; return -1; }
 
 /* ---- map extras (called from pgDraw) ---- */
 static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int viewX) {
@@ -357,17 +362,57 @@ static void pxBag(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1)
     for (int y = gPx.listY0; y < gPx.listY1; y++) for (int x = X1 - 10; x < X1 - 3; x++) suiPx(b, x, y, SUI_RGB(96, 120, 176));
     for (int y = by; y < by + bh; y++) for (int x = X1 - 10; x < X1 - 3; x++) suiPx(b, x, y, (gPx.scrub || gPx.touching) ? SUI_RGB(64, 112, 200) : SUI_RGB(104, 120, 168)); } }
 
+/* ---- the BREED pane (hook 0210 data; read-only) ---- */
+static void pxBreed(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
+  const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(40, 64, 120), gn = SUI_RGB(40, 120, 64);
+  pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
+  T.draw(b, X0 + 4, Y0 + 2, "BREEDING", wh, kBlNavy); const char *ro = "READ-ONLY"; T.draw(b, X1 - 4 - T.width(ro), Y0 + 2, ro, SUI_RGB(200, 214, 244), kBlNavy);
+  if (!P3DS_BrReady) {
+    if (gPx.vwWait < 150) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Reading your save...", wh, dk); return; }
+    T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "No data from the game yet.", wh, dk); T.draw(b, X0 + 4, Y0 + kPxSubH + 16, "Hook 0210 is missing from", wh, dk); T.draw(b, X0 + 4, Y0 + kPxSubH + 26, "this build, or the field", wh, dk); T.draw(b, X0 + 4, Y0 + kPxSubH + 36, "is not running.", wh, dk); return; }
+  const int *d = P3DS_BrD; int y = Y0 + kPxSubH + 3; char t[96], f[96];
+  /* DAY-CARE card */
+  const int nR = d[0] == 0 ? 1 : d[0] == 1 ? 2 : 5; const int h = 12 + nR * 10 + 2;
+  pxBtn(b, X0 + 2, y, X1 - 2, y + h, SUI_RGB(252, 253, 255), SUI_RGB(226, 232, 246), kBlNavy);
+  T.draw(b, X0 + 5, y + 2, "DAY-CARE", ink, sh); int ty = y + 12;
+  if (d[0] == 0) { T.draw(b, X0 + 5, ty, "Empty.", fg, sh); }
+  else {
+    for (int k = 0; k < 2; k++) { if (d[1 + k] <= 0 || d[1 + k] > 493) continue;
+      snprintf(t, sizeof t, "%s Lv%d", kP3dsSpecies[d[1 + k]], d[3 + k]); T.draw(b, X0 + 5, ty, t, ink, sh);
+      snprintf(t, sizeof t, "+%d", d[5 + k]); T.draw(b, X1 - 6 - T.width(t), ty, t, d[5 + k] > 0 ? gn : fg, sh); ty += 10; }
+    if (d[0] == 1) { T.draw(b, X0 + 5, ty, "Needs a partner to breed.", fg, sh); }
+    else if (d[7] <= 0) { T.draw(b, X0 + 5, ty, "These two cannot breed.", SUI_RGB(140, 100, 60), sh); }
+    else {
+      if (d[9]) { T.draw(b, X0 + 5, ty, "EGG READY at the Day-Care!", gn, sh); }
+      else { snprintf(t, sizeof t, "Egg chance %d%%, next roll in %d steps", d[7], d[10] < 0 ? 0 : d[10]); pxFit(T, f, sizeof f, t, X1 - X0 - 12); T.draw(b, X0 + 5, ty, f, fg, sh); }
+      ty += 10;
+      if (d[9] && d[32] >= 6) { T.draw(b, X0 + 5, ty, "Party full: make room.", SUI_RGB(176, 64, 40), sh); ty += 10; }
+      T.draw(b, X0 + 5, ty, d[8] ? "Masuda: YES (shiny odds 5x)" : "Masuda: no", d[8] ? gn : fg, sh); } }
+  y += h + 3;
+  /* party eggs */
+  const int ne = d[13];
+  snprintf(t, sizeof t, "EGGS IN PARTY (%d)", ne); T.draw(b, X0 + 4, y, t, wh, dk); y += 11;
+  if (!ne) { T.draw(b, X0 + 4, y, "No eggs in the party.", wh, dk); y += 10; }
+  for (int e = 0; e < ne && e < 6; e++) { if (y + 21 > Y1) break;
+    pxBtn(b, X0 + 2, y, X1 - 2, y + 20, SUI_RGB(252, 253, 255), (e & 1) ? SUI_RGB(214, 222, 240) : SUI_RGB(226, 232, 246), kBlNavy);
+    snprintf(t, sizeof t, "EGG (slot %d)", d[14 + e] + 1); T.draw(b, X0 + 5, y + 2, t, ink, sh);
+    if (d[20 + e] <= 0) snprintf(t, sizeof t, "hatches soon"); else snprintf(t, sizeof t, "%d cycles", d[20 + e]); T.draw(b, X1 - 6 - T.width(t), y + 2, t, d[20 + e] <= 0 ? gn : fg, sh);
+    snprintf(t, sizeof t, "about %d steps left", d[26 + e]); T.draw(b, X0 + 5, y + 11, t, fg, sh); y += 21; }
+  if (ne && d[12] >= 2 && y + 10 <= Y1) T.draw(b, X0 + 4, y + 1, "Flame Body / Magma Armor: 2x", wh, dk); }
+
 /* the pane under the tab bar; false = draw the map */
 static bool pxPaneDraw(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
   const int p = pxPane(); if (!p) return false;
   if (p == 1) { pxPhone(b, T, X0, Y0, X1, Y1); if (!gPx.loggedPhone) { gPx.loggedPhone = true; PSPNativeMemLog("[PHONE] phone pane open: %d contacts%s", gPx.n, P3DS_PhReady ? "" : " (no data from the game yet: hook 0122 not in this build, or no field step yet)"); } }
   else if (p == 3 || p == 4) { if (p == 3) pxParty(b, T, X0, Y0, X1, Y1); else pxBag(b, T, X0, Y0, X1, Y1);
     if (!gPx.vwLogged) { gPx.vwLogged = true; PSPNativeMemLog("[VIEW] %s pane open: %s", p == 3 ? "party" : "bag", P3DS_VwReady ? "data already here" : "waiting for hook 0167 data"); } }
+  else if (p == 5) { pxBreed(b, T, X0, Y0, X1, Y1);
+    if (!gPx.brLogged) { gPx.brLogged = true; PSPNativeMemLog("[BREED] pane open: %s", P3DS_BrReady ? "data already here" : "waiting for hook 0210 data"); } }
   else { pxRadio(b, T, X0, Y0, X1, Y1); if (!gPx.loggedRadio) { gPx.loggedRadio = true; PSPNativeMemLog("[RADIO] radio pane open: area %d, national dex %d, GB Sounds %d%s", (int)P3DS_RadSel, (int)P3DS_RadNat, (int)P3DS_RadGb, P3DS_PhReady ? "" : " (no data from the game yet: hook 0122 not in this build, or no field step yet)"); } }
   return true; }
 
 /* ---- touch ---- */
-static void pxSetPane(int p, const char *why) { if (p < 0 || p >= kPxNTab || p == gPx.pane) return; gPx.pane = p; gPx.vel = 0; gPx.scroll = 0; gPx.touching = gPx.scrub = false; gPx.vwWait = 0; BLINV; PSPNativeMemLog("[PHONE] panel -> %s (%s)", kPxTabs[p], why); }
+static void pxSetPane(int p, const char *why) { if (p < 0 || p >= pxNTab() || p == gPx.pane) return; gPx.pane = p; gPx.vel = 0; gPx.scroll = 0; gPx.touching = gPx.scrub = false; gPx.vwWait = 0; BLINV; PSPNativeMemLog("[PHONE] panel -> %s (%s)", kPxTabs[p], why); }
 /* every frame: fling after the finger lifts, and the radio's clock */
 static void pxFrame(bool touching) {
   if (!pxOn()) return;
@@ -377,6 +422,12 @@ static void pxFrame(bool touching) {
   else if (!touching) gPx.vel = 0;
   { const bool vw = gPx.pane == 3 || gPx.pane == 4; P3DS_VwOn = vw ? 1 : 0;
     if (vw) { if (!P3DS_VwReady) gPx.vwWait++; if (P3DS_VwTick != gPx.vwSeen) { gPx.vwSeen = P3DS_VwTick; BLINV; if (gPx.vwWait) { PSPNativeMemLog("[VIEW] data from the game after %d frames: %d party Pokemon", gPx.vwWait, P3DS_VwPartyN); gPx.vwWait = 0; } } } }
+  if (gPx.pane >= pxNTab()) { gPx.pane = 0; BLINV; } /* breed_tab turned off while BREED was open */
+  { const bool br = gPx.pane == 5; P3DS_BrOn = br ? 1 : 0;
+    if (br) { if (!P3DS_BrReady) gPx.vwWait++;
+      if (P3DS_BrTick != gPx.brSeen) { gPx.brSeen = P3DS_BrTick; BLINV; const int *d = P3DS_BrD; const int now[8] = { d[0], d[1], d[2], d[5], d[6], d[9], d[13], d[12] };
+        if (memcmp(now, gPx.brLast, sizeof now)) { memcpy(gPx.brLast, now, sizeof now); PSPNativeMemLog("[BREED] daycare %d (%d Lv%d +%d, %d Lv%d +%d), egg waiting %d, chance %d%%, masuda %d, next roll %d steps; party eggs %d%s", d[0], d[1], d[3], d[5], d[2], d[4], d[6], d[9], d[7], d[8], d[10], d[13], d[13] ? "" : " (none)");
+          for (int e = 0; e < d[13] && e < 6; e++) PSPNativeMemLog("[BREED] egg slot %d: %d cycles, about %d steps (x%d)", d[14 + e] + 1, d[20 + e], d[26 + e], d[12]); } } } }
   pxLiveFrame();
   if (gPx.pane == 2) { const time_t now = time(0); const int m = (int)(now / 60); if (m != gPx.minute) { gPx.minute = m; BLINV; } } }
 /* finger down / held on the panel (x,y in DS pixels); first = this frame the touch started */

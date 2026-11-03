@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Breeding helper tab, hook 0210 (run 146, not compiled, untested)
+- New toggle Settings > Setup > Breeding tab (`breed_tab`, default OFF). It adds an EGGS tab to the JOHTO panel: the Day-Care Pokemon with their level now and levels gained, egg chance and next roll, "EGG READY" when an egg is waiting (and a note if the party is full), Masuda yes/no, and for each egg in the party its cycles and about how many steps are left (Flame Body / Magma Armor aware; the 230-step special dates are not modelled). Read-only: hook 0210 only calls getters, publishes every ~2 s and only while the tab is open, nothing is written to the save. If the hook does not compile, its .sh puts the pre-0210 files back and the tab says the hook is missing. Logs: `[BREED]`.
+
 ### Damage check + speed check on the foe screen, hook 0208 (not compiled, untested)
 - New toggle Settings > Battle "Damage check" (`dmg_check`, default OFF). When on, the Y foe-info screen gets a last page "YOUR MOVES VS <foe>": your four moves with a rough damage range and % of the foe's HP (KO / may KO / x2 / x1/2 flags), plus both speeds and who moves first (paralysis counted). Works in wild and trainer singles battles; ignores crits, items, abilities, weather, stat stages and priority.
 - Hook 0208 (new patch, after 0031) snapshots stats, moves, types and power into `P3DS_DmgInfo`; the maths is in the port. Log tag `[DMG]` on open. Stat names/APIs mirror hooks 0031 and 0121; if the build log says "0208 dmgcheck hook NOT applied" or a compile error, fix there.
