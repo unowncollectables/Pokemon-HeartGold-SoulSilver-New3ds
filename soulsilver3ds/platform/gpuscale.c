@@ -335,6 +335,32 @@ static void ovDraw(C3D_RenderTarget *t) {
         C3D_ImmDrawEnd(); }
     C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
 }
+/* run 138: the panel app picture (party / bag / summary in the JOHTO panel) at the final bottom-screen resolution. The platform resamples the DS 256x192
+   picture ONCE to P3DS_PnW x P3DS_PnH words (R<<24|G<<16|B<<8|A) in P3DS_PnBuf (stride 256, up to 256x256); drawn 1:1 NEAREST at P3DS_PnX,P3DS_PnY (320x240 px)
+   over the stretched DS bottom, so it is not resampled a second time by the 1.25x stretch. P3DS_PnOn is consumed (cleared) by each present. */
+u32 *P3DS_PnBuf; volatile int P3DS_PnOn, P3DS_PnDirty; int P3DS_PnX, P3DS_PnY, P3DS_PnW, P3DS_PnH;
+static C3D_Tex pnTex; static int pnOk = -1;
+u32 *P3DS_PnBufGet(void) { if (!P3DS_PnBuf) { P3DS_PnBuf = linearAlloc(256 * 256 * 4); if (P3DS_PnBuf) memset(P3DS_PnBuf, 0, 256 * 256 * 4); } return P3DS_PnBuf; }
+static void pnDraw(C3D_RenderTarget *t) {
+    const int on = P3DS_PnOn; P3DS_PnOn = 0;
+    if (!on || !P3DS_PnBuf || P3DS_PnW < 1 || P3DS_PnH < 1 || P3DS_PnW > 256 || P3DS_PnH > 256) return;
+    if (pnOk < 0) { pnOk = C3D_TexInit(&pnTex, 256, 256, GPU_RGBA8) ? 1 : 0; if (pnOk) { C3D_TexSetFilter(&pnTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&pnTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_PnDirty = 1; }
+        PSPNativeMemLog("[PANEL] final-res panel texture %s", pnOk ? "ready" : "FAILED (panel picture stays in the DS bottom)"); }
+    if (!pnOk) return;
+    if (P3DS_PnDirty) { P3DS_PnDirty = 0; GSPGPU_FlushDataCache(P3DS_PnBuf, 256 * 256 * 4);
+        C3D_SyncDisplayTransfer(P3DS_PnBuf, GX_BUFFER_DIM(256, 256), pnTex.data, GX_BUFFER_DIM(256, 256), TEX_FLAGS); }
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 320.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &pnTex);
+    const float x0 = P3DS_PnX, y0 = P3DS_PnY, x1 = P3DS_PnX + P3DS_PnW, y1 = P3DS_PnY + P3DS_PnH, s1 = P3DS_PnW / 256.0f, t1 = P3DS_PnH / 256.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
+    C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+}
 void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, const u32 *topR) {
     P3DS_Crumb("gp-begin", 0); /* run 65: locate the boot stall */
     if (upFmt16 < 0 && !P3DS_UpAlloc(0)) { static unsigned n; if (!n++) PSPNativeMemLog("[3DRES] scale targets missing, frame not presented"); return; }
@@ -368,7 +394,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     u64 stT = 0;
     if (mode == 2) { quad(tgtTop, 400.0f, 0, fx, fy, fx + fw, fy + fh); if (crisp) crispDraw(tgtTop, 400.0f, fx, fy, fx + fw, fy + fh); } else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); if (crisp) crispDraw(tgtTop, 400.0f, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTop, 0); stT += svcGetSystemTick() - a; }
     if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTopR, 1); stT += svcGetSystemTick() - a; } }
-    if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); ovDraw(tgtBot); }
+    if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); pnDraw(tgtBot); ovDraw(tgtBot); } else P3DS_PnOn = 0;
     if (crN >= 600) { if (crOn) PSPNativeMemLog("[CRISP] %u of %u presents drew the 3D at final size, avg plain-3D cover %u%%, avg prep %u us", crOn, crN, (unsigned)(crMask / crOn * 100 / (256 * 192)), (unsigned)(crTicks / crOn / 268)); crN = crOn = 0; crMask = 0; crTicks = 0; }
     P3DS_GpStripUs = (unsigned)(stT / 268); P3DS_GpDrawUs = (unsigned)((svcGetSystemTick() - tDr0 - stT) / 268);
     { /* tearfix: citro3d requests the screen swap at the first vblank after the transfer and GSP latches it one vblank
