@@ -1,0 +1,46 @@
+From 7f6fc35c4d51d54c63bb74d18f2148cddefc7be8 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 21:20:12 +0000
+Subject: [PATCH] ss3ds: hook 0208 fix stat names (MON_DATA_SP_ATK /
+ MON_DATA_SP_DEF)
+
+Run 146 build: MON_DATA_SPATK/SPDEF do not exist. The hook also repairs a tree where the old names were already written.
+---
+ scripts/ss3ds_hooks.d/0208_dmgcheck.py | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0208_dmgcheck.py b/scripts/ss3ds_hooks.d/0208_dmgcheck.py
+index f7864d7..57ca456 100755
+--- a/scripts/ss3ds_hooks.d/0208_dmgcheck.py
++++ b/scripts/ss3ds_hooks.d/0208_dmgcheck.py
+@@ -9,6 +9,10 @@ import sys
+ p = 'src/battle/battle_controller_player.c'
+ s = open(p).read()
+ if 'SS3DS 0208' in s:
++    fixed = s.replace('MON_DATA_SPATK', 'MON_DATA_SP_ATK').replace('MON_DATA_SPDEF', 'MON_DATA_SP_DEF')
++    if fixed != s:
++        open(p, 'w').write(fixed)
++        print('0208_dmgcheck: fixed stat names')
+     sys.exit(0)
+ old = '        } else {\n            P3DS_FoeInfo[0] = 0;\n        }\n    }\n'
+ if 'SS3DS 0031' not in s or s.count(old) != 1:
+@@ -24,14 +28,14 @@ new = old + (
+  '            Pokemon *dfo = BattleSystem_GetPartyMon(battleSystem, 1, ctx->selectedMonIndex[1]);\n'
+  '            P3DS_DmgInfo[2] = dm->level;\n'
+  '            P3DS_DmgInfo[3] = GetMonData(dmy, MON_DATA_ATK, NULL);\n'
+- '            P3DS_DmgInfo[4] = GetMonData(dmy, MON_DATA_SPATK, NULL);\n'
++ '            P3DS_DmgInfo[4] = GetMonData(dmy, MON_DATA_SP_ATK, NULL);\n'
+  '            P3DS_DmgInfo[5] = GetMonData(dmy, MON_DATA_SPEED, NULL);\n'
+  '            P3DS_DmgInfo[6] = dm->status;\n'
+  '            P3DS_DmgInfo[7] = dm->type1;\n'
+  '            P3DS_DmgInfo[8] = dm->type2;\n'
+  '            P3DS_DmgInfo[9] = de->level;\n'
+  '            P3DS_DmgInfo[10] = GetMonData(dfo, MON_DATA_DEF, NULL);\n'
+- '            P3DS_DmgInfo[11] = GetMonData(dfo, MON_DATA_SPDEF, NULL);\n'
++ '            P3DS_DmgInfo[11] = GetMonData(dfo, MON_DATA_SP_DEF, NULL);\n'
+  '            P3DS_DmgInfo[12] = GetMonData(dfo, MON_DATA_SPEED, NULL);\n'
+  '            P3DS_DmgInfo[13] = de->hp;\n'
+  '            P3DS_DmgInfo[14] = de->type1;\n'
+-- 
+2.43.0
+
