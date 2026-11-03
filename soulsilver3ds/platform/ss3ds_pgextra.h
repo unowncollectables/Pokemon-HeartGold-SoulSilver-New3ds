@@ -247,7 +247,7 @@ static void pxParty(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y
   const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
   gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1; /* run 118: hit-test geometry for tap-to-open */
-  T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *hint = "TAP TO OPEN"; T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 214, 244), kBlNavy);
+  T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *hint = (P3DS_PanelPartyWant||P3DS_PanelPartyOn)?"":"TAP TO OPEN"; T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 214, 244), kBlNavy);
   { extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; /* run 131: panel_party: the real party is opening here, so do not flash the read-only list for the ~0.3 s the Start menu takes */
     if (P3DS_PanelPartyWant || P3DS_PanelPartyOn) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening party...", wh, SUI_RGB(40, 64, 120)); return; } }
   if (!P3DS_VwReady) { /* run 133: with panel_party a tap on this tab always opens the real party, so do not flash "Reading your save..." before the first open */
