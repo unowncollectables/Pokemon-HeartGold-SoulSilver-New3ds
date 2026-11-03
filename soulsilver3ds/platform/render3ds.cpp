@@ -16,7 +16,7 @@ extern "C" void PSPNativeMemLog(const char*,...);
 extern "C" int P3DS_CfgInt(const char*,int);
 extern "C" unsigned PSPNativeVramPageGen[];
 extern "C" { extern volatile int P3DS_MmMap,P3DS_MmX,P3DS_MmZ,P3DS_MmCx,P3DS_MmCy,P3DS_MmType,P3DS_MmMain,P3DS_MmSec;extern volatile unsigned P3DS_MmTick;extern char P3DS_MmName[24]; }
-extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn; extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; }
+extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn; extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; extern volatile int P3DS_PanelDest[4]; }
 static unsigned P3DS_Perf3Worst;extern "C" int P3DS_CurMap;extern "C" void P3DS_ZoneInfo(int*,int*,int*,unsigned*),P3DS_RomSpikeFiles(char*,unsigned),P3DS_RomSpikeReset(void);extern "C" const char*P3DS_AreaName(int);
 
 /* run 76 hunt_counter / shiny_suite (ported from Platinum run 88): wild encounters per species in sdmc:/3ds/soulsilver3ds/hunt.txt
@@ -1968,6 +1968,7 @@ static int Present(bool){
        row[x]=((a/n)<<24)|((r/n)<<16)|((g/n)<<8)|(b/n);}}
     }
    }
+   P3DS_PanelDest[3]=dy1;P3DS_PanelDest[2]=dx1;P3DS_PanelDest[1]=dy0;P3DS_PanelDest[0]=dx0; /* run 130: stylus taps in this rect drive the party (main3ds.c) */
    bot=sPanelBot; /* GpuPresent must upload THIS, not display[] */
    blSameFrame=false;
   }
