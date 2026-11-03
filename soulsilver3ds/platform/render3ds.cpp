@@ -1650,7 +1650,7 @@ static int Present(bool){
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
  /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
     Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
- static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged;
+ static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged,sPartyDiag,sPartyDiagN;
  auto ppRgbNz=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFFu)!=0)n++;return n;};
  auto ppDistinct=[](const u32 *p)->int{if(!p)return 0;u32 seen[48];int ns=0;for(int i=0;i<256*192;i+=11){const u32 r=p[i]&0xFFFFFFu;int f=0;for(int k=0;k<ns;k++)if(seen[k]==r){f=1;break;}if(!f&&ns<(int)(sizeof seen/sizeof *seen))seen[ns++]=r;}return ns;};
  if(!(P3DS_PanelPartyWant||P3DS_PanelPartyOn)){
@@ -1658,7 +1658,12 @@ static int Present(bool){
  }else if(P3DS_InField&&(power&0x8000)&&display[0]&&!sFieldHoldOk){
   memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;
  }
+ {/* run 127: new open => forget the previous open's snapshot (run 126 log: 2nd open showed the 1st open's stale snap=1 frame; Exit
+     clears On before the InField branch, so sPartySnapOk was never reset) */
+  static int ppPrevOn;if(P3DS_PanelPartyOn&&!ppPrevOn){sPartySnapOk=0;sPartySrcLogged=0;sPartyNbLogged=0;sPartyDiag=0;}ppPrevOn=P3DS_PanelPartyOn;}
  if(P3DS_PanelPartyOn&&!P3DS_InField){
+  /* run 127 diag (max 8 lines per open, every 15 frames): which buffer holds the live party UI? top=engine B, bot=engine A (display[0]) */
+  if(sPartyDiag<8&&(++sPartyDiagN%15)==1){sPartyDiag++;PSPNativeMemLog("[PANEL] diag top nz=%d dist=%d | bot nz=%d dist=%d | pow=%04x",ppRgbNz(top),ppDistinct(top),ppRgbNz(bot),ppDistinct(bot),(unsigned)power);}
   /* run 126: party is on LCD-top after GX_DISP_SELECT_SUB_MAIN. NEVER snap bot / sPanelBot /
      chrome leftover in display[0] (that caused a recursive JOHTO panel). Only `top`. */
   const u32 *src=top;const int nTop=ppRgbNz(top),nBot=ppRgbNz(bot);
