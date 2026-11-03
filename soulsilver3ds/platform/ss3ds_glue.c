@@ -49,6 +49,8 @@ extern const char gOverlayTemplate_PokemonSummary[] __attribute__((weak));
    recognised by their Init function. P3DS_InWideKind: 1 party/bag/summary, 2 Pokedex, 3 PC boxes, 0 other. */
 int P3DS_InWideKind;
 extern int Pokedex_Init() __attribute__((weak));
+extern int Bag_Init() __attribute__((weak));
+extern int PokemonSummary_Init() __attribute__((weak));
 extern int PCBox_Init() __attribute__((weak));
 extern void *__real_OverlayManager_New(const void *template, void *parentWork, int heapID);
 void *__wrap_OverlayManager_New(const void *template, void *parentWork, int heapID)
@@ -67,7 +69,9 @@ void *__wrap_OverlayManager_New(const void *template, void *parentWork, int heap
         {
             const char *nm = (gOverlayTemplate_PartyMenu && template == (const void *)gOverlayTemplate_PartyMenu) ? "party" :
                              (gOverlayManagerTemplate_Bag && template == (const void *)gOverlayManagerTemplate_Bag) ? "bag" :
+                             (Bag_Init && ((void *const *)template)[0] == (void *)Bag_Init) ? "bag" : /* Bag_LaunchApp copies a static template, so match its Init */
                              (gOverlayTemplate_PokemonSummary && template == (const void *)gOverlayTemplate_PokemonSummary) ? "summary" :
+                             (PokemonSummary_Init && ((void *const *)template)[0] == (void *)PokemonSummary_Init) ? "summary" :
                              (Pokedex_Init && ((void *const *)template)[0] == (void *)Pokedex_Init) ? "pokedex" :
                              (PCBox_Init && ((void *const *)template)[0] == (void *)PCBox_Init) ? "pcbox" : 0;
             static const char *lastNm; static unsigned logged;
@@ -80,6 +84,16 @@ void *__wrap_OverlayManager_New(const void *template, void *parentWork, int heap
                                 (const void *)gOverlayTemplate_PokemonSummary);
             }
             lastNm = nm;
+            /* run 132 panel_party: keep the panel up across party/summary/bag handoffs. Hook 0201/0203 (party_menu.c) sets On from Want and no
+               longer clears it; bag and summary are lifted code with no hook point, so they claim a pending Want here. The field or a battle
+               starting ends the panel (the render also clears On once InField is set). */
+            if (nm && nm[0] != 'p') {
+                extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; extern void PSPNativeMemLog(const char *, ...);
+                if (P3DS_PanelPartyWant && !P3DS_PanelPartyOn) { P3DS_PanelPartyOn = 1; PSPNativeMemLog("[PANEL] %s open: On=1 (in JOHTO panel)", nm); }
+                else if (P3DS_PanelPartyOn) PSPNativeMemLog("[PANEL] %s open: On kept (chained from the panel)", nm);
+                P3DS_PanelPartyWant = 0;
+            }
+            if (field || battle) { extern volatile int P3DS_PanelPartyOn; P3DS_PanelPartyOn = 0; }
             P3DS_InWideKind = !nm ? 0 : nm[0] == 'p' && nm[1] == 'o' ? 2 : nm[0] == 'p' && nm[1] == 'c' ? 3 : 1;
             P3DS_InWideMenu = P3DS_InWideKind == 1;
         }

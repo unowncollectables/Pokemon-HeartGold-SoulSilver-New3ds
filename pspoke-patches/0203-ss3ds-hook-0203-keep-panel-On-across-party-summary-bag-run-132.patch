@@ -1,0 +1,73 @@
+From b6cfc66a917c6d0122c65de1a2239c2421ed57af Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 3 Nov 2026 16:14:30 +0000
+Subject: [PATCH] ss3ds: hook 0203 keep panel On across party/summary/bag
+ handoffs (run 132)
+
+Party Init/Exit no longer clear P3DS_PanelPartyOn; the platform clears it when the field or a battle starts.
+---
+ scripts/ss3ds_hooks.d/0203_panelchain.py | 40 ++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0203_panelchain.sh |  4 +++
+ 2 files changed, 44 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0203_panelchain.py
+ create mode 100755 scripts/ss3ds_hooks.d/0203_panelchain.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0203_panelchain.py b/scripts/ss3ds_hooks.d/0203_panelchain.py
+new file mode 100755
+index 0000000..120171b
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0203_panelchain.py
+@@ -0,0 +1,40 @@
++#!/usr/bin/env python3
++"""ss3ds 0203: keep P3DS_PanelPartyOn set across party -> summary / bag -> party handoffs (run 132).
++0201 cleared On in PartyMenuApp_Exit and in Init when Want was 0, so the panel dropped to the MAP between
++the party and the summary/bag that it launches. The platform (ss3ds_glue.c, __wrap_OverlayManager_New) now
++owns clearing On: any manager that is not party/bag/summary (field, battle, ...) clears it. Idempotent
++('SS3DS 0203'). ASCII only."""
++import sys
++
++p = 'src/party_menu.c'
++s = open(p).read()
++if 'SS3DS 0203' in s:
++    sys.exit(0)
++
++def once(old, new, label):
++    global s
++    if s.count(old) != 1:
++        sys.exit('0203_panelchain: %s anchor not found exactly once: %s' % (label, old[:80]))
++    s = s.replace(old, new)
++
++once(
++'''        } else {
++            P3DS_PanelPartyOn = 0;
++        }
++    }
++''',
++'''        } /* SS3DS 0203: no else; On is kept across party/summary/bag, the platform clears it */
++    }
++''', 'init')
++
++once(
++'''        if (P3DS_PanelPartyOn) PSPNativeMemLog("[PANEL] party_menu Exit: On=0");
++        P3DS_PanelPartyOn = 0;
++        P3DS_PanelPartyWant = 0;
++''',
++'''        if (P3DS_PanelPartyOn) PSPNativeMemLog("[PANEL] party_menu Exit (On kept for a chained summary/bag)"); /* SS3DS 0203 */
++        P3DS_PanelPartyWant = 0;
++''', 'exit')
++
++open(p, 'w').write(s)
++print('0203_panelchain: party_menu.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0203_panelchain.sh b/scripts/ss3ds_hooks.d/0203_panelchain.sh
+new file mode 100755
+index 0000000..8463005
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0203_panelchain.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0203: panel stays up across party/summary/bag handoffs (run 132). Not fatal: without it summary/bag drop out of the panel.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0203_panelchain.py" && bash rebuild_game_object.sh src/party_menu.c party_menu.o none); then
++  log "ss3ds 0203 panel chain hook NOT applied (see message above); the panel falls back to the MAP between party and summary/bag"
++fi
+-- 
+2.43.0
+
