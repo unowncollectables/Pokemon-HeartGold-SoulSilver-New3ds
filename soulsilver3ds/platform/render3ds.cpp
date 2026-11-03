@@ -16,7 +16,7 @@ extern "C" void PSPNativeMemLog(const char*,...);
 extern "C" int P3DS_CfgInt(const char*,int);
 extern "C" unsigned PSPNativeVramPageGen[];
 extern "C" { extern volatile int P3DS_MmMap,P3DS_MmX,P3DS_MmZ,P3DS_MmCx,P3DS_MmCy,P3DS_MmType,P3DS_MmMain,P3DS_MmSec;extern volatile unsigned P3DS_MmTick;extern char P3DS_MmName[24]; }
-extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn; extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; extern volatile int P3DS_PanelDest[4]; }
+extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn,P3DS_BmBlock; /* run 142: BmBlock = the game's own Start menu is alive in the field and not ours to use: no touch, no A/B/D-pad reach it */ extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; extern volatile int P3DS_PanelDest[4]; }
 static unsigned P3DS_Perf3Worst;extern "C" int P3DS_CurMap;extern "C" void P3DS_ZoneInfo(int*,int*,int*,unsigned*),P3DS_RomSpikeFiles(char*,unsigned),P3DS_RomSpikeReset(void);extern "C" const char*P3DS_AreaName(int);
 
 /* run 76 hunt_counter / shiny_suite (ported from Platinum run 88): wild encounters per species in sdmc:/3ds/soulsilver3ds/hunt.txt
@@ -1752,7 +1752,7 @@ static int Present(bool){
     else if(bmHold){if(tickMoved)bmReady++;
      /* run 40: no injected B (audible, and each press replayed the cancel sound). Hook 0102 closes the game's Start menu task itself when it is idle. */
      if(tickMoved&&bmReady>=12&&bmReady%30==12&&bmBTries<6&&!P3DS_StartClose){bmBTries++;P3DS_StartClose=1;PSPNativeMemLog("[BMENU] flow: back from the sub-screen into the Start menu, asking the game to close it (hook 0102, try %u)",bmBTries);}
-     if(bmBTries>=6&&bmReady>200){bmFlow=0;P3DS_StartClose=0;PSPNativeMemLog("[BMENU] flow: Start menu did not close after %u close requests (hook 0102 missing?), giving up; press B",bmBTries);}}}}
+     if(bmBTries>=6&&bmReady>200){bmFlow=0;P3DS_StartClose=0;PSPNativeMemLog("[BMENU] flow: Start menu did not close after %u close requests (hook 0102 missing?), giving up; the stall watchdog presses B",bmBTries);}}}}
   /* run 40: the game's touch-screen mode is 1 while its own Start menu runs, which hid our tiles and showed the old menu for ~4 frames after a tap and again while it closed. Keep the tiles up through our own flow and a short grace after it. */
   {static unsigned grace;static int prevFlow;if(bmFlow)grace=30;else if(prevFlow&&!bmFlow)grace=30;else if(grace)grace--;prevFlow=bmFlow;bmGrace=grace>0;}
   /* run 43 (Nathan, run 42): our tiles own the touch screen for as long as the game's Start menu task is alive, so its own menu is never visible
@@ -1770,6 +1770,9 @@ static int Present(bool){
   /* a Start menu nobody is using (Save cancelled, or opened with X while the tiles cover it) would freeze the player: close it through hook 0102 */
   {static unsigned idleT,idleTries;if(bmHold&&P3DS_StartIdle&&P3DS_StartReq<0){++idleT;if(idleT>=45&&idleT%30==15&&idleTries<6&&!P3DS_StartClose){idleTries++;P3DS_StartClose=1;PSPNativeMemLog("[BMENU] idle Start menu nobody is using: closing it (hook 0102, try %u)",idleTries);}}
    else{idleT=0;idleTries=0;if(!bmHold)P3DS_StartClose=0;}}
+  /* run 142 (Nathan: the base game's Start menu must not peek through or be selectable by accident; a cursor got trapped under the map): while that menu is alive and nothing of ours is driving it (no tile request, no Save prompt), touch and A/B/D-pad never reach it (P3DS_BmBlock, main3ds.c / psp_ctru.c), and a stall watchdog presses B for it if it is still up after ~4 s */
+  {const bool blk=bmAny&&bmHold&&!bmPrompt&&P3DS_InField&&!P3DS_MenuOpen;if(blk!=!!P3DS_BmBlock){P3DS_BmBlock=blk?1:0;PSPNativeMemLog("[BMENU] game Start menu %s: touch and buttons %s",blk?"alive under the panel":"gone",blk?"blocked from it":"released");}
+   static unsigned stallT,stallN;if(blk&&P3DS_StartReq<0&&!bmFlow){if(++stallT>=240&&stallT%45==0){stallN++;P3DS_InjectKeys=KEY_B;P3DS_InjectFrames=2;PSPNativeMemLog("[BMENU] Start menu stalled under the panel for %u frames: injecting B (press %u)",stallT,stallN);}}else{stallT=0;stallN=0;}}
   if(show!=bmShow){bmShow=show;BLINV;P3DS_BmOn=show?1:0;PSPNativeMemLog("[BMENU] tiles %s (field %d menu_open %d real_menu %d game_touch_mode %d)",show?"shown":"hidden",P3DS_InField,(int)P3DS_MenuOpen,(int)(bmHold!=0),(int)P3DS_SubMode);}
   /* mini map: take the game thread's published position (hook 0080) whenever it changed; runs even while the tiles are hidden so the world map keeps filling in */
   if(bmAny){
@@ -1870,7 +1873,7 @@ static int Present(bool){
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&!tDrag&&tX0>=gPg.dotsX0-3&&tX0<gPg.dotsX1+3&&tY0>=gPg.dotsY0-3&&tY0<gPg.dotsY1+3){gPg.achOpen=false;gPg.ov=!gPg.ov;gPg.sel=-1;gPg.ovScroll=0;BLINV;PSPNativeMemLog("[PGSTAT] overview %s",gPg.ov?"open":"closed");}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&gPg.ov){if(!tDrag){const int l=pgOvHit(gPg,tY0);if(l>=0){gPg.ov=false;gPg.sel=l;int x,y,w,h;pgSpecRect(l,&x,&y,&w,&h);gPg.viewX=x*8+w*4-(kBlPanX1-kBlPanX0-4)/2;if(gPg.viewX<0)gPg.viewX=0;BLINV;
       PSPNativeMemLog("[PGSTAT] overview -> location %d '%s'",l,P3DS_PgName[l]);}}}
-    else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){if(!tDrag){const int mx=tX0-(kBlPanX0+2)+gPg.viewX,my=tY0-(kBlPanY0+17+2)-((kBlPanY1-2)-(kBlPanY0+17+2)-kPgH)/2;
+    else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){if(!tDrag){const int mx=tX0-(kBlPanX0+2)+gPg.viewX,my=tY0-(kBlPanY0+17+blNameH()+2)-((kBlPanY1-2)-(kBlPanY0+17+blNameH()+2)-kPgH)/2;
       const int cardTop=kBlPanY1-2-pgCardH(gPg);
       if(gPg.sel>=0&&tY0>=cardTop){gPg.page=!gPg.page;BLINV;int wl[64],cg=0;const int wn=pgWild(gPg.sel,wl,64,&cg);PSPNativeMemLog("[PGMAP] card page %s for '%s' (wild %d, caught %d%s)",gPg.page?"wild list":"info",P3DS_PgName[gPg.sel],wn,cg,P3DS_PsReady&&P3DS_PsStat[gPg.sel][0]&&!wn?", hook 0084 missing":"");}
       else{int l=pgHitLoc(mx,my);if(l>=0&&pgHiddenAt(gPg,mx,my))l=-1;gPg.sel=(l==gPg.sel)?-1:l;gPg.page=0;BLINV;
