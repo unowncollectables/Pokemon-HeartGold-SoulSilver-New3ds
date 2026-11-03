@@ -1,5 +1,5 @@
 /* ss3ds: one version string for the log header, the settings app and the HOME Menu title. Bump on each delivered build. */
 #ifndef SS3DS_VERSION_H
 #define SS3DS_VERSION_H
-#define SS3DS_VERSION "run 130: stylus taps drive the party in the panel"
+#define SS3DS_VERSION "run 131: PARTY pane shows Opening party while it loads"
 #endif
