@@ -1076,6 +1076,8 @@ static const MItem mItems[]={
  /* 121 (run 145): panel_live, default OFF: PARTY / BAG tabs act with the world still running (hook 0207): tap two Pokemon to
     swap them, tap a medicine then a Pokemon to use it. Anything else opens the real menu (held frame) as before. */
  {"LIVE PARTY/BAG","panel_live",2,{"OFF","ON"}},
+ /* 122 (run 146, hook 0208): dmg_check, default OFF until tested: Y foe screen gets a YOUR MOVES page (damage range per move, who moves first) */
+ {"DAMAGE CHECK","dmg_check",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
@@ -1281,6 +1283,7 @@ static const SAppTab kTabs[8]={
      {116,"X tile cursor","X (or the D-pad) moves a highlight over the Bottom menu buttons, A taps the lit one, B drops it."}}},
  {11,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
       {111,"Move type hint","FIGHT menu: badges on the move buttons show super/resisted/no effect."},
+      {122,"Damage check","Y foe screen gets a page with a rough damage range for each of your moves and who moves first."},
       {78,"SELECT = reset","SELECT soft-resets the game. Handy for shiny hunting."},
       {79,"Skip intro on reset","After a soft reset, skips the logos and title straight to the menu."},
       {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
@@ -1419,10 +1422,11 @@ static void cBack(u32*b,const char*title,const char*right){
  gtxt(b,6,1,title,SUI_RGB(255,255,255),SUI_RGB(104,16,24));if(right)gtxt(b,250-gw(right),1,right,SUI_RGB(255,240,200),SUI_RGB(104,16,24));}
 static void cPanel(u32*b,int x0,int y0,int x1,int y1){suiPanel(b,x0,y0,x1,y1,SUI_RGB(40,56,96),SUI_RGB(28,40,72),SUI_RGB(112,136,200),false);}
 static const u32 kCTx=SUI_RGB(244,248,255),kCSh=SUI_RGB(8,12,28),kCDim=SUI_RGB(160,176,216),kCGold=SUI_RGB(248,216,96);
+static int sPgN=2;/* total pages on the foe screen (set by runCatch) */
 static void drawFoePage(u32*b,const int*f,int pg){
  char l[96];const int sp=f[4];
  snprintf(l,sizeof l,"TRAINER'S %s",sp>0&&sp<494?kP3dsSpec[sp]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
- cBack(b,pg?"FOE PARTY":l,pg?"2/2":"1/2");
+ {char pn[8];snprintf(pn,sizeof pn,"%d/%d",pg+1,sPgN);cBack(b,pg?"FOE PARTY":l,pn);}
  if(pg==0){
   cPanel(b,4,25,252,65);
   snprintf(l,sizeof l,"Lv%d",f[5]);gtxt(b,10,26,l,kCGold,kCSh);
@@ -1441,11 +1445,42 @@ static void drawFoePage(u32*b,const int*f,int pg){
  }
  gtxt(b,128-gw("Left/Right: page   B: close")/2,177,"Left/Right: page   B: close",kCDim,kCSh);
 }
+/* ss3ds 0208 damage check (dmg_check): rough Gen 4 damage range of each of your moves on the foe + who moves first, from P3DS_DmgInfo.
+   Ignores crits, held items, abilities, weather, screens, stat stages and priority; physical/special by type; burn halves physical. */
+extern "C" volatile int P3DS_DmgInfo[32];
+static void drawDmgPage(u32*b,const int*d,int pgNo){
+ char l[96];const int fs=d[17];
+ snprintf(l,sizeof l,"YOUR MOVES VS %s",fs>0&&fs<494?kP3dsSpec[fs]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
+ {char pn[8];snprintf(pn,sizeof pn,"%d/%d",pgNo,sPgN);cBack(b,l,pn);}
+ const int ms=(d[6]&0x40)?d[5]/4:d[5],fsp=(d[16]&0x40)?d[12]/4:d[12];/* paralysis quarters speed in Gen 4 */
+ cPanel(b,4,24,252,47);
+ snprintf(l,sizeof l,"Speed  you %d  foe %d",ms,fsp);gtxt(b,10,26,l,kCTx,kCSh);
+ const char*who=ms>fsp?"YOU MOVE FIRST":ms<fsp?"FOE MOVES FIRST":"SPEED TIE";
+ gtxt(b,246-gw(who),26,who,ms>fsp?SUI_RGB(96,232,128):ms<fsp?SUI_RGB(255,120,96):kCGold,kCSh);
+ for(int k=0;k<4;k++){const int y0=50+k*27,id=d[18+k],ty=d[22+k],pw=d[26+k];cPanel(b,4,y0,252,y0+25);
+  if(id<=0||id>=468){gtxt(b,10,y0+3,"-",kCDim,kCSh);continue;}
+  gtxt(b,10,y0+3,kP3dsMove[id],kCTx,kCSh);
+  if(pw<=0||ty>=18){gtxt(b,130,y0+3,"no damage",kCDim,kCSh);continue;}
+  if(pw==1){gtxt(b,130,y0+3,"varies",kCDim,kCSh);continue;}
+  const bool phys=ty<9;const int A=phys?d[3]/((d[6]&0x10)?2:1):d[4];int D=phys?d[10]:d[11];
+  const int t1=d[14],t2=d[15];int m=hintMult(ty,t1)*(t2<18&&t2!=t1?hintMult(ty,t2):2);/* x4 units */
+  if(m==0){gtxt(b,130,y0+3,"NO EFFECT",SUI_RGB(160,160,160),kCSh);continue;}
+  if(D<1)D=1;int base=((2*d[2]/5+2)*pw*A/D)/50+2;
+  const bool stab=ty==d[7]||ty==d[8];if(stab)base=base*3/2;
+  const int hi=base*m/4,lo=hi*85/100;const int hp=d[13];
+  snprintf(l,sizeof l,"%d-%d",lo,hi);gtxt(b,130,y0+3,l,kCTx,kCSh);
+  const int pl=hp>0?lo*100/hp:0,ph=hp>0?hi*100/hp:0;
+  snprintf(l,sizeof l,"%d-%d%% of its HP",pl>999?999:pl,ph>999?999:ph);gtxt(b,10,y0+14,l,kCDim,kCSh);
+  const char*e=lo>=hp?"KO!":hi>=hp?"may KO":m>4?(m>8?"x4":"x2"):m<4?(m<2?"x1/4":"x1/2"):"";
+  if(*e)gtxt(b,246-gw(e),y0+14,e,lo>=hp||hi>=hp?SUI_RGB(255,120,96):m>4?SUI_RGB(96,232,128):kCGold,kCSh);}
+ gtxt(b,128-gw("Rough: no crits, items, abilities, priority")/2,161,"Rough: no crits, items, abilities, priority",kCDim,kCSh);
+ gtxt(b,128-gw("Left/Right: page   B: close")/2,177,"Left/Right: page   B: close",kCDim,kCSh);
+}
 /* shiny_suite: wild foe page 2 (Left/Right/tap): this species' hunt counters from hunt.txt and the odds */
 static void drawHuntPage(u32*b,int sp){
  char l[96];const P3DS_HuntRec&r=*P3DS_HuntGet(sp);const int odds=P3DS_HuntRateOdds();
  snprintf(l,sizeof l,"HUNT: %s",sp>0&&sp<494?kP3dsSpec[sp]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
- cBack(b,l,"2/2");cPanel(b,4,24,252,172);
+ {char pn[8];snprintf(pn,sizeof pn,"2/%d",sPgN);cBack(b,l,pn);}cPanel(b,4,24,252,172);
  int y=27;const int dy=17;
  snprintf(l,sizeof l,"Encounters %d   Since last shiny %d",r.enc,r.streak);gtxt(b,10,y,l,kCTx,kCSh);y+=dy;
  snprintf(l,sizeof l,"Soft resets %d   Shinies found %d",r.resets,r.shinies);gtxt(b,10,y,l,kCTx,kCSh);y+=dy;
@@ -1463,7 +1498,11 @@ static void runCatch(const u32*top,int mode,bool gpu){
  static const char*const nat[25]={"Hardy","Lonely","Brave","Adamant","Naughty","Bold","Docile","Relaxed","Impish","Lax","Timid","Hasty","Serious","Jolly","Naive","Modest","Mild","Quiet","Bashful","Rash","Calm","Gentle","Sassy","Careful","Quirky"};
  const volatile int*ci=P3DS_CatchInfo;int c[20];for(int i=0;i<20;i++)c[i]=ci[i];int fo[40];for(int i=0;i<40;i++)fo[i]=P3DS_FoeInfo[i];
  const bool trainer=!c[0]&&fo[0];const bool huntPg=!trainer&&P3DS_HuntOn()&&c[1]>0;int pg=0;
+ int dm[32];for(int i=0;i<32;i++)dm[i]=P3DS_DmgInfo[i];const bool dmgPg=P3DS_CfgInt("dmg_check",0)&&dm[0];
+ const int npg=trainer?2+(dmgPg?1:0):1+(huntPg?1:0)+(dmgPg?1:0);sPgN=npg;/* last page = damage check when on */
+ const auto isDmg=[&](int p){return dmgPg&&p==npg-1;};
  PSPNativeMemLog("[CATCH] screen opened (%s #%d)",trainer?"trainer foe":"wild",trainer?fo[4]:c[1]);P3DS_MenuOpen=1;u64 t0=svcGetSystemTick();
+ if(dmgPg)PSPNativeMemLog("[DMG] me Lv%d atk %d spa %d spe %d st %d types %d/%d | foe #%d Lv%d def %d spd %d spe %d hp %d/%d st %d types %d/%d | moves %d/%d/%d/%d types %d/%d/%d/%d power %d/%d/%d/%d",dm[2],dm[3],dm[4],dm[5],dm[6],dm[7],dm[8],dm[17],dm[9],dm[10],dm[11],dm[12],dm[13],dm[30],dm[16],dm[14],dm[15],dm[18],dm[19],dm[20],dm[21],dm[22],dm[23],dm[24],dm[25],dm[26],dm[27],dm[28],dm[29]);
  if(trainer)PSPNativeMemLog("[CATCH] foe Lv%d hp %d/%d status %d ability %d moves %d/%d/%d/%d pp %d/%d/%d/%d party %d",fo[5],fo[6],fo[7],fo[8],fo[9],fo[11],fo[12],fo[13],fo[14],fo[15],fo[16],fo[17],fo[18],fo[2]);
  const int st=c[5];const char*stn=(st&7)?"Asleep":(st&0x20)?"Frozen":(st&0x40)?"Paralyzed":(st&0x10)?"Burned":(st&0x88)?"Poisoned":"OK";
  const double sm=(st&0x27)?2.0:(st&0xD8)?1.5:1.0;
@@ -1471,6 +1510,7 @@ static void runCatch(const u32*top,int mode,bool gpu){
   double b=1048560.0/sqrt(sqrt(16711680.0/a));double p=b/65536.0;p=p*p*p*p;if(p>1)p=1;return (int)(p*100+0.5);};
  int tot=0;for(int k=0;k<6;k++)tot+=c[9+k];
  auto draw=[&](){char l[96];
+  if(isDmg(pg)){drawDmgPage(bimg,dm,pg+1);return;}
   if(trainer){drawFoePage(bimg,fo,pg);return;}
   if(huntPg&&pg==1){drawHuntPage(bimg,c[1]);return;}
   const int sp=c[1],ab=c[6];int y=24;const int dy=15;
@@ -1488,14 +1528,14 @@ static void runCatch(const u32*top,int mode,bool gpu){
   snprintf(l,sizeof l,"Dusk %d%%  Net %d%%",odds(35),odds(30));gtxt(bimg,10,y,l,kCTx,kCSh);
   if(P3DS_CfgInt("hunt_counter",0)){snprintf(l,sizeof l,"Met %d times",P3DS_HuntCount(sp));gtxt(bimg,246-gw(l),y,l,kCDim,kCSh);}
   gtxt(bimg,128-gw("Quick=turn 1  Dusk=night/cave  Net=Water/Bug")/2,172,"Quick=turn 1  Dusk=night/cave  Net=Water/Bug",kCDim,kCSh);
-  if(huntPg)gtxt(bimg,128-gw("Left/Right: hunt page   B: close")/2,182,"Left/Right: hunt page   B: close",kCDim,kCSh);else gtxt(bimg,128-gw("B: close")/2,184-2,"B: close",kCDim,kCSh);};
+  if(npg>1)gtxt(bimg,128-gw("Left/Right: more pages   B: close")/2,182,"Left/Right: more pages   B: close",kCDim,kCSh);else gtxt(bimg,128-gw("B: close")/2,184-2,"B: close",kCDim,kCSh);};
  draw();
  u32 held=hidKeysHeld();bool tPrev=true;
  while(aptMainLoop()){hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
   const bool tNow=(kh&KEY_TOUCH)!=0;const bool tap=tNow&&!tPrev;tPrev=tNow;
   if(kd&(KEY_B|KEY_A|KEY_Y|KEY_START))break;
-  if(trainer||huntPg){int np=pg;if(kd&(KEY_LEFT|KEY_RIGHT|KEY_L|KEY_R|KEY_DLEFT|KEY_DRIGHT))np=1-pg;if(tap)np=1-pg;
-   if(np!=pg){pg=np;draw();PSPNativeMemLog("[CATCH] %s page %d",trainer?"foe":"hunt",pg+1);}}
+  if(npg>1){int np=pg;if(kd&(KEY_RIGHT|KEY_R|KEY_DRIGHT))np=(pg+1)%npg;if(kd&(KEY_LEFT|KEY_L|KEY_DLEFT))np=(pg+npg-1)%npg;if(tap)np=(pg+1)%npg;
+   if(np!=pg){pg=np;draw();PSPNativeMemLog("[CATCH] %s page %d/%d",isDmg(pg)?"damage":trainer?"foe":"hunt",pg+1,npg);}}
   else if(tap)break;
   {extern int P3DS_GpuBotSame;P3DS_GpuBotSame=0;}
   if(mode&&gpu)P3DS_GpuPresent(img,bimg,mode,true,nullptr);
