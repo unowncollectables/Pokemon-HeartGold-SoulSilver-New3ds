@@ -1665,11 +1665,15 @@ static int Present(bool){
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
  /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
     Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
- static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged; static unsigned sPartySnapGen;
+ static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sRetHold,sRetN; /* run 143: after the app closes keep the held field + strips until the live field's fade-in from black is done */ static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged; static unsigned sPartySnapGen;
  static u32 sStripHold[2][64*192]; static int sStripHoldOk; /* run 136 */
  auto ppRgbNz=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFFu)!=0)n++;return n;};
  auto ppDistinct=[](const u32 *p)->int{if(!p)return 0;u32 seen[48];int ns=0;for(int i=0;i<256*192;i+=11){const u32 r=p[i]&0xFFFFFFu;int f=0;for(int k=0;k<ns;k++)if(seen[k]==r){f=1;break;}if(!f&&ns<(int)(sizeof seen/sizeof *seen))seen[ns++]=r;}return ns;};
- if(!(P3DS_PanelPartyWant||P3DS_PanelPartyOn)){
+ {static int rhPrevOn;if(rhPrevOn&&!P3DS_PanelPartyOn&&P3DS_InField&&panelPartyCfg()&&sFieldHoldOk){sRetHold=1;sRetN=0;PSPNativeMemLog("[PANEL] return hold: keep the held field until the fade-in is done");}rhPrevOn=P3DS_PanelPartyOn;} /* the glue clears On the frame the field returns */
+ if(sRetHold){sRetN++;unsigned long lv=0,hv=0;if(display[0])for(int i=0;i<256*192;i+=7){const u32 q=display[0][i],h=sFieldHold[i];lv+=(q&255)+((q>>8)&255)+((q>>16)&255);hv+=(h&255)+((h>>8)&255)+((h>>16)&255);}
+  const bool done=display[0]&&lv*100>=hv*96; /* the palette fade-in (SS-FADE steps=6) is over once the live field is as bright as the held one */
+  if(P3DS_PanelPartyWant||P3DS_PanelPartyOn||!P3DS_InField||sRetN>120||(sRetN>=2&&done)){PSPNativeMemLog("[PANEL] return hold released after %d frames (live %lu held %lu)",sRetN,lv,hv);sRetHold=0;}}
+ if(!(P3DS_PanelPartyWant||P3DS_PanelPartyOn||sRetHold)){
   if(P3DS_InField&&(power&0x8000)&&display[0]){memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;}
  }else if(P3DS_InField&&(power&0x8000)&&display[0]&&!sFieldHoldOk){
   memcpy(sFieldHold,display[0],sizeof sFieldHold);sFieldHoldOk=1;
@@ -1687,7 +1691,7 @@ static int Present(bool){
   if(!sPartySrcLogged&&nSrc>64){sPartySrcLogged=1;
    PSPNativeMemLog("[PANEL] party source engine A (display[0]) rgbNz=%d distinct~%d pow=%04x /* once per open */",nSrc,ppDistinct(src),(unsigned)power);}
  }
- if(P3DS_PanelPartyOn&&P3DS_InField){P3DS_PanelPartyOn=0;P3DS_PanelPartyWant=0;sPartySnapOk=0;sPartySrcLogged=0;sPartyNbLogged=0;PSPNativeMemLog("[PANEL] cleared On (back in the field)");}
+ if(P3DS_PanelPartyOn&&P3DS_InField){P3DS_PanelPartyOn=0;P3DS_PanelPartyWant=0;sPartySnapOk=0;sPartySrcLogged=0;sPartyNbLogged=0;PSPNativeMemLog("[PANEL] cleared On (back in the field)");if(sFieldHoldOk){sRetHold=1;sRetN=0;}}
  u64 tComp=svcGetSystemTick();
  /* run 54 wide_fx: before the save box / toast / fps overlay are drawn onto the centre */
  static bool fillReady;fillReady=false;
@@ -1802,13 +1806,19 @@ static int Present(bool){
   if(P3DS_StartReq>=0){if(++bmAge>90){PSPNativeMemLog("[BMENU] request %d timed out: the game's Start menu did not open",P3DS_StartReq);P3DS_StartReq=-1;P3DS_PhCallReq=0;P3DS_RadTuneReq=0;P3DS_VwPartySlot=0;P3DS_VwBagPocket=-1;P3DS_VwBagSlot=-1;P3DS_PanelPartyWant=0;bmAge=0;}if(!bmHold&&bmAge%8==4){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2; /* X missed mid-step: pulse again until the menu opens */}}
   else if(bmAge){PSPNativeMemLog("[BMENU] request handled by the game after %u frames",bmAge);bmAge=0;}
   if(show){
+   static int swTgt=-1;static unsigned swT;static bool swPrev; /* run 143: tab tap while an app is open in the panel = close the app and switch (no Cancel first) */
+   {const bool swTouch=(hidKeysHeld()&KEY_TOUCH)!=0;
+    if(P3DS_PanelPartyOn&&bmFlow==2&&panelPartyCfg()){
+     if(swTouch&&!swPrev&&swTgt<0){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)&&blHit(x,y)==11&&pxOn()){const int t=pxChipHit(kSuiText,kBlPanX1,kBlPanY0,x);if(t>=0&&t!=pxPane()){swTgt=t;swT=0;PSPNativeMemLog("[PANEL] tab swap: %s tapped while an app is open, closing it first",kPxTabs[t]);}}}
+     if(swTgt>=0){swT++;if(swT%24==6&&swT<400){P3DS_InjectKeys=KEY_B;P3DS_InjectFrames=2;}if(swT>=420){PSPNativeMemLog("[PANEL] tab swap to %s gave up after %u frames",kPxTabs[swTgt],swT);swTgt=-1;}}}
+    swPrev=swTouch;}
    static int tX0,tY0,tXl,tYl,tXp;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
    if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){hit=blHit(x,y);if(hit==10&&pxRingHit(x,y))hit=3;if(hit==10)hit=21;else if(hit==8)hit=20;else if(hit==9)hit=22;else if(hit==11)hit=pxOn()?23:-1;tXl=x;tYl=y;}}
    if(tNow&&!bmPrev){bmDown=hit;tX0=tXp=tXl;tY0=tYl;tDrag=false;}
    {/* run 128 panel_party: tapping the PARTY tab itself opens the real party in the panel (no row tap needed); leaving the party returns the panel to MAP so the next PARTY tap is a fresh tap */
     static int ppPane,ppWasOn;const int pn=pxPane();
     if(P3DS_PanelPartyOn){ppWasOn=1;}
-    else if(ppWasOn){ppWasOn=0;pxSetPane(0,"left the panel party");}
+    else if(ppWasOn){ppWasOn=0;const int swGo=swTgt;swTgt=-1;pxSetPane(swGo>=0?swGo:0,swGo>=0?"tab swap":"left the panel party");}
     }
    pxFrame(tNow&&bmDown==21&&pxScrolls());pxRingFrame();if(pxPane())gPg.markOk=false; /* run 118 B3 */
    {/* run 141: the tab handler runs after pxFrame so the tap that switches the pane also starts the open, not the next frame (was +1 frame) */
@@ -1961,7 +1971,7 @@ static int Present(bool){
   if(!P3DS_WideStrip[0]&&fillReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=P3DS_WideFillBuf;P3DS_WideFxOn=1;}
   if(!P3DS_WideStrip[0]&&wnReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=stereo?P3DS_WideFillBuf:nullptr;} /* run 65 wide_menus (fade applied in strips()) */
   if(P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
-  if(panelPartyCfg()&&P3DS_InField&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn){sStripHoldOk=0;for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){memcpy(sStripHold[e],P3DS_WideStrip[e],sizeof sStripHold[e]);sStripHoldOk|=1<<e;}} /* run 136 */
+  if(panelPartyCfg()&&P3DS_InField&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold){sStripHoldOk=0;for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){memcpy(sStripHold[e],P3DS_WideStrip[e],sizeof sStripHold[e]);sStripHoldOk|=1<<e;}} /* run 136 */
   G3G_Wide=act;
   /* run 45 wide_cull=1 (default; only while wideview is active): the game's box test (map props / buildings) uses a
      1.25x wider view so the side strips are populated. 0 = DS culling (edge pop-in). */
@@ -1978,7 +1988,8 @@ static int Present(bool){
     Scratch is not a game framebuffer, so the upload sees what we composed. */
  /* run 133: between the tab tap (Want=1) and the app's Init (~9 frames) the game fades the field to black (SS-FADE, MBRIGHT 8005->8010), which showed as a pause and a black top screen; keep showing the last field frame from the tap on */
  const bool ppSnapWait=P3DS_PanelPartyOn&&!P3DS_InField&&!sPartySnapOk; /* run 141: app is up but its first picture is not: keep the previous panel and the held field, no blank frame */
- if((P3DS_PanelPartyWant||ppSnapWait)&&(!P3DS_PanelPartyOn||ppSnapWait)&&sFieldHoldOk&&!P3DS_MenuOpen){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;} /* run 140: 3D slider on: both eyes show the held field, not the app's own top screen */
+ if((P3DS_PanelPartyWant||ppSnapWait)&&(!P3DS_PanelPartyOn||ppSnapWait)&&sFieldHoldOk&&!P3DS_MenuOpen){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;P3DS_WideStrip[0]=(sStripHoldOk&1)?sStripHold[0]:nullptr;P3DS_WideStrip[1]=(sStripHoldOk&2)?sStripHold[1]:nullptr;if(P3DS_WideStrip[0])P3DS_WideFxOn=1;} /* run 143: the held strips too while the app opens (the wide strips went black for ~9 frames); run 140: 3D slider on: both eyes show the held field, not the app's own top screen */
+ if(sRetHold&&sFieldHoldOk&&!P3DS_MenuOpen){top=sFieldHold;if(stereo)eyeL=eyeR=sFieldHold;P3DS_WideStrip[0]=(sStripHoldOk&1)?sStripHold[0]:nullptr;P3DS_WideStrip[1]=(sStripHoldOk&2)?sStripHold[1]:nullptr;if(P3DS_WideStrip[0])P3DS_WideFxOn=1;} /* run 143: the field fades in from black after the app closes (SS-FADE steps=6); show the last field frame and its strips until the live brightness is back */
  if(P3DS_PanelPartyOn&&!P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&!ppSnapWait){
   static unsigned ppLog;static u32 sPanelBot[256*192];int dx0=0,dy0=0,dx1=0,dy1=0;
   if(bot){
