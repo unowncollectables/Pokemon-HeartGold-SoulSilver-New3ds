@@ -1161,6 +1161,7 @@ static SPg gPg; static int blMode=-1; /* run 10: JOHTO layout map view: -1 Pokeg
 /* run 11: the game's own icons at native 3DS resolution (gpuscale.c overlay). Atlas: 7 start-menu icons at 1:1, the 20x21 middle of the game's 32x26 menu tile (glyph and its backdrop, frame cropped), at (i*20,0),
    player heads 32x32 at (0,32) boy / (32,32) girl, registered item 32x32 at (64,32). Returns the mask of icons found:
    bits 0..6 buttons, 8 item, 16/17 heads. */
+extern "C" { u32*P3DS_PnBufGet(void); extern volatile int P3DS_PnOn,P3DS_PnDirty; extern int P3DS_PnX,P3DS_PnY,P3DS_PnW,P3DS_PnH; } /* run 138: final-res panel picture (gpuscale.c) */
 extern "C" { u32*P3DS_OvAtlasGet(void); extern volatile int P3DS_OvDirty,P3DS_OvN; struct P3DS_OvRect{short dx,dy,w,h,sx,sy;}; extern P3DS_OvRect P3DS_OvRects[96]; }
 static SPgIcon blIcTmp;
 /* run 12: just the symbol of a start-menu tile, transparent elsewhere. The tile's frame (pal 9), backdrop gradient
@@ -1502,6 +1503,17 @@ static void runCatch(const u32*top,int mode,bool gpu){
  tPrevEnd=svcGetSystemTick();secStart=0;secFrames=secG3=secComp=secGpu=secGame=secTris=0;secG3G=0;
 }
 extern "C" int PSPNativeRenderBegin(){if(!initialized||openFrame)return -1;openFrame=true;G3SIM_DrawCleanUp();P3DS_G3BeginFrame();return 0;}
+/* run 138: area-average the 256x192 DS panel picture straight to fw x fh final bottom-screen pixels (the one and only resample: the 3DS stretch is not applied to it). out = R<<24|G<<16|B<<8|FF, stride 256. */
+static void ppFinalResample(const u32*snap,u32*out,int fw,int fh){
+ static u16 tmp[192*256*3];
+ for(int y=0;y<192;y++){const u32*sp=snap+y*256;u16*tr=tmp+y*fw*3;
+  for(int x=0;x<fw;x++){const int a0=x*256,a1=a0+256;unsigned r=0,g=0,b=0;
+   for(int k=a0/fw;k<=(a1-1)/fw;k++){const int lo=k*fw>a0?k*fw:a0,hi=(k+1)*fw<a1?(k+1)*fw:a1,w=hi-lo;const u32 c=sp[k];r+=(c&255)*w;g+=((c>>8)&255)*w;b+=((c>>16)&255)*w;}
+   tr[x*3]=(u16)r;tr[x*3+1]=(u16)g;tr[x*3+2]=(u16)b;}}
+ for(int y=0;y<fh;y++){const int b0=y*192,b1=b0+192;u32*o=out+y*256;
+  for(int x=0;x<fw;x++){unsigned r=0,g=0,b=0;
+   for(int j=b0/fh;j<=(b1-1)/fh;j++){const int lo=j*fh>b0?j*fh:b0,hi=(j+1)*fh<b1?(j+1)*fh:b1,w=hi-lo;const u16*t=tmp+(j*fw+x)*3;r+=t[0]*w;g+=t[1]*w;b+=t[2]*w;}
+   r=(r+24576)/49152;g=(g+24576)/49152;b=(b+24576)/49152;o[x]=(r<<24)|(g<<16)|(b<<8)|0xFFu;}}}
 static int Present(bool){
  if(!openFrame)return -1;
  allocBufs();
@@ -1652,7 +1664,7 @@ static int Present(bool){
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
  /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
     Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
- static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged;
+ static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged; static unsigned sPartySnapGen;
  static u32 sStripHold[2][64*192]; static int sStripHoldOk; /* run 136 */
  auto ppRgbNz=[](const u32 *p)->int{if(!p)return 0;int n=0;for(int i=0;i<256*192;i++)if((p[i]&0xFFFFFFu)!=0)n++;return n;};
  auto ppDistinct=[](const u32 *p)->int{if(!p)return 0;u32 seen[48];int ns=0;for(int i=0;i<256*192;i+=11){const u32 r=p[i]&0xFFFFFFu;int f=0;for(int k=0;k<ns;k++)if(seen[k]==r){f=1;break;}if(!f&&ns<(int)(sizeof seen/sizeof *seen))seen[ns++]=r;}return ns;};
@@ -1668,7 +1680,9 @@ static int Present(bool){
   /* run 128: the party list is engine A (GX_DISP_SELECT_SUB_MAIN: main engine on the bottom LCD, POWCNT bit15 clear), i.e. display[0]; engine B (top) only has a backdrop
      (plus, until redrawn, the chrome this code painted into display[1] in the field). Snap display[0] here, before the chrome is painted onto it. */
   const u32 *src=(power&0x8000)?display[1]:display[0];const int nSrc=ppRgbNz(src); /* run 132: summary/bag may put engine B on the bottom LCD (POWCNT bit15 set) */
-  if(nSrc>64){memcpy(sPartySnap,src,sizeof sPartySnap);for(int i=0;i<256*192;i++)sPartySnap[i]|=0xFF000000u;sPartySnapOk=1;} /* run 134: engine B pixels have alpha 0 */
+  /* run 137: flashing fix. A frame where the engine buffer is mid-redraw/cleared (or the source engine just swapped) has few lit pixels; showing it flashed the panel. Take a frame only if it is not far emptier than the held one, or it persists 4 frames (a real screen change). */
+  static int ppHeldNz,ppLowRun;const bool ppTake=nSrc>64&&(!sPartySnapOk||nSrc*10>=ppHeldNz*6||++ppLowRun>=4);if(ppTake){ppLowRun=0;ppHeldNz=nSrc;}else if(nSrc>=ppHeldNz*6/10)ppLowRun=0;
+  if(ppTake){memcpy(sPartySnap,src,sizeof sPartySnap);for(int i=0;i<256*192;i++)sPartySnap[i]|=0xFF000000u;sPartySnapOk=1;sPartySnapGen++;} /* run 134: engine B pixels have alpha 0 */
   if(!sPartySrcLogged&&nSrc>64){sPartySrcLogged=1;
    PSPNativeMemLog("[PANEL] party source engine A (display[0]) rgbNz=%d distinct~%d pow=%04x /* once per open */",nSrc,ppDistinct(src),(unsigned)power);}
  }
@@ -1967,11 +1981,19 @@ static int Present(bool){
      int outW,outH;if(dw*192<=dh*256){outW=dw;outH=(192*dw+128)/256;}else{outH=dh;outW=(256*dh+96)/192;}
      if(outW<1)outW=1;if(outH<1)outH=1;if(outW>dw)outW=dw;if(outH>dh)outH=dh;
      const int ox=x0+(dw-outW)/2,oy=y0+(dh-outH)/2;dx0=ox;dy0=oy;dx1=ox+outW;dy1=oy+outH;
+     /* run 138: the panel picture is resampled once, to the final bottom-screen size (dest x 1.25), and drawn by the GPU over the stretched DS bottom (gpuscale.c pnDraw). */
+     bool ppHd=false;
+     if(mode&&gpuOk==1){int fx0=dx0*5/4,fy0=dy0*5/4,fw=(dx1*5+3)/4-fx0,fh=(dy1*5+3)/4-fy0;if(fw>256)fw=256;if(fh>256)fh=256;
+      u32*pb=P3DS_PnBufGet();
+      if(pb&&fw>0&&fh>0){static unsigned genDone=~0u;static int fwD,fhD;
+       if(genDone!=sPartySnapGen||fw!=fwD||fh!=fhD){ppFinalResample(sPartySnap,pb,fw,fh);genDone=sPartySnapGen;fwD=fw;fhD=fh;P3DS_PnDirty=1;}
+       P3DS_PnX=fx0;P3DS_PnY=fy0;P3DS_PnW=fw;P3DS_PnH=fh;P3DS_PnOn=1;ppHd=true;}}
+     if(!ppHd){
      /* run 128: box (area-average) downscale; nearest-neighbour dropped pixels unevenly and made the party text look blurry/garbled */
      for(int y=0;y<outH;y++){const int sy0=y*192/outH;int sy1=(y+1)*192/outH;if(sy1<=sy0)sy1=sy0+1;u32 *row=sPanelBot+(oy+y)*256+ox;
       for(int x=0;x<outW;x++){const int sx0=x*256/outW;int sx1=(x+1)*256/outW;if(sx1<=sx0)sx1=sx0+1;
        unsigned a=0,r=0,g=0,b=0,n=0;for(int yy=sy0;yy<sy1;yy++){const u32 *sp=sPartySnap+yy*256;for(int xx=sx0;xx<sx1;xx++){const u32 c=sp[xx];a+=c>>24;r+=(c>>16)&255;g+=(c>>8)&255;b+=c&255;n++;}}
-       row[x]=((a/n)<<24)|((r/n)<<16)|((g/n)<<8)|(b/n);}}
+       row[x]=((a/n)<<24)|((r/n)<<16)|((g/n)<<8)|(b/n);}}}
     }
    }
    P3DS_PanelDest[3]=dy1;P3DS_PanelDest[2]=dx1;P3DS_PanelDest[1]=dy0;P3DS_PanelDest[0]=dx0; /* run 130: stylus taps in this rect drive the party (main3ds.c) */
