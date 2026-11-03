@@ -4,6 +4,10 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Stray Trainer card taps (not compiled, untested)
+- The game gets no touch from the moment our tiles/panel/menu request let go until the finger has lifted plus ~0.4 s (`P3DS_TouchRead`, log `[3DS] touch hand-off guard`), so the tap that ends one of our screens cannot land on the game's own Start menu / Trainer card.
+- A tile tap only counts if the finger lifts on the same tile it landed on (log `[BMENU] run 148: touch landed on ... ignored`), so a slide or sloppy landing next to the Pokegear/Save tile no longer opens the Trainer card.
+
 ### Breeding helper tab, hook 0210 (run 146, not compiled, untested)
 - New toggle Settings > Setup > Breeding tab (`breed_tab`, default OFF). It adds an EGGS tab to the JOHTO panel: the Day-Care Pokemon with their level now and levels gained, egg chance and next roll, "EGG READY" when an egg is waiting (and a note if the party is full), Masuda yes/no, and for each egg in the party its cycles and about how many steps are left (Flame Body / Magma Armor aware; the 230-step special dates are not modelled). Read-only: hook 0210 only calls getters, publishes every ~2 s and only while the tab is open, nothing is written to the save. If the hook does not compile, its .sh puts the pre-0210 files back and the tab says the hook is missing. Logs: `[BREED]`.
 

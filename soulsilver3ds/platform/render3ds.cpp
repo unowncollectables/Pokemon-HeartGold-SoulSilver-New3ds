@@ -1955,9 +1955,10 @@ static int Present(bool){
      if(swTouch&&!swPrev&&swTgt<0){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)&&blHit(x,y)==11&&pxOn()){const int t=pxChipHit(kSuiText,kBlPanX1,kBlPanY0,x);if(t>=0&&t!=pxPane()){swTgt=t;swT=0;PSPNativeMemLog("[PANEL] tab swap: %s tapped while an app is open, closing it first",kPxTabs[t]);}}}
      if(swTgt>=0){swT++;if(swT%24==6&&swT<400){P3DS_InjectKeys=KEY_B;P3DS_InjectFrames=2;}if(swT>=420){PSPNativeMemLog("[PANEL] tab swap to %s gave up after %u frames",kPxTabs[swTgt],swT);swTgt=-1;}}}
     sSwapAct=swTgt>=0&&P3DS_PanelPartyOn;swPrev=swTouch;}
-   static int tX0,tY0,tXl,tYl,tXp;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
+   static int tX0,tY0,tXl,tYl,tXp,hLast=-1;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
    if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){hit=blHit(x,y);if(hit==10&&pxRingHit(x,y))hit=3;if(hit==10)hit=21;else if(hit==8)hit=20;else if(hit==9)hit=22;else if(hit==11)hit=pxOn()?23:-1;tXl=x;tYl=y;}}
    if(tNow&&!bmPrev){bmDown=hit;tX0=tXp=tXl;tY0=tYl;tDrag=false;}
+   if(tNow)hLast=hit; /* run 148: where the finger is NOW; a button tap only counts if it lifts on the button it landed on */
    {/* run 128 panel_party: tapping the PARTY tab itself opens the real party in the panel (no row tap needed); leaving the party returns the panel to MAP so the next PARTY tap is a fresh tap */
     static int ppPane,ppWasOn;const int pn=pxPane();
     if(P3DS_PanelPartyOn){ppWasOn=1;}
@@ -1995,6 +1996,7 @@ static int Present(bool){
     if(tCur>=0&&++tIdle>360){tCur=-1;PSPNativeMemLog("[BMENU] tile cursor idle, dropped");}
     P3DS_TileCur=tCur;}
    const int pressShow=press>=0?press:tCur;
+   if(!kbFire&&!tNow&&bmPrev&&bmDown>=0&&bmDown<=6&&hLast!=bmDown){PSPNativeMemLog("[BMENU] run 148: touch landed on %s but lifted on %d: ignored (no stray tile)",kNm[bmDown],hLast);bmDown=-1;}
    if(kbFire||(!tNow&&bmPrev&&bmDown>=0)){
     if(bmDown==23){pxChipTap(kSuiText,kBlPanX1,kBlPanY0,tX0);}
     else if(bmDown==21&&pxPane()==2){
