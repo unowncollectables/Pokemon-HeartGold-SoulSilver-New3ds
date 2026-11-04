@@ -142,6 +142,7 @@ void P3DS_CelebDraw(unsigned *img, int eye) {
   if (!P3DS_InField || !P3DS_CelebOn()) { wasField = 0; return; }
   if (eye == 0) T++;
   int po = 0; const int e = effectNow(&po); if (e == E_NONE) return;
+  { extern void P3DS_TopTouch(void); P3DS_TopTouch(); }  /* direct screen: fetch the GPU-composed picture before drawing on it */
   const int sd = P3DS_StereoShiftNow(), par = eye ? -sd / 2 : sd / 2;
   { static int lastE, lastMap = -2; if (eye == 0) { if (e != lastE || P3DS_MmMap != lastMap || !wasField) { vOn = (e == E_BDAY); vT0 = T; } lastE = e; lastMap = P3DS_MmMap; wasField = 1; } }
   if (e == E_BDAY) drawVariant(img, par);

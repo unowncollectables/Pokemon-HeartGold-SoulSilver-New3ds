@@ -71,6 +71,26 @@ static void gcOut(const u32 *rbuf, u16 mbr, u32 *out);
 /* eye 0/1 of the next compose; pair = the right eye is composed after it this frame (the left may then return unconverted) */
 void P3DS_GcEye(int eye, int pair) { fpEye = eye & 1; fpDefer = !eye && pair && fpOn(); }
 /* converts a left eye still pending (the right eye was not composed); the caller then owns its out buffer again */
+/* 2026-11-04 direct screen (gc_direct, Display tab "Direct screen", default ON; SPEEDUPS.md stage 2, mono first): when the caller sets
+   P3DS_GcDeferOut before a compose, the composed picture stays in the GPU target: no readback transfer, no wait for it, no CPU
+   colour pass. gpuscale.c samples the target directly at present (P3DS_GcPendTex), so the upload is skipped too. Anything on the CPU
+   that reads or draws on the picture first calls P3DS_GcResolve(), which does exactly what the compose used to do at its end. */
+int P3DS_GcDeferOut; static int dfPend[2]; static u32 *dfOut[2]; static u16 dfMbr[2]; unsigned P3DS_GcDeferN, P3DS_GcResolveN;
+static C3D_Tex rtTexR; static C3D_RenderTarget *rtR; static int rtROk = -1;   /* the right eye's own target (3D slider up): both eyes stay on the GPU */
+static C3D_Tex *dfTex(int e) { return e ? &rtTexR : &rtTex; }
+static void dfFetch(int e, u32 *dst) {   /* exactly the end of a non-deferred compose: transfer, wait, colour pass */
+    C3D_FrameBegin(0); C3D_SyncDisplayTransfer((u32 *)dfTex(e)->data, GX_BUFFER_DIM(256, 256), rb, GX_BUFFER_DIM(256, 256), RB_FLAGS); P3DS_FrameEnd();
+    C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH); gpuBusy = 0;
+    gcOut(rb, dfMbr[e], dst); P3DS_GcResolveN++; }
+void P3DS_GcResolve(void) { for (int e = 0; e < 2; e++) if (dfPend[e]) { dfPend[e] = 0; P3DS_Crumb("gc-resolve", 0); dfFetch(e, dfOut[e]); } }
+/* resolves both eyes; returns the left (or only) eye's buffer, NULL when nothing was pending */
+u32 *P3DS_GcResolveOut(void) { if (!dfPend[0] && !dfPend[1]) return NULL; u32 *o = dfPend[0] ? dfOut[0] : NULL; P3DS_GcResolve(); return o; }
+/* a CPU copy of the pending left-eye picture in dst; the picture stays pending (the present still samples the GPU target) */
+int P3DS_GcResolveTo(u32 *dst) { if (!dfPend[0] || !dst) return 0; P3DS_Crumb("gc-resolve-to", 0); dfFetch(0, dst); return 1; }
+/* the composed GPU picture for buf, or NULL when buf holds (or must hold) CPU pixels */
+C3D_Tex *P3DS_GcPendTex(const u32 *buf) { for (int e = 0; e < 2; e++) if (dfPend[e] && buf && buf == dfOut[e]) return dfTex(e); return NULL; }
+/* called by the present after its FrameBegin (which waited for the compose draws): the atlas may be written again */
+void P3DS_GcPresented(void) { if (dfPend[0] || dfPend[1]) gpuBusy = 0; }
 void P3DS_GcFinish(void) { if (fpPend.out) { gcIdle(); gcOut(fpPend.rbuf, fpPend.mbr, fpPend.out); fpPend.out = 0; fpFinN++; } fpDefer = 0; fpEye = 0; }
 
 static int init(void) {
@@ -335,6 +355,12 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     P3DS_Crumb("gc-begin", 0);
     if (!init()) return 0;
     const u64 t0 = svcGetSystemTick();
+    /* a picture left on the GPU by the last compose is replaced now (its CPU buffer is written by this compose or the CPU fallback) */
+    if (!fpEye) dfPend[0] = dfPend[1] = 0; else dfPend[1] = 0;
+    const int dfEye = P3DS_GcDeferOut && fpEye && rtROk == 1;   /* right eye into its own target */
+    if (P3DS_GcDeferOut && fpEye && rtROk < 0) { rtROk = C3D_TexInitVRAM(&rtTexR, 256, 256, GPU_RGBA8) && (rtR = C3D_RenderTargetCreateFromTex(&rtTexR, GPU_TEXFACE_2D, 0, -1)) != NULL;
+        PSPNativeMemLog("[GPUC] direct screen: right-eye target %s", rtROk ? "ready (VRAM)" : "failed, the right eye takes the CPU path"); }
+    if (gpuBusy && !fpOn()) gcIdle();   /* one vertex buffer: a still queued deferred draw must be done before it is rewritten */
     frameNo++; fail = 0; nq = 0; nb = 0; dirtyLo = ~0u; dirtyHi = 0; P3DS_GcDecoded = 0;
     P3DS_GcBeginUs = P3DS_GcEndUs = P3DS_GcSyncUs = 0;
     const int ov = fpOn(); if (ov) vb = (fpSub & 1) ? vbB : vbA;  /* the other half may still be read by the queued draw */
@@ -384,12 +410,14 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
         u32 c[3] = { bd >> 24, (bd >> 16) & 255, (bd >> 8) & 255 };
         for (int k = 0; k < 3; k++) c[k] = eff == 2 ? c[k] + (((255 - c[k]) * blendY + 8) >> 4) : c[k] - ((c[k] * blendY + 7) >> 4);
         bd = (c[0] << 24) | (c[1] << 16) | (c[2] << 8) | 0xFF; }
+    if (fpEye && !dfEye && dfPend[0]) { dfPend[0] = 0; dfFetch(0, dfOut[0]); }   /* the left eye was left in rt, which this right eye reuses */
     P3DS_Crumb("gc-draw", 0);
     { const u64 tb = svcGetSystemTick(); C3D_FrameBegin(0); P3DS_GcBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
     gpuBusy = 0;
     G3G_DirectSynced();   /* FrameBegin waited for every queued draw, including g3gpu's direct 3D frame */
-    C3D_RenderTargetClear(rt, C3D_CLEAR_ALL, bd, 0);
-    C3D_FrameDrawOn(rt);
+    C3D_RenderTarget *const tgt = dfEye ? rtR : rt;
+    C3D_RenderTargetClear(tgt, C3D_CLEAR_ALL, bd, 0);
+    C3D_FrameDrawOn(tgt);
     C3D_BindProgram(&prog);
     C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, 256.0f, 0.0f, 256.0f, 1.0f, -1.0f, true);  /* DS y 0 -> clip -1 (= g3gpu convention, FLIP_VERT readback gives rows top-first) */
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
@@ -409,7 +437,13 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
             else C3D_DrawArrays(GPU_TRIANGLES, q3 * 6, 6); }
         else { C3D_TexBind(0, &atlas); C3D_DrawArrays(GPU_TRIANGLES, bat[b].first * 6, bat[b].count * 6); } }
     u32 *const rbuf = ov && fpEye ? rbR : rb;
-    C3D_SyncDisplayTransfer((u32 *)rtTex.data, GX_BUFFER_DIM(256, 256), rbuf, GX_BUFFER_DIM(256, 256), RB_FLAGS);
+    { const u16 m = rh(regs, 0x6C);
+      if (P3DS_GcDeferOut && (!fpEye || dfEye) && !(((m >> 14) == 1 || (m >> 14) == 2) && (m & 0x1F))) {   /* no master-brightness fade */
+        const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); P3DS_GcEndUs = (unsigned)((svcGetSystemTick() - te) / 268);
+        if (ov) fpSub++; fpDefer = 0; fpEye = 0;
+        dfPend[dfEye] = 1; dfOut[dfEye] = out; dfMbr[dfEye] = m; gpuBusy = 1; P3DS_GcDeferN++; P3DS_GcOutUs = 0; P3DS_GcGpuUs = 0;
+        P3DS_GcCpuUs = (unsigned)((t1 - t0) / 268); P3DS_Crumb("gc-deferred", 0); return 1; } }
+    C3D_SyncDisplayTransfer((u32 *)(dfEye ? rtTexR.data : rtTex.data), GX_BUFFER_DIM(256, 256), rbuf, GX_BUFFER_DIM(256, 256), RB_FLAGS);
     { const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); P3DS_GcEndUs = (unsigned)((svcGetSystemTick() - te) / 268); }
     const u16 mbr = rh(regs, 0x6C);
     if (ov) { gpuBusy = 1; fpSub++;

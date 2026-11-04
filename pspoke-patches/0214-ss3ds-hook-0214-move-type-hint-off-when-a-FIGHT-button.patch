@@ -1,0 +1,59 @@
+From e60125b19b62902f550f88da8b4ccdb6c650f1cb Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 4 Nov 2026 15:36:25 -0500
+Subject: [PATCH] ss3ds: hook 0214 move type hint off when a FIGHT button is
+ pressed (battle_input.c)
+
+---
+ scripts/ss3ds_hooks.d/0214_typehint_off.py | 26 ++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0214_typehint_off.sh |  5 +++++
+ 2 files changed, 31 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0214_typehint_off.py
+ create mode 100755 scripts/ss3ds_hooks.d/0214_typehint_off.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0214_typehint_off.py b/scripts/ss3ds_hooks.d/0214_typehint_off.py
+new file mode 100755
+index 0000000..e6f6db5
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0214_typehint_off.py
+@@ -0,0 +1,26 @@
++#!/usr/bin/env python3
++"""ss3ds 0214: move type hint off once a move is pressed. Hook 0121 sets P3DS_MoveHint[0] when the FIGHT menu opens and clears it
++only on the next BattleInput_ChangeMenu, which does not run when a move is chosen: the badges stayed on the touch screen over the
++Poke Ball background for the whole turn (Azahar, run 148). Task_FightMenuButtonFeedback (a move or cancel was pressed) now clears
++it. Read-only for the game. Idempotent ('SS3DS 0214')."""
++import sys
++p = 'src/battle/battle_input.c'
++s = open(p).read()
++if 'SS3DS 0214' in s:
++    sys.exit(0)
++old = ('    menu = &battleInput->menu.fight;\n\n'
++       '    switch (battleInput->feedback.button.ret) {\n'
++       '    case BATTLE_INPUT_MOVE_1:\n'
++       '        moveTextObjId = MENUTXT_MOVE_1;\n')
++if s.count(old) != 1:
++    sys.exit('0214_typehint_off: anchor not found exactly once in battle_input.c (skipped)')
++new = ('    menu = &battleInput->menu.fight;\n\n'
++       '    { /* SS3DS 0214: the FIGHT menu is closing, the port hides the move type hint */\n'
++       '        extern volatile int P3DS_MoveHint[24];\n'
++       '        P3DS_MoveHint[0] = 0;\n'
++       '    }\n\n'
++       '    switch (battleInput->feedback.button.ret) {\n'
++       '    case BATTLE_INPUT_MOVE_1:\n'
++       '        moveTextObjId = MENUTXT_MOVE_1;\n')
++open(p, 'w').write(s.replace(old, new))
++print('0214_typehint_off: battle_input.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0214_typehint_off.sh b/scripts/ss3ds_hooks.d/0214_typehint_off.sh
+new file mode 100755
+index 0000000..3356237
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0214_typehint_off.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0214: move type hint cleared when a FIGHT button is pressed (battle_input.c, overlay 12). Optional: without it the badges
++# stay up for the turn as before.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0214_typehint_off.py" && bash rebuild_game_object.sh src/battle/battle_input.c battle__battle_input.o 12); then
++  log "ss3ds 0214 typehint_off hook skipped (see message above); the move type hint stays up for the turn"
++fi
+-- 
+2.53.0
+

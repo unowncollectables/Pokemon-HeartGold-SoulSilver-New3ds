@@ -190,13 +190,36 @@ static void tevSwizzle(void) { static const GPU_TEVOP_RGB op[3] = { GPU_TEVOP_RG
     for (int k = 3; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k)); }
 /* Pass 1: DS texture -> up[i] at exactly 2x with NEAREST. Positions = texcoords * 512 (GL-style texture target,
    no tilt), so the image keeps the same s/t layout as the DS texture (top row t = 0, bottom t = 0.75). */
+/* 2026-11-04 direct screen (gpucomp.c P3DS_GcPendTex): the top picture can come straight from the compositor's GPU target. Its
+   memory layout is the uploaded texture's (both are RGBA8 written through a FLIP_VERT transfer), so the same quad samples it;
+   alpha is forced to 255 like the upload does. The fps counter is then drawn here (P3DS_GpTextMask: 0 none, 1 black, 2 white). */
+extern C3D_Tex *P3DS_GcPendTex(const u32 *buf); extern void P3DS_GcPresented(void);
+unsigned char P3DS_GpTextMask[8][64]; int P3DS_GpTextOn;
+static C3D_Tex *dirTop, *dirTopR;
+static C3D_Tex *dirOf(int i) { return i == 0 ? dirTop : i == 2 ? dirTopR : NULL; }
+static void tevOpaque(void) { C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
+    C3D_TexEnvSrc(env, C3D_RGB, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(env, C3D_RGB, GPU_REPLACE);
+    C3D_TexEnvSrc(env, C3D_Alpha, GPU_CONSTANT, 0, 0); C3D_TexEnvFunc(env, C3D_Alpha, GPU_REPLACE); C3D_TexEnvColor(env, 0xFFFFFFFF);
+    for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k)); }
+static void textMaskDraw(void) {   /* into upTgt[0] (2x DS pixels, top row y = 0) */
+    for (int pass = 1; pass <= 2; pass++) {
+        C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_CONSTANT, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+        C3D_TexEnvColor(env, pass == 2 ? 0xFFFFFFFF : 0xFF000000);
+        C3D_ImmDrawBegin(GPU_TRIANGLES);
+        for (int y = 0; y < 8; y++) for (int x = 0; x < 64; x++) { if (P3DS_GpTextMask[y][x] != pass) continue; int e = x; while (e + 1 < 64 && P3DS_GpTextMask[y][e + 1] == pass) e++;
+            const float x0 = 2.0f * x, x1 = 2.0f * (e + 1), y0 = 2.0f * y, y1 = y0 + 2.0f;
+            const float v[6][2] = { { x0, y0 }, { x1, y0 }, { x0, y1 }, { x1, y0 }, { x1, y1 }, { x0, y1 } };
+            for (int k = 0; k < 6; k++) { C3D_ImmSendAttrib(v[k][0], v[k][1], 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0); } x = e; }
+        C3D_ImmDrawEnd(); }
+    tevPlain(); }
 static void prescale(int i) {
+    if (dirOf(i)) { tevOpaque(); } else
     if (swz[i]) tevSwizzle();
     C3D_RenderTargetClear(upTgt[i], C3D_CLEAR_ALL, 0x000000FF, 0);
     C3D_FrameDrawOn(upTgt[i]);
     C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, 512.0f, 0.0f, 512.0f, 1.0f, -1.0f, true);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
-    C3D_TexBind(0, &tex[i]);
+    C3D_TexBind(0, dirOf(i) ? dirOf(i) : &tex[i]);
     const float t1 = 192.0f / TEXH;
     C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
     C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
@@ -204,7 +227,8 @@ static void prescale(int i) {
     C3D_ImmSendAttrib(0, 512 * t1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
     C3D_ImmSendAttrib(512, 512 * t1, 0, 0); C3D_ImmSendAttrib(1, t1, 0, 0);
     C3D_ImmDrawEnd();
-    if (swz[i]) tevPlain();
+    if (dirOf(i)) { tevPlain(); if (P3DS_GpTextOn) textMaskDraw(); }
+    else if (swz[i]) tevPlain();
 }
 static void quad(C3D_RenderTarget *t, float sw, int i, float x0, float y0, float x1, float y1) {
     C3D_RenderTargetClear(t, C3D_CLEAR_ALL, 0x000000FF, 0);
@@ -368,6 +392,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     int st = topR != NULL; if (st != stereoOn) { stereoOn = st; gfxSet3D(st); }
     static int vs = -1; if (vs < 0) { vs = 0; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "vsync=%d", &x) == 1) vs = x != 0; fclose(f); } PSPNativeMemLog("[3DS] vsync (tear-free present) %d", vs); }
     { const u64 tb = svcGetSystemTick(); C3D_FrameBegin(vs ? C3D_FRAME_SYNCDRAW : 0); P3DS_GpBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
+    dirTop = P3DS_GcPendTex(top); dirTopR = topR ? P3DS_GcPendTex(topR) : NULL; P3DS_GcPresented();
     if (srcDbl) srcSet ^= 1;  /* game already paces on vblank; SYNCDRAW added a 2nd vblank wait (30 fps cap) */
     /* run 25: upload AFTER FrameBegin. Before, the sync transfer raced the previous frame's queued
        render/transfer (PPF event from that job ended our wait early) and the GPU sampled a half-updated texture: tearing on both screens. */
@@ -375,7 +400,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     const int botFresh = !(skipBotCfg && botValid && P3DS_GpuBotSame);
     if (!drawBottom) botValid = 0; else if (!botFresh) botSkips++;
     P3DS_Crumb("gp-upload", 0);
-    upTicks = 0; upload(0, top); const int crisp = !topR && crispPrepare(top); crN++; if (drawBottom && botFresh) upload(1, bot); if (st) upload(2, topR); P3DS_UploadUs = (unsigned)(upTicks / 268); P3DS_GpUpUs = P3DS_UploadUs;
+    upTicks = 0; if (!dirTop) upload(0, top); const int crisp = !topR && !dirTop && crispPrepare(top); crN++; if (drawBottom && botFresh) upload(1, bot); if (st && !dirTopR) upload(2, topR); P3DS_UploadUs = (unsigned)(upTicks / 268); P3DS_GpUpUs = P3DS_UploadUs;
     C3D_BindProgram(&prog);
     C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
     AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2);
