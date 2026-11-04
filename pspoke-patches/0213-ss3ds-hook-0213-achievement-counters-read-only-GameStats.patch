@@ -1,0 +1,67 @@
+From 830e86db72578024ff076ed9b661d4c1fd30aa09 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 4 Nov 2026 18:46:00 +0000
+Subject: [PATCH] ss3ds: hook 0213 achievement counters (read-only GameStats,
+ field_control.c)
+
+---
+ .../ss3ds_hooks.d/0213_achievement_stats.py   | 34 +++++++++++++++++++
+ .../ss3ds_hooks.d/0213_achievement_stats.sh   |  5 +++
+ 2 files changed, 39 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0213_achievement_stats.py
+ create mode 100755 scripts/ss3ds_hooks.d/0213_achievement_stats.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0213_achievement_stats.py b/scripts/ss3ds_hooks.d/0213_achievement_stats.py
+new file mode 100755
+index 0000000..62b5dcc
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0213_achievement_stats.py
+@@ -0,0 +1,34 @@
++#!/usr/bin/env python3
++"""ss3ds 0213: achievement counters (read-only), applied after 0145 to src/field/field_control.c. Idempotent ('SS3DS 0213' marker).
++READ-ONLY: only GameStats_GetCapped. Every time hook 0145 publishes (map change / every 16 steps) the GAME_STAT_* counters the
++achievements use (steps, catches, trades, eggs, battles, ...) are read from the save and handed to the platform
++(achievements.c, P3DS_AchStats). Nothing is written to the save."""
++import sys
++p = 'src/field/field_control.c'
++s = open(p).read()
++if 'SS3DS 0213' in s:
++    sys.exit(0)
++if 'SS3DS 0145' not in s:
++    sys.exit('0213_achievement_stats: hook 0145 is not in field_control.c')
++def sub1(s, old, new):
++    if s.count(old) != 1:
++        sys.exit('0213_achievement_stats: anchor not found exactly once: ' + old[:70])
++    return s.replace(old, new)
++helper = r'''/* SS3DS 0213 achievement counters (read-only) */
++#include "game_stats.h"
++extern void P3DS_AchStats(const unsigned short *idx, const unsigned *val, int n);
++static void SS3DS_AchStats(FieldSystem *fieldSystem) {
++    static const unsigned short sIdx[] = { 0, 1, 5, 8, 9, 10, 11, 12, 20, 25, 30, 46, 50, 77, 79, 80, 93, 94, 95, 114, 115, 116 };
++    unsigned val[sizeof(sIdx) / sizeof(sIdx[0])];
++    GameStats *gs = Save_GameStats_Get(fieldSystem->saveData);
++    int i;
++    for (i = 0; i < (int)(sizeof(sIdx) / sizeof(sIdx[0])); i++) val[i] = GameStats_GetCapped(gs, sIdx[i]);
++    P3DS_AchStats(sIdx, val, (int)(sizeof(sIdx) / sizeof(sIdx[0])));
++}
++
++'''
++s = sub1(s, '/* SS3DS 0145 achievements data (read-only) */\nextern void P3DS_AchPublish', helper + '/* SS3DS 0145 achievements data (read-only) */\nextern void P3DS_AchPublish')
++# 0213's helper must come after 0145's static function is NOT required; it is called from 0145's own call site below
++s = sub1(s, '    SS3DS_AchStep(fieldSystem, mapId); /* SS3DS 0145 */\n', '    SS3DS_AchStep(fieldSystem, mapId); /* SS3DS 0145 */\n    SS3DS_AchStats(fieldSystem); /* SS3DS 0213 */\n')
++open(p, 'w').write(s)
++print('0213_achievement_stats: field_control.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0213_achievement_stats.sh b/scripts/ss3ds_hooks.d/0213_achievement_stats.sh
+new file mode 100755
+index 0000000..464a72e
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0213_achievement_stats.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0213: achievement counters (read-only), after 0145 (same object). Not fatal: without it the counter-based achievements
++# (trades, catches, eggs, steps, battles, ...) will not unlock.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0213_achievement_stats.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
++  log "ss3ds 0213 achievement counters hook NOT applied (see message above); trade, catch, egg, step and battle achievements will not unlock"
++fi
+-- 
+2.43.0
+

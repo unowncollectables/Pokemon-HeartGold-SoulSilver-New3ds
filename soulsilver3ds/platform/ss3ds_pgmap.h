@@ -268,23 +268,43 @@ static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int vie
 static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW);
 /* achievements list (achievements.c): name + description + points per entry, greyed when locked; categories with subtotals */
 static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), dim = SUI_RGB(124, 130, 150);
+  const uint32_t ink = SUI_RGB(30, 48, 96), sh = SUI_RGB(236, 240, 248), dim = SUI_RGB(124, 130, 150), gold = SUI_RGB(226, 168, 36), green = SUI_RGB(60, 170, 80);
   for (int y = Y0; y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(252, 250, 240), SUI_RGB(226, 218, 190), y - Y0, Y1 - Y0));
-  int mx = 0; const int tot = P3DS_AchTotal(-1, &mx); char t[48];
-  snprintf(t, sizeof t, "%d/%d", tot, mx);
-  T.draw(b, X0 + 4, Y0 + 2, "ACHIEVEMENTS", ink, sh); T.draw(b, X1 - 6 - T.width(t), Y0 + 2, t, dim, sh);
-  const int top = Y0 + 13; int off = 0;
+  int mx = 0; const int tot = P3DS_AchTotal(-1, &mx); char t[64];
+  /* header band: title, points, and an overall progress bar */
+  for (int y = Y0; y < Y0 + 13; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(70, 110, 190), SUI_RGB(40, 66, 130), y - Y0, 13));
+  snprintf(t, sizeof t, "%d / %d G", tot, mx);
+  T.draw(b, X0 + 4, Y0 + 2, "ACHIEVEMENTS", SUI_RGB(255, 255, 255), SUI_RGB(30, 48, 96)); T.draw(b, X1 - 6 - T.width(t), Y0 + 2, t, SUI_RGB(255, 224, 120), SUI_RGB(30, 48, 96));
+  { const int bw = X1 - X0 - 8, fill = mx > 0 ? bw * tot / mx : 0;
+    for (int x = 0; x < bw; x++) { suiPx(b, X0 + 4 + x, Y0 + 14, x < fill ? green : SUI_RGB(200, 192, 168)); suiPx(b, X0 + 4 + x, Y0 + 15, x < fill ? SUI_RGB(40, 130, 60) : SUI_RGB(176, 168, 142)); } }
+  const int top = Y0 + 18; int off = 0;
   for (int c = 0; c < ACH_CATS; c++) {
-    int cm = 0; const int cs = P3DS_AchTotal(c, &cm);
-    snprintf(t, sizeof t, "%s  %d/%d", P3DS_AchCatName(c), cs, cm);
-    const int hy = top + off - p.achScroll; if (hy >= top - 10 && hy < Y1) T.draw(b, X0 + 4, hy, t, ink, sh);
+    int cm = 0; const int cs = P3DS_AchTotal(c, &cm); int cnt = 0, got = 0;
+    for (int id = 0; id < ACH_COUNT; id++) if (P3DS_AchGet(id)->cat == c) { cnt++; if (P3DS_AchDate(id)) got++; }
+    snprintf(t, sizeof t, "%s  %d/%d", P3DS_AchCatName(c), got, cnt);
+    const int hy = top + off - p.achScroll;
+    if (hy >= top - 10 && hy < Y1) {
+      for (int y = hy - 1; y < hy + 9; y++) if (y >= top && y < Y1) for (int x = X0 + 2; x < X1 - 2; x++) suiPx(b, x, y, suiMix(SUI_RGB(214, 224, 244), SUI_RGB(190, 204, 232), y - hy + 1, 10));
+      if (hy >= top && hy < Y1 - 8) { T.draw(b, X0 + 5, hy, t, ink, SUI_RGB(214, 224, 244)); snprintf(t, sizeof t, "%dG of %dG", cs, cm); T.draw(b, X1 - 6 - T.width(t), hy, t, dim, SUI_RGB(204, 214, 238)); } }
     off += 12;
     for (int id = 0; id < ACH_COUNT; id++) { const P3DS_AchInfo *a = P3DS_AchGet(id); if (a->cat != c) continue;
       const int d = P3DS_AchDate(id), y = top + off - p.achScroll; off += 22;
       if (y < top - 20 || y >= Y1) continue;
-      if (d) snprintf(t, sizeof t, "%d-%02d-%02d %dG", d / 10000, d / 100 % 100, d % 100, a->pts); else snprintf(t, sizeof t, "%dG", a->pts);
-      T.draw(b, X0 + 8, y, a->name, d ? ink : dim, sh); T.draw(b, X1 - 6 - T.width(t), y, t, d ? ink : dim, sh);
-      T.draw(b, X0 + 8, y + 10, a->desc, dim, sh); }
+      if (y >= top && y < Y1 - 20) {
+        /* icon: gold medal with a check when unlocked, grey padlock when not */
+        const int ix = X0 + 6, iy = y + 3;
+        for (int dy = 0; dy < 12; dy++) for (int dx = 0; dx < 12; dx++) { const int ex = dx - 6, ey = dy - 6; if (ex * ex + ey * ey > 33) continue;
+          suiPx(b, ix + dx, iy + dy, d ? (ex * ex + ey * ey > 22 ? SUI_RGB(190, 138, 24) : (dy < 6 ? SUI_RGB(250, 214, 90) : gold)) : (ex * ex + ey * ey > 22 ? SUI_RGB(150, 150, 160) : SUI_RGB(190, 190, 198))); }
+        if (d) { const int ck[7][2] = { {3,6},{4,7},{5,8},{6,7},{7,6},{8,5},{9,4} }; for (auto &q : ck) { suiPx(b, ix + q[0] - 1, iy + q[1] - 1, SUI_RGB(70, 50, 8)); suiPx(b, ix + q[0] - 1, iy + q[1], SUI_RGB(70, 50, 8)); } }
+        else { for (int dy = 5; dy < 9; dy++) for (int dx = 3; dx < 9; dx++) suiPx(b, ix + dx, iy + dy, SUI_RGB(110, 112, 124)); suiPx(b, ix + 4, iy + 4, SUI_RGB(110, 112, 124)); suiPx(b, ix + 7, iy + 4, SUI_RGB(110, 112, 124)); suiPx(b, ix + 5, iy + 3, SUI_RGB(110, 112, 124)); suiPx(b, ix + 6, iy + 3, SUI_RGB(110, 112, 124)); }
+        if (d) snprintf(t, sizeof t, "%d-%02d-%02d  %dG", d / 10000, d / 100 % 100, d % 100, a->pts); else snprintf(t, sizeof t, "%dG", a->pts);
+        T.draw(b, X0 + 22, y, a->name, d ? ink : dim, sh); T.draw(b, X1 - 6 - T.width(t), y, t, d ? gold : dim, sh);
+        unsigned cu = 0, go = 0;
+        if (!d && P3DS_AchProgress(id, &cu, &go) && go > 1) { snprintf(t, sizeof t, "%u/%u", cu > go ? go : cu, go);
+          T.draw(b, X1 - 6 - T.width(t), y + 10, t, dim, sh);
+          const int bw2 = 44, bx2 = X1 - 6 - T.width(t) - bw2 - 4, f2 = (int)((unsigned long long)bw2 * (cu > go ? go : cu) / go);
+          for (int x = 0; x < bw2; x++) for (int yy = 0; yy < 3; yy++) suiPx(b, bx2 + x, y + 12 + yy, x < f2 ? green : SUI_RGB(200, 192, 168)); }
+        T.draw(b, X0 + 22, y + 10, a->desc, dim, sh); } }
   }
   const int maxS = off - (Y1 - top); if (p.achScroll > maxS) p.achScroll = maxS; if (p.achScroll < 0) p.achScroll = 0; }
 
