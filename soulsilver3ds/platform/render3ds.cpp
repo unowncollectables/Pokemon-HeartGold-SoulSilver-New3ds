@@ -154,6 +154,17 @@ static unsigned displayOffset=0,lastReadbackUs=0,last2DUs=0;
 extern "C" void PSPNativeG3Release();
 extern "C" unsigned char PSPNative_GfxRegisters[];
 static unsigned reg16(unsigned off){return *(volatile u16*)(PSPNative_GfxRegisters+off);}
+/* 2026-11-04 (Nathan: wide view must look right all the time): DS windows (WIN0/WIN1, engine A) hide layers in parts of the screen
+   (battle intro wipes, the black band under a battle intro, transition effects). The side strips ignored them, so they kept
+   showing the scene where the picture's edge was black. Layer mask (bits 0-3 BG, 4 OBJ, 5 effects) the DS uses at the screen edge
+   pixel (x 0 or 255) of row y; 0x3F when no window is on. The OBJ window needs sprite pixels and is not followed. */
+static unsigned winEdge(int y,int side){const unsigned dc=*(volatile u32*)PSPNative_GfxRegisters;if(!(dc&0x6000))return 0x3F;const int x=side?255:0;
+ auto in=[](int v,int a,int b){return a<=b?(v>=a&&v<b):(v>=a||v<b);};
+ const unsigned h0=reg16(0x40),h1=reg16(0x42),v0=reg16(0x44),v1=reg16(0x46),wi=reg16(0x48),wo=reg16(0x4A);
+ if((dc&0x2000)&&in(y,(int)(v0>>8),(int)(v0&255))&&in(x,(int)(h0>>8),(int)(h0&255)))return wi&63;
+ if((dc&0x4000)&&in(y,(int)(v1>>8),(int)(v1&255))&&in(x,(int)(h1>>8),(int)(h1&255)))return (wi>>8)&63;
+ return wo&63;}
+static unsigned winStripN,winStripRows;
 static unsigned reg32(unsigned off){return *(volatile u32*)(PSPNative_GfxRegisters+off);}
 #include "../native-render-opt/bottom_cache.h"
 extern "C" { volatile unsigned P3DS_SceneGen; int P3DS_LandFast; }
@@ -804,6 +815,25 @@ static void wideBoxOverlay(){wnOverlayDirty=0;static WcPlan plan;static u32 st[6
  unsigned px=0;for(int i=0;i<64*192;i++)if((st[i]&255)==255){P3DS_WideFillBuf[i]=st[i];px++;}
  wnOverlayDirty=px>0;nF++;nL+=n;nPx+=px;if(nF==1||nF%600==0){PSPNativeMemLog("[WIDE] HP box overlay: %u frames, last %d lines, %u strip px (avg lines %u, px %u)",nF,n,px,nL/nF,nPx/nF);}}
 static unsigned wnUs,wnN,wnLay[5];
+/* 2026-11-04 (Nathan: wide view must look right all the time): the black blocks of the battle-intro wipe (and other black 2D covers)
+   are a BG layer in front of the 3D, so the 3D side strips kept showing the scene next to a black picture edge. True when the topmost
+   opaque text-BG pixel in front of BG0 at the picture's edge pixel (x 0 / 255) of row y is black. */
+static bool edgeBgBlack(int y,int side){
+ const u32 dc=*(volatile u32*)PSPNative_GfxRegisters;const unsigned mode=dc&7;if(!(dc&8)||mode>5)return false;
+ const int p0=(int)(reg16(8)&3);if(!p0)return false;const unsigned wm=winEdge(y,side);const int x=side?255:0;
+ for(int pr=0;pr<p0;pr++)for(int i=1;i<4;i++){if(!(dc&(0x100u<<i))||!((wm>>i)&1))continue;const bool text=i<2||mode==0||(i==2&&mode==1);if(!text)continue;
+  const unsigned c=reg16(8+i*2);if((int)(c&3)!=pr)continue;
+  const bool bpp8=(c&0x80)!=0;const int w=(c>>14)&1?64:32,h=(c>>14)&2?64:32;
+  const unsigned charb=((c>>2)&15)*0x4000+((dc>>24)&7)*0x10000,mapb=((c>>8)&31)*0x800+((dc>>27)&7)*0x10000;
+  const unsigned px=(unsigned)(x+(int)(reg16(0x10+i*4)&0x1FF))&(unsigned)(w*8-1),py=(unsigned)(y+(int)(reg16(0x12+i*4)&0x1FF))&(unsigned)(h*8-1);
+  const unsigned tx=px>>3,ty=py>>3,ma=(mapb+((tx>>5)+(ty>>5)*(unsigned)(w>>5))*0x800+((ty&31)*32+(tx&31))*2)&0x7FFFF;
+  const u16 me=*(const u16*)(GPU::VRAMFlat_ABG+ma);unsigned fx=px&7,fy=py&7;if(me&0x400)fx=7-fx;if(me&0x800)fy=7-fy;
+  const u8*t=GPU::VRAMFlat_ABG+((charb+(me&0x3FF)*(bpp8?64:32)+fy*(bpp8?8:4))&0x7FFFF);unsigned ci;if(bpp8)ci=t[fx];else{const u8 b=t[fx>>1];ci=(fx&1)?b>>4:b&15;}
+  if(!ci)continue;
+  const int ext=(bpp8&&(dc&(1u<<30)))?((i<2&&(c&0x2000))?i+2:i):-1;
+  const u16 col=ext>=0?*(const u16*)(GPU::VRAMFlat_ABGExtPal+ext*0x2000+((me>>12)*256+ci)*2):((const u16*)GPU::Palette)[bpp8?ci:((me>>12)*16+ci)];
+  return (col&0x7FFF)==0;}
+ return false;}
 static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static unsigned wnRestores;static void wideNative(){const u64 t0=svcGetSystemTick();
  const u8*R=(const u8*)PSPNative_GfxRegisters;const u32 dc=*(const u32*)R;const unsigned mode=dc&7;
  const u8*vram=GPU::VRAMFlat_ABG;const u16*pal=(const u16*)GPU::Palette;const u8*ext=GPU::VRAMFlat_ABGExtPal;
@@ -852,7 +882,7 @@ static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static
  if(no&&Ly[order[no-1]].w==32&&P3DS_InWideKind>0&&!P3DS_InBattle){L&b=Ly[order[no-1]];for(int side=0;side<2;side++){bool any=false;for(int r=0;r<25;r++)any|=b.per[r][side]!=0;
   if(!any){b.clamp|=1<<side;for(int r=0;r<25;r++){b.per[r][side]=1;b.src[r][side]=(u8)r;}}}}
  /* skip the redraw when nothing the strips use changed: registers, palette, the edge map entries and their tiles */
- {u32 h=2166136261u;auto H=[&](u32 v){h=(h^v)*16777619u;};H(dc);for(int k=0;k<0x20;k+=4)H(*(const u32*)(R+8+k));H(*(const u32*)(R+0x50));H(*(const u32*)(R+0x54));
+ {u32 h=2166136261u;auto H=[&](u32 v){h=(h^v)*16777619u;};H(dc);for(unsigned k=0x40;k<0x4C;k+=2)H(reg16(k));for(int k=0;k<0x20;k+=4)H(*(const u32*)(R+8+k));H(*(const u32*)(R+0x50));H(*(const u32*)(R+0x54));
   {const u32*pp32=(const u32*)pal;for(int k=0;k<128;k++)H(pp32[k]);}
   for(int oi=0;oi<no;oi++){const L&l=Ly[order[oi]];if(l.extSlot>=0){const u32*e=(const u32*)(ext+l.extSlot*0x2000);for(int k=0;k<2048;k++)H(e[k]);}
    const unsigned E0=l.hofs>>3,E1=(l.hofs+255)>>3;
@@ -870,7 +900,8 @@ static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static
     BG0 is applied to the whole strip by gpuscale strips() instead (wide_fadefix), so it is not done twice. */
  const u16 bc=*(const u16*)(R+0x50);unsigned bY=*(const u16*)(R+0x54)&31;if(bY>16)bY=16;const int bEff=(!(bc&1)&&((bc>>6)&3)>=2&&bY)?(int)((bc>>6)&3):0;
  for(int y=0;y<192;y++)for(int side=0;side<2;side++){u32*o=P3DS_WideFillBuf+y*64+side*32;u32 done=0;const int x0=side?256:-32;u8 lay[32];
-  for(int oi=0;oi<no&&done!=0xFFFFFFFFu;oi++){const L&l=Ly[order[oi]];const unsigned py=(unsigned)(y+l.vofs)&(l.h*8-1);const unsigned wm=l.w*8-1;
+  const unsigned wmE=winEdge(y,side);
+  for(int oi=0;oi<no&&done!=0xFFFFFFFFu;oi++){const L&l=Ly[order[oi]];if(!((wmE>>order[oi])&1))continue;const unsigned py=(unsigned)(y+l.vofs)&(l.h*8-1);const unsigned wm=l.w*8-1;
    int pp=0;const int E0=(int)(l.hofs>>3),E1=(int)((l.hofs+255)>>3);
    unsigned pyU=py;if(l.w==32){const unsigned r=((unsigned)(y+(l.vofs&7)))>>3;pp=r<25?l.per[r][side]:0;if(!pp)continue;pyU=((((l.vofs>>3)+l.src[r][side])*8)+(py&7))&(l.h*8-1);}
    u16 me=0;const u8*trow=0;int hf=0;int lastT=0x7FFFFFFF;
@@ -2173,6 +2204,12 @@ static int Present(bool){
   {static int lastAct=-1;if((int)act!=lastAct){lastAct=act;PSPNativeMemLog("[WIDE] active=%d (cfg %d field %d mode %d 3Dbg0 %d)",(int)act,wideCfg,P3DS_InField,mode,(int)((dc&0x108)==0x108));}}
   {const u64 tds=svcGetSystemTick();G3G_DirectStrips();pfT[PF_DSTRIP]+=svcGetSystemTick()-tds;}/* gpu_direct3d wide: convert this frame's side strips from the readback G3G_End queued */
   P3DS_WideStrip[0]=act&&G3G_Wide&&G3G_StripValid>=1?G3G_Strip[0]:nullptr;P3DS_WideStrip[1]=act&&G3G_Wide&&G3G_StripValid>=2?G3G_Strip[1]:nullptr;
+  if(act&&P3DS_WideStrip[0]){/* window-aware 3D strips (see winEdge): rows where the DS hides BG0 (the 3D) at the edge get the backdrop; rows where a black BG covers the edge (edgeBgBlack) go black */
+   const u16 bp=*(const u16*)GPU::Palette;const u32 r=bp&31,g=(bp>>5)&31,b=(bp>>10)&31;const u32 bdc=(((r<<3)|(r>>2))<<24)|(((g<<3)|(g>>2))<<16)|(((b<<3)|(b>>2))<<8)|0xFF;
+   static u32 wcp[2][64*192];bool cp=false;unsigned rows=0;for(int y=0;y<192;y++)for(int side=0;side<2;side++){const bool hid=!(winEdge(y,side)&1);if(!hid&&!edgeBgBlack(y,side))continue;rows++;
+    if(!cp){cp=true;for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){memcpy(wcp[e],P3DS_WideStrip[e],sizeof wcp[e]);P3DS_WideStrip[e]=wcp[e];}} /* a copy: the 3D strips may be reused unchanged next frame */
+    for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){u32*o=wcp[e]+y*64+side*32;for(int x=0;x<32;x++)o[x]=hid?bdc:0x000000FFu;}}
+   if(rows){winStripN++;winStripRows+=rows;if(winStripN==1||winStripN%300==0)PSPNativeMemLog("[WIDE] window/black-BG hidden strip rows: %u frames, avg %u rows (DISPCNT %08x WININ %04x WINOUT %04x)",winStripN,winStripRows/winStripN,(unsigned)dc,reg16(0x48),reg16(0x4A));}}
   if(!P3DS_WideStrip[0]&&fillReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=P3DS_WideFillBuf;P3DS_WideFxOn=1;}
   if(!P3DS_WideStrip[0]&&wnReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=stereo?P3DS_WideFillBuf:nullptr;} /* run 65 wide_menus (fade applied in strips()) */
   if(P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
