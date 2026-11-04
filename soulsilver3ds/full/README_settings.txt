@@ -153,6 +153,9 @@ CONTROLS / TOUCH
   zr_item=1         ZR = Y (registered item). 0 = off. Default 1.
   auto_run=1        The run toggle starts ON, so you run by default and B walks (ZL / the RUN tile flip it). Default 0.
   sprite_depth=1    Overworld sprites (following Pokemon, NPCs, you) get one 3D depth from their feet so they stand on the ground with the slider up. Default 0, experimental.
+  gc_direct=1       Direct screen (Display tab): GPU-composed field frames go to the screen without the readback / CPU colour pass /
+                    re-upload (both eyes with the 3D slider up). CPU overlays fetch the picture first. 0 = old path. Default 1.
+                    Log: [GPUC] direct screen every 300 frames.  [2026-11-04]
   g3_batchcull=1    Off-screen skip (3D tab): raw 3D batches and 16-triangle runs whose bounding box is wholly off screen are skipped
                     before any vertex is transformed. Same picture, less CPU in towns (Goldenrod: ~5,500 of ~7,900 triangles a frame).
                     0 = old path (every triangle transformed, then rejected). Default 1. Log: [G3CULL] every 300 frames.  [2026-11-04]
