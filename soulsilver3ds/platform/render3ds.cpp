@@ -791,7 +791,7 @@ static void wideBoxOverlay(){wnOverlayDirty=0;static WcPlan plan;static u32 st[6
  unsigned px=0;for(int i=0;i<64*192;i++)if((st[i]&255)==255){P3DS_WideFillBuf[i]=st[i];px++;}
  wnOverlayDirty=px>0;nF++;nL+=n;nPx+=px;if(nF==1||nF%600==0){PSPNativeMemLog("[WIDE] HP box overlay: %u frames, last %d lines, %u strip px (avg lines %u, px %u)",nF,n,px,nL/nF,nPx/nF);}}
 static unsigned wnUs,wnN,wnLay[5];
-static u8 wnUnres[64*192];static void wideNative(){const u64 t0=svcGetSystemTick();
+static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static unsigned wnRestores;static void wideNative(){const u64 t0=svcGetSystemTick();
  const u8*R=(const u8*)PSPNative_GfxRegisters;const u32 dc=*(const u32*)R;const unsigned mode=dc&7;
  const u8*vram=GPU::VRAMFlat_ABG;const u16*pal=(const u16*)GPU::Palette;const u8*ext=GPU::VRAMFlat_ABGExtPal;
  struct L{int on,prio,bpp8,w,h,extSlot,clamp;unsigned charb,mapb,hofs,vofs;u8 per[64][2];u8 src[64][2];};static L Ly[4];int order[4],no=0;
@@ -847,7 +847,10 @@ static u8 wnUnres[64*192];static void wideNative(){const u64 t0=svcGetSystemTick
     const unsigned ty=(l.vofs>>3)+(l.w==32?l.src[r][side]:r);
     for(int k=0;k<pp;k++){unsigned mc=l.w==32?(side?E1-k:E0+k):(side?E1+1+k:E0-1-k);u16 me=ent(l,mc,ty);H(me);
      const u32*t=(const u32*)(vram+((l.charb+(me&0x3FF)*(l.bpp8?64:32))&0x7FFFF));for(int q=0;q<(l.bpp8?16:8);q++)H(t[q]);}}}
-  static u32 lastH;static unsigned skips;if(h==lastH&&!wnOverlayDirty){skips++;wnUs+=(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_USEC);if(++wnN==600){PSPNativeMemLog("[WIDE] wide_menus avg %u us/frame (%u of 600 reused)",wnUs/600,skips);wnUs=wnN=skips=0;}return;}lastH=h;}
+  /* 2026-11-04 (solid-30 fps thread): same inputs but the HP-box overlay drew over last frame's strips: put back the copy kept
+     from the draw that had this hash (what a redraw would give) instead of redrawing (~3 ms a frame in wide battles) */
+  static u32 lastH;static unsigned skips;if(h==lastH&&wnOverlayDirty&&wnCleanOk){memcpy(P3DS_WideFillBuf,wnClean,sizeof wnClean);wnRestores++;wnOverlayDirty=0;}
+  if(h==lastH&&!wnOverlayDirty){skips++;wnUs+=(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_USEC);if(++wnN==600){PSPNativeMemLog("[WIDE] wide_menus avg %u us/frame (%u of 600 reused, %u of them restored under the HP boxes)",wnUs/600,skips,wnRestores);wnUs=wnN=skips=wnRestores=0;}return;}lastH=h;wnCleanOk=0;}
  static u32 lutBg[256];for(int k=0;k<256;k++){u16 cc=pal[k];u32 r=cc&31,g=(cc>>5)&31,b=(cc>>10)&31;lutBg[k]=(((r<<3)|(r>>2))<<24)|(((g<<3)|(g>>2))<<16)|(((b<<3)|(b>>2))<<8)|0xFF;}
  const u32 bd=lutBg[0];
  /* BLDCNT brighten / darken (effect 2/3, BLDY) on the 1st-target layers / backdrop, like the centre. A fade that targets
@@ -871,6 +874,7 @@ static u8 wnUnres[64*192];static void wideNative(){const u64 t0=svcGetSystemTick
   for(int xi=0;xi<32;xi++){wnUnres[y*64+side*32+xi]=!(done&(1u<<xi));if(!(done&(1u<<xi))){o[xi]=bd;lay[xi]=5;}}
   if(bEff){for(int xi=0;xi<32;xi++)if(bc&(1u<<lay[xi])){u32 c=o[xi];unsigned r=c>>24,g=(c>>16)&255,b=(c>>8)&255;
     if(bEff==2){r+=(255-r)*bY/16;g+=(255-g)*bY/16;b+=(255-b)*bY/16;}else{r-=r*bY/16;g-=g*bY/16;b-=b*bY/16;}o[xi]=(r<<24)|(g<<16)|(b<<8)|0xFF;}}}
+ memcpy(wnClean,P3DS_WideFillBuf,sizeof wnClean);wnCleanOk=1;
  wnUs+=(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_USEC);if(++wnN==600){PSPNativeMemLog("[WIDE] wide_menus avg %u us/frame | layers in strips 0:%u 1:%u 2:%u 3:%u 4:%u",wnUs/600,wnLay[0],wnLay[1],wnLay[2],wnLay[3],wnLay[4]);wnUs=wnN=0;memset(wnLay,0,sizeof wnLay);}
 }
 /* run 57 stereo_strength (menu "3D STRENGTH"): 0 = 1x (original, 6 DS px per eye at full slider), 1 = 1.5x, 2 = 2x.

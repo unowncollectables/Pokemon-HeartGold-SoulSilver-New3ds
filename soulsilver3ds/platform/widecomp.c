@@ -136,6 +136,14 @@ int WC_Check(const WcPlan *p, const u8 *R, int have3d) {
 /* returns 0 = something this compositor does not do (the melonDS picture stays); else the picture is written */
 /* ss3ds wide_boxes: when set, a strip pixel is 0xRRGGBBFF only where a sprite is the top layer there, else alpha 0 */
 static int objMark;
+/* 2026-11-04 (solid-30 fps thread): with objMark (WC_ComposeObjStrips) only the 64 strip columns are kept; the centre went to a
+   scratch buffer nobody reads. Every pixel is worked out from its own column only, so skipping the centre columns leaves the
+   strip pixels exactly as before (run 33 log: this compose cost 10-14 ms a frame in stereo battles with wide_boxes). */
+static int stripFast;   /* set only inside WC_ComposeObjStrips */
+#define SKIPC(X) (stripFast && (X) >= 32 && (X) < 288)
+#define NEXTX(X) ((stripFast && (X) == 31) ? 288 : (X) + 1)
+/* a sprite's columns xo that land on the picture (X = xs + xo + 32 in 0..319), only the strip ones with objMark */
+#define XO_LOOP(xo) int xo0_ = -32 - xs, xo1_ = 288 - xs; if (xo0_ < 0) xo0_ = 0; if (xo1_ > bw) xo1_ = bw; if (SKIPC(xs + xo0_ + 32)) xo0_ = 256 - xs;     for (int xo = xo0_; xo < xo1_; xo = (stripFast && xs + xo + 32 == 31) ? 256 - xs : xo + 1)
 static int composeNow(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *center, u32 *strip, const u8 *rowMask) {
     const u32 dc = *(const u32 *)R;
     const int wOn = winOn && (dc & 0xE000);
@@ -157,6 +165,10 @@ static int composeNow(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *center,
         const int cx = x + bw / 2, cy = y + bh / 2;
         for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if (t[0] != 3) continue;
             if (cx >= t[4] && cx < t[5] && cy >= t[2] && cy < t[3]) { sdx[i] = t[6]; sst[i] = t[7] == 1; break; } } }
+    /* objMark: a sprite whose columns never reach a strip cannot change a strip pixel; drop it once here instead of testing it on every line */
+    if (stripFast) { int k = 0; for (int n = 0; n < no; n++) { const int i = ord[n]; const u16 *a = S->oam + i * 4; const unsigned shape = a[0] >> 14, size = a[1] >> 14;
+            const int dbl = (a[0] & 0x300) == 0x300, bw = shape > 2 ? 0 : SPW[shape][size] * (dbl ? 2 : 1); int xs = a[1] & 0x1FF; if (xs >= 256) xs -= 512; xs += sdx[i];
+            if (sst[i] || (xs < 0 && xs + bw > -32) || (xs + bw > 256 && xs < 288)) { ord[k] = ord[n]; spp[k] = spp[n]; k++; } } no = k; }
     /* layers front to back: priority, then sprites before BGs, BG0 before BG3 */
     int lorder[4], nl = 0; for (int pr = 0; pr <= 3; pr++) for (int i = 0; i < 4; i++) if (p->L[i].on && p->L[i].prio == pr) lorder[nl++] = i;
     const int bgBld = eff >= 2 && bY ? (int)(bc & 0x3F) : 0;
@@ -174,7 +186,7 @@ static int composeNow(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *center,
     for (int y = 0; y < 192; y++) { if (wcL) { WC_Prof[3] += WCT() - wcL; wcL = 0; } if (rowMask && !rowMask[y]) continue;
         wcL = WCT(); WC_ProfLines++;
         u32 row[320], row2[320], spr[320]; u8 lay[320], lay2[320], done[320], d2[320], sprPr[320], a3[320], ow[320], wm[320]; if (wOn) memset(ow, 0, sizeof ow); memset(done, 0, sizeof done); memset(d2, 0, sizeof d2); memset(sprPr, 4, sizeof sprPr); memset(spr, 0, sizeof spr);
-        int left = 320; int sx0 = 320, sx1 = 0; /* run 98: span of sprite pixels on this line */
+        int left = stripFast ? 64 : 320; int sx0 = 320, sx1 = 0; /* run 98: span of sprite pixels on this line */
         if (dc & 0x1000) for (int n = no - 1; n >= 0; n--) { /* back to front here: the front sprite is painted last */
             const int i = ord[n]; const u16 *a = S->oam + i * 4; const int aff = (a[0] & 0x100) != 0, dbl = (a[0] & 0x300) == 0x300;
             const unsigned shape = a[0] >> 14, size = a[1] >> 14; if (shape > 2) continue;
@@ -189,16 +201,19 @@ static int composeNow(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *center,
                     tx_ = rx >> 8; ty_ = ry >> 8; if (rx < 0 || ry < 0 || tx_ >= width || ty_ >= height) tx_ = -1; } \
                 else { tx_ = (a[1] & 0x1000) ? width - 1 - (XO) : (XO); ty_ = (a[1] & 0x2000) ? height - 1 - ypos : ypos; if ((XO) >= width) tx_ = -1; } \
                 if (tx_ >= 0 && sprTexel(a, dc, ov, width, tx_, ty_, &ci_)) OUT = bpp8 ? (ext ? toM(*(const u16 *)(S->objext + ((a[2] >> 12) * 256 + ci_) * 2)) : lutO[ci_]) : lutO[(a[2] >> 12) * 16 + ci_]; }
-            if (wOn && ((a[0] >> 10) & 3) == 2) { for (int xo = 0; xo < bw; xo++) { const int X = xs + xo + 32; if (X < 0 || X >= 320) continue; u32 c; SPRCOL(xo, c); if (c) ow[X] = 1; } continue; }
-            for (int xo = 0; xo < bw; xo++) { const int X = xs + xo + 32; if (X < 0 || X >= 320) continue; u32 c; SPRCOL(xo, c); if (c) { spr[X] = c; sprPr[X] = spp[n]; if (X < sx0) sx0 = X; if (X >= sx1) sx1 = X + 1; } }
+            if (wOn && ((a[0] >> 10) & 3) == 2) { XO_LOOP(xo) { const int X = xs + xo + 32; if (X < 0 || X >= 320 || SKIPC(X)) continue; u32 c; SPRCOL(xo, c); if (c) ow[X] = 1; } continue; }
+            { XO_LOOP(xo) { const int X = xs + xo + 32; if (X < 0 || X >= 320 || SKIPC(X)) continue; u32 c; SPRCOL(xo, c); if (c) { spr[X] = c; sprPr[X] = spp[n]; if (X < sx0) sx0 = X; if (X >= sx1) sx1 = X + 1; } } }
             if (sst[i] && !aff && sdx[i]) { /* stretched: the edge column drawn back over the gap it left */
                 const int dx = sdx[i]; u32 c; if (dx > 0) { SPRCOL(0, c); for (int X = xs0 + 32; X < xs0 + dx + 32; X++) if (c && X >= 0 && X < 320) { spr[X] = c; sprPr[X] = spp[n]; if (X < sx0) sx0 = X; if (X >= sx1) sx1 = X + 1; } }
                 else { SPRCOL(bw - 1, c); for (int X = xs + bw + 32; X < xs0 + bw + 32; X++) if (c && X >= 0 && X < 320) { spr[X] = c; sprPr[X] = spp[n]; if (X < sx0) sx0 = X; if (X >= sx1) sx1 = X + 1; } } }
             #undef SPRCOL
         }
         { const unsigned long long n_ = WCT(); WC_Prof[0] += n_ - wcL; wcL = n_; }
+        /* objMark: the caller keeps only strip pixels whose top layer is a sprite, so a strip column with no sprite pixel needs no
+           BG / 3D / backdrop work at all (it comes back with alpha 0 as before) */
+        if (stripFast) for (int X = 0; X < 320; X = NEXTX(X)) if (!spr[X]) { row[X] = 0; lay[X] = 5; done[X] = d2[X] = 1; left--; }
         if (wOn) { const int in0y = (dc & 0x2000) && WIN_IN(y, w0y1, w0y2), in1y = (dc & 0x4000) && WIN_IN(y, w1y1, w1y2);
-            for (int X = 0; X < 320; X++) { const int x = X - 32; u8 c = wco;
+            for (int X = 0; X < 320; X = NEXTX(X)) { const int x = X - 32; u8 c = wco;
                 if (x >= 0 && x < 256) { if (in0y && WIN_IN(x, w0x1, w0x2)) c = wc0; else if (in1y && WIN_IN(x, w1x1, w1x2)) c = wc1; else if ((dc & 0x8000) && ow[X]) c = wcw; }
                 wm[X] = c; } }
         { const unsigned long long n_ = WCT(); WC_Prof[1] += n_ - wcL; wcL = n_; }
@@ -207,12 +222,12 @@ static int composeNow(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *center,
             if (li == 0 || p->L[lorder[li - 1]].prio != l->prio) { for (int pr = (li ? p->L[lorder[li - 1]].prio + 1 : 0); pr <= l->prio; pr++) for (int X = sx0; X < sx1; X++) if (!d2[X] && spr[X] && sprPr[X] == pr && (!wOn || (wm[X] & 16))) { PUT(X, spr[X], 4); spr[X] = 0; } }
             if (!left) break;
             if (L == 0 && (dc & 8)) { /* the 3D layer in BG0's place */
-                for (int s = -32; s < 288; s++) { const int X = s + 32, c = s - p->dx3d; if (d2[X] || c < 0 || c > 255 || (wOn && !(wm[X] & 1))) continue; const u32 v = S->frame3d[y * 256 + c]; if (!(v >> 24)) continue; a3[X] = (u8)((v >> 24) & 31); PUT(X, from3D(v), 0); }
+                for (int s = -32; s < 288; s++) { const int X = s + 32, c = s - p->dx3d; if (SKIPC(X) || d2[X] || c < 0 || c > 255 || (wOn && !(wm[X] & 1))) continue; const u32 v = S->frame3d[y * 256 + c]; if (!(v >> 24)) continue; a3[X] = (u8)((v >> 24) & 31); PUT(X, from3D(v), 0); }
                 continue; }
             const uint8_t ri = p->rowOf[L][y]; short tmp[320]; const short *map; if (ri != 255) map = p->rows[ri]; else { buildRow(p, L, y, tmp); map = tmp; }
             const int py = (int)((y + l->vofs) & (l->h * 8 - 1)); const unsigned ty = (unsigned)(py >> 3) & (l->h - 1); const unsigned fy0 = py & 7;
             int lastT = -1; u16 me = 0; const u8 *trow = 0;
-            for (int X = 0; X < 320; X++) { if (d2[X] || (wOn && !(wm[X] >> L & 1))) continue; const int pc = map[X]; if (pc < 0) continue; const int t = pc >> 3;
+            for (int X = 0; X < 320; X = NEXTX(X)) { if (d2[X] || (wOn && !(wm[X] >> L & 1))) continue; const int pc = map[X]; if (pc < 0) continue; const int t = pc >> 3;
                 if (t != lastT) { lastT = t; const unsigned tx = (unsigned)t & (l->w - 1);
                     const unsigned ma = (l->mapb + ((tx >> 5) + (ty >> 5) * (l->w >> 5)) * 0x800 + ((ty & 31) * 32 + (tx & 31)) * 2) & 0x7FFFF;
                     me = *(const u16 *)(S->bgvram + ma); const unsigned fy = (me & 0x800) ? 7 - fy0 : fy0;
@@ -223,11 +238,11 @@ static int composeNow(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *center,
                 PUT(X, (l->extSlot >= 0 ? toM(*(const u16 *)(S->bgext + l->extSlot * 0x2000 + ((me >> 12) * 256 + ci) * 2)) : lutB[l->bpp8 ? ci : ((me >> 12) * 16 + ci)]), L); } }
         { const unsigned long long n_ = WCT(); WC_Prof[2] += n_ - wcL; wcL = n_; }
         if (left) { /* sprites behind every BG, then the backdrop */
-            for (int X = 0; X < 320; X++) if (!d2[X]) { if (spr[X] && (!wOn || (wm[X] & 16))) PUT(X, spr[X], 4); if (!d2[X]) PUT(X, bd, 5); } }
-        if (!bgBld && !mm && !ab && !(t3 && sm) && !wOn) { memcpy(center + y * 256, row + 32, 256 * 4);
+            for (int X = 0; X < 320; X = NEXTX(X)) if (!d2[X]) { if (spr[X] && (!wOn || (wm[X] & 16))) PUT(X, spr[X], 4); if (!d2[X]) PUT(X, bd, 5); } }
+        if (!bgBld && !mm && !ab && !(t3 && sm) && !wOn) { if (!stripFast) memcpy(center + y * 256, row + 32, 256 * 4);
             for (int X = 0; X < 64; X++) { const u32 c = row[X < 32 ? X : X + 256]; strip[y * 64 + X] = ((c & 255) << 24) | (((c >> 8) & 255) << 16) | (((c >> 16) & 255) << 8) | (objMark && lay[X < 32 ? X : X + 256] != 4 ? 0 : 0xFF); }
             continue; }
-        for (int X = 0; X < 320; X++) { u32 c = row[X];
+        for (int X = 0; X < 320; X = NEXTX(X)) { u32 c = row[X];
             int bl3 = 0; const int fxOk = !wOn || (wm[X] & 32);
             if (!fxOk) bl3 = 1;
             else if (t3 && lay[X] == 0) { if (a3[X] < 31 && (sm >> lay2[X] & 1)) { const u32 c2 = row2[X]; const unsigned ea = a3[X], eb = 32 - a3[X]; bl3 = 1;
@@ -263,7 +278,13 @@ int WC_ComposeObjStrips(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *strip
         if (x + bw <= -32 || x >= 288) continue;
         const int y0 = a[0] & 255; for (int k = 0; k < bh; k++) { const int y = (y0 + k) & 255; if (y < 192 && !mask[y]) { mask[y] = 1; n++; } } }
     if (!n) return 0;
-    objMark = 1; const int ok = composeNow(p, R, S, scratch, strip, mask); objMark = 0;
+    objMark = 1; stripFast = 1; const int ok = composeNow(p, R, S, scratch, strip, mask); stripFast = 0;
+#ifdef WC_VERIFY
+    { static u32 ref[64 * 192]; static unsigned nv, bad; memset(ref, 0, sizeof ref); composeNow(p, R, S, scratch, ref, mask); unsigned d = 0;
+      for (int i = 0; i < 64 * 192; i++) { const int a = (strip[i] & 255) == 255, b = (ref[i] & 255) == 255; if (a != b || (a && strip[i] != ref[i])) d++; }
+      nv++; if (d) bad++; if (d || nv % 100 == 0) { extern void PSPNativeMemLog(const char *, ...); PSPNativeMemLog("[WCVERIFY] %u composes checked, %u differ (this one %u px)", nv, bad, d); } }
+#endif
+    objMark = 0;
     return ok ? n : 0;
 }
 
