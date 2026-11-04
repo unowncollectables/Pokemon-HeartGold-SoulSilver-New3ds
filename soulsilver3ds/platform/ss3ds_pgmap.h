@@ -240,28 +240,48 @@ static int pgWildHit(const SPg &p, int x, int y) {
   const int i = col * rows + row; return i < shown ? wl[i] : 0; }
 /* finder strip hit: 1 = clear (X), 2..5 = time filter 0..3 */
 static int pgFindHit(const SPg &p, int Y0, int x, int y) {
-  if (p.find <= 0) return 0; const int X0 = kBlPanX0 + 2;
-  if (x >= X0 + 2 && x < X0 + 16 && y >= Y0 + 2 && y < Y0 + 13) return 1;
-  if (y >= Y0 + 14 && y < Y0 + 25) { const int i = (x - (X0 + 2)) / 36; if (x >= X0 + 2 && i >= 0 && i < 4) return 2 + i; }
+  if (p.find <= 0) return 0; const int X0 = kBlPanX0 + 2, X1 = kBlPanX1 - 2, tx = X0 + 42, cw = (X1 - tx - 2) / 4;
+  if (x >= X1 - 17 && x < X1 && y >= Y0 && y < Y0 + 16) return 1;
+  if (y >= Y0 + 26 && y < Y0 + 39) { const int i = (x - tx) / cw; if (x >= tx && i >= 0 && i < 4) return 2 + i; }
   return 0; }
 static void pgFindPins(uint32_t *b, const SPg &p, int X0, int X1, int oy) {
   const bool ok = pgTmHave();
   for (int l = 0; l < 100 && l < kPgN; l++) { if (!pgFindAt(l, p.find, p.findTm, ok)) continue; int x, y, w, h; pgSpecRect(l, &x, &y, &w, &h);
     if (pgHiddenAt(p, x * 8 + w * 4, y * 8 + h * 4)) continue; const int px = X0 + x * 8 + w * 4 - p.viewX, py = oy + y * 8 + h * 4; if (px < X0 + 4 || px >= X1 - 4) continue;
     for (int yy = -4; yy <= 4; yy++) for (int xx = -4; xx <= 4; xx++) { const int d = abs(xx) + abs(yy); if (d <= 4) suiPx(b, px + xx, py + yy, d == 4 ? SUI_RGB(255, 255, 255) : d == 3 ? SUI_RGB(120, 16, 16) : SUI_RGB(236, 56, 48)); } } }
+/* run 148: the finder card shows the species' menu icon (HGSS a/0/2/0: member 0 = palettes, member 7 + species = 32x32 4bpp).
+   The per-species palette index lives in ARM9 and is not read, so the icon is drawn as a silver/navy tint of palette 0's brightness. */
+extern "C" int P3DS_RomNarcMember(const char *path, int member, unsigned char *dst, unsigned cap);
+static uint32_t pgFindIco[32 * 32]; static int pgFindIcoSp = -1; static bool pgFindIcoOk;
+static void pgFindIconLoad(int sp) {
+  if (pgFindIcoSp == sp) return; pgFindIcoSp = sp; pgFindIcoOk = false; memset(pgFindIco, 0, sizeof pgFindIco);
+  static uint8_t g[2048], pl[2048]; const int gn = P3DS_RomNarcMember("a/0/2/0", 7 + sp, g, sizeof g), pn = P3DS_RomNarcMember("a/0/2/0", 0, pl, sizeof pl);
+  const uint8_t *c = gn > 0 ? pgSect(g, (uint32_t)gn, "RAHC") : 0, *t = pn > 0 ? pgSect(pl, (uint32_t)pn, "TTLP") : 0;
+  if (c && t) { const uint8_t *C = c + 8 + pgU32(c + 28), *P = t + 8 + pgU32(t + 20);
+    if (pgU32(c + 24) >= 16 * 32 && C + 16 * 32 <= g + gn && P + 32 <= pl + pn) { int lum[16]; for (int i = 0; i < 16; i++) { const uint16_t k = pgU16(P + 2 * i); lum[i] = ((k & 31) * 30 + (k >> 5 & 31) * 59 + (k >> 10 & 31) * 11) / 100; }
+      for (int tl = 0; tl < 16; tl++) for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) { const int v = C[tl * 32 + y * 4 + x / 2] >> (4 * (x & 1)) & 15;
+        if (v) { const int l = lum[v] > 31 ? 31 : lum[v]; pgFindIco[((tl / 4) * 8 + y) * 32 + (tl % 4) * 8 + x] = suiMix(SUI_RGB(30, 40, 84), SUI_RGB(250, 250, 255), l, 31) | 0xFF000000u; } }
+      pgFindIcoOk = true; } }
+  PSPNativeMemLog("[FIND] icon sp=%d file %d bytes pal %d bytes -> %s", sp, gn, pn, pgFindIcoOk ? "ok" : "missing (card has no sprite)"); }
+/* card: sprite box left, name + count, X top right, time chips below (hit: pgFindHit) */
+enum { kPgFindH = 40 };
 static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, int Y0, int X1) {
-  const uint32_t ink = SUI_RGB(255, 255, 255), bar = SUI_RGB(30, 48, 96);
-  for (int y = Y0; y < Y0 + 26; y++) for (int x = X0; x < X1 - (y < Y0 + 14 ? 42 : 0); x++) suiPx(b, x, y, y == Y0 + 25 || y == Y0 + 13 ? SUI_RGB(120, 140, 190) : bar);
-  for (int y = Y0 + 2; y < Y0 + 13; y++) for (int x = X0 + 2; x < X0 + 16; x++) suiPx(b, x, y, SUI_RGB(200, 60, 52));
-  T.draw(b, X0 + 6, Y0 + 3, "X", ink, SUI_RGB(200, 60, 52));
-  char t[48]; const int n = pgFindCount(p); snprintf(t, sizeof t, "%s  %d", kP3dsSpecies[p.find], n); int k = (int)strlen(t);
-  const int room = (X1 - X0) - 18 - 44; while (k > 3 && T.width(t) > room) t[--k] = 0;
-  T.draw(b, X0 + 19, Y0 + 3, t, ink, bar);
-  const int now = pgTimeNow(), have = pgTmHave();
-  for (int i = 0; i < 4; i++) { const int x0 = X0 + 2 + i * 36; const bool on = p.findTm == i, dim = i > 0 && !have;
-    for (int y = Y0 + 14; y < Y0 + 25; y++) for (int x = x0; x < x0 + 34; x++) suiPx(b, x, y, on ? SUI_RGB(246, 214, 96) : SUI_RGB(70, 90, 140));
-    T.draw(b, x0 + 3, Y0 + 15, kPgFindTm[i], on ? bar : dim ? SUI_RGB(140, 150, 180) : ink, on ? SUI_RGB(246, 214, 96) : SUI_RGB(70, 90, 140));
-    if (i == now) for (int x = x0 + 2; x < x0 + 32; x++) suiPx(b, x, Y0 + 24, SUI_RGB(120, 230, 140)); } }
+  const uint32_t ink = SUI_RGB(255, 255, 255), bar = SUI_RGB(30, 48, 96), edge = SUI_RGB(190, 198, 218), chip = SUI_RGB(70, 90, 140), gold = SUI_RGB(246, 214, 96);
+  for (int y = Y0; y < Y0 + kPgFindH; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, y == Y0 + kPgFindH - 1 || y == Y0 ? edge : suiMix(SUI_RGB(44, 66, 122), bar, y - Y0, kPgFindH));
+  pgFindIconLoad(p.find);
+  for (int y = 0; y < 34; y++) for (int x = 0; x < 34; x++) suiPx(b, X0 + 3 + x, Y0 + 3 + y, x == 0 || y == 0 || x == 33 || y == 33 ? edge : SUI_RGB(20, 32, 70));
+  if (pgFindIcoOk) for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) { const uint32_t c = pgFindIco[y * 32 + x]; if (c >> 24) suiPx(b, X0 + 4 + x, Y0 + 4 + y, c & 0xFFFFFF); }
+  const int tx = X0 + 42; const int n = pgFindCount(p);
+  for (int y = Y0 + 3; y < Y0 + 14; y++) for (int x = X1 - 15; x < X1 - 3; x++) suiPx(b, x, y, SUI_RGB(200, 60, 52));
+  T.draw(b, X1 - 12, Y0 + 4, "X", ink, SUI_RGB(200, 60, 52));
+  char t[48]; snprintf(t, sizeof t, "%s", kP3dsSpecies[p.find]); int k = (int)strlen(t); const int room = X1 - 18 - tx; while (k > 3 && T.width(t) > room) t[--k] = 0;
+  T.draw(b, tx, Y0 + 4, t, ink, SUI_RGB(44, 66, 122));
+  char cn[32]; snprintf(cn, sizeof cn, n == 1 ? "1 place" : "%d places", n); T.draw(b, tx, Y0 + 15, cn, n ? gold : SUI_RGB(200, 160, 160), SUI_RGB(38, 58, 110));
+  const int now = pgTimeNow(), have = pgTmHave(), cw = (X1 - tx - 2) / 4;
+  for (int i = 0; i < 4; i++) { const int x0 = tx + i * cw; const bool on = p.findTm == i, dim = i > 0 && !have;
+    for (int y = Y0 + 27; y < Y0 + 38; y++) for (int x = x0; x < x0 + cw - 2; x++) suiPx(b, x, y, on ? gold : chip);
+    T.draw(b, x0 + 3, Y0 + 28, kPgFindTm[i], on ? bar : dim ? SUI_RGB(140, 150, 180) : ink, on ? gold : chip);
+    if (i == now) for (int x = x0 + 2; x < x0 + cw - 4; x++) suiPx(b, x, Y0 + 37, SUI_RGB(120, 230, 140)); } }
 
 /* draw the map into the panel interior (X0,Y0)-(X1,Y1); the view follows the player's location unless panned */
 static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int viewX); /* ss3ds_pgextra.h: phone contact pins */
