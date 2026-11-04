@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Battle entry no longer stalls with Sharp 3D = FAST AUTO (run 148 log)
+- With the 3D slider up, every battle and every return to the field retried the 2x left eye and ran ~2 s at 18-20 fps before FAST AUTO dropped to 1x (no GPU 3D direct at 2x; the battle intro then fell back to the 14 ms CPU composite). Scenes that could not hold 2x now stay 1x for the session; once a battle could not, battles start at 1x; after two such scenes, all do. Log `[3DRES] FAST AUTO: scene changed, staying 1x`.
+
 ### Faster 3D in towns and with the 3D slider (solid-30 fps thread, emulator-measured)
 - Direct screen (`gc_direct`, Display tab "Direct screen", default ON; docs/SPEEDUPS.md stage 2): a GPU-composed field frame (mono, or both eyes with the 3D slider up) stays on the GPU and the screen scaler samples it, so the readback transfer, its wait, the CPU colour pass and the re-upload are gone. Anything on the CPU that reads or draws on the picture (toasts, save box, prompts, celebrations, display capture, dumps, wide fill/haze, the party-panel field hold) fetches it first, exactly as before; the fps counter is drawn by the GPU. Master-brightness fades, menus and battles keep the old path. Pixel-identical in Azahar with it on and off (mono and both eyes); Goldenrod composite 3.3 -> 1.1 ms (mono), 5.9 -> 2.1 ms (slider up), slider-up fps 25 -> 27. Log: `[GPUC] direct screen: ...` every 300 frames.
 - Tab swap out of an app in the panel (BAG/PARTY -> PHONE etc.): the top showed the Bag's own top screen and its fade to black for ~1 s, and the panel went blank. The held field stays on top and the panel keeps the frozen app picture until the new tab is up.
