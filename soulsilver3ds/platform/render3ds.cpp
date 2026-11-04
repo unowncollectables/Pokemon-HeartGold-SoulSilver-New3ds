@@ -1471,20 +1471,20 @@ static void drawDmgPage(u32*b,const int*d,int pgNo){
  gtxt(b,246-gw(who),26,who,ms>fsp?SUI_RGB(96,232,128):ms<fsp?SUI_RGB(255,120,96):kCGold,kCSh);
  for(int k=0;k<4;k++){const int y0=50+k*27,id=d[18+k],ty=d[22+k],pw=d[26+k];cPanel(b,4,y0,252,y0+25);
   if(id<=0||id>=468){gtxt(b,10,y0+3,"-",kCDim,kCSh);continue;}
-  gtxt(b,10,y0+3,kP3dsMove[id],kCTx,kCSh);
-  if(pw<=0||ty>=18){gtxt(b,130,y0+3,"no damage",kCDim,kCSh);continue;}
-  if(pw==1){gtxt(b,130,y0+3,"varies",kCDim,kCSh);continue;}
+  gtxt(b,10,y0+1,kP3dsMove[id],kCTx,kCSh);
+  if(pw<=0||ty>=18){gtxt(b,130,y0+1,"no damage",kCDim,kCSh);continue;}
+  if(pw==1){gtxt(b,130,y0+1,"varies",kCDim,kCSh);continue;}
   const bool phys=ty<9;const int A=phys?d[3]/((d[6]&0x10)?2:1):d[4];int D=phys?d[10]:d[11];
   const int t1=d[14],t2=d[15];int m=hintMult(ty,t1)*(t2<18&&t2!=t1?hintMult(ty,t2):2);/* x4 units */
-  if(m==0){gtxt(b,130,y0+3,"NO EFFECT",SUI_RGB(160,160,160),kCSh);continue;}
+  if(m==0){gtxt(b,130,y0+1,"NO EFFECT",SUI_RGB(160,160,160),kCSh);continue;}
   if(D<1)D=1;int base=((2*d[2]/5+2)*pw*A/D)/50+2;
   const bool stab=ty==d[7]||ty==d[8];if(stab)base=base*3/2;
   const int hi=base*m/4,lo=hi*85/100;const int hp=d[13];
-  snprintf(l,sizeof l,"%d-%d",lo,hi);gtxt(b,130,y0+3,l,kCTx,kCSh);
+  snprintf(l,sizeof l,"%d-%d",lo,hi);gtxt(b,130,y0+1,l,kCTx,kCSh);
   const int pl=hp>0?lo*100/hp:0,ph=hp>0?hi*100/hp:0;
-  snprintf(l,sizeof l,"%d-%d%% of its HP",pl>999?999:pl,ph>999?999:ph);gtxt(b,10,y0+14,l,kCDim,kCSh);
+  snprintf(l,sizeof l,"%d-%d%% of its HP",pl>999?999:pl,ph>999?999:ph);gtxt(b,10,y0+11,l,kCDim,kCSh);
   const char*e=lo>=hp?"KO!":hi>=hp?"may KO":m>4?(m>8?"x4":"x2"):m<4?(m<2?"x1/4":"x1/2"):"";
-  if(*e)gtxt(b,246-gw(e),y0+14,e,lo>=hp||hi>=hp?SUI_RGB(255,120,96):m>4?SUI_RGB(96,232,128):kCGold,kCSh);}
+  if(*e)gtxt(b,246-gw(e),y0+11,e,lo>=hp||hi>=hp?SUI_RGB(255,120,96):m>4?SUI_RGB(96,232,128):kCGold,kCSh);}
  gtxt(b,128-gw("Rough: no crits, items, abilities, priority")/2,161,"Rough: no crits, items, abilities, priority",kCDim,kCSh);
  gtxt(b,128-gw("Left/Right: page   B: close")/2,177,"Left/Right: page   B: close",kCDim,kCSh);
 }
