@@ -4,6 +4,12 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Faster 3D in towns and with the 3D slider (solid-30 fps thread, emulator-measured)
+- Off-screen skip (`g3_batchcull`, 3D tab "Off-screen skip", default ON): every raw 3D batch, and every run of 16 triangles in it, gets a bounding box; a box wholly outside one clip plane is skipped before any vertex is transformed. Goldenrod sent ~7,200 off-screen triangles a frame against ~770 drawn, each one transformed and then rejected; ~5,500 of them are now never touched. Exact (a box outside a plane means every triangle in it was rejected anyway). Log `[G3CULL]` every 300 frames.
+- 3D slider up: both eyes of a raw triangle are written in one pass (`G3G_TriClip2`); depth, parallax, uv and colour are worked out once instead of per eye. Same vertices.
+- Vertex colours use a 256-entry table instead of 4 divides per vertex (bit-identical floats).
+- Azahar, Nathan's Goldenrod save, his config.txt: mono 26.1 -> 29.3 fps (37.3 -> 33.3 ms, now waiting on VBlank), 3D slider up 21.0 -> 25.0 fps (game+3D work 36.2 -> 28.8 ms). Hardware untested.
+
 ### Clipped page footers (run 147, not compiled; found in the emulator)
 - Hunt stats (ZR): the Bottom menu icon overlay (side column, bottom border strip) stayed on top of the page and cut off the right edge and the footer; the page now clears the overlay while open (`P3DS_OvN=0`, same as the settings screen).
 - Wild foe page 1 (Y in battle): legend and footer sat at the screen's bottom edge and were cut off; rows are 14 px apart now, legend at y 155, footer at y 177 like the other pages.

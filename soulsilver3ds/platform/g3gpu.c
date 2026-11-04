@@ -419,9 +419,14 @@ static B *batchFor(int eye, void *tex, int repS, int repT, int flipS, int flipT,
 }
 /* Raw-mode triangle in DS clip space (x,y,z,w per vertex), normalised uv: GPU does the divide, so texturing is
    perspective-correct and clipping is done in hardware. shiftPx: per-eye stereo shift in DS pixels per vertex. */
+/* 2026-11-04 (solid-30 fps thread): i/255.0f as a table. The per-vertex colour divides (4 VDIVs, ~15 cycles each on the VFP11)
+   were a visible part of GpuRaw; the table holds exactly the same floats, so the vertices are bit-identical. */
+static float k255[256];
+static inline const float *lut255(void) { if (k255[255] == 0.0f) for (int i = 0; i < 256; i++) k255[i] = i / 255.0f; return k255; }
 void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                  int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shiftPx) {
     B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend); if (!last) return;
+    const float *L = lut255();
     for (int k = 0; k < 3; k++) {
         V *o = &vb[eye][vn[eye]++]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
         o->x = x + (shiftPx ? shiftPx[k] / 128.0f * w : 0); if (wideFrame) o->x *= 0.8f;
@@ -429,20 +434,39 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
         o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
         if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w;   /* g3_wdepth: W-buffer mode wants the undivided depth (-d) */
         o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k];
-        u32 cc = col[k]; o->r = (cc & 255) / 255.0f; o->g = ((cc >> 8) & 255) / 255.0f; o->b = ((cc >> 16) & 255) / 255.0f; o->a = (cc >> 24) / 255.0f;
+        u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
     }
     last->count += 3;
+}
+/* 2026-11-04 (solid-30 fps thread): both eyes of a stereo raw triangle in one pass. Same values as two G3G_TriClip calls (only x
+   differs between the eyes), but y, z, uv and colour are worked out once instead of twice. */
+void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *col, void *tex,
+                  int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shL, const float *shR) {
+    B *l0 = batchFor(0, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend), *l1 = batchFor(1, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend);
+    if (!l0 || !l1) { if (l0) { G3G_TriClip(0, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shL); } if (l1) G3G_TriClip(1, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shR); return; }
+    const float *L = lut255();
+    for (int k = 0; k < 3; k++) {
+        V *o = &vb[0][vn[0]++], *q = &vb[1][vn[1]++]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
+        o->x = x + shL[k] / 128.0f * w; q->x = x + shR[k] / 128.0f * w; if (wideFrame) { o->x *= 0.8f; q->x *= 0.8f; }
+        o->y = hiFrame ? (G3G_FlipY ? y : -y) : G3G_FlipY ? (0.25f * w + 0.75f * y) : (-0.25f * w - 0.75f * y);
+        o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
+        if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w;
+        o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k];
+        u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
+        q->y = o->y; q->z = o->z; q->w = w; q->s = o->s; q->t = o->t; q->r = o->r; q->g = o->g; q->b = o->b; q->a = o->a;
+    }
+    l0->count += 3; l1->count += 3;
 }
 /* v: 3 x {sx, sy, z(0..65535), u(texels), v(texels), color RGBA8 as u32 R|G<<8|B<<16|A<<24} */
 void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const float *su, const float *sv, const u32 *col,
              void *tex, unsigned tw, unsigned th, int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest) {
     B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, 0); if (!last) return;
-    float itw = tw ? 1.0f / tw : 0, ith = th ? 1.0f / th : 0;
+    float itw = tw ? 1.0f / tw : 0, ith = th ? 1.0f / th : 0; const float *L = lut255();
     for (int k = 0; k < 3; k++) {
         V *o = &vb[eye][vn[eye]++]; float z = sz[k] / 65535.0f; if (z < 0) z = 0; if (z > 1) z = 1;
         o->x = wideFrame ? (sx[k] + 32.0f) / 160.0f - 1.0f : sx[k] / 128.0f - 1.0f; o->y = (G3G_FlipY ? 192.0f - sy[k] : sy[k]) / (hiFrame ? 96.0f : 128.0f) - 1.0f; o->z = G3G_ZInv ? z - 1.0f : -z; o->w = 1.0f;
         o->s = su[k] * itw; o->t = G3G_TexFlip ? sv[k] * ith : 1.0f - sv[k] * ith;  /* run 17: billboards were upside down with 1-v */
-        u32 c = col[k]; o->r = (c & 255) / 255.0f; o->g = ((c >> 8) & 255) / 255.0f; o->b = ((c >> 16) & 255) / 255.0f; o->a = (c >> 24) / 255.0f;
+        u32 c = col[k]; o->r = L[c & 255]; o->g = L[(c >> 8) & 255]; o->b = L[(c >> 16) & 255]; o->a = L[c >> 24];
     }
     last->count += 3;
 }
