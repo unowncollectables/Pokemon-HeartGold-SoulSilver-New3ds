@@ -1542,8 +1542,9 @@ static void runCatch(const u32*top,int mode,bool gpu){
   gtxt(bimg,128-gw("Quick=turn 1  Dusk=night/cave  Net=Water/Bug")/2,172,"Quick=turn 1  Dusk=night/cave  Net=Water/Bug",kCDim,kCSh);
   if(npg>1)gtxt(bimg,128-gw("Left/Right: more pages   B: close")/2,182,"Left/Right: more pages   B: close",kCDim,kCSh);else gtxt(bimg,128-gw("B: close")/2,184-2,"B: close",kCDim,kCSh);};
  draw();
- u32 held=hidKeysHeld();bool tPrev=true;
+ u32 held=hidKeysHeld();bool tPrev=true;bool zrPrev=true;/* ZR from our own held history: hidKeysDown() can miss ZR (see psp_ctru.c) */
  while(aptMainLoop()){hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
+  const bool zrEdge=(kh&KEY_ZR)&&!zrPrev;zrPrev=(kh&KEY_ZR)!=0;if(zrEdge)kd|=KEY_B;
   const bool tNow=(kh&KEY_TOUCH)!=0;const bool tap=tNow&&!tPrev;tPrev=tNow;
   if(kd&(KEY_B|KEY_A|KEY_Y|KEY_START))break;
   if(npg>1){int np=pg;if(kd&(KEY_RIGHT|KEY_R|KEY_DRIGHT))np=(pg+1)%npg;if(kd&(KEY_LEFT|KEY_L|KEY_DLEFT))np=(pg+npg-1)%npg;if(tap)np=(pg+1)%npg;
@@ -1628,8 +1629,9 @@ static void runHuntStats(const u32*top,int mode,bool gpu){
  const size_t PX=256*192;u32*img=(u32*)malloc(PX*4*2);if(!img)return;u32*bimg=img+PX;memcpy(img,top,PX*4);
  int pg=0;P3DS_MenuOpen=1;u64 t0=svcGetSystemTick();
  huntStatsDraw(bimg,pg);PSPNativeMemLog("[HSTAT] stats page opened");
- u32 held=hidKeysHeld();bool tPrev=true;
+ u32 held=hidKeysHeld();bool tPrev=true;bool zrPrev=true;/* ZR from our own held history: hidKeysDown() can miss ZR (see psp_ctru.c) */
  while(aptMainLoop()){hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
+  const bool zrEdge=(kh&KEY_ZR)&&!zrPrev;zrPrev=(kh&KEY_ZR)!=0;if(zrEdge)kd|=KEY_B;
   const bool tNow=(kh&KEY_TOUCH)!=0;const bool tap=tNow&&!tPrev;tPrev=tNow;
   if(kd&(KEY_B|KEY_A|KEY_Y|KEY_START))break;
   int np=pg;
