@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Clipped page footers (run 147, not compiled; found in the emulator)
+- Hunt stats (ZR): the Bottom menu icon overlay (side column, bottom border strip) stayed on top of the page and cut off the right edge and the footer; the page now clears the overlay while open (`P3DS_OvN=0`, same as the settings screen).
+- Wild foe page 1 (Y in battle): legend and footer sat at the screen's bottom edge and were cut off; rows are 14 px apart now, legend at y 155, footer at y 177 like the other pages.
+- Emulator pass 2026-11-04 on the build of 2026-11-03 17:40: PHONE/RADIO/PARTY/BAG/EGGS tabs and tab swaps, Pokedex finder pins and MORN/DAY/NITE chips, Trainer card open/flip/close, hunt stats pages, foe info, damage page, Slowpoke Well all work.
+
 ### Stray Trainer card taps (not compiled, untested)
 - The game gets no touch from the moment our tiles/panel/menu request let go until the finger has lifted plus ~0.4 s (`P3DS_TouchRead`, log `[3DS] touch hand-off guard`), so the tap that ends one of our screens cannot land on the game's own Start menu / Trainer card.
 - A tile tap only counts if the finger lifts on the same tile it landed on (log `[BMENU] run 148: touch landed on ... ignored`), so a slide or sloppy landing next to the Pokegear/Save tile no longer opens the Trainer card.

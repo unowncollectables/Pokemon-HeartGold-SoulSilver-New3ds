@@ -1525,7 +1525,7 @@ static void runCatch(const u32*top,int mode,bool gpu){
   if(isDmg(pg)){drawDmgPage(bimg,dm,pg+1);return;}
   if(trainer){drawFoePage(bimg,fo,pg);return;}
   if(huntPg&&pg==1){drawHuntPage(bimg,c[1]);return;}
-  const int sp=c[1],ab=c[6];int y=24;const int dy=15;
+  const int sp=c[1],ab=c[6];int y=24;const int dy=14; /* run 148: 14 (was 15) so the legend and footer fit above the screen bottom */
   snprintf(l,sizeof l,"WILD %s",sp>0&&sp<494?kP3dsSpec[sp]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
   cBack(bimg,l,c[16]?"CAUGHT BEFORE":"NEW");cPanel(bimg,4,24,252,172);y=26;
   snprintf(l,sizeof l,"Lv%d   %s",c[2],nat[c[7]%25]);gtxt(bimg,10,y,l,kCGold,kCSh);if(c[18])gtxt(bimg,246-gw("SHINY!"),y,"SHINY!",SUI_RGB(255,120,96),kCSh);y+=dy;
@@ -1539,8 +1539,8 @@ static void runCatch(const u32*top,int mode,bool gpu){
   snprintf(l,sizeof l,"Quick %d%%  Timer %d%%  Nest %d%%",odds(c[17]<1?40:10),odds(tm),odds(c[2]<30?40-c[2]:10));gtxt(bimg,10,y,l,kCTx,kCSh);y+=dy;
   snprintf(l,sizeof l,"Dusk %d%%  Net %d%%",odds(35),odds(30));gtxt(bimg,10,y,l,kCTx,kCSh);
   if(P3DS_CfgInt("hunt_counter",0)){snprintf(l,sizeof l,"Met %d times",P3DS_HuntCount(sp));gtxt(bimg,246-gw(l),y,l,kCDim,kCSh);}
-  gtxt(bimg,128-gw("Quick=turn 1  Dusk=night/cave  Net=Water/Bug")/2,172,"Quick=turn 1  Dusk=night/cave  Net=Water/Bug",kCDim,kCSh);
-  if(npg>1)gtxt(bimg,128-gw("Left/Right: more pages   B: close")/2,182,"Left/Right: more pages   B: close",kCDim,kCSh);else gtxt(bimg,128-gw("B: close")/2,184-2,"B: close",kCDim,kCSh);};
+  gtxt(bimg,128-gw("Quick=turn 1  Dusk=night/cave  Net=Water/Bug")/2,155,"Quick=turn 1  Dusk=night/cave  Net=Water/Bug",kCDim,kCSh);
+  if(npg>1)gtxt(bimg,128-gw("Left/Right: more pages   B: close")/2,177,"Left/Right: more pages   B: close",kCDim,kCSh);else gtxt(bimg,128-gw("B: close")/2,177,"B: close",kCDim,kCSh);};
  draw();
  u32 held=hidKeysHeld();bool tPrev=true;bool zrPrev=true;/* ZR from our own held history: hidKeysDown() can miss ZR (see psp_ctru.c) */
  while(aptMainLoop()){hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
@@ -1627,8 +1627,8 @@ static void huntStatsDraw(u32*b,int pg){
 }
 static void runHuntStats(const u32*top,int mode,bool gpu){
  const size_t PX=256*192;u32*img=(u32*)malloc(PX*4*2);if(!img)return;u32*bimg=img+PX;memcpy(img,top,PX*4);
- int pg=0;P3DS_MenuOpen=1;u64 t0=svcGetSystemTick();
- huntStatsDraw(bimg,pg);PSPNativeMemLog("[HSTAT] stats page opened");
+ int pg=0;P3DS_MenuOpen=1;P3DS_OvN=0; /* run 148: the Bottom menu icon overlay (side column, bottom border strip) was left on top and clipped the page footer */
+ u64 t0=svcGetSystemTick();huntStatsDraw(bimg,pg);PSPNativeMemLog("[HSTAT] stats page opened");
  u32 held=hidKeysHeld();bool tPrev=true;bool zrPrev=true;/* ZR from our own held history: hidKeysDown() can miss ZR (see psp_ctru.c) */
  while(aptMainLoop()){hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
   const bool zrEdge=(kh&KEY_ZR)&&!zrPrev;zrPrev=(kh&KEY_ZR)!=0;if(zrEdge)kd|=KEY_B;
