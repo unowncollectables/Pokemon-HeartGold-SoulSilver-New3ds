@@ -270,3 +270,30 @@ void P3DS_RomSpikeFiles(char *out, unsigned n) {
     spkN = 0; spkAll = 0;
 }
 void P3DS_RomSpikeReset(void) { spkN = 0; spkAll = 0; }
+
+/* run 148 (Pokedex finder sprite): read one member of a NARC in the ROM by path (e.g. "a/0/2/0") straight from the SD ROM copy.
+   Read-only, small (<= cap bytes), render thread, called once per species and cached by the caller. Returns the size or 0. */
+static int fntDirFind(unsigned d, const char *nm, unsigned nl, int wantDir, u32 *out) {
+    if (d * 8 + 8 > fntLen) return 0; u32 o = rd32(d * 8); u32 id = rd16(d * 8 + 4);
+    while (o < fntLen) { u8 t = fnt[o++]; if (!t) break; unsigned l = t & 0x7F; if (o + l > fntLen) break; int isD = (t & 0x80) != 0; u32 sub = 0;
+        if (isD) { if (o + l + 2 > fntLen) break; sub = rd16(o + l); }
+        if (l == nl && !memcmp(fnt + o, nm, nl) && isD == wantDir) { *out = isD ? (sub & 0xFFF) : id; return 1; }
+        if (isD) o += l + 2; else { id++; o += l; } }
+    return 0;
+}
+int P3DS_RomNarcMember(const char *path, int member, unsigned char *dst, unsigned cap) {
+    if (!fatSt) fatLoad(); if (fatSt != 1 || !path || !dst) return 0;
+    unsigned d = 0; u32 fid = 0; const char *p = path;
+    for (;;) { const char *e = strchr(p, '/'); unsigned l = e ? (unsigned)(e - p) : (unsigned)strlen(p); u32 r;
+        if (!l || !fntDirFind(d, p, l, e != NULL, &r)) return 0; if (!e) { fid = r; break; } d = r; p = e + 1; }
+    if (fid >= fatN) return 0; const u32 fs = fat[fid * 2], fe = fat[fid * 2 + 1]; if (fe <= fs + 0x30) return 0;
+    FILE *f = fopen("sdmc:/3ds/soulsilver3ds/soulsilver.nds", "rb"); if (!f) return 0; int ret = 0;
+    u32 h[8]; u32 fb[2]; u32 gm;
+    do { if (fseek(f, (long)fs, SEEK_SET) || fread(h, 4, 8, f) != 8 || memcmp(h, "NARC", 4) || memcmp(&h[4], "BTAF", 4)) break;
+         const u32 fatbSz = h[5]; const u32 cnt = (u32)(h[6] & 0xFFFF); if (member < 0 || (u32)member >= cnt) break;
+         if (fseek(f, (long)(fs + 0x10 + 12 + (u32)member * 8), SEEK_SET) || fread(fb, 4, 2, f) != 2) break;
+         u32 nh[2]; if (fseek(f, (long)(fs + 0x10 + fatbSz), SEEK_SET) || fread(nh, 4, 2, f) != 2 || memcmp(nh, "BTNF", 4)) break;
+         gm = fs + 0x10 + fatbSz + nh[1] + 8; const u32 n = fb[1] - fb[0]; if (!n || n > cap) break;
+         if (fseek(f, (long)(gm + fb[0]), SEEK_SET) || fread(dst, 1, n, f) != n) break; ret = (int)n; } while (0);
+    fclose(f); return ret;
+}
