@@ -1796,7 +1796,7 @@ static int Present(bool){
  bool gcDone=false,gcStR=false;static unsigned gcStN;{static unsigned gsl;if(gcSt&&++gsl%600==0){PSPNativeMemLog("[GPUC] stereo: %u of last 600 stereo-eligible frames GPU-composed for both eyes",gcStN);gcStN=0;}}
  if(gcOK){if(!async)for(unsigned line=0;line<192;line++){GPU::VCount=line;engineB.CheckWindows(line);renderer.DrawSprites(line,&engineB);renderer.DrawScanline(line,&engineB);}
   {if(gHoldLazy){if(P3DS_PanelPartyWant||P3DS_PanelPartyOn)holdSync();gHoldLazy=0;}
-   gDfDec=gcDirectCfg()&&(!stereo||gcSt)&&P3DS_InField&&(power&0x8000)&&P3DS_ScaleMode()!=0&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!P3DS_MenuOpen&&P3DS_CfgInt("g3_sharp",0)!=4;P3DS_GcDeferOut=gDfDec;
+   gDfDec=gcDirectCfg()&&(!stereo||gcSt)&&(P3DS_InField||P3DS_InBattle)&&(power&0x8000)&&P3DS_ScaleMode()!=0&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!P3DS_MenuOpen&&P3DS_CfgInt("g3_sharp",0)!=4;P3DS_GcDeferOut=gDfDec;
    const u64 tq=svcGetSystemTick();P3DS_GcEye(0,gcSt);gcDone=gcCompose(display[0]);P3DS_GcDeferOut=0;pfT[PF_GCL]+=svcGetSystemTick()-tq;pfU[PU_LB]+=P3DS_GcBeginUs;pfU[PU_LE]+=P3DS_GcEndUs;pfU[PU_LS]+=P3DS_GcSyncUs;}if(gcDone)gcUsed++;line0Done=true;
   if(gcDone&&gcSt){const u8*regsR=(const u8*)PSPNative_GfxRegisters;
    /* run 17: outside the overworld the right eye's BG layers get depth by priority (stereo_2d, same rule as the CPU path above): shift their H scroll in a register copy */
@@ -1916,7 +1916,7 @@ static int Present(bool){
      picture's edge pixel of that row (DS x 0 / 255) instead of the backdrop (often black) */
   /* run 18b: rows whose strip does not continue the picture (no layer covered it, or its inner pixel differs from the
      picture's edge) take wide_fill's mirrored, softened edge instead (the earlier edge-pixel clamp made flat bands) */
-  if(P3DS_InWideKind>0&&!P3DS_InBattle){static u32 keep[64*192];static u8 bad[2*192];const u32*C=display[0];
+  if(P3DS_InWideKind>0&&!P3DS_InBattle){topTouch();static u32 keep[64*192];static u8 bad[2*192];const u32*C=display[0];
    for(int y=0;y<192;y++)for(int side=0;side<2;side++){const u32 c=C[y*256+(side?255:0)];const u32 v=((c&255)<<24)|(((c>>8)&255)<<16)|(((c>>16)&255)<<8)|0xFF;
     const u32 n=P3DS_WideFillBuf[y*64+side*32+(side?0:31)];const int d=abs((int)(n>>24)-(int)(v>>24))+abs((int)((n>>16)&255)-(int)((v>>16)&255))+abs((int)((n>>8)&255)-(int)((v>>8)&255));
     bool u=d>48;for(int x=0;x<32&&!u;x++)u=wnUnres[y*64+side*32+x];bad[side*192+y]=u;}
