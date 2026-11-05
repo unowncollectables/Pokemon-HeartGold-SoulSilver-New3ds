@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Flash lights dark caves again
+- Using Flash in a dark cave (Cerulean Cave tested) turned the whole screen black. The game keeps its black darkness fog registers after Flash (weather FLASH_2) but removes the 2D darkness layer and the light sphere; the port's 3D fog then covered the whole cave. Frames with that full black fog while the weather is FLASH_2 now skip the fog (g3gpu.c, weather from `SS3DS_FieldWeather` in ss3ds_glue.c). Before Flash nothing changes. Log `[GPU3D] Flash used (weather FLASH_2): dark-cave fog skipped`.
+- Deferred translucent batches (non-raw 3D path) now keep their own polygon fog bit when they are replayed.
+- Checked in Azahar: Cerulean Cave before Flash (small lit circle, as before) and after Flash (cave lit, wild Pokemon visible).
+
 ### Audio: bit-exact DS sound chip math
 - Channel volume, pan and pitch now use the DS sound chip's own integer math (melonDS / GBATEK): volume was rounded to a ~10-bit scale (quiet notes, echo tracks and fade-outs up to ~30% off) and pitch was a 12-bit ratio up to ~2 cents off (unison parts drifted against each other). Host test: output identical to the DS formula, sample for sample. Patch 0222.
 - The DS master volume is honoured (Hall of Fame fades).
