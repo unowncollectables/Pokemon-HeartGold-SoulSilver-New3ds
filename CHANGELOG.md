@@ -4,6 +4,12 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Audio: bit-exact DS sound chip math
+- Channel volume, pan and pitch now use the DS sound chip's own integer math (melonDS / GBATEK): volume was rounded to a ~10-bit scale (quiet notes, echo tracks and fade-outs up to ~30% off) and pitch was a 12-bit ratio up to ~2 cents off (unison parts drifted against each other). Host test: output identical to the DS formula, sample for sample. Patch 0222.
+- The DS master volume is honoured (Hall of Fame fades).
+- Steady tempo: the playback clock used to ride 1-6% faster/slower all the time to keep its buffer; it now stays at exactly 100% unless the buffer gets really low or high.
+- Note: the music dipping near the sea, waterfalls, windmills etc. is the original game (HGSS "sound plates" lower the BGM to 3/4, 1/2 or 1/4 near the source).
+
 ### Visible wild Pokemon spacing
 - Patch 0221: visible wild Pokemon no longer spawn on or walk onto NPCs, the player or the follower (they were drawn on a trainer's head), and they keep a free tile between each other, so pairs and groups no longer clump into one spot. Pairs now start two tiles apart.
 

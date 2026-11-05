@@ -1,0 +1,130 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ss3ds <a@b>
+Date: Thu, 5 Nov 2026 20:50:01 +0000
+Subject: [PATCH] ss3ds: bit-exact DS SPU volume, timer stepping and master
+ volume in sas_out.c; steady playback speed
+
+- VolumeFor hands the platform mixer the DS factor (1 << {4,3,2,0}[div]) * vol * (128 - pan | pan) instead of a
+  rounded 0..1016 scale; the mixer applies (sample * F) >> 10 per channel like the DS SPU (melonDS / GBATEK).
+- PitchFor hands over the DS timer period (negative) at the 32728 Hz DS mixer rate; the mixer steps samples like
+  the SPU timer (+512 per output sample) instead of a 12-bit ratio.
+- Snapshots carry SOUNDCNT master volume (Hall of Fame fades, battle recording pause).
+- audio_adapt dead band: exactly 100% speed while the backlog is between L/2 and 2L (the tempo used to ride 1-6%).
+---
+ port/native-sound-audio/sas_out.c | 50 ++++++++++++++++++-------------
+ 1 file changed, 29 insertions(+), 21 deletions(-)
+
+diff --git a/port/native-sound-audio/sas_out.c b/port/native-sound-audio/sas_out.c
+index 55a2420..99ebe33 100644
+--- a/port/native-sound-audio/sas_out.c
++++ b/port/native-sound-audio/sas_out.c
+@@ -51,7 +51,10 @@ extern int P3DS_SasRate;
+                                              (point-decimation, no filter) threw away their upper half of the spectrum */
+ 
+ typedef struct { u32 cnt; u8 *sad; u16 tmr, pnt; u32 len, gen; } SasChan;
+-typedef struct { u64 time; SasChan ch[16]; } SasSnap;
++typedef struct { u64 time; SasChan ch[16]; u8 mvol; } SasSnap;
++/* SOUNDCNT master volume (bits 0-6) travels with each snapshot; the platform mixer applies it like the DS (127 counts as 128). */
++extern volatile unsigned short s_reg_SND_SOUNDCNT;
++extern volatile int P3DS_SasMasterVol;
+ 
+ static SasSnap s_snaps[SNAP_RING];
+ static volatile u32 s_snapW, s_snapR;
+@@ -251,27 +254,26 @@ static int PitchFor(u16 tmr, u8 shiftDown)
+ {
+     u32 period = 0x10000u - tmr;
+     if (!period) period = 1;
++    /* ss3ds 2026-11-05: at the DS mixer rate (32728 Hz) hand the platform mixer the DS timer period itself (as a negative
++       value): it steps the sample exactly like the SPU timer (+512 per output sample, one sample per period), instead of
++       a 12-bit fixed-point ratio that was up to ~2 cents off and drifted between voices. */
++    if (!shiftDown && SAS_RATE == 32728u) return -(int)period;
+     u64 pitch = ((u64)DS_CLOCK * PSP_SAS_PITCH_BASE >> shiftDown) / ((u64)SAS_RATE * period);
+     if (pitch < PSP_SAS_PITCH_MIN) pitch = PSP_SAS_PITCH_MIN;
+     if (pitch > PSP_SAS_PITCH_MAX) { pitch = PSP_SAS_PITCH_MAX; st_pitchClamp++; }
+     return (int)pitch;
+ }
+ 
+-/* DS mixer (sim_audio.cpp): ((s >> div) * vol / 128), pan: L*(128-pan)>>10, R*pan>>10, then << gain.
+- * DS hardware volume divider: 0 = /1, 1 = /2, 2 = /4, 3 = /16. */
+-#ifndef PSP_SAS_GAIN_SHIFT
+-#define PSP_SAS_GAIN_SHIFT 2
+-#endif
++/* ss3ds 2026-11-05: bit-exact DS channel volume. The DS SPU (melonDS SPU.cpp, GBATEK) computes per channel
++ *   val = (sample << {4,3,2,0}[div]) * vol;  left += (val * (128 - pan)) >> 10;  right += (val * pan) >> 10
++ * and the mixer output is (sum * master) >> 7 >> 8, clamped to s16. The voice "volume" handed to the 3DS mixer is now
++ * that exact factor F = (1 << shift) * vol * (128 - pan) (up to 258064), applied as (sample * F) >> 10. It used to be
++ * rounded to a 0..1016 scale (about 10 bits), which made quiet notes, echo tracks and release tails up to ~30% off. */
+ static void VolumeFor(u32 cnt, int *l, int *r)
+ {
+-    static const u8 div[4] = { 0, 1, 2, 4 };
+-    int vol = cnt & 0x7F, pan = (cnt >> 16) & 0x7F, d = div[(cnt >> 8) & 3];
+-    int base = (PSP_SAS_VOLUME_MAX * vol) >> d;                       /* 0..0x1000*127/128 */
+-    int lv = (int)(((s64)base * (128 - pan) << PSP_SAS_GAIN_SHIFT) / (128 * 1024 / 128) / 128);
+-    int rv = (int)(((s64)base * pan << PSP_SAS_GAIN_SHIFT) / (128 * 1024 / 128) / 128);
+-    if (lv > PSP_SAS_VOLUME_MAX) lv = PSP_SAS_VOLUME_MAX;
+-    if (rv > PSP_SAS_VOLUME_MAX) rv = PSP_SAS_VOLUME_MAX;
+-    *l = lv; *r = rv;
++    static const u8 sh[4] = { 4, 3, 2, 0 };
++    int vol = cnt & 0x7F, pan = (cnt >> 16) & 0x7F, f = (1 << sh[(cnt >> 8) & 3]) * vol;
++    *l = f * (128 - pan); *r = f * pan;
+ }
+ 
+ static void ApplyChannel(int v, const SasChan *c)
+@@ -365,16 +367,16 @@ static int SasThread(SceSize args, void *argp)
+                                keyed each intermediate note on for a few samples (burst of garbage after a stall).
+                                Apply only the last skipped state once. */
+                     u32 n = ((w - r) & SNAP_MASK) - keep; r += n; u32 i = (r - 1) & SNAP_MASK;
+-                    for (int v = 0; v < 16; v++) ApplyChannel(v, &s_snaps[i].ch[v]); playTime = s_snaps[i].time; st_skipEvents++; st_skipSnaps += n;
++                    for (int v = 0; v < 16; v++) ApplyChannel(v, &s_snaps[i].ch[v]); P3DS_SasMasterVol = s_snaps[i].mvol; playTime = s_snaps[i].time; st_skipEvents++; st_skipSnaps += n;
+                 } else
+-                while (((w - r) & SNAP_MASK) > keep) { u32 i = r & SNAP_MASK; for (int v = 0; v < 16; v++) ApplyChannel(v, &s_snaps[i].ch[v]); playTime = s_snaps[i].time; r++; }
++                while (((w - r) & SNAP_MASK) > keep) { u32 i = r & SNAP_MASK; for (int v = 0; v < 16; v++) ApplyChannel(v, &s_snaps[i].ch[v]); P3DS_SasMasterVol = s_snaps[i].mvol; playTime = s_snaps[i].time; r++; }
+                 s_snapR = r;
+             }
+             /* 2026-11-05: snapshots due at the grain start are applied here; later ones inside this grain are applied at
+                their own sample below (sample-exact note timing, like the DS's 5.2 ms sound pumps). */
+             while (r != w && s_snaps[r & SNAP_MASK].time <= playTime) {
+                 const SasSnap *s = &s_snaps[r & SNAP_MASK];
+-                for (int v = 0; v < 16; v++) ApplyChannel(v, &s->ch[v]);
++                for (int v = 0; v < 16; v++) ApplyChannel(v, &s->ch[v]); P3DS_SasMasterVol = s->mvol;
+                 r++; s_snapR = r;
+             }
+             if (r == w) {
+@@ -399,9 +401,14 @@ static int SasThread(SceSize args, void *argp)
+           static int adapt = -1; static u32 fs = 65536;
+           if (adapt < 0) { adapt = 1; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); if (f) { char l[64]; int x; while (fgets(l, sizeof l, f)) if (sscanf(l, "audio_adapt=%d", &x) == 1) adapt = x != 0; fclose(f); } PSPNativeMemLog("[AUDIO] audio_adapt=%d", adapt); }
+           if (started && adapt) { u32 b = (s_snapW - s_snapR) & SNAP_MASK, L = P3DS_Latency(); u32 tgt;
+-            if (b >= L) tgt = 65536u + (b >= 2 * L ? 2621u : 2621u * (b - L) / L);
+-            else tgt = 32768u + 32768u * b / L;
+-            fs = fs + (s32)((s32)tgt - (s32)fs) / 8; step = (grainNum * fs) >> 16; st_adaptSum += fs >> 8; st_adaptN++; if (fs < st_adaptMin) st_adaptMin = fs; }
++            /* ss3ds 2026-11-05: dead band. The game hands over 6-7 pumps per 33 ms frame, so the backlog swings by ~7 around
++               the target every frame and the old curve (slower below L, faster above) rode the tempo 1-6% up and down all the
++               time. The DS plays at a constant speed: run at exactly 100% while the backlog is anywhere between L/2 and 2L,
++               and only slow down / catch up outside that band. */
++            if (b > 2 * L) tgt = 65536u + 2621u;
++            else if (b >= L / 2) tgt = 65536u;
++            else tgt = 32768u + 32768u * b / (L / 2);
++            fs = tgt == 65536u ? 65536u : fs + (s32)((s32)tgt - (s32)fs) / 8; step = (grainNum * fs) >> 16; st_adaptSum += fs >> 8; st_adaptN++; if (fs < st_adaptMin) st_adaptMin = fs; }
+           else if (started && P3DS_MarginMode() == 2 && ((s_snapW - s_snapR) & SNAP_MASK) < P3DS_Latency() / 2) step -= step >> 4;
+         }
+         /* 2026-11-05 sample-exact note timing: mix the grain in pieces, applying each snapshot that falls inside it at its
+@@ -416,7 +423,7 @@ static int SasThread(SceSize args, void *argp)
+               if (n > 0) { if (P3DS_SasMixPart(off, n)) { ok = 0; break; } off += n; }
+               if (off >= SAS_GRAIN) break;
+               { u64 now = playTime + span * (u64)off / SAS_GRAIN; u32 rr = s_snapR, ww = s_snapW;
+-                while (rr != ww && s_snaps[rr & SNAP_MASK].time <= now) { const SasSnap *sn = &s_snaps[rr & SNAP_MASK]; for (int v = 0; v < 16; v++) ApplyChannel(v, &sn->ch[v]); rr++; }
++                while (rr != ww && s_snaps[rr & SNAP_MASK].time <= now) { const SasSnap *sn = &s_snaps[rr & SNAP_MASK]; for (int v = 0; v < 16; v++) ApplyChannel(v, &sn->ch[v]); P3DS_SasMasterVol = sn->mvol; rr++; }
+                 s_snapR = rr; }
+           }
+           (void)ok; }
+@@ -468,6 +475,7 @@ void PSPNativeSasSnapshot(u32 cycles)
+     if (((w + 1) & SNAP_MASK) == (s_snapR & SNAP_MASK)) { st_dropSnaps++; return; }
+     SasSnap *s = &s_snaps[w & SNAP_MASK];
+     s->time = s_dsTime;
++    s->mvol = (u8)(s_reg_SND_SOUNDCNT & 0x7F);
+     for (int v = 0; v < 16; v++) {
+         s->ch[v].cnt = s_SIM_sndcnt[v]; s->ch[v].sad = s_SIM_sndsad[v]; s->ch[v].tmr = s_SIM_sndtmr[v];
+         s->ch[v].pnt = s_SIM_sndpnt[v]; s->ch[v].len = s_SIM_sndlen[v]; s->ch[v].gen = PSPNativeSasStartGen[v];
+-- 
+2.43.0
+
