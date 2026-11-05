@@ -823,10 +823,11 @@ static unsigned wnUs,wnN,wnLay[5];
 /* 2026-11-04 (Nathan: wide view must look right all the time): the black blocks of the battle-intro wipe (and other black 2D covers)
    are a BG layer in front of the 3D, so the 3D side strips kept showing the scene next to a black picture edge. True when the topmost
    opaque text-BG pixel in front of BG0 at the picture's edge pixel (x 0 / 255) of row y is black. */
-static bool edgeBgBlack(int y,int side){
- const u32 dc=*(volatile u32*)PSPNative_GfxRegisters;const unsigned mode=dc&7;if(!(dc&8)||mode>5)return false;
- const int p0=(int)(reg16(8)&3);if(!p0)return false;const unsigned wm=winEdge(y,side);const int x=side?255:0;
- for(int pr=0;pr<p0;pr++)for(int i=1;i<4;i++){if(!(dc&(0x100u<<i))||!((wm>>i)&1))continue;const bool text=i<2||mode==0||(i==2&&mode==1);if(!text)continue;
+/* topmost opaque text-BG pixel at the picture's edge (x 0 / 255) of row y among layers with priority < maxPrio (BG0 skipped when it
+   is the 3D layer); returns its layer and RGB555 colour, -1 when none */
+static int edgeBgTop(int y,int side,int maxPrio,u16*colOut){
+ const u32 dc=*(volatile u32*)PSPNative_GfxRegisters;const unsigned mode=dc&7;if(mode>5)return -1;const unsigned wm=winEdge(y,side);const int x=side?255:0;
+ for(int pr=0;pr<maxPrio;pr++)for(int i=0;i<4;i++){if(!(dc&(0x100u<<i))||!((wm>>i)&1)||(i==0&&(dc&8)))continue;const bool text=i<2||mode==0||(i==2&&mode==1);if(!text)continue;
   const unsigned c=reg16(8+i*2);if((int)(c&3)!=pr)continue;
   const bool bpp8=(c&0x80)!=0;const int w=(c>>14)&1?64:32,h=(c>>14)&2?64:32;
   const unsigned charb=((c>>2)&15)*0x4000+((dc>>24)&7)*0x10000,mapb=((c>>8)&31)*0x800+((dc>>27)&7)*0x10000;
@@ -836,9 +837,15 @@ static bool edgeBgBlack(int y,int side){
   const u8*t=GPU::VRAMFlat_ABG+((charb+(me&0x3FF)*(bpp8?64:32)+fy*(bpp8?8:4))&0x7FFFF);unsigned ci;if(bpp8)ci=t[fx];else{const u8 b=t[fx>>1];ci=(fx&1)?b>>4:b&15;}
   if(!ci)continue;
   const int ext=(bpp8&&(dc&(1u<<30)))?((i<2&&(c&0x2000))?i+2:i):-1;
-  const u16 col=ext>=0?*(const u16*)(GPU::VRAMFlat_ABGExtPal+ext*0x2000+((me>>12)*256+ci)*2):((const u16*)GPU::Palette)[bpp8?ci:((me>>12)*16+ci)];
-  return (col&0x7FFF)==0;}
- return false;}
+  *colOut=ext>=0?*(const u16*)(GPU::VRAMFlat_ABGExtPal+ext*0x2000+((me>>12)*256+ci)*2):((const u16*)GPU::Palette)[bpp8?ci:((me>>12)*16+ci)];
+  return i;}
+ return -1;}
+/* 2026-11-04 (Nathan: wide view must look right all the time): the black blocks of the battle-intro wipe (and other black 2D covers)
+   are a BG layer in front of the 3D, so the 3D side strips kept showing the scene next to a black picture edge. True when the topmost
+   opaque text-BG pixel in front of BG0 at the picture's edge pixel (x 0 / 255) of row y is black. */
+static bool edgeBgBlack(int y,int side){
+ const u32 dc=*(volatile u32*)PSPNative_GfxRegisters;if(!(dc&8))return false;const int p0=(int)(reg16(8)&3);if(!p0)return false;
+ u16 col;return edgeBgTop(y,side,p0,&col)>=0&&(col&0x7FFF)==0;}
 static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static unsigned wnRestores;static void wideNative(){const u64 t0=svcGetSystemTick();
  const u8*R=(const u8*)PSPNative_GfxRegisters;const u32 dc=*(const u32*)R;const unsigned mode=dc&7;
  const u8*vram=GPU::VRAMFlat_ABG;const u16*pal=(const u16*)GPU::Palette;const u8*ext=GPU::VRAMFlat_ABGExtPal;
@@ -887,7 +894,7 @@ static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static
  if(no&&Ly[order[no-1]].w==32&&P3DS_InWideKind>0&&!P3DS_InBattle){L&b=Ly[order[no-1]];for(int side=0;side<2;side++){bool any=false;for(int r=0;r<25;r++)any|=b.per[r][side]!=0;
   if(!any){b.clamp|=1<<side;for(int r=0;r<25;r++){b.per[r][side]=1;b.src[r][side]=(u8)r;}}}}
  /* skip the redraw when nothing the strips use changed: registers, palette, the edge map entries and their tiles */
- {u32 h=2166136261u;auto H=[&](u32 v){h=(h^v)*16777619u;};H(dc);for(unsigned k=0x40;k<0x4C;k+=2)H(reg16(k));for(int k=0;k<0x20;k+=4)H(*(const u32*)(R+8+k));H(*(const u32*)(R+0x50));H(*(const u32*)(R+0x54));
+ {u32 h=2166136261u;auto H=[&](u32 v){h=(h^v)*16777619u;};H(dc);for(unsigned k=0x40;k<0x4C;k+=2)H(reg16(k));if(P3DS_InBattle)for(int y=0;y<192;y++)for(int sd=0;sd<2;sd++){u16 ec=0;const int tl=edgeBgTop(y,sd,4,&ec);H((u32)(tl+1)|((u32)ec<<8));} /* the black front-layer rows above */for(int k=0;k<0x20;k+=4)H(*(const u32*)(R+8+k));H(*(const u32*)(R+0x50));H(*(const u32*)(R+0x54));
   {const u32*pp32=(const u32*)pal;for(int k=0;k<128;k++)H(pp32[k]);}
   for(int oi=0;oi<no;oi++){const L&l=Ly[order[oi]];if(l.extSlot>=0){const u32*e=(const u32*)(ext+l.extSlot*0x2000);for(int k=0;k<2048;k++)H(e[k]);}
    const unsigned E0=l.hofs>>3,E1=(l.hofs+255)>>3;
@@ -906,6 +913,9 @@ static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static
  const u16 bc=*(const u16*)(R+0x50);unsigned bY=*(const u16*)(R+0x54)&31;if(bY>16)bY=16;const int bEff=(!(bc&1)&&((bc>>6)&3)>=2&&bY)?(int)((bc>>6)&3):0;
  for(int y=0;y<192;y++)for(int side=0;side<2;side++){u32*o=P3DS_WideFillBuf+y*64+side*32;u32 done=0;const int x0=side?256:-32;u8 lay[32];
   const unsigned wmE=winEdge(y,side);
+  /* 2026-11-04: a black front layer at the picture's edge (battle intro band, black frames) continues into the strip row, like
+     the field strips (edgeBgBlack); only the back-most layer is drawn into the strips otherwise */
+  if(P3DS_InBattle&&no){u16 ec;const int tl=edgeBgTop(y,side,4,&ec);if(tl>=0&&tl!=order[no-1]&&(ec&0x7FFF)==0){for(int xi=0;xi<32;xi++){o[xi]=0x000000FFu;wnUnres[y*64+side*32+xi]=0;}continue;}}
   for(int oi=0;oi<no&&done!=0xFFFFFFFFu;oi++){const L&l=Ly[order[oi]];if(!((wmE>>order[oi])&1))continue;const unsigned py=(unsigned)(y+l.vofs)&(l.h*8-1);const unsigned wm=l.w*8-1;
    int pp=0;const int E0=(int)(l.hofs>>3),E1=(int)((l.hofs+255)>>3);
    unsigned pyU=py;if(l.w==32){const unsigned r=((unsigned)(y+(l.vofs&7)))>>3;pp=r<25?l.per[r][side]:0;if(!pp)continue;pyU=((((l.vofs>>3)+l.src[r][side])*8)+(py&7))&(l.h*8-1);}
