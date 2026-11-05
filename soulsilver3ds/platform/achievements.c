@@ -47,7 +47,9 @@ static const struct { const char *key; P3DS_AchInfo i; } kAch[ACH_COUNT] = {
   { "mail", { "Pen Pal", "Write a Pokemon mail.", 10, 4 } }, { "splash", { "Splashing Around", "Use Splash in battle.", 15, 4 } },
   { "boom", { "Going Out with a Bang", "Use Explosion or Self-Destruct.", 15, 4 } },
   { "contest", { "Contest Star", "Win a Pokemon Contest.", 40, 4 } }, { "tower", { "Tower Victor", "Win a Battle Frontier battle.", 40, 4 } },
-  { "ribbon", { "Ribbon Collector", "Earn a ribbon.", 25, 4 } }, { "signed", { "Autograph Hound", "Have your Trainer Card signed.", 15, 4 } } };
+  { "ribbon", { "Ribbon Collector", "Earn a ribbon.", 25, 4 } }, { "signed", { "Autograph Hound", "Have your Trainer Card signed.", 15, 4 } },
+  { "skylegend", { "Legend in the Sky", "See a legendary Pokemon fly overhead.", 100, 4 } },
+  { "skyshiny", { "Shiny on the Wing", "Spot a shiny Pokemon flying past.", 50, 2 } } };
 static const char *const kCat[ACH_CATS] = { "Gyms", "Milestones", "Shiny", "Special Dates", "Adventure" };
 
 #ifdef ACH_HOST_TEST
@@ -114,6 +116,7 @@ static int unlockLocked(int id, int silent) {
   if (!silent && P3DS_AchToastsOn()) push(id);
   return 1; }
 void P3DS_AchUnlock(int id) { LOCK(); load(); if (unlockLocked(id, 0)) save(); UNLOCK(); }
+void P3DS_AchSky(int legend) { P3DS_AchUnlock(legend ? ACH_SKYLEGEND : ACH_SKYSHINY); }
 
 void P3DS_AchPublish(int badges, int clear, int red) {
   LOCK(); load(); const int first = bootScan; bootScan = 0; int n = 0, ch = 0;

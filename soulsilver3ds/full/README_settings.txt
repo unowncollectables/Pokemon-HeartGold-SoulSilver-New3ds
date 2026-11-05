@@ -438,5 +438,11 @@ Visible wild Pokemon (SoulSilver hook 0110, Settings > Play, all live, default O
   wild_vis_cries=1    1 = a Pokemon that notices you (3 tiles) plays its cry (it always hops and shows a "!")
   Behaviour: about half wander, some walk up to you and wait (curious), some run away (shy; roamers always run).
   In tall grass the lower part is hidden; elsewhere on land they cast a soft shadow. Log: [WILD] spawn / noticed / contact / removed lines.
+wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive wild Pokemon; needs wild_vis=1) Scarlet/Violet feel:
+  visible wild Pokemon are solid (you stop in front of one instead of walking through), A facing one or pushing against it for
+  about half a second starts its battle, and some bold ones charge at you (touching you starts the battle). Every 30-70 s outdoors a
+  flyer for the area, time of day and weather crosses the sky with its shadow below (decoration, never battles); shiny 1/2048 (needs
+  wild_vis_shiny), a legendary (Ho-Oh by day, Lugia at night) 1/4096. Both give an achievement. Nothing is saved.
+  Log: [WILD] ... is in the way (solid) / talk/bump ... -> battle / charged the player / flyer species N ... / flyer ... gone.
 pg_find=0               (2026-11-03, default 0; Settings > Input > Pokedex finder) Pokedex encounter finder on the JOHTO map: tap a place, tap its card (wild list), tap a Pokemon name and the map pins every place that species lives. Chips ANY / MORN / DAY / NITE filter by time of day (MORN 4-10h, DAY 10-20h, NITE 20-4h; surf, fishing and Rock Smash count at any time); X clears. Times come from hook 0209 (without it only ANY works). Read-only, never touches the save. Log [FIND].
 breed_tab=0             (2026-11-03, default 0; Settings > Setup > Breeding tab) adds an EGGS tab (6th) to the JOHTO panel: Day-Care Pokemon, levels gained, egg chance / EGG READY, Masuda, steps left on party eggs. Read-only (hook 0210). Remove the toggle once tested.

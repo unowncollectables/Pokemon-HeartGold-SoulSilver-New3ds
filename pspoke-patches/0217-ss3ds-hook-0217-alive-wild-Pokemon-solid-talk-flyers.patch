@@ -1,0 +1,506 @@
+From a859789b0608d009347dfed2644cc125c14aece8 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 5 Nov 2026 16:49:52 +0000
+Subject: [PATCH] ss3ds: hook 0217 alive wild Pokemon (solid, A/bump/charge
+ battle, ambient flyers)
+
+0110 block v3: SS3DS_WildSolid / SS3DS_WildTalk / SS3DS_WildBirdPick in encounter_check.c, bold (charging) mood, flyer tick and draw (texture slot 7) in fieldmap_native.c, all behind P3DS_WildVisCfg(5) (wild_vis_alive). 0217_wildalive.py adds the call sites once: FieldInput_Update drops the walk keys when a visible one is in the way, FieldInput_Process starts its battle on A / bump / charge, and forced battles take land/water from the visible one. Optional hook (logs skipped).
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py   | 281 +++++++++++++++++++++++-
+ scripts/ss3ds_hooks.d/0217_wildalive.py |  59 +++++
+ scripts/ss3ds_hooks.d/0217_wildalive.sh |   5 +
+ 3 files changed, 337 insertions(+), 8 deletions(-)
+ create mode 100755 scripts/ss3ds_hooks.d/0217_wildalive.py
+ create mode 100644 scripts/ss3ds_hooks.d/0217_wildalive.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 17e445c..cf51d13 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,16 +13,19 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v2 (0110/0111: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v3 (0110/0111/0217: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMem, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+ #define SS3DS_WILD_MAX 6
+ typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad; } SS3DSWildMon;
+-typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; } SS3DSWildState;
++/* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
++   bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
++typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig; } SS3DSWildState;
+ #define SS3DS_WILD_MAGIC 0x57494C32u /* 'WIL2': v2 layout */
+ extern void *P3DS_WildMem(void);
+-extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries */
++extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
++#define SS3DS_BIRD_FRAMES 240
+ extern volatile int P3DS_WildBattleResult; /* winFlag of the last battle (encounter.c hook), -1 = none yet */
+ extern int P3DS_FollowerOpen(void);
+ extern void P3DS_WildFree(int slot);
+@@ -31,7 +34,8 @@ extern void PSPNativeMemLog(const char *fmt, ...);
+ 
+ ENC_BLOCK = COMMON + r'''
+ BOOL MapHeader_HasWildEncounters(u32 mapId);
+-static int sSS3DS_Force, sSS3DS_ForceSp, sSS3DS_ForceLv, sSS3DS_ForceShiny, sSS3DS_ForceRoamer = -1;
++BOOL MapHeader_IsOutdoors(u32 mapId);
++static int sSS3DS_Force, sSS3DS_ForceSp, sSS3DS_ForceLv, sSS3DS_ForceShiny, sSS3DS_ForceKind, sSS3DS_ForceRoamer = -1;
+ 
+ static BOOL SS3DS_WildBlocked(FieldSystem *fieldSystem) {
+     SaveVarsFlags *flags = Save_VarsFlags_Get(fieldSystem->saveData);
+@@ -118,7 +122,7 @@ static BOOL SS3DS_ForcedRoamer(FieldSystem *fieldSystem, Roamer **pRoamer) {
+ }
+ 
+ // The game's own land/surf encounter, with the slot forced to this species/level (repel still applies)
+-BOOL SS3DS_WildEncounter(FieldSystem *fieldSystem, int species, int level, int shiny, int roamer) {
++BOOL SS3DS_WildEncounter(FieldSystem *fieldSystem, int species, int level, int shiny, int roamer, int kind) {
+     if (roamer >= 0) {
+         int rs, rl;
+         if (SS3DS_WildRoamer(fieldSystem, &rs, &rl) != roamer || rs != species) {
+@@ -130,6 +134,7 @@ BOOL SS3DS_WildEncounter(FieldSystem *fieldSystem, int species, int level, int s
+     sSS3DS_ForceSp = species;
+     sSS3DS_ForceLv = level;
+     sSS3DS_ForceShiny = shiny;
++    sSS3DS_ForceKind = kind;
+     sSS3DS_ForceRoamer = roamer;
+     BOOL ret = FieldSystem_PerformLandOrSurfEncounterCheck(fieldSystem);
+     sSS3DS_Force = 0;
+@@ -149,7 +154,7 @@ static int SS3DS_WildStepContact(FieldSystem *fieldSystem) {
+         if (m->on && !m->battle && !m->skip && m->x == x && m->z == z) {
+             PSPNativeMemLog("[WILD] contact slot %d species %d lv %d%s%s -> battle", i + 1, m->sp, m->lv, m->shiny ? " SHINY" : "", m->roamer >= 0 ? " ROAMER" : "");
+             P3DS_WildBattleResult = -1;
+-            BOOL ret = SS3DS_WildEncounter(fieldSystem, m->sp, m->lv, m->shiny, m->roamer);
++            BOOL ret = SS3DS_WildEncounter(fieldSystem, m->sp, m->lv, m->shiny, m->roamer, m->kind);
+             if (ret) {
+                 m->battle = 1; // hidden until the battle is over: run away from it and it is still there
+             } else {
+@@ -162,6 +167,129 @@ static int SS3DS_WildStepContact(FieldSystem *fieldSystem) {
+     return -1;
+ }
+ 
++// ---- 0217 alive wild Pokemon (Settings > Battle "Alive wild Pokemon"): solid, A / bump / chase starts the battle, ambient flyers ----
++static int sSS3DS_Bump;
++static int SS3DS_WildAliveOn(void) {
++    return P3DS_WildVisCfg(0) && P3DS_WildVisCfg(5);
++}
++
++// slot of a visible Pokemon on the tile next to the player in direction dir (0 up/north, 1 down, 2 left, 3 right), or -1
++static int SS3DS_WildFaceSlot(FieldSystem *fieldSystem, int dir) {
++    SS3DSWildState *S = P3DS_WildMem();
++    if (S->magic != SS3DS_WILD_MAGIC || dir < 0 || dir > 3) {
++        return -1;
++    }
++    int tx = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar) + (dir == 2 ? -1 : dir == 3 ? 1 : 0);
++    int tz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar) + (dir == 0 ? -1 : dir == 1 ? 1 : 0);
++    for (int i = 0; i < SS3DS_WILD_MAX; i++) {
++        SS3DSWildMon *m = &S->m[i];
++        if (m->on && !m->battle && ((m->x == tx && m->z == tz) || (m->t < 16 && m->fx == tx && m->fz == tz))) {
++            return i;
++        }
++    }
++    return -1;
++}
++
++// Called every field frame from FieldInput_Update with the direction the player wants to walk. 1 = a visible Pokemon is in the way:
++// the caller drops the direction keys, so the player just stands facing it. Pushing against it for 20 frames asks for its battle.
++int SS3DS_WildSolid(FieldSystem *fieldSystem, int dir) {
++    if (!SS3DS_WildAliveOn() || dir < 0 || dir != (int)PlayerAvatar_GetFacingDirection(fieldSystem->playerAvatar)) {
++        sSS3DS_Bump = 0;
++        return 0;
++    }
++    int i = SS3DS_WildFaceSlot(fieldSystem, dir);
++    if (i < 0) {
++        sSS3DS_Bump = 0;
++        return 0;
++    }
++    SS3DSWildState *S = P3DS_WildMem();
++    if (++sSS3DS_Bump == 1) {
++        PSPNativeMemLog("[WILD] slot %d species %d is in the way (solid)", i + 1, S->m[i].sp);
++    }
++    if (sSS3DS_Bump >= 20 && !S->talk && S->cool <= 0) {
++        S->talk = i + 1;
++    }
++    return 1;
++}
++
++// Called from FieldInput_Process (player at rest, no task) with whether A was pressed. 1 = a battle with a visible one started.
++int SS3DS_WildTalk(FieldSystem *fieldSystem, int interact) {
++    SS3DSWildState *S = P3DS_WildMem();
++    if (S->magic != SS3DS_WILD_MAGIC) {
++        return 0;
++    }
++    int i = -1;
++    if (!SS3DS_WildAliveOn() || SS3DS_WildBlocked(fieldSystem)) {
++        S->talk = 0;
++        return 0;
++    }
++    if (S->talk) {
++        i = S->talk - 1;
++        S->talk = 0;
++        if (i < 0 || i >= SS3DS_WILD_MAX || !S->m[i].on || S->m[i].battle) {
++            return 0;
++        }
++        int dx = S->m[i].x - PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), dz = S->m[i].z - PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
++        if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) > 1) {
++            return 0; // it was chasing but the player has walked off
++        }
++    } else if (interact && S->cool <= 0) {
++        i = SS3DS_WildFaceSlot(fieldSystem, (int)PlayerAvatar_GetFacingDirection(fieldSystem->playerAvatar));
++    }
++    if (i < 0) {
++        return 0;
++    }
++    SS3DSWildMon *m = &S->m[i];
++    PSPNativeMemLog("[WILD] talk/bump slot %d species %d lv %d%s -> battle", i + 1, m->sp, m->lv, m->shiny ? " SHINY" : "");
++    P3DS_WildBattleResult = -1;
++    BOOL ret = SS3DS_WildEncounter(fieldSystem, m->sp, m->lv, m->shiny, m->roamer, m->kind);
++    sSS3DS_Bump = 0;
++    if (ret) {
++        m->battle = 1;
++        return 1;
++    }
++    S->cool = 90; // repel / roamer gone: do not ask again every frame
++    PSPNativeMemLog("[WILD] no battle (repel / no wild battles / roamer gone), slot %d stays", i + 1);
++    return 0;
++}
++
++// Ambient flyer for this area, time of day and weather (decoration). 0 = none here (indoors, caves). *legend = 1 for a rare legendary.
++int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend) {
++    static const u16 kFly[] = { 16, 17, 18, 21, 22, 41, 42, 163, 164, 169, 198, 225, 227, 276, 277, 278, 279, 333, 334, 396, 397, 398 };
++    static const u16 kDay[] = { 16, 16, 17, 21, 21, 22, 276, 18 };
++    static const u16 kNight[] = { 163, 163, 164, 198, 198, 42 };
++    *legend = 0;
++    if (!MapHeader_IsOutdoors(fieldSystem->location->mapId)) {
++        return 0;
++    }
++    int weather = LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
++    TIMEOFDAY tod = GF_RTC_GetTimeOfDay();
++    int night = tod == RTC_TIMEOFDAY_NITE || tod == RTC_TIMEOFDAY_LATE;
++    if (weather <= WEATHER_THUNDERSTORM && LCRandRange(4096) == 0) { // as rare as a shiny flyover-wise
++        *legend = 1;
++        return night ? SPECIES_LUGIA : SPECIES_HO_OH;
++    }
++    // a flyer from this area's own grass table (the real morning/day/night and swarm tables) first
++    for (int tries = 0; tries < 6; tries++) {
++        int sp, lv;
++        if (!SS3DS_WildPick(fieldSystem, 0, &sp, &lv)) {
++            break;
++        }
++        for (u32 k = 0; k < sizeof(kFly) / sizeof(kFly[0]); k++) {
++            if (kFly[k] == sp) {
++                return sp;
++            }
++        }
++    }
++    if (weather >= WEATHER_RAIN && weather <= WEATHER_THUNDERSTORM) {
++        return LCRandRange(2) ? SPECIES_WINGULL : SPECIES_PELIPPER;
++    }
++    if (weather == WEATHER_SNOW || weather == WEATHER_BLIZZARD) {
++        return SPECIES_DELIBIRD;
++    }
++    return night ? kNight[LCRandRange(sizeof(kNight) / sizeof(kNight[0]))] : kDay[LCRandRange(sizeof(kDay) / sizeof(kDay[0]))];
++}
++
+ // "Only visible battle": no random land/surf encounters while visible ones are on (not Safari Zone / Bug Contest)
+ static BOOL SS3DS_WildReplaces(FieldSystem *fieldSystem) {
+     return P3DS_WildVisCfg(0) && P3DS_WildVisCfg(3) && P3DS_FollowerOpen() && !SS3DS_WildBlocked(fieldSystem);
+@@ -175,6 +303,8 @@ extern int SS3DS_WildTileKind(FieldSystem *fieldSystem, int x, int z);
+ extern int SS3DS_WildBlockedMap(FieldSystem *fieldSystem);
+ extern int SS3DS_WildPick(FieldSystem *fieldSystem, int surf, int *species, int *level);
+ extern int SS3DS_WildRoamer(FieldSystem *fieldSystem, int *species, int *level);
++extern int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend);
++extern void P3DS_AchSky(int legend);
+ extern int P3DS_FollowerSprite(int species, int form, int female);
+ extern int P3DS_WildLoad(int slot, int spr, int shiny);
+ extern void P3DS_Toast(const char *text);
+@@ -223,6 +353,71 @@ static int SS3DS_WildAutoMax(FieldSystem *fieldSystem, int px, int pz, int cap)
+     return want < cap ? want : cap;
+ }
+ 
++// 0217 ambient flyer (decoration only, never battles, nothing saved): every 30-70 s outdoors a bird for this area, time of day
++// and weather crosses the screen high up with its shadow below. Rarely shiny (1/2048, needs the shiny sparkle row) and very
++// rarely a legendary (Ho-Oh by day, Lugia at night, 1/4096). Both unlock an achievement.
++static void SS3DS_BirdKill(SS3DSWildState *S, const char *why) {
++    if (S->birdOn) {
++        P3DS_WildFree(7);
++        PSPNativeMemLog("[WILD] flyer species %d gone (%s)", S->birdSp, why);
++    }
++    S->birdOn = 0;
++}
++
++static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz) {
++    if (!P3DS_WildVisCfg(5)) {
++        SS3DS_BirdKill(S, "off");
++        return;
++    }
++    if (FieldSystem_TaskIsRunning(fieldSystem)) {
++        return; // menus, scripts: it waits in the air
++    }
++    if (S->birdOn) {
++        S->birdT++;
++        if (S->birdT == SS3DS_BIRD_FRAMES / 2 && (S->birdBig || P3DS_WildVisCfg(4))) {
++            PlayCry(S->birdSp, 0);
++        }
++        if (S->birdT >= SS3DS_BIRD_FRAMES) {
++            SS3DS_BirdKill(S, "flew off");
++        }
++        return;
++    }
++    if (S->birdNext > 0) {
++        S->birdNext--;
++        return;
++    }
++    S->birdNext = 900 + (int)SS3DS_WildRand(S, 1200);
++    int legend = 0, sp = SS3DS_WildBirdPick(fieldSystem, &legend);
++    if (sp <= 0) {
++        return;
++    }
++    int shiny = !legend && P3DS_WildVisCfg(2) && SS3DS_WildRand(S, 2048) == 0;
++    int spr = P3DS_FollowerSprite(sp, 0, 0);
++    int w = spr >= 0 ? P3DS_WildLoad(7, spr, shiny) : 0;
++    if (!w) {
++        PSPNativeMemLog("[WILD] no flyer sprite for species %d", sp);
++        return;
++    }
++    S->birdOn = 1;
++    S->birdSp = sp;
++    S->birdW = w;
++    S->birdT = 0;
++    S->birdShiny = shiny;
++    S->birdBig = legend;
++    S->birdDir = SS3DS_WildRand(S, 2) ? 3 : 2;
++    S->birdX = px + (S->birdDir == 3 ? -18 : 18);
++    S->birdZ = pz - 5 + (int)SS3DS_WildRand(S, 8);
++    PSPNativeMemLog("[WILD] flyer species %d%s%s heading %s at z %d", sp, shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ);
++    if (legend) {
++        P3DS_Toast("A LEGENDARY POKEMON FLEW OVERHEAD!");
++        P3DS_AchSky(1);
++    } else if (shiny) {
++        PlaySE(SEQ_SE_DP_KIRAKIRA);
++        P3DS_Toast("A SHINY POKEMON FLEW PAST!");
++        P3DS_AchSky(0);
++    }
++}
++
+ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     SS3DSWildState *S = SS3DS_WildGet();
+     int i;
+@@ -230,6 +425,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         for (i = 0; i < SS3DS_WILD_MAX; i++) {
+             SS3DS_WildKill(S, i, "off");
+         }
++        SS3DS_BirdKill(S, "off");
++        S->talk = 0;
+         return;
+     }
+     if (!S->anim) {
+@@ -241,15 +438,24 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         for (i = 0; i < SS3DS_WILD_MAX; i++) {
+             SS3DS_WildKill(S, i, "map change");
+         }
++        SS3DS_BirdKill(S, "map change");
+         S->map = map;
+         S->spawnT = 60;
++        S->talk = 0;
++        if (S->birdNext < 300) {
++            S->birdNext = 300 + (int)SS3DS_WildRand(S, 300);
++        }
+         PSPNativeMemLog("[WILD] map %d", map);
+     }
++    int px = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), pz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
++    SS3DS_BirdTick(fieldSystem, S, px, pz); // 0217: flyers also cross towns (maps with no wild table)
+     // Menus, the bike, scripts: they stay where they are and stay drawn, they just wait
+     if (FieldSystem_TaskIsRunning(fieldSystem) || SS3DS_WildBlockedMap(fieldSystem)) {
+         return;
+     }
+-    int px = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), pz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
++    if (S->cool > 0) {
++        S->cool--;
++    }
+     S->rng ^= (u32)(px * 31 + pz * 17);
+     int n = 0, mx = P3DS_WildVisCfg(1) + 1;
+     for (i = 0; i < SS3DS_WILD_MAX; i++) {
+@@ -333,6 +539,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->kind = kind & 3;
+             m->grass = (kind & 4) != 0;
+             m->mood = ro >= 0 ? 2 : r < 5 ? 0 : r < 8 ? 1 : 2; // wander / curious / shy; roamers always flee
++            if (ro < 0 && P3DS_WildVisCfg(5) && m->kind == 1 && r >= 8 && SS3DS_WildRand(S, 2) == 0) {
++                m->mood = 3; // 0217 alive: some are bold and charge at the player (Scarlet/Violet style)
++            }
+             m->noticed = 0;
+             m->hop = 0;
+             m->roamer = ro;
+@@ -385,7 +594,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         if (m->hop > 0) {
+             m->hop--;
+         }
+-        if (!m->noticed && dist <= 3) {
++        if (!m->noticed && dist <= (m->mood == 3 ? 5 : 3)) {
+             m->noticed = 1;
+             m->hop = 12;
+             m->bang = 45;
+@@ -414,6 +623,17 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 m->dir = d;
+                 continue;
+             }
++        } else if (m->noticed && m->mood == 3 && P3DS_WildVisCfg(5)) { // 0217 bold: charges, touching the player starts the battle
++            d = adx > adz ? (ddx > 0 ? 2 : 3) : (ddz > 0 ? 0 : 1);
++            m->timer = 6 + (int)SS3DS_WildRand(S, 6);
++            if (dist <= 1) {
++                m->dir = d;
++                if (!S->talk && S->cool <= 0) {
++                    S->talk = i + 1;
++                    PSPNativeMemLog("[WILD] slot %d species %d charged the player", i + 1, m->sp);
++                }
++                continue;
++            }
+         } else if (m->noticed && m->mood == 2) { // shy: runs away
+             d = adx > adz ? (ddx > 0 ? 3 : 2) : (ddz > 0 ? 1 : 0);
+             m->timer = 10 + (int)SS3DS_WildRand(S, 8);
+@@ -563,6 +783,47 @@ static void SS3DS_WildDrawOne(SS3DSWildMon *m, int slot, fx32 py, u32 anim) {
+     G3_PopMtx(1);
+ }
+ 
++// 0217 the flyer: high above the ground, flapping (fast frame swap), its shadow on the ground below, fading in and out at the ends
++static void SS3DS_BirdDraw(SS3DSWildState *S, fx32 py, u32 anim) {
++    const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
++    VecFx32 c, v;
++    int sz = S->birdW, t = S->birdT, sgn = S->birdDir == 3 ? 1 : -1;
++    fx32 run = 36 * 16 * FX32_ONE / SS3DS_BIRD_FRAMES; // 36 tiles over the whole flight
++    c.x = (S->birdX * 16 + 8) * FX32_ONE + sgn * run * t;
++    c.z = (S->birdZ * 16 + 8) * FX32_ONE;
++    G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
++    c.y = py + FX32_ONE / 2;
++    SS3DS_WildShadow(cm, &c, S->birdBig ? sz : sz / 2);
++    int bob = (int)((anim >> 2) & 7);
++    bob = bob < 4 ? bob : 8 - bob;
++    c.y = py + (sz / 2 + (S->birdBig ? 40 : 28) + bob) * FX32_ONE;
++    v = SS3DS_WildCam(cm, &c);
++    int fr = S->birdDir * 2 + ((anim >> 2) & 1);
++    fx16 hw = (fx16)((sz / 2) * FX16_ONE / 16);
++    int edge = t < SS3DS_BIRD_FRAMES - t ? t : SS3DS_BIRD_FRAMES - t;
++    int fade = edge >= 20 ? 31 : 3 + edge * 28 / 20;
++    G3_PushMtx();
++    G3_Identity();
++    G3_Translate(v.x, v.y, v.z);
++    G3_Scale(16 * FX32_ONE, 16 * FX32_ONE, 16 * FX32_ONE);
++    G3_PolygonAttr(GX_LIGHTMASK_NONE, GX_POLYGONMODE_MODULATE, GX_CULL_NONE, fade < 31 ? 4 : 0, fade, GX_POLYGON_ATTR_MISC_FOG);
++    G3_TexImageParam(GX_TEXFMT_PLTT16, GX_TEXGEN_NONE, sz == 64 ? GX_TEXSIZE_S64 : GX_TEXSIZE_S32, sz == 64 ? GX_TEXSIZE_T64 : GX_TEXSIZE_T32,
++        GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_TRNS, 0x7FFF8 - 7 * 8);
++    G3_TexPlttBase(0x1FF00 + fr * 16, GX_TEXFMT_PLTT16);
++    G3_Color(GX_RGB(31, 31, 31));
++    G3_Begin(GX_BEGIN_QUADS);
++    G3_TexCoord(0, 0);
++    G3_Vtx(-hw, hw, 0);
++    G3_TexCoord(0, sz * FX32_ONE);
++    G3_Vtx(-hw, -hw, 0);
++    G3_TexCoord(sz * FX32_ONE, sz * FX32_ONE);
++    G3_Vtx(hw, -hw, 0);
++    G3_TexCoord(sz * FX32_ONE, 0);
++    G3_Vtx(hw, hw, 0);
++    G3_End();
++    G3_PopMtx(1);
++}
++
+ // In the field's 3D pass, after the game's own objects, with the camera the map was drawn with
+ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+     SS3DSWildState *S = P3DS_WildMem();
+@@ -573,6 +834,7 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+     for (i = 0; i < SS3DS_WILD_MAX; i++) {
+         any |= S->m[i].on && !S->m[i].battle;
+     }
++    any |= S->birdOn;
+     if (!any) {
+         return;
+     }
+@@ -583,6 +845,9 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+             SS3DS_WildDrawOne(&S->m[i], i + 1, py, S->anim + i * 7);
+         }
+     }
++    if (S->birdOn) {
++        SS3DS_BirdDraw(S, py, S->anim);
++    }
+ }
+ /* SS3DS-WILD-END */
+ 
+diff --git a/scripts/ss3ds_hooks.d/0217_wildalive.py b/scripts/ss3ds_hooks.d/0217_wildalive.py
+new file mode 100755
+index 0000000..5b04156
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0217_wildalive.py
+@@ -0,0 +1,59 @@
++#!/usr/bin/env python3
++"""ss3ds 0217: alive wild Pokemon call sites (Settings > Battle "Alive wild Pokemon", default OFF). The logic is in the 0110
++block (encounter_check.c SS3DS_WildSolid / SS3DS_WildTalk, fieldmap_native.c flyers); this adds the three call sites once:
++  field_control.c FieldInput_Update   a visible one in the way drops the walk keys (solid; pushing on it asks for its battle)
++  field_control.c FieldInput_Process  A facing one, a bump or a charge starts its battle (before NPC / sign interaction)
++  encounter_check.c                   a forced (visible) battle uses the visible one's land / water type, so it also starts when
++                                      the player stands on a tile with no encounters next to it
++Idempotent ('SS3DS 0217')."""
++import sys
++
++TAG = 'SS3DS 0217'
++
++
++def edit(path, pairs):
++    s = open(path).read()
++    if TAG in s:
++        return
++    for old, new in pairs:
++        if s.count(old) != 1:
++            sys.exit('0217_wildalive: anchor not found exactly once in %s: %r' % (path, old[:80]))
++        s = s.replace(old, new)
++    open(path, 'w').write(s)
++    print('0217_wildalive: %s hooked' % path)
++
++
++which = sys.argv[1] if len(sys.argv) > 1 else 'all'
++if which in ('all', 'control'):
++    edit('src/field/field_control.c', [
++        ('void FieldInput_Update(FieldInput *fieldInput, FieldSystem *fieldSystem, u16 newKeys, u16 heldKeys) {\n',
++         'extern int SS3DS_WildSolid(FieldSystem *fieldSystem, int dir); // SS3DS 0217 alive wild Pokemon (0110 block in encounter_check.c)\n'
++         'extern int SS3DS_WildTalk(FieldSystem *fieldSystem, int interact);\n\n'
++         'void FieldInput_Update(FieldInput *fieldInput, FieldSystem *fieldSystem, u16 newKeys, u16 heldKeys) {\n'),
++        ('    fieldInput->playerDir = sub_0205DD94(fieldSystem->playerAvatar, newKeys, heldKeys);\n}\n',
++         '    fieldInput->playerDir = sub_0205DD94(fieldSystem->playerAvatar, newKeys, heldKeys);\n'
++         '    if (SS3DS_WildSolid(fieldSystem, fieldInput->playerDir)) { // SS3DS 0217: a visible wild Pokemon is in the way\n'
++         '        fieldInput->newKeys &= ~PAD_PLUS_KEY_MASK;\n'
++         '        fieldInput->heldKeys &= ~PAD_PLUS_KEY_MASK;\n'
++         '        fieldInput->playerDir = DIR_NONE;\n'
++         '    }\n}\n'),
++        ('        && FieldSystem_CheckSign(fieldSystem) == TRUE) {\n        return 1;\n    }\n\n    if (fieldInput->interact) {\n',
++         '        && FieldSystem_CheckSign(fieldSystem) == TRUE) {\n        return 1;\n    }\n\n'
++         '    if (SS3DS_WildTalk(fieldSystem, fieldInput->interact)) { // SS3DS 0217: A / bump / charge -> its battle\n'
++         '        fieldSystem->lastTouchMenuInput = 0;\n'
++         '        return 1;\n'
++         '    }\n\n'
++         '    if (fieldInput->interact) {\n'),
++    ])
++if which in ('all', 'enc'):
++    edit('src/field/encounter_check.c', [
++        ('    encounterRate = FieldSystem_GetTileEncounterTypeAndRate(fieldSystem, metatileBehavior, &encounterType);\n    if (encounterRate == 0) {\n        return FALSE;\n    }\n    FieldSystem_UpdateTurnFrameCounter(fieldSystem);\n',
++         '    encounterRate = FieldSystem_GetTileEncounterTypeAndRate(fieldSystem, metatileBehavior, &encounterType);\n'
++         '    if (sSS3DS_Force) { // SS3DS 0217: the visible one decides land or water (the player may stand next to it, off the grass)\n'
++         '        encounterType = sSS3DS_ForceKind == 2 ? ENCOUNTER_TYPE_SURFING : ENCOUNTER_TYPE_LAND;\n'
++         '        if (encounterRate == 0) {\n'
++         '            encounterRate = 1;\n'
++         '        }\n'
++         '    }\n'
++         '    if (encounterRate == 0) {\n        return FALSE;\n    }\n    FieldSystem_UpdateTurnFrameCounter(fieldSystem);\n'),
++    ])
+diff --git a/scripts/ss3ds_hooks.d/0217_wildalive.sh b/scripts/ss3ds_hooks.d/0217_wildalive.sh
+new file mode 100644
+index 0000000..fd4bcf3
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0217_wildalive.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0217: alive wild Pokemon call sites (after 0110, which refreshes the logic block). Not fatal: without it the
++# "Alive wild Pokemon" row only adds the flyers; visible ones stay walk-through as before. Optional: logs "skipped", never stops the build.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0217_wildalive.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1 && bash rebuild_game_object.sh src/field/encounter_check.c field__encounter_check.o 2); then
++  log "ss3ds 0217 wildalive hook skipped (see message above); visible wild Pokemon stay walk-through"
++fi
+-- 
+2.43.0
+

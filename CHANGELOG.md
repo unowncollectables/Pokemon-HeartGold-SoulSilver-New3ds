@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Alive wild Pokemon (toggle, default OFF)
+- Settings > Battle > Alive wild Pokemon (`wild_vis_alive`, hook 0217 + 0110 block v3): visible wild Pokemon are solid; A or a short push starts their battle, bold ones charge at you. Ambient flyers cross the sky outdoors by area, time and weather; rare shiny flyer and a very rare legendary flyover, each with a new achievement (Legend in the Sky, Shiny on the Wing). Untested on hardware. Log `[WILD]`.
+
 ### GTS debug logs off
 - `[SOC]`/`[LOGIN]`/`[CPS]`/`[GHTTP]`/`[DNS]` lines in `ss3ds_net.c` are compiled out (GTS proven on hardware); `-DSS3DS_NET_LOG` brings them back. No behaviour change.
 

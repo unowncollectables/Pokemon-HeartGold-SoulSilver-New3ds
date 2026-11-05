@@ -11,7 +11,7 @@ enum { ACH_ZEPHYR, ACH_HIVE, ACH_PLAIN, ACH_FOG, ACH_STORM, ACH_MINERAL, ACH_GLA
        ACH_BDAY, ACH_NEWYEAR, ACH_VALENTINE, ACH_STPAT, ACH_CANADA, ACH_HALLOWEEN, ACH_XMAS,
        ACH_ALL16, ACH_WIFITRADE, ACH_CATCH1, ACH_CATCH50, ACH_CATCH200, ACH_HATCH1, ACH_HATCH25, ACH_STEPS10K, ACH_STEPS100K, ACH_BIKE10K,
        ACH_BATTLE50, ACH_BATTLE250, ACH_WILD500, ACH_FISH25, ACH_BERRY10, ACH_FOSSIL, ACH_NICK5, ACH_MAIL, ACH_SPLASH, ACH_BOOM,
-       ACH_CONTEST, ACH_TOWER, ACH_RIBBON, ACH_SIGNED, ACH_COUNT };
+       ACH_CONTEST, ACH_TOWER, ACH_RIBBON, ACH_SIGNED, ACH_SKYLEGEND, ACH_SKYSHINY, ACH_COUNT };
 enum { ACH_CAT_GYMS, ACH_CAT_MILESTONES, ACH_CAT_SHINY, ACH_CAT_DATES, ACH_CAT_ADVENTURE, ACH_CATS };
 typedef struct { const char *name, *desc; int pts, cat; } P3DS_AchInfo;
 const P3DS_AchInfo *P3DS_AchGet(int id);
@@ -21,6 +21,7 @@ const char *P3DS_AchCatName(int cat);
 int P3DS_AchToastsOn(void);               /* Settings > Play, default ON; the list works either way */
 void P3DS_AchSetToasts(int v);
 void P3DS_AchUnlock(int id);              /* idempotent; saves the file, queues a toast + chime */
+void P3DS_AchSky(int legend);             /* game thread (hook 0110/0217 ambient flyers): 1 = a legendary flew over, 0 = a shiny flyer */
 void P3DS_AchPublish(int badges, int clear, int red); /* game thread (hook 0145): save flags; the first call per boot carries over silently */
 /* game thread (hook 0213): read-only GameStats counters (idx = GAME_STAT_* number); like AchPublish, the first call per boot carries over silently */
 void P3DS_AchStats(const unsigned short *idx, const unsigned *val, int n);
