@@ -111,9 +111,9 @@ static inline int pxNTab() { return brCfg() ? 6 : 5; } /* the BREED tab only exi
 static const char *const kPxTabs[kPxMaxTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG", "EGGS" };
 static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0, int *y1) {
   /* run 142: the tabs span the whole bar in five even buttons (the name has its own strip below, pxNameStrip), and use the side column's silver button look. X1 is the panel's right edge, the bar starts at kBlPanX0. */
-  /* run 147 (Nathan: match the right-hand buttons): side-column style, an icon + name button; only the open tab shows its name, the others are narrow icon buttons, so the open one takes the room left over */
-  (void)T; const int L = kBlPanX0 + 2, R = X1 - 2, N = pxNTab(), kNarrow = 22; int x = L;
-  for (int i = 0; i < N; i++) { x0[i] = x; x1[i] = (gPx.pane == i) ? R - (N - 1 - i) * (kNarrow + kPxTabGap) : x + kNarrow; x = x1[i] + kPxTabGap; }
+  /* run 147 (Nathan: icons, not names): equal icon-only buttons in the side column's style across the bar */
+  (void)T; const int L = kBlPanX0 + 2, R = X1 - 2, N = pxNTab(), W = R - L - (N - 1) * kPxTabGap;
+  for (int i = 0; i < N; i++) { x0[i] = L + i * kPxTabGap + W * i / N; x1[i] = L + i * kPxTabGap + W * (i + 1) / N; }
   *y0 = Y0 + 1; *y1 = Y0 + 15; }
 /* run 142: the area name on its own full-width line under the tab row (MAP pane only; the map panel starts below it, see blNameH) */
 static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
@@ -134,8 +134,7 @@ static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const c
     if (on) for (int x = cx0[i] + 1; x < cx1[i] - 1; x++) suiPx(b, x, cy1 - 2, kBlBlue);
     static const int kIc[kPxMaxTab] = { 7, 3, 10, 1, 2, 11 };
     const int w = cx1[i] - cx0[i], iy = cy0 + (cy1 - cy0 - 12) / 2;
-    if (!on) blIcon(b, cx0[i] + (w - 12) / 2, iy, kIc[i], SUI_RGB(24, 112, 64), SUI_RGB(104, 192, 128));
-    else { blIcon(b, cx0[i] + 3, iy, kIc[i], SUI_RGB(24, 112, 64), SUI_RGB(104, 192, 128)); const int tw = suiSWidth(T, kPxTabs[i]); suiSDraw(T, b, cx0[i] + 16 + (w - 16 - tw) / 2, cy0 + (cy1 - cy0 - 9) / 2, kPxTabs[i], kBlNavy, kBlPress); } } }
+    blIcon(b, cx0[i] + (w - 12) / 2, iy, kIc[i], SUI_RGB(24, 112, 64), SUI_RGB(104, 192, 128)); } }
 /* tab index under bar x, -1 none (same layout as pxBar) */
 static int pxChipHit(const SUiText &T, int X1, int Y0, int x) {
   int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
