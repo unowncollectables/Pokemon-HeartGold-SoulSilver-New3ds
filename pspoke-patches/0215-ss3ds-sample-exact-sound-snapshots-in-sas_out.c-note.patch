@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ss3ds <a@b>
+Date: Thu, 5 Nov 2026 02:25:11 +0000
+Subject: [PATCH] ss3ds: sample-exact sound snapshots in sas_out.c (notes start
+ at their own sample, not the grain start)
+
+Each 256-sample grain (7.8 ms) is mixed in pieces through P3DS_SasMixPart (platform psp_ctru.c); a channel snapshot
+that falls inside the grain is applied at its own sample, like the DS applies each 5.2 ms sound pump. Before, every
+snapshot due in a grain was applied at its first sample (notes up to 7.8 ms late, with per-note jitter).
+---
+ port/native-sound-audio/sas_out.c | 46 ++++++++++++++++++++++---------
+ 1 file changed, 33 insertions(+), 13 deletions(-)
+
+diff --git a/port/native-sound-audio/sas_out.c b/port/native-sound-audio/sas_out.c
+index 422df69..55a2420 100644
+--- a/port/native-sound-audio/sas_out.c
++++ b/port/native-sound-audio/sas_out.c
+@@ -370,6 +370,8 @@ static int SasThread(SceSize args, void *argp)
+                 while (((w - r) & SNAP_MASK) > keep) { u32 i = r & SNAP_MASK; for (int v = 0; v < 16; v++) ApplyChannel(v, &s_snaps[i].ch[v]); playTime = s_snaps[i].time; r++; }
+                 s_snapR = r;
+             }
++            /* 2026-11-05: snapshots due at the grain start are applied here; later ones inside this grain are applied at
++               their own sample below (sample-exact note timing, like the DS's 5.2 ms sound pumps). */
+             while (r != w && s_snaps[r & SNAP_MASK].time <= playTime) {
+                 const SasSnap *s = &s_snaps[r & SNAP_MASK];
+                 for (int v = 0; v < 16; v++) ApplyChannel(v, &s->ch[v]);
+@@ -387,18 +389,8 @@ static int SasThread(SceSize args, void *argp)
+                     st_underfeed++; }
+             }
+         }
+-        static int gi; short *s_grain = s_grainBuf[gi ^= 1];
+-        sceKernelDcacheInvalidateRange(s_grain, SAS_GRAIN * 2 * sizeof(short));
+-        { int rc = __sceSasCore(&s_core, s_grain); if (rc) st_coreErr++; }
+-        sceKernelDcacheWritebackInvalidateRange(s_grain, SAS_GRAIN * 2 * sizeof(short));
+-        { static u32 g; int pk = 0; for (int i = 0; i < SAS_GRAIN * 2; i++) { int a = s_grain[i] < 0 ? -s_grain[i] : s_grain[i]; if (a > pk) pk = a; }
+-          if (pk > st_peak) st_peak = pk;
+-          if ((++g % 344) == 0) { int h[32]; __sceSasGetAllEnvelopeHeights(&s_core, h); int keyed = 0; for (int v = 0; v < 16; v++) keyed += s_cur[v].keyed;
+-            { static u32 lastT, lastR; u32 now = sceKernelGetSystemTimeLow(); u32 snaps = s_snapR - lastR; lastR = s_snapR;
+-              PSPNativeMemLog("[AUDIO-CLK] 344 grains (%u ms audio) took %u ms wall | game pumps consumed %u (expect ~%u) | underfeed holds %u | snap backlog %u | backlog drops %u (%u pumps) | adapt avg %u%% min %u%%", (u32)(344u * SAS_GRAIN * 1000u / SAS_RATE), lastT ? (now - lastT) / 1000 : 0, snaps, (u32)(344u * SAS_GRAIN * 192u / SAS_RATE), st_underfeed, (s_snapW - s_snapR) & SNAP_MASK, st_skipEvents, st_skipSnaps, st_adaptN ? st_adaptSum * 100u / 256u / st_adaptN : 100u, st_adaptMin * 100u / 65536u); lastT = now; st_underfeed = 0; st_skipEvents = st_skipSnaps = 0; st_adaptSum = st_adaptN = 0; st_adaptMin = 65536;
+-              { extern unsigned P3DS_BlockFailFull, P3DS_BlockFailOom, P3DS_BlockHigh; static u32 lk, ls; extern unsigned P3DS_NoteNoWave; PSPNativeMemLog("[AUDIO-SE] keyons %u | skipped (no sample) %u | notes without wave %u | halved %u | cache %u KiB, evict %u | sample blocks high %u, alloc fail full %u oom %u | dropsnap %u | keyon types pcm8 %u pcm16 %u adpcm %u psg %u noise %u, vol0 %u, psg-on-ch0-7 %u, chans %04x", st_keyOns - lk, st_skipped - ls, P3DS_NoteNoWave, st_decimated, s_cacheBytes >> 10, st_evict, P3DS_BlockHigh, P3DS_BlockFailFull, P3DS_BlockFailOom, st_dropSnaps, st_type[0], st_type[1], st_type[2], st_type[3], st_type[4], st_zeroVol, st_psgOff, st_chan); for (int q = 0; q < 5; q++) st_type[q] = 0; st_zeroVol = st_psgOff = st_chan = 0; lk = st_keyOns; ls = st_skipped; } }
+-            PSPNativeMemLog("[AUDIO-SAS] grain %u peak %d keyed %d env0 %08x env1 %08x env2 %08x env3 %08x", g, st_peak, keyed, h[0], h[1], h[2], h[3]); st_peak = 0; } }
+-        { u64 step = grainNum;
++        u64 step = grainNum;
++        {
+           /* run 43 audio_adapt=1 (default): when the game runs slower than real time (heavy stereo frames: 345-370 pumps
+              per window instead of ~516 at 32728 Hz) the sound-state clock used to run at full speed, hit the head and HOLD
+              (audible hiccup). Now its speed follows the snapshot backlog smoothly: full speed at >= the latency target,
+@@ -411,7 +403,35 @@ static int SasThread(SceSize args, void *argp)
+             else tgt = 32768u + 32768u * b / L;
+             fs = fs + (s32)((s32)tgt - (s32)fs) / 8; step = (grainNum * fs) >> 16; st_adaptSum += fs >> 8; st_adaptN++; if (fs < st_adaptMin) st_adaptMin = fs; }
+           else if (started && P3DS_MarginMode() == 2 && ((s_snapW - s_snapR) & SNAP_MASK) < P3DS_Latency() / 2) step -= step >> 4;
+-          frac += step; playTime += frac / SAS_RATE; frac %= SAS_RATE; }
++        }
++        /* 2026-11-05 sample-exact note timing: mix the grain in pieces, applying each snapshot that falls inside it at its
++           own sample (the old code applied all of them at the grain's first sample: up to 7.8 ms late, varying per note). */
++        { extern int P3DS_SasMixPart(int off, int n);
++          const u64 span = step / SAS_RATE; int off = 0; int ok = 1;
++          if (started && span) while (off < SAS_GRAIN) {
++              int n = SAS_GRAIN - off;
++              if (s_snapR != s_snapW) { u64 t = s_snaps[s_snapR & SNAP_MASK].time;
++                  if (t <= playTime) n = 0;
++                  else { u64 k = ((t - playTime) * SAS_GRAIN + span - 1) / span; if (k < (u64)SAS_GRAIN) n = (int)k - off; } }
++              if (n > 0) { if (P3DS_SasMixPart(off, n)) { ok = 0; break; } off += n; }
++              if (off >= SAS_GRAIN) break;
++              { u64 now = playTime + span * (u64)off / SAS_GRAIN; u32 rr = s_snapR, ww = s_snapW;
++                while (rr != ww && s_snaps[rr & SNAP_MASK].time <= now) { const SasSnap *sn = &s_snaps[rr & SNAP_MASK]; for (int v = 0; v < 16; v++) ApplyChannel(v, &sn->ch[v]); rr++; }
++                s_snapR = rr; }
++          }
++          (void)ok; }
++        static int gi; short *s_grain = s_grainBuf[gi ^= 1];
++        sceKernelDcacheInvalidateRange(s_grain, SAS_GRAIN * 2 * sizeof(short));
++        { int rc = __sceSasCore(&s_core, s_grain); if (rc) st_coreErr++; }
++        sceKernelDcacheWritebackInvalidateRange(s_grain, SAS_GRAIN * 2 * sizeof(short));
++        { static u32 g; int pk = 0; for (int i = 0; i < SAS_GRAIN * 2; i++) { int a = s_grain[i] < 0 ? -s_grain[i] : s_grain[i]; if (a > pk) pk = a; }
++          if (pk > st_peak) st_peak = pk;
++          if ((++g % 344) == 0) { int h[32]; __sceSasGetAllEnvelopeHeights(&s_core, h); int keyed = 0; for (int v = 0; v < 16; v++) keyed += s_cur[v].keyed;
++            { static u32 lastT, lastR; u32 now = sceKernelGetSystemTimeLow(); u32 snaps = s_snapR - lastR; lastR = s_snapR;
++              PSPNativeMemLog("[AUDIO-CLK] 344 grains (%u ms audio) took %u ms wall | game pumps consumed %u (expect ~%u) | underfeed holds %u | snap backlog %u | backlog drops %u (%u pumps) | adapt avg %u%% min %u%%", (u32)(344u * SAS_GRAIN * 1000u / SAS_RATE), lastT ? (now - lastT) / 1000 : 0, snaps, (u32)(344u * SAS_GRAIN * 192u / SAS_RATE), st_underfeed, (s_snapW - s_snapR) & SNAP_MASK, st_skipEvents, st_skipSnaps, st_adaptN ? st_adaptSum * 100u / 256u / st_adaptN : 100u, st_adaptMin * 100u / 65536u); lastT = now; st_underfeed = 0; st_skipEvents = st_skipSnaps = 0; st_adaptSum = st_adaptN = 0; st_adaptMin = 65536;
++              { extern unsigned P3DS_BlockFailFull, P3DS_BlockFailOom, P3DS_BlockHigh; static u32 lk, ls; extern unsigned P3DS_NoteNoWave; PSPNativeMemLog("[AUDIO-SE] keyons %u | skipped (no sample) %u | notes without wave %u | halved %u | cache %u KiB, evict %u | sample blocks high %u, alloc fail full %u oom %u | dropsnap %u | keyon types pcm8 %u pcm16 %u adpcm %u psg %u noise %u, vol0 %u, psg-on-ch0-7 %u, chans %04x", st_keyOns - lk, st_skipped - ls, P3DS_NoteNoWave, st_decimated, s_cacheBytes >> 10, st_evict, P3DS_BlockHigh, P3DS_BlockFailFull, P3DS_BlockFailOom, st_dropSnaps, st_type[0], st_type[1], st_type[2], st_type[3], st_type[4], st_zeroVol, st_psgOff, st_chan); for (int q = 0; q < 5; q++) st_type[q] = 0; st_zeroVol = st_psgOff = st_chan = 0; lk = st_keyOns; ls = st_skipped; } }
++            PSPNativeMemLog("[AUDIO-SAS] grain %u peak %d keyed %d env0 %08x env1 %08x env2 %08x env3 %08x", g, st_peak, keyed, h[0], h[1], h[2], h[3]); st_peak = 0; } }
++        frac += step; playTime += frac / SAS_RATE; frac %= SAS_RATE;
+         st_threadUs += sceKernelGetSystemTimeLow() - t0; st_grains++;
+         sceAudioOutputPannedBlocking(s_audioCh, PSP_AUDIO_VOLUME_MAX, PSP_AUDIO_VOLUME_MAX, s_grain);
+     }
+-- 
+2.43.0
+
