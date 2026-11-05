@@ -147,8 +147,8 @@ static const char *const kBlIcon[12][12] = {
   { "........#...", ".......#....", "......#.....", "############", "#ooooooooo+#", "#o###oo##o+#", "#o#+#oo##o+#", "#o###oo##o+#", "#ooooooooo+#", "############", "............", "............" }, /* radio (panel tab, run 147) */
   { "....####....", "...#oooo#...", "..#ooooo+#..", "..#oooo++#..", ".#ooooo+++#.", ".#oooo++++#.", ".#ooo+++++#.", ".#oo++++++#.", "..#++++++#..", "..##++++##..", "....####....", "............" }, /* egg (panel tab, run 147) */
 };
-static const uint32_t kBlSilverHi = SUI_RGB(236, 240, 248), kBlSilverLo = SUI_RGB(176, 186, 206), kBlNavy = SUI_RGB(30, 48, 96),
-  kBlBlue = SUI_RGB(64, 112, 200), kBlPress = SUI_RGB(120, 168, 232), kBlBg0 = SUI_RGB(40, 64, 120), kBlBg1 = SUI_RGB(18, 28, 60);
+static const uint32_t kBlSilverHi = SUI_RGB(238, 242, 238), kBlSilverLo = SUI_RGB(178, 192, 182), kBlNavy = SUI_RGB(22, 72, 44),
+  kBlBlue = SUI_RGB(56, 150, 84), kBlPress = SUI_RGB(150, 214, 164), kBlBg0 = SUI_RGB(36, 104, 64), kBlBg1 = SUI_RGB(14, 44, 28);
 static void blIcon(uint32_t *b, int x, int y, int i, uint32_t ink, uint32_t acc) {
   for (int r = 0; r < 12; r++) for (int c = 0; c < 12 && kBlIcon[i][r][c]; c++) { const char ch = kBlIcon[i][r][c];
     if (ch == '#') suiPx(b, x + c, y + r, ink); else if (ch == '+') suiPx(b, x + c, y + r, acc); else if (ch == 'o') suiPx(b, x + c, y + r, SUI_RGB(255, 255, 255)); } }
