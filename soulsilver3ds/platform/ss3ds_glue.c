@@ -172,6 +172,26 @@ unsigned int SS3DS_BattleMonOBJ_NewAll(unsigned int battleSystem, unsigned int h
     return d;
 }
 
+/* 2026-11-04 (Nathan: "when you enter a battle you can see 2 enemy sprites while they do their animations"): the wild /
+   trainer opponent intro (ov12_02260CDC, battle_controller_opponent) makes the same kind of 2D OBJ copy for ONE battler
+   (ov07_0221FB90 with that battler) while the 3D sprite is drawn too, so the foe showed twice during its intro animation in
+   3D (the copy has no stereo depth). call-retargets.json (pspoke patch 0216) routes that call here; same rule as NewAll above. */
+unsigned int SS3DS_BattleMonOBJ_One(unsigned int battleSystem, unsigned int heapID, unsigned int battler, unsigned int unused)
+{
+    extern void PSPNativeMemLog(const char *, ...);
+    static int hide = -1; static unsigned calls;
+    unsigned int d = ov07_0221FB90(battleSystem, heapID, battler, unused);
+    if (hide < 0) hide = P3DS_CfgInt("battle_monobj_hide", 1) != 0;
+    int hidden = 0;
+    if (hide && d) {
+        void **sprites = (void **)((char *)(uintptr_t)d + 0x24);
+        for (int i = 0; i < 4; i++)
+            if (sprites[i]) { ManagedSprite_SetDrawFlag(sprites[i], 0); hidden++; }
+    }
+    if (calls++ < 16) PSPNativeMemLog("[BATTLE] foe intro OBJ copy (battler %u, call %u): result %08x, %d hidden", battler, calls, d, hidden);
+    return d;
+}
+
 /* Zone prefetch (romcache3ds.c) learns which ROM blocks each map needs and reads the neighbours' blocks ahead of time
    on an idle core, but only if told when the map changes. Platinum hooks its map change; in SoulSilver the field map
    loader (fieldmap.c: AreaDataManager_Alloc(MapHeader_GetAreaDataBank(location->mapId))) is the one place every
