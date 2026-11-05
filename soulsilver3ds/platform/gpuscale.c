@@ -337,6 +337,24 @@ typedef struct { short dx, dy, w, h, sx, sy; } P3DS_OvRect;
 u32 *P3DS_OvAtlas; volatile int P3DS_OvDirty, P3DS_OvN; P3DS_OvRect P3DS_OvRects[96];
 static C3D_Tex ovTex; static int ovOk = -1;
 u32 *P3DS_OvAtlasGet(void) { if (!P3DS_OvAtlas) { P3DS_OvAtlas = linearAlloc(512 * 256 * 4); if (P3DS_OvAtlas) memset(P3DS_OvAtlas, 0, 512 * 256 * 4); } return P3DS_OvAtlas; }
+/* 2026-11-04 (Nathan: transitions must be seamless): while the Bottom menu covers the touch screen, the game's own fade of that
+   screen (MASTER_BRIGHT of the engine on the bottom) never reached it, so the menu stayed bright while the top faded out and the
+   next screen faded in. P3DS_BotFade (-16..16: down = black, up = white, set by render3ds.cpp only while our picture is there)
+   is drawn as one blended quad over the finished bottom screen. */
+int P3DS_BotFade;
+static void botFadeDraw(C3D_RenderTarget *t) {
+    const int f = P3DS_BotFade; if (!f) return; const unsigned a = (unsigned)((f < 0 ? -f : f) * 255 / 16);
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 320.0f, 240.0f, 0.0f, 1.0f, -1.0f, true); C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_CONSTANT, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+    C3D_TexEnvColor(env, (a << 24) | (f > 0 ? 0xFFFFFF : 0));
+    for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k));
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ZERO, GPU_ONE);
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 240, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(320, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(320, 240, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmDrawEnd();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO); tevPlain(); }
 static void ovDraw(C3D_RenderTarget *t) {
     const int n = P3DS_OvN; if (n <= 0 || !P3DS_OvAtlas) return;
     if (ovOk < 0) { ovOk = C3D_TexInit(&ovTex, 512, 256, GPU_RGBA8) ? 1 : 0; if (ovOk) { C3D_TexSetFilter(&ovTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&ovTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_OvDirty = 1; }
@@ -419,7 +437,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     u64 stT = 0;
     if (mode == 2) { quad(tgtTop, 400.0f, 0, fx, fy, fx + fw, fy + fh); if (crisp) crispDraw(tgtTop, 400.0f, fx, fy, fx + fw, fy + fh); } else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); if (crisp) crispDraw(tgtTop, 400.0f, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTop, 0); stT += svcGetSystemTick() - a; }
     if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTopR, 1); stT += svcGetSystemTick() - a; } }
-    if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); pnDraw(tgtBot); ovDraw(tgtBot); } else P3DS_PnOn = 0;
+    if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); pnDraw(tgtBot); ovDraw(tgtBot); botFadeDraw(tgtBot); } else P3DS_PnOn = 0;
     if (crN >= 600) { if (crOn) PSPNativeMemLog("[CRISP] %u of %u presents drew the 3D at final size, avg plain-3D cover %u%%, avg prep %u us", crOn, crN, (unsigned)(crMask / crOn * 100 / (256 * 192)), (unsigned)(crTicks / crOn / 268)); crN = crOn = 0; crMask = 0; crTicks = 0; }
     P3DS_GpStripUs = (unsigned)(stT / 268); P3DS_GpDrawUs = (unsigned)((svcGetSystemTick() - tDr0 - stT) / 268);
     { /* tearfix: citro3d requests the screen swap at the first vblank after the transfer and GSP latches it one vblank

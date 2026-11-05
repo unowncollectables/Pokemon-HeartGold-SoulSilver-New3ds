@@ -175,6 +175,10 @@ static unsigned blGen;static bool blSameFrame;
 /* fps_tweaks >= 2 (2026-10-27): the Bottom menu covered the whole bottom screen last frame (it paints all 256x192 of it),
    so engine B's picture would be thrown away: drawEngineB skips the compose and forces a full one on the next shown frame */
 static volatile bool bHideB;static unsigned pfBHid;
+/* 2026-11-04 (Nathan: screen swaps must be clean): engine B's buffer still holds the Bottom menu picture when its compose was
+   skipped (bHideB). When the game swaps the screens (POWCNT bit 15, e.g. opening the Pokedex from a tile) on such a frame, that
+   stale menu picture was shown on the TOP screen for a frame, at full brightness in the middle of the fade. */
+static volatile bool bStale;static unsigned bStaleShown;
 static int bSkipCfg=-1;static volatile unsigned bPower;static unsigned bLastPower=~0u;static unsigned bSkips,bDraws;volatile int P3DS_BottomReused;
 static void drawEngineB(){
   if(bSkipCfg<0){bSkipCfg=1;/* run 47: default 1 again (+ bottom_refresh) */FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"bottom_skip=%d",&x)==1)bSkipCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] bottom_skip=%d",bSkipCfg);}
@@ -193,9 +197,9 @@ static void drawEngineB(){
    for(unsigned pg=0x40;pg<0x80;pg++)if(PSPNativeVramPageGen[pg]>g){g=PSPNativeVramPageGen[pg];gp=pg;}
    for(unsigned pg=0x98;pg<0xA4;pg++)if(PSPNativeVramPageGen[pg]>g){g=PSPNativeVramPageGen[pg];gp=pg;}
    if(g!=lastG){lastG=g;if(bottomCache.valid&&P3DS_CfgInt("bottom_vramgen",1)){bottomCache.valid=false;static int n;if(n<20){n++;PSPNativeMemLog("[2D] bottom changed by VRAM page %u",gp);}}}}
-  if(bHideB){bottomCache.valid=false;P3DS_BottomReused=0;pfBHid++;return;}
+  if(bHideB){bottomCache.valid=false;P3DS_BottomReused=0;pfBHid++;bStale=true;return;}
   if(bSkipCfg&&BottomSame(pw)){bSkips++;P3DS_BottomReused=1;return;}
-  P3DS_BottomReused=0;bDraws++;
+  P3DS_BottomReused=0;bDraws++;bStale=false;
   rendererB.SetFramebuffer(raw[0],raw[1]);
   for(unsigned line=0;line<192;line++){engineB.CheckWindows(line);rendererB.DrawSprites(line,&engineB);rendererB.DrawScanline(line,&engineB);}
   if(bSkipCfg)SaveBottom(pw);}
@@ -1877,6 +1881,8 @@ static int Present(bool){
      if(rightPar)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dL.bmp",GPU3D::NativeFrame,true);if(t3R)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dR.bmp",t3R,true);}}}}
  /* POWCNT1 bit15: engine A on top screen. */
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
+ if(!(power&0x8000)&&bStale){static u32 kBlack[256*192]; /* bss, stays zero */top=kBlack;if(stereo&&eyeL==display[1])eyeL=kBlack;if(stereo&&eyeR==display[1])eyeR=kBlack;
+  if(bStaleShown++%60==0)PSPNativeMemLog("[2D] screen swap: engine B still held the Bottom menu picture, top shown black this frame (%u so far)",bStaleShown);}
  /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
     Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
  static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sRetHold,sRetN,sSwapAct; /* run 144: tab swap under way: freeze/hide the app picture so the Cancel press is never seen */ /* run 143: after the app closes keep the held field + strips until the live field's fade-in from black is done */ static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged; static unsigned sPartySnapGen;
@@ -2185,6 +2191,8 @@ static int Present(bool){
  pfT[PF_BMENU]+=svcGetSystemTick()-tBm0;
  /* fps_tweaks >= 2: this frame's Bottom menu painted the whole bottom image (blDraw / blCache / blank / suiBackground cover
     256x192), so next frame engine B is not composed; the frame it hides again, the bottom shows the last menu picture once */
+ {extern int P3DS_BotFade;P3DS_BotFade=0;if(bmShow&&!P3DS_ConsoleOnBottom()&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold&&!sSwapAct){ /* not while the panel holds the field: the game fades behind it */const unsigned mb=reg16((power&0x8000)?0x106C:0x6C),m=mb>>14;int f=(int)(mb&31);if(f>16)f=16;
+  if(f&&(m==1||m==2)){P3DS_BotFade=m==1?f:-f;static unsigned n;if(n++%120==0)PSPNativeMemLog("[BMENU] bottom menu follows the game's fade (MASTER_BRIGHT %04x)",mb);}}}
  bHideB=P3DS_FpsTweaks()>=2&&bmShow&&(power&0x8000)&&!P3DS_ConsoleOnBottom()&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant; /* run 134: bag/summary in the panel is engine B on the bottom LCD, so it must be drawn */
  /* ss3ds menu_button (default LEFT): small button in a corner of the touch screen, overworld only, tap = settings app.
     Drawn into the composed bottom image every frame (idempotent), so a reused bottom frame keeps it. */

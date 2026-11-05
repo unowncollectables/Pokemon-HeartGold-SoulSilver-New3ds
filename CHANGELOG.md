@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Clean menu transitions (Azahar pass over the tile flows)
+- Opening the Pokedex / Pokemon menu from a tile showed the Bottom menu picture on the TOP screen for a frame at full brightness (screen swap on a frame where engine B had not been redrawn). That frame is black now (log `[2D] screen swap`).
+- The Bottom menu now fades out and in with the game (MASTER_BRIGHT of the engine on the bottom screen) instead of staying bright while the top fades; not while the panel holds the field (log `[BMENU] bottom menu follows the game's fade`).
+- Hook 0215 (patch 0215, start_menu.c): the Start menu's grey bar and arrow no longer flash on the top screen when a tile opens a menu or the panel's party closes.
+
 ### Battle entry no longer stalls with Sharp 3D = FAST AUTO (run 148 log)
 - With the 3D slider up, every battle and every return to the field retried the 2x left eye and ran ~2 s at 18-20 fps before FAST AUTO dropped to 1x (no GPU 3D direct at 2x; the battle intro then fell back to the 14 ms CPU composite). Scenes that could not hold 2x now stay 1x for the session; once a battle could not, battles start at 1x; after two such scenes, all do. Log `[3DRES] FAST AUTO: scene changed, staying 1x`.
 
