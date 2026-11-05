@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### GTS debug logs off
+- `[SOC]`/`[LOGIN]`/`[CPS]`/`[GHTTP]`/`[DNS]` lines in `ss3ds_net.c` are compiled out (GTS proven on hardware); `-DSS3DS_NET_LOG` brings them back. No behaviour change.
+
 ### Whole game wide, one screen mode
 - The screen is always the 1.25x wide picture. The Screen scale setting (Display tab), `gpuscale=` in config.txt and the L+R+SELECT cycle are gone; 1:1 is only the automatic fallback when the GPU scaler cannot start. Log `[3DS] screen mode fixed at 1.25x wide`.
 - Edge fill (`wide_fill`) is on by default and also covers screens the wide renderer does not know, so the title screen, the Game Freak / Lugia intro and the main menu no longer have black side bars. Field pixels the wide renderer leaves unresolved are taken from the edge fill (log `[WIDE] ... unresolved strip pixels filled`).
