@@ -179,6 +179,7 @@ static volatile bool bHideB;static unsigned pfBHid;
    skipped (bHideB). When the game swaps the screens (POWCNT bit 15, e.g. opening the Pokedex from a tile) on such a frame, that
    stale menu picture was shown on the TOP screen for a frame, at full brightness in the middle of the fade. */
 static volatile bool bStale;static unsigned bStaleShown;
+static bool gBmGapOnly;
 static int bSkipCfg=-1;static volatile unsigned bPower;static unsigned bLastPower=~0u;static unsigned bSkips,bDraws;volatile int P3DS_BottomReused;
 static void drawEngineB(){
   if(bSkipCfg<0){bSkipCfg=1;/* run 47: default 1 again (+ bottom_refresh) */FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"bottom_skip=%d",&x)==1)bSkipCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] bottom_skip=%d",bSkipCfg);}
@@ -1996,6 +1997,7 @@ static int Present(bool){
   const bool bmGap=bmEnter>0;if(bmEnter)bmEnter--;
   const bool ppChrome=P3DS_PanelPartyOn&&panelPartyCfg()&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom(); /* run 121: live JOHTO + bottom_hd column while party is in the panel */
   const bool show=bmAny&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&((P3DS_InField&&!bmPrompt&&(!subBusyV||((bmHold||bmFlow||bmGrace)&&P3DS_SubMode<=1)))||bmGap||ppChrome);
+  gBmGapOnly=show&&bmGap&&!P3DS_InField&&!ppChrome; /* 2026-11-04: tiles kept only to hide the old Start menu while a sub-screen starts */
   {static bool pl;if(bmPrompt!=pl){pl=bmPrompt;PSPNativeMemLog("[BMENU] game Save prompt %s: tiles %s so the game's own touch screen is visible",bmPrompt?"up":"done",bmPrompt?"hidden":"back");}}
   /* a Start menu nobody is using (Save cancelled, or opened with X while the tiles cover it) would freeze the player: close it through hook 0102 */
   {static unsigned idleT,idleTries;if(bmHold&&P3DS_StartIdle&&P3DS_StartReq<0){++idleT;if(idleT>=45&&idleT%30==15&&idleTries<6&&!P3DS_StartClose){idleTries++;P3DS_StartClose=1;PSPNativeMemLog("[BMENU] idle Start menu nobody is using: closing it (hook 0102, try %u)",idleTries);}}
@@ -2191,8 +2193,12 @@ static int Present(bool){
  pfT[PF_BMENU]+=svcGetSystemTick()-tBm0;
  /* fps_tweaks >= 2: this frame's Bottom menu painted the whole bottom image (blDraw / blCache / blank / suiBackground cover
     256x192), so next frame engine B is not composed; the frame it hides again, the bottom shows the last menu picture once */
- {extern int P3DS_BotFade;P3DS_BotFade=0;if(bmShow&&!P3DS_ConsoleOnBottom()&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold&&!sSwapAct){ /* not while the panel holds the field: the game fades behind it */const unsigned mb=reg16((power&0x8000)?0x106C:0x6C),m=mb>>14;int f=(int)(mb&31);if(f>16)f=16;
-  if(f&&(m==1||m==2)){P3DS_BotFade=m==1?f:-f;static unsigned n;if(n++%120==0)PSPNativeMemLog("[BMENU] bottom menu follows the game's fade (MASTER_BRIGHT %04x)",mb);}}}
+ {extern int P3DS_BotFade;static int lastBF;const int prevBF=lastBF;P3DS_BotFade=0;
+  if(!bmShow&&bHideB)P3DS_BotFade=prevBF; /* the hide frame still shows last frame's menu picture (engine B was skipped): keep its fade too */
+  else if(bmShow&&!P3DS_ConsoleOnBottom()&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold&&!sSwapAct){ /* not while the panel holds the field: the game fades behind it */const unsigned mb=reg16((power&0x8000)?0x106C:0x6C),m=mb>>14;int f=(int)(mb&31);if(f>16)f=16;
+  if(gBmGapOnly){P3DS_BotFade=-16;f=0;} /* the bottom shows black, not the menu, between a tile tap and the new screen (the menu used to fade back in there for ~0.7 s) */
+  if(f&&(m==1||m==2)){P3DS_BotFade=m==1?f:-f;static unsigned n;if(n++%120==0)PSPNativeMemLog("[BMENU] bottom menu follows the game's fade (MASTER_BRIGHT %04x)",mb);}}
+  lastBF=P3DS_BotFade;}
  bHideB=P3DS_FpsTweaks()>=2&&bmShow&&(power&0x8000)&&!P3DS_ConsoleOnBottom()&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant; /* run 134: bag/summary in the panel is engine B on the bottom LCD, so it must be drawn */
  /* ss3ds menu_button (default LEFT): small button in a corner of the touch screen, overworld only, tap = settings app.
     Drawn into the composed bottom image every frame (idempotent), so a reused bottom frame keeps it. */
