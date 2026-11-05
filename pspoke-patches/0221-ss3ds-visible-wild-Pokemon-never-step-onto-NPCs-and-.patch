@@ -1,0 +1,65 @@
+From acc31ffcd394d16ffebaaa1303939b49061e08c8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 20:39:57 +0000
+Subject: [PATCH] ss3ds: visible wild Pokemon never step onto NPCs and keep a
+ free tile between each other
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 2d99266..5cdc551 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -45,7 +45,12 @@ static BOOL SS3DS_WildBlocked(FieldSystem *fieldSystem) {
+ }
+ 
+ // 0 = no walking encounters, 1 = land (grass, cave floor...), 2 = surfable water; | 4 = tall grass (drawn half hidden)
++LocalMapObject *MapObjectManager_GetFirstObjectWithXAndZ(MapObjectManager *manager, u32 x, u32 z, BOOL checkPrevious);
+ int SS3DS_WildTileKind(FieldSystem *fieldSystem, int x, int z) {
++    // 0221: never on (or walking into) a tile an NPC, the player or the follower stands on or is leaving
++    if (fieldSystem->mapObjectManager != NULL && MapObjectManager_GetFirstObjectWithXAndZ(fieldSystem->mapObjectManager, x, z, TRUE) != NULL) {
++        return 0;
++    }
+     u8 behavior = GetMetatileBehavior(fieldSystem, x, z);
+     if (!MetatileBehavior_CanGenerateWalkingEncounters(behavior)) {
+         return 0;
+@@ -503,8 +508,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             if (!(kind & 3) || ((env & 2) && (kind & 3) == 1 && !(kind & 4))) {
+                 continue;
+             }
+-            for (i = 0; i < SS3DS_WILD_MAX; i++) {
+-                busy |= S->m[i].on && S->m[i].x == tx && S->m[i].z == tz;
++            for (i = 0; i < SS3DS_WILD_MAX; i++) { // 0221: a free tile around each one, so sprites never clump
++                busy |= S->m[i].on && S->m[i].x - tx <= 1 && tx - S->m[i].x <= 1 && S->m[i].z - tz <= 1 && tz - S->m[i].z <= 1;
+             }
+             if (busy) {
+                 continue;
+@@ -599,11 +604,11 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 for (k2 = 0; k2 < SS3DS_WILD_MAX && S->m[k2].on; k2++) {
+                 }
+                 for (int g = 0; g < 4 && k2 < SS3DS_WILD_MAX && !ok; g++) {
+-                    gx = tx + (g == 2 ? -1 : g == 3 ? 1 : 0);
+-                    gz = tz + (g == 0 ? -1 : g == 1 ? 1 : 0);
++                    gx = tx + (g == 2 ? -2 : g == 3 ? 2 : 0); // 0221: two tiles apart, one free tile between them
++                    gz = tz + (g == 0 ? -2 : g == 1 ? 2 : 0);
+                     ok = (SS3DS_WildTileKind(fieldSystem, gx, gz) & 3) == m->kind && !(gx == px && gz == pz);
+                     for (i = 0; i < SS3DS_WILD_MAX && ok; i++) {
+-                        ok = !(S->m[i].on && S->m[i].x == gx && S->m[i].z == gz);
++                        ok = !(S->m[i].on && S->m[i].x - gx <= 1 && gx - S->m[i].x <= 1 && S->m[i].z - gz <= 1 && gz - S->m[i].z <= 1);
+                     }
+                 }
+                 if (ok && P3DS_WildLoad(k2 + 1, spr, 0)) {
+@@ -790,7 +795,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         }
+         int nx = m->x + (d == 2 ? -1 : d == 3 ? 1 : 0), nz = m->z + (d == 0 ? -1 : d == 1 ? 1 : 0), kind = SS3DS_WildTileKind(fieldSystem, nx, nz), busy = nx == px && nz == pz;
+         for (int j = 0; j < SS3DS_WILD_MAX; j++) {
+-            busy |= j != i && S->m[j].on && S->m[j].x == nx && S->m[j].z == nz;
++            busy |= j != i && S->m[j].on && S->m[j].x - nx <= 1 && nx - S->m[j].x <= 1 && S->m[j].z - nz <= 1 && nz - S->m[j].z <= 1; // 0221: keep a tile apart
+         }
+         m->dir = d;
+         if (!busy && (kind & 3) == m->kind) {
+-- 
+2.43.0
+
