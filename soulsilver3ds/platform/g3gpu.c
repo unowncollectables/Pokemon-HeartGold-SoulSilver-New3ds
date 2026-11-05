@@ -378,17 +378,17 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
       /* 2026-11-04 (Nathan, run 148 log: "still slow entering a battle"): every battle and every return to the field retried 2x and
          spent its first ~2 s at 2x (53 ms frames: no GPU 3D direct at 2x, and the battle intro's 3D translucency then fails the GPU
          compose -> CPU composite 14 ms). A scene that could not hold 2x stays 1x for the rest of the session, and once one battle
-         could not, battles start at 1x; after two scenes that could not, every scene does. */
+         could not, battles start at 1x; after two scenes that could not, every scene does. Battles are always 1x with the slider up. */
       static int gvBad[64], gvBadN, gvBattleBad;
       { extern volatile int P3DS_MmMap; extern int P3DS_InBattle;
         const int cfgV = P3DS_CfgInt("g3_sharp", 0), key = P3DS_MmMap * 2 + (P3DS_InBattle != 0);
         const u64 now = svcGetSystemTick(); const unsigned dt = gvT ? (unsigned)((now - gvT) / 268) : 0; gvT = now;
         if (cfgV != gvCfg || !stereo || key != gvKey) {
-            int bad = cfgV == gvCfg && ((P3DS_InBattle && gvBattleBad) || gvBadN >= 2); for (int i = 0; i < gvBadN && !bad; i++) bad = gvBad[i] == key && cfgV == gvCfg;
+            int bad = (cfgV == gvCfg && gvBadN >= 2) || P3DS_InBattle; /* battles: 2x never held with the slider up (run 148 log 53 ms, Azahar 87 ms), so they start and stay 1x */ for (int i = 0; i < gvBadN && !bad; i++) bad = gvBad[i] == key && cfgV == gvCfg;
             if (stereo && cfgV == 3 && key != gvKey) PSPNativeMemLog("[3DRES] FAST AUTO: scene changed, %s", bad ? "this scene could not hold 2x before: staying 1x" : "trying 2x");
             if (cfgV != gvCfg) { gvBadN = 0; gvBattleBad = 0; bad = 0; }
             gvDown = bad; gvN = 0; gvAcc = 0; gvCfg = cfgV; gvKey = key; }
-        if (cfgV == 3 && stereo && !gvDown && curHi == 1 && dt < 200000) { gvAcc += dt; if (++gvN >= 60) { const unsigned avg = (unsigned)(gvAcc / gvN);
+        if (cfgV == 3 && stereo && !gvDown && curHi == 1 && dt < 200000) { gvAcc += dt; if (++gvN >= 15) {   /* 15 frames (~0.5 s) decide; 60 cost ~2 s of slow frames per try */ const unsigned avg = (unsigned)(gvAcc / gvN);
             if (avg > 34800) { gvDown = 1; if (gvBadN < 64) gvBad[gvBadN++] = key; if (P3DS_InBattle) gvBattleBad = 1; PSPNativeMemLog("[3DRES] FAST AUTO: stereo frames average %u us at 2x (over 34800), left eye back to 1x until the scene changes", avg); }
             gvN = 0; gvAcc = 0; } } }
       const int fastMono = shCfg && P3DS_CfgInt("g3_sharp", 0) >= 2 && P3DS_CfgInt("g3_sharp", 0) != 4 && (monoRun >= 30 || gvDown);
