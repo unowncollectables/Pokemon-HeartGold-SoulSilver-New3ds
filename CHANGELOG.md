@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Alive wild Pokemon round 2 (same toggle)
+- Hook 0218 (0110 block v4): night naps with Zz, sneaking vs running (notice range), pairs that travel together, squabbles, water splashes (Magikarp), rain sheltering, a rare huge wild Pokemon (1/1024, achievement "Something Big"), flyer flocks. All random, nothing saved. Untested on hardware.
+
 ### Alive wild Pokemon (toggle, default OFF)
 - Settings > Battle > Alive wild Pokemon (`wild_vis_alive`, hook 0217 + 0110 block v3): visible wild Pokemon are solid; A or a short push starts their battle, bold ones charge at you. Ambient flyers cross the sky outdoors by area, time and weather; rare shiny flyer and a very rare legendary flyover, each with a new achievement (Legend in the Sky, Shiny on the Wing). Untested on hardware. Log `[WILD]`.
 

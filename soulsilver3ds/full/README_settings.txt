@@ -444,5 +444,10 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   flyer for the area, time of day and weather crosses the sky with its shadow below (decoration, never battles); shiny 1/2048 (needs
   wild_vis_shiny), a legendary (Ho-Oh by day, Lugia at night) 1/4096. Both give an achievement. Nothing is saved.
   Log: [WILD] ... is in the way (solid) / talk/bump ... -> battle / charged the player / flyer species N ... / flyer ... gone.
+  Round 2 (hook 0218, same row): at night some nap (Zz; walk up quietly, running or the bike startles them), running gets you
+  noticed from further away and standing still lets you get closer, some travel as a pair, two nearby ones sometimes squabble,
+  water ones jump and splash (Magikarp a lot), in rain fewer show (only tall grass / water; others go shelter), a rare huge one
+  (1/1024: 1.5x size, 5-10 levels higher, bold; achievement "Something Big"), and flyers sometimes come as a flock of 2-4.
+  Log: [WILD] ... asleep / woke up / travels with / squabble / sheltering from the rain / HUGE.
 pg_find=0               (2026-11-03, default 0; Settings > Input > Pokedex finder) Pokedex encounter finder on the JOHTO map: tap a place, tap its card (wild list), tap a Pokemon name and the map pins every place that species lives. Chips ANY / MORN / DAY / NITE filter by time of day (MORN 4-10h, DAY 10-20h, NITE 20-4h; surf, fishing and Rock Smash count at any time); X clears. Times come from hook 0209 (without it only ANY works). Read-only, never touches the save. Log [FIND].
 breed_tab=0             (2026-11-03, default 0; Settings > Setup > Breeding tab) adds an EGGS tab (6th) to the JOHTO panel: Day-Care Pokemon, levels gained, egg chance / EGG READY, Masuda, steps left on party eggs. Read-only (hook 0210). Remove the toggle once tested.

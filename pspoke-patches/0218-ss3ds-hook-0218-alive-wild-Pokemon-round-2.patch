@@ -1,0 +1,372 @@
+From 748319e6fec6ffb9dc7f42ebe6b7f4928a31f4ab Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 5 Nov 2026 16:54:45 +0000
+Subject: [PATCH] ss3ds: hook 0218 alive wild Pokemon round 2 (naps, sneaking,
+ pairs, squabbles, splashes, rain, huge ones, flocks)
+
+0110 block v4 (state 'WIL3'): night naps with Zz (a loud player startles them), sneak/run notice range from P3DS_RunLast (platform ss3ds_glue.c) and the bike, a partner that travels with some, squabbles between two nearby ones, water ones jump and splash (Magikarp most), land ones hop, in rain fewer and only in tall grass or water (land ones out of grass go shelter), a rare huge one 1/1024 (1.5x, +5..10 levels, bold, achievement), flyer flocks of 2-4. All behind P3DS_WildVisCfg(5).
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 239 ++++++++++++++++++++++++--
+ 1 file changed, 224 insertions(+), 15 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index cf51d13..52e45a1 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,16 +13,18 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v3 (0110/0111/0217: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v4 (0110/0111/0217/0218: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMem, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+ #define SS3DS_WILD_MAX 6
+-typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad; } SS3DSWildMon;
++/* 0218: sleep (night nap, Zz), leader (slot+1 of the one it travels with), fight (squabble frames left), big (rare huge one), splash */
++typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+-typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C32u /* 'WIL2': v2 layout */
++typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, hideT; } SS3DSWildState;
++#define SS3DS_WILD_MAGIC 0x57494C33u /* 'WIL3': v3 layout (0218) */
++typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 512 ? 1 : -1]; /* P3DS_WildMem is 128 words */
+ extern void *P3DS_WildMem(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+ #define SS3DS_BIRD_FRAMES 240
+@@ -253,6 +255,13 @@ int SS3DS_WildTalk(FieldSystem *fieldSystem, int interact) {
+     return 0;
+ }
+ 
++// 0218: bit 0 night (evening counts from 20h: NITE/LATE), bit 1 rain or storm, bit 2 snow
++int SS3DS_WildEnv(FieldSystem *fieldSystem) {
++    int weather = LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
++    TIMEOFDAY tod = GF_RTC_GetTimeOfDay();
++    return ((tod == RTC_TIMEOFDAY_NITE || tod == RTC_TIMEOFDAY_LATE) ? 1 : 0) | ((weather >= WEATHER_RAIN && weather <= WEATHER_UNKNOWN_4) ? 2 : 0) | ((weather == WEATHER_SNOW || weather == WEATHER_BLIZZARD) ? 4 : 0);
++}
++
+ // Ambient flyer for this area, time of day and weather (decoration). 0 = none here (indoors, caves). *legend = 1 for a rare legendary.
+ int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend) {
+     static const u16 kFly[] = { 16, 17, 18, 21, 22, 41, 42, 163, 164, 169, 198, 225, 227, 276, 277, 278, 279, 333, 334, 396, 397, 398 };
+@@ -305,6 +314,8 @@ extern int SS3DS_WildPick(FieldSystem *fieldSystem, int surf, int *species, int
+ extern int SS3DS_WildRoamer(FieldSystem *fieldSystem, int *species, int *level);
+ extern int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend);
+ extern void P3DS_AchSky(int legend);
++extern int SS3DS_WildEnv(FieldSystem *fieldSystem);
++extern volatile int P3DS_RunLast; /* 0218: platform ss3ds_glue.c, 1 = the player's last step started as a run */
+ extern int P3DS_FollowerSprite(int species, int form, int female);
+ extern int P3DS_WildLoad(int slot, int spr, int shiny);
+ extern void P3DS_Toast(const char *text);
+@@ -405,9 +416,10 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     S->birdShiny = shiny;
+     S->birdBig = legend;
+     S->birdDir = SS3DS_WildRand(S, 2) ? 3 : 2;
++    S->flock = !legend && !shiny && SS3DS_WildRand(S, 4) == 0 ? 2 + (int)SS3DS_WildRand(S, 3) : 1; // 0218: sometimes a small flock (2-4)
+     S->birdX = px + (S->birdDir == 3 ? -18 : 18);
+     S->birdZ = pz - 5 + (int)SS3DS_WildRand(S, 8);
+-    PSPNativeMemLog("[WILD] flyer species %d%s%s heading %s at z %d", sp, shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ);
++    PSPNativeMemLog("[WILD] flyer species %d x%d%s%s heading %s at z %d", sp, S->flock, shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ);
+     if (legend) {
+         P3DS_Toast("A LEGENDARY POKEMON FLEW OVERHEAD!");
+         P3DS_AchSky(1);
+@@ -456,8 +468,20 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     if (S->cool > 0) {
+         S->cool--;
+     }
++    // 0218: sneaking or running: walking steps are quiet, running / the bike are loud; standing still is the quietest
++    if (px != S->lpx || pz != S->lpz) {
++        S->lastStep = (int)S->anim;
++        S->lpx = px;
++        S->lpz = pz;
++    }
++    int alive = P3DS_WildVisCfg(5), moving = (int)S->anim - S->lastStep < 30;
++    int loud = alive && moving && (P3DS_RunLast || PlayerAvatar_GetState(fieldSystem->playerAvatar) == 1 /* PLAYER_STATE_CYCLING */);
++    int env = alive ? SS3DS_WildEnv(fieldSystem) : 0;
+     S->rng ^= (u32)(px * 31 + pz * 17);
+     int n = 0, mx = P3DS_WildVisCfg(1) + 1;
++    if (env & 2) {
++        mx = (mx + 1) / 2; // 0218: in the rain most of them shelter; the rest stay in tall grass or the water
++    }
+     for (i = 0; i < SS3DS_WILD_MAX; i++) {
+         n += S->m[i].on != 0;
+     }
+@@ -475,7 +499,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 continue;
+             }
+             int tx = px + dx, tz = pz + dz, kind = SS3DS_WildTileKind(fieldSystem, tx, tz), busy = 0;
+-            if (!(kind & 3)) {
++            if (!(kind & 3) || ((env & 2) && (kind & 3) == 1 && !(kind & 4))) {
+                 continue;
+             }
+             for (i = 0; i < SS3DS_WILD_MAX; i++) {
+@@ -547,11 +571,54 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->roamer = ro;
+             m->battle = m->skip = m->bang = 0;
+             m->pad = 0; // fade-in counter
+-            PSPNativeMemLog("[WILD] spawn slot %d species %d lv %d at %d,%d %s%s%s mood %d", k + 1, sp, lv, tx, tz, m->kind == 2 ? "water" : "land", shiny ? " SHINY" : "", ro >= 0 ? " ROAMER" : "", m->mood);
++            m->sleep = m->leader = m->fight = m->big = m->splash = m->spare = 0;
++            if (alive && ro < 0) {
++                if (SS3DS_WildRand(S, 1024) == 0) { // 0218: a rare huge one (Alpha style): bigger, stronger, bold
++                    m->big = 1;
++                    int blv = lv + 5 + (int)SS3DS_WildRand(S, 6);
++                    m->lv = blv > 100 ? 100 : blv;
++                    m->mood = m->kind == 1 ? 3 : 0;
++                } else if ((env & 1) && m->kind == 1 && m->mood != 3 && SS3DS_WildRand(S, 3) == 0) {
++                    m->sleep = 1; // 0218: napping at night
++                }
++            }
++            PSPNativeMemLog("[WILD] spawn slot %d species %d lv %d at %d,%d %s%s%s mood %d%s%s", k + 1, sp, m->lv, tx, tz, m->kind == 2 ? "water" : "land", shiny ? " SHINY" : "", ro >= 0 ? " ROAMER" : "", m->mood, m->big ? " HUGE" : "", m->sleep ? " asleep" : "");
+             if (shiny) {
+                 PlaySE(SEQ_SE_DP_KIRAKIRA);
+                 P3DS_Toast("SHINY NEARBY!");
+             }
++            if (m->big) {
++                PlayCry(sp, 0);
++                P3DS_Toast("A HUGE POKEMON APPEARED!");
++                P3DS_AchSky(2);
++            }
++            // 0218: sometimes a second one of its kind travels with it (a pair, a pack)
++            if (alive && ro < 0 && !m->big && SS3DS_WildRand(S, 5) == 0) {
++                int k2, gx = tx, gz = tz, ok = 0;
++                for (k2 = 0; k2 < SS3DS_WILD_MAX && S->m[k2].on; k2++) {
++                }
++                for (int g = 0; g < 4 && k2 < SS3DS_WILD_MAX && !ok; g++) {
++                    gx = tx + (g == 2 ? -1 : g == 3 ? 1 : 0);
++                    gz = tz + (g == 0 ? -1 : g == 1 ? 1 : 0);
++                    ok = (SS3DS_WildTileKind(fieldSystem, gx, gz) & 3) == m->kind && !(gx == px && gz == pz);
++                    for (i = 0; i < SS3DS_WILD_MAX && ok; i++) {
++                        ok = !(S->m[i].on && S->m[i].x == gx && S->m[i].z == gz);
++                    }
++                }
++                if (ok && P3DS_WildLoad(k2 + 1, spr, 0)) {
++                    SS3DSWildMon *g2 = &S->m[k2];
++                    *g2 = *m;
++                    g2->x = g2->fx = gx;
++                    g2->z = g2->fz = gz;
++                    g2->shiny = 0;
++                    g2->lv = lv > 2 ? lv - 1 - (int)SS3DS_WildRand(S, 2) : lv;
++                    g2->leader = k + 1;
++                    g2->timer = 20 + (int)SS3DS_WildRand(S, 40);
++                    g2->kind = m->kind;
++                    g2->grass = (SS3DS_WildTileKind(fieldSystem, gx, gz) & 4) != 0;
++                    PSPNativeMemLog("[WILD] spawn slot %d species %d lv %d travels with slot %d", k2 + 1, sp, g2->lv, k + 1);
++                }
++            }
+             break;
+         }
+     }
+@@ -594,7 +661,82 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         if (m->hop > 0) {
+             m->hop--;
+         }
+-        if (!m->noticed && dist <= (m->mood == 3 ? 5 : 3)) {
++        if (m->splash > 0) {
++            m->splash--;
++        }
++        if (m->leader && (!S->m[m->leader - 1].on || S->m[m->leader - 1].battle)) {
++            m->leader = 0; // its partner is gone: on its own now
++        }
++        if (alive) {
++            // 0218: rain: land ones away from tall grass go to shelter (and come back with the next spawns once it stops)
++            if ((env & 2) && m->kind == 1 && !m->grass && !m->noticed && !m->big && SS3DS_WildRand(S, 240) == 0) {
++                SS3DS_WildKill(S, i, "sheltering from the rain");
++                continue;
++            }
++            // 0218: napping: only a loud player close by, or one right next to it, wakes it (startled ones run)
++            if (m->sleep) {
++                if (dist <= 1 || (loud && dist <= 3) || !(env & 1)) {
++                    m->sleep = 0;
++                    m->noticed = 1;
++                    m->hop = 12;
++                    m->bang = 45;
++                    m->timer = 6;
++                    if (loud && m->mood != 3) {
++                        m->mood = 2;
++                    }
++                    m->dir = adx > adz ? (ddx > 0 ? 2 : 3) : (ddz > 0 ? 0 : 1);
++                    if (P3DS_WildVisCfg(4)) {
++                        PlayCry(m->sp, 0);
++                    }
++                    PSPNativeMemLog("[WILD] slot %d species %d woke up (%s)", i + 1, m->sp, loud ? "startled" : "sneaked up on");
++                }
++                continue;
++            }
++            // 0218: two nearby ones sometimes squabble (face off, hop, then one runs off)
++            if (m->fight > 0) {
++                m->fight--;
++                if (m->fight % 24 == ((i & 1) ? 0 : 12)) {
++                    m->hop = 10;
++                }
++                if (m->fight == 0 && SS3DS_WildRand(S, 2) == 0) {
++                    m->mood = 2;
++                    m->noticed = 1; // the loser keeps away
++                    m->timer = 4;
++                }
++                continue;
++            }
++            if (!m->noticed && SS3DS_WildRand(S, 1500) == 0) {
++                for (int j = 0; j < SS3DS_WILD_MAX; j++) {
++                    SS3DSWildMon *o = &S->m[j];
++                    int ox = o->x - m->x, oz = o->z - m->z;
++                    if (j != i && o->on && !o->battle && !o->sleep && !o->fight && !o->noticed && o->kind == m->kind && (ox < 0 ? -ox : ox) + (oz < 0 ? -oz : oz) <= 2) {
++                        m->fight = o->fight = 96;
++                        m->bang = o->bang = 30;
++                        m->dir = (ox < 0 ? -ox : ox) > (oz < 0 ? -oz : oz) ? (ox > 0 ? 3 : 2) : (oz > 0 ? 1 : 0);
++                        o->dir = m->dir ^ 1;
++                        if (P3DS_WildVisCfg(4)) {
++                            PlayCry(m->sp, 0);
++                        }
++                        PSPNativeMemLog("[WILD] slots %d and %d squabble", i + 1, j + 1);
++                        break;
++                    }
++                }
++            }
++            // 0218: idle life: water ones jump and splash now and then (Magikarp a lot), land ones hop
++            if (m->t >= 16 && m->hop == 0 && !m->noticed) {
++                if (m->kind == 2 && SS3DS_WildRand(S, m->sp == 129 ? 90 : 300) == 0) {
++                    m->hop = 12;
++                    m->splash = 16;
++                } else if (m->kind == 1 && SS3DS_WildRand(S, 600) == 0) {
++                    m->hop = 8;
++                }
++            }
++        }
++        int seeR = m->mood == 3 ? 5 : 3;
++        if (alive) {
++            seeR += loud ? 2 : !moving ? -1 : 0; // 0218: running gets noticed from further away, standing still from closer
++        }
++        if (!m->noticed && dist <= seeR) {
+             m->noticed = 1;
+             m->hop = 12;
+             m->bang = 45;
+@@ -637,6 +779,13 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         } else if (m->noticed && m->mood == 2) { // shy: runs away
+             d = adx > adz ? (ddx > 0 ? 3 : 2) : (ddz > 0 ? 1 : 0);
+             m->timer = 10 + (int)SS3DS_WildRand(S, 8);
++        } else if (m->leader) { // 0218: keeps near its partner
++            SS3DSWildMon *L = &S->m[m->leader - 1];
++            int lx = L->x - m->x, lz = L->z - m->z, alx = lx < 0 ? -lx : lx, alz = lz < 0 ? -lz : lz;
++            if (alx + alz > 2) {
++                d = alx > alz ? (lx > 0 ? 3 : 2) : (lz > 0 ? 1 : 0);
++                m->timer = 12 + (int)SS3DS_WildRand(S, 12);
++            }
+         }
+         int nx = m->x + (d == 2 ? -1 : d == 3 ? 1 : 0), nz = m->z + (d == 0 ? -1 : d == 1 ? 1 : 0), kind = SS3DS_WildTileKind(fieldSystem, nx, nz), busy = nx == px && nz == pz;
+         for (int j = 0; j < SS3DS_WILD_MAX; j++) {
+@@ -713,23 +862,67 @@ static void SS3DS_WildBang(fx16 hw) {
+     G3_Color(GX_RGB(31, 31, 31));
+ }
+ 
++// 0218: two small white "z" marks drifting up beside the head of a napping one
++static void SS3DS_WildZz(fx16 hw, u32 anim) {
++    const fx16 u = FX16_ONE / 16, z = FX16_ONE / 8;
++    G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++    G3_Color(GX_RGB(31, 31, 31));
++    for (int k = 0; k < 2; k++) {
++        int ph = (int)((anim >> 2) + k * 8) % 16;
++        fx16 s = (fx16)(u * (k ? 3 : 2)), x0 = (fx16)(hw / 2 + u * (2 + k * 3) + u * ph / 8), y0 = (fx16)(hw / 2 + u * (ph + k * 4));
++        G3_Begin(GX_BEGIN_QUADS);
++        G3_Vtx(x0, y0 + s * 2, z); // top bar
++        G3_Vtx(x0, y0 + s * 2 - u / 2, z);
++        G3_Vtx(x0 + s * 2, y0 + s * 2 - u / 2, z);
++        G3_Vtx(x0 + s * 2, y0 + s * 2, z);
++        G3_Vtx(x0 + s * 2 - u / 2, y0 + s * 2, z); // diagonal
++        G3_Vtx(x0, y0 + u / 2, z);
++        G3_Vtx(x0 + u / 2, y0 + u / 2, z);
++        G3_Vtx(x0 + s * 2, y0 + s * 2, z);
++        G3_Vtx(x0, y0 + u / 2, z); // bottom bar
++        G3_Vtx(x0, y0, z);
++        G3_Vtx(x0 + s * 2, y0, z);
++        G3_Vtx(x0 + s * 2, y0 + u / 2, z);
++        G3_End();
++    }
++}
++
++// 0218: water drops thrown out sideways and up when a water one jumps
++static void SS3DS_WildSplash(fx16 hw, int left) {
++    const fx16 u = FX16_ONE / 16, z = FX16_ONE / 8;
++    int age = 16 - left;
++    G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++    G3_Color(GX_RGB(26, 30, 31));
++    G3_Begin(GX_BEGIN_QUADS);
++    for (int k = 0; k < 4; k++) {
++        int side = k < 2 ? -1 : 1, far = (k & 1) ? 2 : 1;
++        fx16 x = (fx16)(side * (hw / 3 + u * age * far / 3)), y = (fx16)(-hw + u * (age * (10 - age) * far / 8));
++        G3_Vtx(x - u, y + u, z);
++        G3_Vtx(x - u, y - u, z);
++        G3_Vtx(x + u, y - u, z);
++        G3_Vtx(x + u, y + u, z);
++    }
++    G3_End();
++    G3_Color(GX_RGB(31, 31, 31));
++}
++
+ static void SS3DS_WildDrawOne(SS3DSWildMon *m, int slot, fx32 py, u32 anim) {
+     const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
+     VecFx32 c, v;
+     fx32 tt = m->t >= 16 ? FX32_ONE : m->t * FX32_ONE / 16;
+-    int sz = m->w;
++    int sz = m->w, hs = m->big ? sz * 3 / 4 : sz / 2; // 0218: a huge one is drawn 1.5x
+     c.x = ((m->fx * 16 + 8) * FX32_ONE) + FX_Mul((m->x - m->fx) * 16 * FX32_ONE, tt);
+     c.z = ((m->fz * 16 + 8) * FX32_ONE) + FX_Mul((m->z - m->fz) * 16 * FX32_ONE, tt);
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+     if (m->kind == 1 && !m->grass) {
+         c.y = py + FX32_ONE / 2;
+-        SS3DS_WildShadow(cm, &c, sz);
++        SS3DS_WildShadow(cm, &c, m->big ? sz * 3 / 2 : sz);
+     }
+-    c.y = py + (sz / 2) * FX32_ONE + (m->hop * (12 - m->hop)) * FX32_ONE / 6;
++    c.y = py + hs * FX32_ONE + (m->hop * (12 - m->hop)) * FX32_ONE / 6;
+     v = SS3DS_WildCam(cm, &c);
+     v.y += 3 * FX32_ONE;
+-    int moving = m->t < 16, fr = m->dir * 2 + ((anim >> (moving ? 3 : 4)) & 1);
+-    fx16 hw = (fx16)((sz / 2) * FX16_ONE / 16);
++    int moving = m->t < 16, fr = m->sleep ? 2 : m->dir * 2 + ((anim >> (moving ? 3 : 4)) & 1);
++    fx16 hw = (fx16)(hs * FX16_ONE / 16);
+     // in tall grass the lower 30% is not drawn, so it stands in the grass instead of on top of it
+     fx16 by = m->grass && !moving ? (fx16)(-hw + hw * 3 / 5) : (fx16)-hw;
+     fx32 bt = m->grass && !moving ? sz * FX32_ONE * 7 / 10 : sz * FX32_ONE;
+@@ -757,6 +950,12 @@ static void SS3DS_WildDrawOne(SS3DSWildMon *m, int slot, fx32 py, u32 anim) {
+     if (m->bang > 0) {
+         SS3DS_WildBang(hw);
+     }
++    if (m->sleep) {
++        SS3DS_WildZz(hw, anim);
++    }
++    if (m->splash > 0) {
++        SS3DS_WildSplash(hw, m->splash);
++    }
+     if (m->shiny && ((anim >> 2) & 3) != 3) { // two twinkling 4-point stars beside a shiny one (Platinum run 119)
+         G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
+         G3_Color(GX_RGB(31, 31, 20));
+@@ -784,13 +983,23 @@ static void SS3DS_WildDrawOne(SS3DSWildMon *m, int slot, fx32 py, u32 anim) {
+ }
+ 
+ // 0217 the flyer: high above the ground, flapping (fast frame swap), its shadow on the ground below, fading in and out at the ends
++static void SS3DS_BirdDrawOne(SS3DSWildState *S, fx32 py, u32 anim, int member);
++
+ static void SS3DS_BirdDraw(SS3DSWildState *S, fx32 py, u32 anim) {
++    int n = S->flock < 1 ? 1 : S->flock > 4 ? 4 : S->flock;
++    for (int k = 0; k < n; k++) {
++        SS3DS_BirdDrawOne(S, py, anim + k * 5, k);
++    }
++}
++
++// one flyer of the flock; member 0 leads, the others trail behind it in a loose V (0218)
++static void SS3DS_BirdDrawOne(SS3DSWildState *S, fx32 py, u32 anim, int member) {
+     const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
+     VecFx32 c, v;
+     int sz = S->birdW, t = S->birdT, sgn = S->birdDir == 3 ? 1 : -1;
+     fx32 run = 36 * 16 * FX32_ONE / SS3DS_BIRD_FRAMES; // 36 tiles over the whole flight
+-    c.x = (S->birdX * 16 + 8) * FX32_ONE + sgn * run * t;
+-    c.z = (S->birdZ * 16 + 8) * FX32_ONE;
++    c.x = (S->birdX * 16 + 8) * FX32_ONE + sgn * run * t - sgn * member * 20 * FX32_ONE;
++    c.z = (S->birdZ * 16 + 8) * FX32_ONE + ((member & 1) ? 14 : -14) * member * FX32_ONE / 2;
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+     c.y = py + FX32_ONE / 2;
+     SS3DS_WildShadow(cm, &c, S->birdBig ? sz : sz / 2);
+-- 
+2.43.0
+
