@@ -91,8 +91,8 @@ extern "C" { unsigned long long P3DS_SpkGetTexTicks; }
 static unsigned g3FrameNo;static Tex*usedTex[96];static unsigned usedN,postFixes;
 static int postVblCfg(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"tex_postvblank=%d",&x)==1)v=x!=0;fclose(f);}PSPNativeMemLog("[G3] tex_postvblank=%d",v);}return v;}
 extern "C" int P3DS_CfgInt(const char*,int);
-static Tex folTex[7*8]; /* run 73: slot 0 follower, slots 1..6 visible wild Pokemon (ss3ds 0110: 6 at once; 8 frames each) */
-static Tex*GetTexture(){u64 t=svcGetSystemTick();Tex*r=GetTextureImpl();if(r&&(r<folTex||r>=folTex+7*8)&&r->useF!=g3FrameNo+1){r->useF=g3FrameNo+1;if(usedN<96)usedTex[usedN++]=r;}u64 d=svcGetSystemTick()-t;prTex+=d;P3DS_SpkGetTexTicks+=d;return r;}
+static Tex folTex[8*8]; /* run 73: slot 0 follower, slots 1..6 visible wild Pokemon (ss3ds 0110: 6 at once; 8 frames each), 7 = ambient flyer (0217) */
+static Tex*GetTexture(){u64 t=svcGetSystemTick();Tex*r=GetTextureImpl();if(r&&(r<folTex||r>=folTex+8*8)&&r->useF!=g3FrameNo+1){r->useF=g3FrameNo+1;if(usedN<96)usedTex[usedN++]=r;}u64 d=svcGetSystemTick()-t;prTex+=d;P3DS_SpkGetTexTicks+=d;return r;}
 static bool DecodeTex(Tex*e){const unsigned fmt=e->fmt,w=e->w,h=e->h;
    stDecodes++;
    unsigned n=w*h;if(!e->px)e->px=(u32*)malloc(n*4);if(!e->px)return false;u32*o=e->px;unsigned palN=0;
@@ -139,7 +139,7 @@ extern "C" int P3DS_FollowerSprite(int species,int form,int female){
  if(e[3]){if(female)idx++;}else if(form>0&&form<=e[2])idx+=form;
  if(idx<0)idx=0;if((u32)idx>=folNSpr)idx=folNSpr-1;return idx;}
 /* loads sprite spr (8 frames) into the frame slots; returns the frame width (32/64) or 0 */
-static int folCurS[7]={-1,-1,-1,-1,-1,-1,-1},folCurShS[7];
+static int folCurS[8]={-1,-1,-1,-1,-1,-1,-1,-1},folCurShS[8];
 static int folLoadSlot(int sl,int spr,int shiny){
  if(folState!=1||spr<0||(u32)spr>=folNSpr)return 0;const u8*d=folDir+spr*8;unsigned w=d[4],h=d[5],nf=d[6];u32 off=d[0]|d[1]<<8|d[2]<<16|(u32)d[3]<<24;
  if(spr==folCurS[sl]&&shiny==folCurShS[sl])return w;
@@ -152,16 +152,16 @@ static int folLoadSlot(int sl,int spr,int shiny){
   G3G_TexFree(t.gt);t.gt=nullptr;t.off=0x7FFF8-sl*8;t.pal=0x1FF00+k*16;t.fmt=3;t.w=w;t.h=h;t.c0=1;t.gen=0;t.raw=nullptr;t.rawN=0;}
  free(b);folCurS[sl]=spr;folCurShS[sl]=shiny;if(!sl){folCur=spr;folCurShiny=shiny;}PSPNativeMemLog(sl?"[WILD] slot %d load sprite %d shiny %d %ux%u":"[FOL] slot %d sprite %d shiny %d %ux%u",sl,spr,shiny,w,h);return w;}
 extern "C" int P3DS_FollowerLoad(int spr,int shiny){return folLoadSlot(0,spr,shiny);}
-extern "C" int P3DS_WildLoad(int sl,int spr,int shiny){return sl>=1&&sl<=6?folLoadSlot(sl,spr,shiny):0;}
+extern "C" int P3DS_WildLoad(int sl,int spr,int shiny){return sl>=1&&sl<=7?folLoadSlot(sl,spr,shiny):0;}
 /* ss3ds 0110: visible wild Pokemon state, owned by the game hook (layout in fieldmap.c); here so it outlives the field overlay */
 extern "C" void *P3DS_WildMem(void){static u32 m[128];return m;}
 /* winFlag of the last battle, set by the game hook in encounter.c (sub_02050724); a visible one the player ran from stays */
 extern "C" {volatile int P3DS_WildBattleResult=-1;}
-extern "C" void P3DS_WildFree(int sl){if(sl<1||sl>6)return;for(int k=0;k<8;k++){Tex&t=folTex[sl*8+k];G3G_TexFree(t.gt);t.gt=nullptr;free(t.px);t.px=nullptr;}folCurS[sl]=-1;}
-static inline Tex*folLookup(const G3SIM_TexImageParam_t&p){if(p.textureOffset>0x7FFF8||p.textureOffset<0x7FFC8||p.textureFormat!=3||(s_texPlttBase&~0x70u)!=0x1FF00)return nullptr;Tex*t=&folTex[((0x7FFF8-p.textureOffset)/8)*8+((s_texPlttBase>>4)&7)];return t->px?t:nullptr;}
+extern "C" void P3DS_WildFree(int sl){if(sl<1||sl>7)return;for(int k=0;k<8;k++){Tex&t=folTex[sl*8+k];G3G_TexFree(t.gt);t.gt=nullptr;free(t.px);t.px=nullptr;}folCurS[sl]=-1;}
+static inline Tex*folLookup(const G3SIM_TexImageParam_t&p){if(p.textureOffset>0x7FFF8||p.textureOffset<0x7FFC0||p.textureFormat!=3||(s_texPlttBase&~0x70u)!=0x1FF00)return nullptr;Tex*t=&folTex[((0x7FFF8-p.textureOffset)/8)*8+((s_texPlttBase>>4)&7)];return t->px?t:nullptr;}
 static Tex*GetTextureImpl(){
  const auto&p=s_texImageParam;unsigned fmt=p.textureFormat;if(!fmt)return nullptr;
- if(p.textureOffset>=0x7FFC8&&p.textureOffset<=0x7FFF8)return folLookup(p);
+ if(p.textureOffset>=0x7FFC0&&p.textureOffset<=0x7FFF8)return folLookup(p);
  unsigned w=p.textureSSize,h=p.textureTSize;if(w<8||h<8||w>1024||h>1024)return nullptr;
  for(unsigned i=0;i<texN;i++){Tex&t=texCache[i];if(t.off==p.textureOffset&&t.pal==s_texPlttBase&&t.fmt==fmt&&t.w==w&&t.h==h&&t.c0==p.color0){
    if(t.gen==PSPNativeVramGen){t.lru=++texTick;return &t;}
