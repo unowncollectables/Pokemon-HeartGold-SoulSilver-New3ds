@@ -10,6 +10,9 @@ All notable changes to this project will be documented here.
 - Fix: with Wide FX on, the edge fill was handed the empty Wide FX buffer, which showed as black bars.
 - Checked in Azahar: intro, title, main menu, field, party, summary, bag, Pokedex, trainer card, save prompt.
 
+### Battle intro: no doubled wild Pokemon
+- During the wild Pokemon's slide-in the game also draws a 2D sprite copy of it (ov07_0221FB90, called from ov12_02260CDC); with the 3D battler on top, two foes showed. Patch 0216 retargets that call to `SS3DS_BattleMonOBJ_One` (ss3ds_glue.c), which hides the copy's sprites. Log `[BATTLE] foe intro OBJ copy ... hidden`. Checked frame by frame in Azahar (Route 34 Drowzee): one foe through the whole intro.
+
 ### Clean menu transitions (Azahar pass over the tile flows)
 - Wide battles: rows where a black front layer reaches the picture edge (battle intro band, the message-box band) are black in the side strips too, instead of the battle background showing beside a black band.
 - FAST AUTO (Sharp 3D) decides 2x in 15 frames instead of 60, and battles stay 1x with the 3D slider up: the first battle still spent ~2-5 s at 2x (run 148 log 53 ms frames, Azahar 87 ms) before dropping.
