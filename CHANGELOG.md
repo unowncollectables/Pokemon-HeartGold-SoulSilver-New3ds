@@ -23,6 +23,12 @@ All notable changes to this project will be documented here.
 - Opening the Pokedex / Pokemon menu from a tile showed the Bottom menu picture on the TOP screen for a frame at full brightness (screen swap on a frame where engine B had not been redrawn). That frame is black now (log `[2D] screen swap`).
 - The Bottom menu now fades out and in with the game (MASTER_BRIGHT of the engine on the bottom screen) instead of staying bright while the top fades; not while the panel holds the field (log `[BMENU] bottom menu follows the game's fade`).
 - Hook 0215 (patch 0215, start_menu.c): the Start menu's grey bar and arrow no longer flash on the top screen when a tile opens a menu or the panel's party closes.
+### Audio: notes on time, one fixed clean level
+- Notes now start at their exact DS moment. Each 7.8 ms mixing block used to apply every sound update at its first sample, so notes started up to 7.8 ms late by a different amount each time (beats sounded smeared or doubled, worst in busy songs like the Pokemon Center). Patch 0215 + `P3DS_SasMixPart`. DS RAW style also drops the volume ramp (the DS changes volume in one step). Log `[AUDIO] sample-exact note timing on`.
+- Volume is fixed: the Volume row is gone and the 3DS slider is the only volume control. Level 5 = 1.9 dB above the DS's own level, the loudest that never clips in the logged battles (old 7 clipped and fed the DSP limiter). `audio_gain=N` in config.txt still overrides for tests.
+
+### Music no longer dims when loud sounds play (waves, battles)
+- libctru starts the 3DS DSP in its "soft" clipping mode, which is a limiter on the whole output: a loud sound effect (sea waves, battle hits) pulled the music down with it. The DS has no limiter, only a plain clamp. Audio style DS RAW (the default) now sets the DSP to NORMAL clipping, so the mix reaches the speakers unchanged. Azahar does not emulate the DSP limiter, so this only showed on hardware. Other Audio style values keep the old soft mode for an A/B. Log `[AUDIO] dsp clipping NORMAL ...`.
 
 ### Battle entry no longer stalls with Sharp 3D = FAST AUTO (run 148 log)
 - With the 3D slider up, every battle and every return to the field retried the 2x left eye and ran ~2 s at 18-20 fps before FAST AUTO dropped to 1x (no GPU 3D direct at 2x; the battle intro then fell back to the 14 ms CPU composite). Scenes that could not hold 2x now stay 1x for the session; once a battle could not, battles start at 1x; after two such scenes, all do. Log `[3DRES] FAST AUTO: scene changed, staying 1x`.

@@ -126,29 +126,36 @@ volatile int P3DS_AudioAptPaused, P3DS_AudioWoke, P3DS_AudioWokeDsp; /* P3DS_Aud
 void __real_PSPNativeSasSnapshot(u32 cycles);
 void __wrap_PSPNativeSasSnapshot(u32 cycles) { P3DS_SndPumps++; __real_PSPNativeSasSnapshot(cycles); }
 void P3DS_SetAudioGain(int g) { if (g > 0 && g <= 64) { P3DS_AudioGainV = g; PSPNativeMemLog("[AUDIO] audio_gain=%d (from settings)", g); } }
-void P3DS_SetAudioLimiter(int on) { P3DS_AudioLimiterV = on < 0 ? 0 : on > 3 ? 3 : on; PSPNativeMemLog("[AUDIO] audio_limiter=%d (from settings; 0 off, 1 clean, 2 light, 3 DS raw)", P3DS_AudioLimiterV); }
+static void ndspApplyClip(const char *why);
+void P3DS_SetAudioLimiter(int on) { P3DS_AudioLimiterV = on < 0 ? 0 : on > 3 ? 3 : on; PSPNativeMemLog("[AUDIO] audio_limiter=%d (from settings; 0 off, 1 clean, 2 light, 3 DS raw)", P3DS_AudioLimiterV); ndspApplyClip("settings"); }
 void P3DS_SetAudioStallFade(int on) { P3DS_AudioStallFadeV = on != 0; PSPNativeMemLog("[AUDIO] audio_stallfade=%d (from settings)", on != 0); }
-int __sceSasCore(void *c, void *out) {
-    (void)c; static int acc[2 * 2048]; memset(acc, 0, sasGrain * 2 * sizeof(int));
-    /* run 34: audio_gain (default 7; was 10, old build = 24). vl 1016 = full-volume centred DS channel; DS itself outputs
-       ~0.5x sample for that. The old 12x/channel gain drove battle mixes to peaks ~73000 -> heavy soft-clip
-       compression (distortion, SE buried under BGM). 10 -> ~5x/channel, battle peaks ~30000. */
-    /* 2026-10-26: gain is live (Settings > System > Volume sets it through P3DS_SetAudioGain). */
-    if (P3DS_AudioGainV < 0) { int g0 = 7; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); if (f) { char l[64]; int x; while (fgets(l, sizeof l, f)) if (sscanf(l, "audio_gain=%d", &x) == 1 && x > 0 && x <= 64) g0 = x; fclose(f); } P3DS_AudioGainV = g0; PSPNativeMemLog("[AUDIO] audio_gain=%d (was 10 until run 2026-10-25b; log showed 1362 of 1720 grains clipped at 10)", g0); }
-    const int g = P3DS_AudioGainV;
+/* 2026-11-05 sample-exact note timing: sas_out.c used to apply every channel snapshot due in a 256-sample grain (7.8 ms) at
+   the grain's first sample, so notes started up to 7.8 ms late with a jitter that changed from note to note (the DS applies
+   each 5.2 ms sound pump at its own moment). sas_out.c now mixes each grain in pieces through P3DS_SasMixPart, applying each
+   snapshot at its own sample, then calls __sceSasCore, which only adds the output stage when the pieces filled the grain. */
+static int sasAcc[2 * 2048], sasPartFill, sasVr = -1, sasIp = -1;
+/* Fixed level (Nathan 2026-11-05: "proper volume for the speakers, not a settings thing"; the 3DS volume slider is the only
+   control). audio_gain 4 = the DS's own level (melonDS: one full centred channel = 0.496 of full scale); the loudest battle in
+   the run-148 log peaked at 26k at DS level, so 5 (+1.9 dB) is the loudest level that still never clips. 7 (old default)
+   clipped battles and fed the DSP limiter. config audio_gain=N still overrides for tests. */
+static int sasGain(void) { if (P3DS_AudioGainV < 0) { int g0 = P3DS_CfgInt("audio_gain", 5); if (g0 < 1 || g0 > 64) g0 = 5; P3DS_AudioGainV = g0; PSPNativeMemLog("[AUDIO] audio_gain=%d (fixed level, 4 = DS, 5 = loudest without clipping; the 3DS slider is the volume)", g0); } return P3DS_AudioGainV; }
+static void sasMixRange(int off, int n) {
+    const int g = sasGain();
     /* run 39 (battle rain crackle): rain = looping ADPCM voice at ~20 kHz with constant CC7 volume / CC10 pan ramps.
        (a) audio_volramp=1: volume/pan changes were applied as a step once per 256-sample grain (zipper noise on every
        ramp step); now ramped linearly across the grain (keyon still starts at full target: attacks stay crisp).
-       (b) audio_interp=1: nearest-sample resampling -> linear interpolation (less aliasing grit on high-pitched noise). */
-    static int vr_ = -1, ip_ = -1; if (vr_ < 0) { vr_ = 1; ip_ = 1; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); if (f) { char l[64]; int x; while (fgets(l, sizeof l, f)) { if (sscanf(l, "audio_volramp=%d", &x) == 1) vr_ = x != 0; if (sscanf(l, "audio_interp=%d", &x) == 1) ip_ = x != 0; } fclose(f); } PSPNativeMemLog("[AUDIO] audio_volramp=%d audio_interp=%d", vr_, ip_); }
-    /* audio style (Debug > Audio style, audio_limiter 0..3): 3 = DS RAW also drops the linear interpolation (the DS SPU reads the nearest sample) */
-    const int ipOn = ip_ && P3DS_AudioLimiterV != 3;
-    const int G = sasGrain;
+       (b) audio_interp=1: nearest-sample resampling -> linear interpolation (less aliasing grit on high-pitched noise).
+       2026-11-05: audio style DS RAW (3, default) uses neither: with sample-exact snapshots a volume change lands when the
+       DS makes it, as a step, like the DS SPU, and samples are read nearest like the SPU. */
+    if (sasVr < 0) { sasVr = 1; sasIp = 1; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); if (f) { char l[64]; int x; while (fgets(l, sizeof l, f)) { if (sscanf(l, "audio_volramp=%d", &x) == 1) sasVr = x != 0; if (sscanf(l, "audio_interp=%d", &x) == 1) sasIp = x != 0; } fclose(f); } PSPNativeMemLog("[AUDIO] audio_volramp=%d audio_interp=%d (both off in DS RAW style)", sasVr, sasIp); }
+    const int raw = P3DS_AudioLimiterV == 3 || P3DS_AudioLimiterV < 0;
+    const int ipOn = sasIp && !raw, vrOn = sasVr && !raw;
+    int *acc = sasAcc + 2 * off;
     for (int v = 0; v < 16; v++) { SasV *x = &sasv[v]; if (!x->on) continue;
         u32 step = (u32)x->pitch;   /* 0x1000 = 1 sample per output sample */
-        if (x->pl < 0 || !vr_) { x->pl = x->vl; x->pr = x->vr; }
-        int l0 = x->pl, r0 = x->pr, sl = ((x->vl - l0) << 16) / G, sr = ((x->vr - r0) << 16) / G; /* 16.16 per-sample step */
-        for (int i = 0; i < G; i++) {
+        if (x->pl < 0 || !vrOn) { x->pl = x->vl; x->pr = x->vr; }
+        int l0 = x->pl, r0 = x->pr, sl = ((x->vl - l0) << 16) / n, sr = ((x->vr - r0) << 16) / n; /* 16.16 per-sample step */
+        for (int i = 0; i < n; i++) {
             if (x->pos >= x->n) { if (x->loop >= 0 && (u32)x->loop < x->n) x->pos = (u32)x->loop + (x->pos - x->n) % (x->n - (u32)x->loop); else { x->on = 0; break; } }
             int smp = x->d[x->pos];
             if (ipOn && x->frac) { u32 q = x->pos + 1; if (q >= x->n) q = (x->loop >= 0 && (u32)x->loop < x->n) ? (u32)x->loop : x->pos; smp += ((x->d[q] - smp) * (int)x->frac) >> 12; }
@@ -157,6 +164,22 @@ int __sceSasCore(void *c, void *out) {
             x->frac += step; x->pos += x->frac >> 12; x->frac &= 0xFFF;
         }
         x->pl = x->vl; x->pr = x->vr; }
+}
+/* Mix samples [off, off+n) of the next grain with the voices as they are now (off 0 clears the grain). */
+int P3DS_SasMixPart(int off, int n) {
+    if (off < 0 || n <= 0 || off + n > sasGrain) return -1;
+    if (off == 0) { memset(sasAcc, 0, sasGrain * 2 * sizeof(int)); sasPartFill = 0; }
+    if (off != sasPartFill) return -1;
+    sasMixRange(off, n); sasPartFill = off + n;
+    { static int logged; if (!logged) { logged = 1; PSPNativeMemLog("[AUDIO] sample-exact note timing on (snapshots applied at their own sample inside each %d-sample grain)", sasGrain); } }
+    return 0;
+}
+int __sceSasCore(void *c, void *out) {
+    (void)c; int *acc = sasAcc;
+    const int g = sasGain();
+    const int G = sasGrain;
+    if (sasPartFill != G) { memset(acc, 0, G * 2 * sizeof(int)); sasMixRange(0, G); }
+    sasPartFill = 0;
     /* audio_limiter (default on): peaks >24576 used to hit the soft knee (up to 1090 of 1720 grains clipped per 10 s at gain 7, peak 53k).
        A per-grain limiter now pulls the whole mix down to a 24576 peak: gain drops at once (ramped across the grain) and recovers
        over ~16 grains (~0.12 s). The knee stays as a safety net. audio_limiter=0 = old behaviour. */
@@ -196,6 +219,16 @@ int __sceSasCore(void *c, void *out) {
 int __sceSasGetAllEnvelopeHeights(void *c, int *h) { (void)c; for (int v = 0; v < 32; v++) h[v] = v < 16 && sasv[v].on ? 0x40000000 : 0; return 0; }
 #define NWB 16  /* 16 x 256 = 4096 samples (93 ms) of DSP lead */
 static ndspWaveBuf wb[NWB]; static s16 *wbData; static int ndspOk = -1, wbNext;
+/* 2026-11-05 (Nathan: "when waves sound I hear the music dim"): libctru starts the DSP in NDSP_CLIP_SOFT, which is the DSP's
+   own output LIMITER (gain riding on the whole mix; Azahar does not emulate it, so only real hardware pumped). A loud SE such as
+   the sea waves raised the mix level and the limiter pulled everything down, music included. The DS has no such stage: its
+   mixer just clamps to s16. Audio style DS RAW (audio_limiter=3, the default) now runs the DSP in NDSP_CLIP_NORMAL (plain clamp);
+   our mixer already clamps to s16 before the DSP, so the samples reaching the speaker are now exactly what we mixed.
+   Styles OFF/CLEAN/LIGHT keep the old soft (limiter) mode for an A/B in Settings > Debug > Audio style. */
+static void ndspApplyClip(const char *why) {
+    if (ndspOk != 1) return; int st = P3DS_AudioLimiterV; if (st < 0) st = P3DS_CfgInt("audio_limiter", 3);
+    ndspClippingMode m = st == 3 ? NDSP_CLIP_NORMAL : NDSP_CLIP_SOFT; static int last = -1;
+    ndspSetClippingMode(m); if ((int)m != last) { last = (int)m; PSPNativeMemLog("[AUDIO] dsp clipping %s (%s, audio style %d)", m == NDSP_CLIP_NORMAL ? "NORMAL: plain clamp like the DS, no DSP limiter" : "SOFT: DSP output limiter (rides the whole mix)", why, st); } }
 static void ndspSetup(void) {
     if (ndspOk >= 0) return;
     Result r = ndspInit();
@@ -204,7 +237,7 @@ static void ndspSetup(void) {
     float mix[12] = {1.0f, 1.0f}; ndspChnSetMix(0, mix);
     wbData = linearAlloc(NWB * sasGrain * 4); memset(wb, 0, sizeof wb);
     for (int i = 0; i < NWB; i++) { wb[i].data_vaddr = wbData + i * sasGrain * 2; wb[i].nsamples = sasGrain; wb[i].status = NDSP_WBUF_DONE; }
-    ndspOk = 1; PSPNativeMemLog("[AUDIO] ndsp ready: %d Hz stereo", P3DS_SasRate); PSPNativeMemLog("[AUDIO] buffers, %d x %d-sample buffers", NWB, sasGrain);
+    ndspOk = 1; ndspApplyClip("init"); PSPNativeMemLog("[AUDIO] ndsp ready: %d Hz stereo", P3DS_SasRate); PSPNativeMemLog("[AUDIO] buffers, %d x %d-sample buffers", NWB, sasGrain);
 }
 int sceAudioChReserve(int ch, int s, int f) { (void)s; (void)f; return ch < 0 ? 0 : ch; }
 int sceAudioChRelease(int ch) { (void)ch; return 0; }
@@ -214,7 +247,7 @@ int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
     /* run 46 audio_lead=N (default 8 = 62 ms, was 16 = 125 ms of DSP lead): with the 83 ms snapshot latency the total
        sound delay drops from ~250 ms to ~145 ms (Poketch / menu taps felt late). 16 = old. */
     static int lead = -1; if (lead < 0) { lead = 8; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); if (f) { char l[64]; int x; while (fgets(l, sizeof l, f)) if (sscanf(l, "audio_lead=%d", &x) == 1 && x >= 4 && x <= NWB) lead = x; fclose(f); } PSPNativeMemLog("[AUDIO] audio_lead=%d buffers (%d ms)", lead, lead * sasGrain * 1000 / P3DS_SasRate); }
-    if (P3DS_AudioWokeDsp) { P3DS_AudioWokeDsp = 0; float mx[12] = {1.0f, 1.0f}; ndspSetOutputMode(NDSP_OUTPUT_STEREO); ndspSetMasterVol(1.0f); ndspChnSetMix(0, mx); ndspChnSetRate(0, P3DS_SasRate == 32728 ? 32728.498f : (float)P3DS_SasRate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16); PSPNativeMemLog("[AUDIO] wake: DSP master volume, mix, rate re-applied"); }
+    if (P3DS_AudioWokeDsp) { P3DS_AudioWokeDsp = 0; float mx[12] = {1.0f, 1.0f}; ndspSetOutputMode(NDSP_OUTPUT_STEREO); ndspSetMasterVol(1.0f); ndspChnSetMix(0, mx); ndspChnSetRate(0, P3DS_SasRate == 32728 ? 32728.498f : (float)P3DS_SasRate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16); ndspApplyClip("wake"); PSPNativeMemLog("[AUDIO] wake: DSP master volume, mix, rate re-applied"); }
     if (wbNext >= lead) wbNext = 0;
     ndspWaveBuf *w = &wb[wbNext];
     /* 2026-10-26 DSP watchdog: this wait used to be unbounded. If the DSP stops consuming (it did after some HOME /
