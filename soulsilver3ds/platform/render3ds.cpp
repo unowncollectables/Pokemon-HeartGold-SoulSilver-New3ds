@@ -175,6 +175,11 @@ static unsigned blGen;static bool blSameFrame;
 /* fps_tweaks >= 2 (2026-10-27): the Bottom menu covered the whole bottom screen last frame (it paints all 256x192 of it),
    so engine B's picture would be thrown away: drawEngineB skips the compose and forces a full one on the next shown frame */
 static volatile bool bHideB;static unsigned pfBHid;
+/* 2026-11-04 (Nathan: screen swaps must be clean): engine B's buffer still holds the Bottom menu picture when its compose was
+   skipped (bHideB). When the game swaps the screens (POWCNT bit 15, e.g. opening the Pokedex from a tile) on such a frame, that
+   stale menu picture was shown on the TOP screen for a frame, at full brightness in the middle of the fade. */
+static volatile bool bStale;static unsigned bStaleShown;
+static bool gBmGapOnly;
 static int bSkipCfg=-1;static volatile unsigned bPower;static unsigned bLastPower=~0u;static unsigned bSkips,bDraws;volatile int P3DS_BottomReused;
 static void drawEngineB(){
   if(bSkipCfg<0){bSkipCfg=1;/* run 47: default 1 again (+ bottom_refresh) */FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"bottom_skip=%d",&x)==1)bSkipCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] bottom_skip=%d",bSkipCfg);}
@@ -193,9 +198,9 @@ static void drawEngineB(){
    for(unsigned pg=0x40;pg<0x80;pg++)if(PSPNativeVramPageGen[pg]>g){g=PSPNativeVramPageGen[pg];gp=pg;}
    for(unsigned pg=0x98;pg<0xA4;pg++)if(PSPNativeVramPageGen[pg]>g){g=PSPNativeVramPageGen[pg];gp=pg;}
    if(g!=lastG){lastG=g;if(bottomCache.valid&&P3DS_CfgInt("bottom_vramgen",1)){bottomCache.valid=false;static int n;if(n<20){n++;PSPNativeMemLog("[2D] bottom changed by VRAM page %u",gp);}}}}
-  if(bHideB){bottomCache.valid=false;P3DS_BottomReused=0;pfBHid++;return;}
+  if(bHideB){bottomCache.valid=false;P3DS_BottomReused=0;pfBHid++;bStale=true;return;}
   if(bSkipCfg&&BottomSame(pw)){bSkips++;P3DS_BottomReused=1;return;}
-  P3DS_BottomReused=0;bDraws++;
+  P3DS_BottomReused=0;bDraws++;bStale=false;
   rendererB.SetFramebuffer(raw[0],raw[1]);
   for(unsigned line=0;line<192;line++){engineB.CheckWindows(line);rendererB.DrawSprites(line,&engineB);rendererB.DrawScanline(line,&engineB);}
   if(bSkipCfg)SaveBottom(pw);}
@@ -716,7 +721,7 @@ static void wideWeatherRun(){memset(P3DS_WeatherObj,0,sizeof P3DS_WeatherObj);wi
    picture's own edge, mirrored and softened (box blur 9x9, 80% brightness) instead of black bars. Built from the same
    frame's final picture, so fades/flashes follow; nothing is stretched, the centre stays native size. 0 = black bars. */
 extern "C" { u32 P3DS_WideFillBuf[64*192]; int P3DS_CfgInt(const char*,int); }
-static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",0)!=0;PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v;}
+static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",1)!=0; /* 2026-11-05 default 1 (Nathan: the whole game wide) */PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v;}
 static void wideFill(const u32*C){static u16 acc[3][64*192];
  /* mirror: left strip col i (DS x -32+i) <- x 31-i, right strip col i (DS x 256+i) <- x 255-i; horizontal 9-tap box */
  for(int y=0;y<192;y++){const u32*row=C+y*256;
@@ -818,10 +823,11 @@ static unsigned wnUs,wnN,wnLay[5];
 /* 2026-11-04 (Nathan: wide view must look right all the time): the black blocks of the battle-intro wipe (and other black 2D covers)
    are a BG layer in front of the 3D, so the 3D side strips kept showing the scene next to a black picture edge. True when the topmost
    opaque text-BG pixel in front of BG0 at the picture's edge pixel (x 0 / 255) of row y is black. */
-static bool edgeBgBlack(int y,int side){
- const u32 dc=*(volatile u32*)PSPNative_GfxRegisters;const unsigned mode=dc&7;if(!(dc&8)||mode>5)return false;
- const int p0=(int)(reg16(8)&3);if(!p0)return false;const unsigned wm=winEdge(y,side);const int x=side?255:0;
- for(int pr=0;pr<p0;pr++)for(int i=1;i<4;i++){if(!(dc&(0x100u<<i))||!((wm>>i)&1))continue;const bool text=i<2||mode==0||(i==2&&mode==1);if(!text)continue;
+/* topmost opaque text-BG pixel at the picture's edge (x 0 / 255) of row y among layers with priority < maxPrio (BG0 skipped when it
+   is the 3D layer); returns its layer and RGB555 colour, -1 when none */
+static int edgeBgTop(int y,int side,int maxPrio,u16*colOut){
+ const u32 dc=*(volatile u32*)PSPNative_GfxRegisters;const unsigned mode=dc&7;if(mode>5)return -1;const unsigned wm=winEdge(y,side);const int x=side?255:0;
+ for(int pr=0;pr<maxPrio;pr++)for(int i=0;i<4;i++){if(!(dc&(0x100u<<i))||!((wm>>i)&1)||(i==0&&(dc&8)))continue;const bool text=i<2||mode==0||(i==2&&mode==1);if(!text)continue;
   const unsigned c=reg16(8+i*2);if((int)(c&3)!=pr)continue;
   const bool bpp8=(c&0x80)!=0;const int w=(c>>14)&1?64:32,h=(c>>14)&2?64:32;
   const unsigned charb=((c>>2)&15)*0x4000+((dc>>24)&7)*0x10000,mapb=((c>>8)&31)*0x800+((dc>>27)&7)*0x10000;
@@ -831,9 +837,15 @@ static bool edgeBgBlack(int y,int side){
   const u8*t=GPU::VRAMFlat_ABG+((charb+(me&0x3FF)*(bpp8?64:32)+fy*(bpp8?8:4))&0x7FFFF);unsigned ci;if(bpp8)ci=t[fx];else{const u8 b=t[fx>>1];ci=(fx&1)?b>>4:b&15;}
   if(!ci)continue;
   const int ext=(bpp8&&(dc&(1u<<30)))?((i<2&&(c&0x2000))?i+2:i):-1;
-  const u16 col=ext>=0?*(const u16*)(GPU::VRAMFlat_ABGExtPal+ext*0x2000+((me>>12)*256+ci)*2):((const u16*)GPU::Palette)[bpp8?ci:((me>>12)*16+ci)];
-  return (col&0x7FFF)==0;}
- return false;}
+  *colOut=ext>=0?*(const u16*)(GPU::VRAMFlat_ABGExtPal+ext*0x2000+((me>>12)*256+ci)*2):((const u16*)GPU::Palette)[bpp8?ci:((me>>12)*16+ci)];
+  return i;}
+ return -1;}
+/* 2026-11-04 (Nathan: wide view must look right all the time): the black blocks of the battle-intro wipe (and other black 2D covers)
+   are a BG layer in front of the 3D, so the 3D side strips kept showing the scene next to a black picture edge. True when the topmost
+   opaque text-BG pixel in front of BG0 at the picture's edge pixel (x 0 / 255) of row y is black. */
+static bool edgeBgBlack(int y,int side){
+ const u32 dc=*(volatile u32*)PSPNative_GfxRegisters;if(!(dc&8))return false;const int p0=(int)(reg16(8)&3);if(!p0)return false;
+ u16 col;return edgeBgTop(y,side,p0,&col)>=0&&(col&0x7FFF)==0;}
 static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static unsigned wnRestores;static void wideNative(){const u64 t0=svcGetSystemTick();
  const u8*R=(const u8*)PSPNative_GfxRegisters;const u32 dc=*(const u32*)R;const unsigned mode=dc&7;
  const u8*vram=GPU::VRAMFlat_ABG;const u16*pal=(const u16*)GPU::Palette;const u8*ext=GPU::VRAMFlat_ABGExtPal;
@@ -882,7 +894,7 @@ static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static
  if(no&&Ly[order[no-1]].w==32&&P3DS_InWideKind>0&&!P3DS_InBattle){L&b=Ly[order[no-1]];for(int side=0;side<2;side++){bool any=false;for(int r=0;r<25;r++)any|=b.per[r][side]!=0;
   if(!any){b.clamp|=1<<side;for(int r=0;r<25;r++){b.per[r][side]=1;b.src[r][side]=(u8)r;}}}}
  /* skip the redraw when nothing the strips use changed: registers, palette, the edge map entries and their tiles */
- {u32 h=2166136261u;auto H=[&](u32 v){h=(h^v)*16777619u;};H(dc);for(unsigned k=0x40;k<0x4C;k+=2)H(reg16(k));for(int k=0;k<0x20;k+=4)H(*(const u32*)(R+8+k));H(*(const u32*)(R+0x50));H(*(const u32*)(R+0x54));
+ {u32 h=2166136261u;auto H=[&](u32 v){h=(h^v)*16777619u;};H(dc);for(unsigned k=0x40;k<0x4C;k+=2)H(reg16(k));if(P3DS_InBattle)for(int y=0;y<192;y++)for(int sd=0;sd<2;sd++){u16 ec=0;const int tl=edgeBgTop(y,sd,4,&ec);H((u32)(tl+1)|((u32)ec<<8));} /* the black front-layer rows above */for(int k=0;k<0x20;k+=4)H(*(const u32*)(R+8+k));H(*(const u32*)(R+0x50));H(*(const u32*)(R+0x54));
   {const u32*pp32=(const u32*)pal;for(int k=0;k<128;k++)H(pp32[k]);}
   for(int oi=0;oi<no;oi++){const L&l=Ly[order[oi]];if(l.extSlot>=0){const u32*e=(const u32*)(ext+l.extSlot*0x2000);for(int k=0;k<2048;k++)H(e[k]);}
    const unsigned E0=l.hofs>>3,E1=(l.hofs+255)>>3;
@@ -901,6 +913,9 @@ static u8 wnUnres[64*192];static u32 wnClean[64*192];static int wnCleanOk;static
  const u16 bc=*(const u16*)(R+0x50);unsigned bY=*(const u16*)(R+0x54)&31;if(bY>16)bY=16;const int bEff=(!(bc&1)&&((bc>>6)&3)>=2&&bY)?(int)((bc>>6)&3):0;
  for(int y=0;y<192;y++)for(int side=0;side<2;side++){u32*o=P3DS_WideFillBuf+y*64+side*32;u32 done=0;const int x0=side?256:-32;u8 lay[32];
   const unsigned wmE=winEdge(y,side);
+  /* 2026-11-04: a black front layer at the picture's edge (battle intro band, black frames) continues into the strip row, like
+     the field strips (edgeBgBlack); only the back-most layer is drawn into the strips otherwise */
+  if(P3DS_InBattle&&no){u16 ec;const int tl=edgeBgTop(y,side,4,&ec);if(tl>=0&&tl!=order[no-1]&&(ec&0x7FFF)==0){for(int xi=0;xi<32;xi++){o[xi]=0x000000FFu;wnUnres[y*64+side*32+xi]=0;}continue;}}
   for(int oi=0;oi<no&&done!=0xFFFFFFFFu;oi++){const L&l=Ly[order[oi]];if(!((wmE>>order[oi])&1))continue;const unsigned py=(unsigned)(y+l.vofs)&(l.h*8-1);const unsigned wm=l.w*8-1;
    int pp=0;const int E0=(int)(l.hofs>>3),E1=(int)((l.hofs+255)>>3);
    unsigned pyU=py;if(l.w==32){const unsigned r=((unsigned)(y+(l.vofs&7)))>>3;pp=r<25?l.per[r][side]:0;if(!pp)continue;pyU=((((l.vofs>>3)+l.src[r][side])*8)+(py&7))&(l.h*8-1);}
@@ -1321,8 +1336,7 @@ struct SAppRow{int it;const char*nm,*tip;};
 struct SAppTab{int n;SAppRow r[13];};
 static const char*const kTabNm[8]={"Display","Wide","3D","Input","Battle","Play","Setup","Debug"};
 static const SAppTab kTabs[8]={
- {6,{{2,"Screen scale","Size of the picture: 1:1 DS pixels, 1.25X, or fill the whole 3DS screen."},
-     {1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+ {5,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {90,"Bottom menu HD","Draws the Johto touch-menu buttons at full 3DS sharpness."},
      {0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
@@ -1876,6 +1890,8 @@ static int Present(bool){
      if(rightPar)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dL.bmp",GPU3D::NativeFrame,true);if(t3R)dumpBmp("sdmc:/3ds/soulsilver3ds/stereo_blob_3dR.bmp",t3R,true);}}}}
  /* POWCNT1 bit15: engine A on top screen. */
  const u32 *top=(power&0x8000)?display[0]:display[1],*bot=(power&0x8000)?display[1]:display[0];
+ if(!(power&0x8000)&&bStale){static u32 kBlack[256*192]; /* bss, stays zero */top=kBlack;if(stereo&&eyeL==display[1])eyeL=kBlack;if(stereo&&eyeR==display[1])eyeR=kBlack;
+  if(bStaleShown++%60==0)PSPNativeMemLog("[2D] screen swap: engine B still held the Bottom menu picture, top shown black this frame (%u so far)",bStaleShown);}
  /* run 126 panel_party: freeze clean overworld; snap LCD-top ONLY (SUB_MAIN -> party on top).
     Never bot/sPanelBot (run 125 bot-fallback ate chrome leftover -> recursive JOHTO in the panel). */
  static u32 sFieldHold[256*192],sPartySnap[256*192]; static int sRetHold,sRetN,sSwapAct; /* run 144: tab swap under way: freeze/hide the app picture so the Cancel press is never seen */ /* run 143: after the app closes keep the held field + strips until the live field's fade-in from black is done */ static int sFieldHoldOk,sPartySnapOk,sPartySrcLogged,sPartyNbLogged; static unsigned sPartySnapGen;
@@ -1911,6 +1927,11 @@ static int Present(bool){
  static bool wnReady;wnReady=false;
  {static bool wbPrev;const bool wbNow=wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg());if(wbNow&&!wbPrev)PSPNativeMemLog("[WIDE] battle entered (wide_battle=1, wide native pass)");wbPrev=wbNow;}
  if(wideCfg>0&&P3DS_ScaleMode()==1&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
+  /* 2026-11-05 (Nathan: the whole game wide): strip pixels no repeating layer reached (title, intro, plain menu screens) were
+     backdrop, i.e. black bars; with edge fill on they take the mirrored, softened picture edge instead (wideFill) */
+  if(!P3DS_InBattle&&P3DS_InWideKind==0&&wideFillCfg()){int un=0;for(int i=0;i<64*192;i++)un+=wnUnres[i];
+   if(un){static u32 keep[64*192];memcpy(keep,P3DS_WideFillBuf,sizeof keep);topTouch();wideFill(display[0]);for(int i=0;i<64*192;i++)if(!wnUnres[i])P3DS_WideFillBuf[i]=keep[i];
+    {static unsigned n;if(n++%600==0)PSPNativeMemLog("[WIDE] %d unresolved strip pixels filled from the picture edge (screen without repeating background)",un);}}}
   /* run 18: HGSS menu screens (wide_pokedex / wide_pc / wide_menu_screens): strip pixels no layer covered take the final
      picture's edge pixel of that row (DS x 0 / 255) instead of the backdrop (often black) */
   /* run 18b: rows whose strip does not continue the picture (no layer covered it, or its inner pixel differs from the
@@ -1926,7 +1947,7 @@ static int Present(bool){
  else if(wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_InWideKind>0&&!P3DS_InBattle&&!P3DS_PanelPartyOn&&((P3DS_InWideKind==1&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(power&0x8000)){
   if(P3DS_InWideKind>=2)wideTile(display[1]);else wideFill(display[1]);/* run 21: kinds 2/3 tiled. engine B is the top screen here (display[0] = engine A = the touch screen) */
   wnReady=true;static int lg;if(lg!=P3DS_InWideKind){lg=P3DS_InWideKind;PSPNativeMemLog("[WIDE] screen kind %d on engine B (top): %s strips",lg,lg>=2?"tiled":"wide_fill mirrored");}}
- else if(wideCfg>0&&P3DS_ScaleMode()==1&&wideFillCfg()&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)){topTouch();wideFill(display[0]);fillReady=true;}
+ else if(wideCfg>0&&P3DS_ScaleMode()==1&&wideFillCfg()&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)){const u32*fc=(power&0x8000)?display[0]:display[1];if(fc==display[0])topTouch();wideFill(fc);fillReady=true; /* 2026-11-05: also when engine B is the top screen (title, intro, Pokedex...) */}
  P3DS_WeatherOn=0;if(wideWeatherCfg()&&G3G_Wide&&G3G_StripValid>=1&&P3DS_InField&&(power&0x8000))wideWeatherRun();
  {extern int P3DS_HazeOn;P3DS_HazeOn=0;if(P3DS_WideHazeCfg()&&!wideFxCfg()&&G3G_Wide&&G3G_StripValid>=1&&P3DS_InField&&(power&0x8000))wideHaze(display[0],GPU3D::NativeFrame);}
  P3DS_WideFxOn=0;if(wideFxCfg()&&G3G_Wide&&G3G_StripValid>=1&&P3DS_InField&&(power&0x8000)){topTouch();u64 tw=svcGetSystemTick();wideFx(display[0],GPU3D::NativeFrame,G3G_StripValid>=2?2:1);P3DS_WideFxOn=G3G_StripValid>=2?2:1;
@@ -1989,6 +2010,7 @@ static int Present(bool){
   const bool bmGap=bmEnter>0;if(bmEnter)bmEnter--;
   const bool ppChrome=P3DS_PanelPartyOn&&panelPartyCfg()&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom(); /* run 121: live JOHTO + bottom_hd column while party is in the panel */
   const bool show=bmAny&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&((P3DS_InField&&!bmPrompt&&(!subBusyV||((bmHold||bmFlow||bmGrace)&&P3DS_SubMode<=1)))||bmGap||ppChrome);
+  gBmGapOnly=show&&bmGap&&!P3DS_InField&&!ppChrome; /* 2026-11-04: tiles kept only to hide the old Start menu while a sub-screen starts */
   {static bool pl;if(bmPrompt!=pl){pl=bmPrompt;PSPNativeMemLog("[BMENU] game Save prompt %s: tiles %s so the game's own touch screen is visible",bmPrompt?"up":"done",bmPrompt?"hidden":"back");}}
   /* a Start menu nobody is using (Save cancelled, or opened with X while the tiles cover it) would freeze the player: close it through hook 0102 */
   {static unsigned idleT,idleTries;if(bmHold&&P3DS_StartIdle&&P3DS_StartReq<0){++idleT;if(idleT>=45&&idleT%30==15&&idleTries<6&&!P3DS_StartClose){idleTries++;P3DS_StartClose=1;PSPNativeMemLog("[BMENU] idle Start menu nobody is using: closing it (hook 0102, try %u)",idleTries);}}
@@ -2184,6 +2206,12 @@ static int Present(bool){
  pfT[PF_BMENU]+=svcGetSystemTick()-tBm0;
  /* fps_tweaks >= 2: this frame's Bottom menu painted the whole bottom image (blDraw / blCache / blank / suiBackground cover
     256x192), so next frame engine B is not composed; the frame it hides again, the bottom shows the last menu picture once */
+ {extern int P3DS_BotFade;static int lastBF;const int prevBF=lastBF;P3DS_BotFade=0;
+  if(!bmShow&&bHideB)P3DS_BotFade=prevBF; /* the hide frame still shows last frame's menu picture (engine B was skipped): keep its fade too */
+  else if(bmShow&&!P3DS_ConsoleOnBottom()&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold&&!sSwapAct){ /* not while the panel holds the field: the game fades behind it */const unsigned mb=reg16((power&0x8000)?0x106C:0x6C),m=mb>>14;int f=(int)(mb&31);if(f>16)f=16;
+  if(gBmGapOnly){P3DS_BotFade=-16;f=0;} /* the bottom shows black, not the menu, between a tile tap and the new screen (the menu used to fade back in there for ~0.7 s) */
+  if(f&&(m==1||m==2)){P3DS_BotFade=m==1?f:-f;static unsigned n;if(n++%120==0)PSPNativeMemLog("[BMENU] bottom menu follows the game's fade (MASTER_BRIGHT %04x)",mb);}}
+  lastBF=P3DS_BotFade;}
  bHideB=P3DS_FpsTweaks()>=2&&bmShow&&(power&0x8000)&&!P3DS_ConsoleOnBottom()&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant; /* run 134: bag/summary in the panel is engine B on the bottom LCD, so it must be drawn */
  /* ss3ds menu_button (default LEFT): small button in a corner of the touch screen, overworld only, tap = settings app.
     Drawn into the composed bottom image every frame (idempotent), so a reused bottom frame keeps it. */
@@ -2211,7 +2239,9 @@ static int Present(bool){
    if(rows){winStripN++;winStripRows+=rows;if(winStripN==1||winStripN%300==0)PSPNativeMemLog("[WIDE] window/black-BG hidden strip rows: %u frames, avg %u rows (DISPCNT %08x WININ %04x WINOUT %04x)",winStripN,winStripRows/winStripN,(unsigned)dc,reg16(0x48),reg16(0x4A));}}
   if(!P3DS_WideStrip[0]&&fillReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=P3DS_WideFillBuf;P3DS_WideFxOn=1;}
   if(!P3DS_WideStrip[0]&&wnReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=stereo?P3DS_WideFillBuf:nullptr;} /* run 65 wide_menus (fade applied in strips()) */
-  if(P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
+  /* 2026-11-05: only the real wide_fx pass fills P3DS_WideFxBuf; the edge fill also sets WideFxOn (= fades already in the picture),
+     and this swap used to replace its strips with the empty wide_fx buffer: edge fill always showed black bars */
+  if(wideFxCfg()&&P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(wideFxCfg()&&P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
   if(panelPartyCfg()&&P3DS_InField&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold){sStripHoldOk=0;for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){memcpy(sStripHold[e],P3DS_WideStrip[e],sizeof sStripHold[e]);sStripHoldOk|=1<<e;}} /* run 136 */
   G3G_Wide=act;
   /* run 45 wide_cull=1 (default; only while wideview is active): the game's box test (map props / buildings) uses a

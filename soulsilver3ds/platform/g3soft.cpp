@@ -362,6 +362,11 @@ static unsigned RawToScreen(const GuVertex*v,unsigned n){
 }
 static void DrawScreen(const GuVertex*v,unsigned n,bool deferOk);
 static unsigned culledTris,cpuClipped,rejOut,rejMask;int vdump,vdumpN;
+/* g3_guardclip (config.txt only, default 0 since 2026-11-05): 1 = also send tris past the 2x guard band (but inside near/far)
+   through the CPU clipper. That path draws in screen space without perspective, and on Bellchime Trail its sky quads covered
+   the whole map (Nathan saw the sky box low at the tower). The PICA draws those tris correctly (Azahar: Ilex, Lake of Rage,
+   Ecruteak, Union Cave, Olivine, Ice Path, Cianwood, National Park identical with 0 and 1; no black spots). */
+static int guardClip(){static int v=-1;if(v<0){v=P3DS_CfgInt("g3_guardclip",0);PSPNativeMemLog("[GPU3D] g3_guardclip=%d",v);}return v;}
 /* gpu3d_cpuclip=1 (default): clip/divide on the CPU (same as the clean CPU renderer), raster on the GPU.
    Run 26: black spots only on the clip-space GPU path. 0 = old clip-space path. */
 static int gpuCpuClip(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"gpu3d_cpuclip=%d",&x)==1)v=x!=0;fclose(f);}PSPNativeMemLog("[GPU3D] gpu3d_cpuclip=%d",v);}return v;}
@@ -445,8 +450,8 @@ static void GpuRaw(const GuVertex*v,unsigned n){
   if(out){rejOut++;rejMask|=out;if(vdump&&vdumpN<400){vdumpN++;PSPNativeMemLog("[VDUMP] REJ out=%02x v0 %.2f %.2f %.2f %.2f v1 %.2f %.2f %.2f %.2f v2 %.2f %.2f %.2f %.2f",out,c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11]);}continue;}/* all three vertices outside one plane */
   if(vdump&&vdumpN<400&&(drawnTris%8)==0){vdumpN++;PSPNativeMemLog("[VDUMP] OK v0 %.2f %.2f %.2f %.2f v1 %.2f %.2f %.2f %.2f v2 %.2f %.2f %.2f %.2f",c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11]);}
   if(gpuCpuClip()){/* run 27: only tris touching the near/far planes or outside a 2x guard band go through CPU clipping
-     (PICA clipping there gave the black spots); the rest stay on the fast clip-space path. */
-   bool hard=false;for(int k=0;k<3;k++){const float*q=c+4*k;float w=q[3];if(w<1e-3f||q[2]>w||q[2]<-w||fabsf(q[0])>2*w||fabsf(q[1])>2*w){hard=true;break;}}
+     (PICA clipping there gave the black spots); the rest stay on the fast clip-space path. 2026-11-05: guard band only with g3_guardclip=1. */
+   bool hard=false;for(int k=0;k<3;k++){const float*q=c+4*k;float w=q[3];if(w<1e-3f||q[2]>w||q[2]<-w||(guardClip()&&(fabsf(q[0])>2*w||fabsf(q[1])>2*w))){hard=true;break;}}
    if(hard){unsigned m=RawToScreen(v+i,3);if(m)DrawScreen(rawOut,m,false);cpuClipped++;continue;}}
   if(cullFace&&cullMode3d&&c[3]>1e-6f&&c[7]>1e-6f&&c[11]>1e-6f){
    float x0=c[0]/c[3],y0=c[1]/c[3],x1=c[4]/c[7],y1=c[5]/c[7],x2=c[8]/c[11],y2=c[9]/c[11];

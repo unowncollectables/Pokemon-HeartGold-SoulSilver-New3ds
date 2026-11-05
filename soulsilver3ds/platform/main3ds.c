@@ -242,8 +242,11 @@ void P3DS_GameFramePresented(void) { static int done; if (!done) { done = 1; PSP
 
 #define CFG_PATH "sdmc:/3ds/soulsilver3ds/config.txt"
 static int scaleMode = -1;
+/* 2026-11-05 (Nathan: "I don't even need the scale 1:1 and fill or zoom options ... no option at all"): the game is always the
+   wide 1.25x picture. gpuscale= in config.txt and the L+R+SELECT cycle are gone; 1:1 is only the automatic fallback when the
+   GPU scaler cannot start (render3ds.cpp gpuOk). */
 int P3DS_ScaleMode(void) {
-    if (scaleMode < 0) { scaleMode = 1; FILE *f = fopen(CFG_PATH, "r"); if (f) { char line[64]; int v; while (fgets(line, sizeof line, f)) if (sscanf(line, "gpuscale=%d", &v) == 1 && v >= 0 && v <= 2) scaleMode = v; fclose(f); } }
+    if (scaleMode < 0) { scaleMode = 1; PSPNativeMemLog("[3DS] screen mode fixed at 1.25x wide (scale options removed)"); }
     return scaleMode;
 }
 /* Rewrites only the gpuscale= line. The old version opened config.txt with "w" and wrote just gpuscale=N,
@@ -313,7 +316,7 @@ void P3DS_FrameHook(void) {
     /* run 53: L+R+START+SELECT = soft reset. Remember that the combo was seen until L and R are released, so the
        L+R+SELECT (scale) and L+R+START (FPS, render3ds) toggles fire on RELEASE and only if the reset combo wasn't hit. */
     { const u32 r4 = KEY_L | KEY_R | KEY_START | KEY_SELECT; if ((k & r4) == r4) P3DS_ResetSeen = 1; else if (!(k & (KEY_L | KEY_R))) P3DS_ResetSeen = 0; }
-    if ((k & (KEY_L | KEY_R)) == (KEY_L | KEY_R) && (hidKeysUp() & KEY_SELECT) && !P3DS_ResetSeen) { scaleMode = (P3DS_ScaleMode() + 1) % 3; saveScale(); { extern void P3DS_Toast(const char *); static const char *const nm[3] = { "SCALE 1:1", "SCALE 1.25X", "SCALE FILL" }; P3DS_Toast(nm[scaleMode % 3]); } }
+    /* 2026-11-05: L+R+SELECT no longer cycles the screen scale (fixed 1.25x wide) */
     /* run 45: L+R+Y (GPU/CPU 3D toggle) retired; the CPU 3D renderer is only an automatic fallback if GPU init fails, or config gpu3d=0 */
     if ((k & (KEY_L | KEY_R)) == (KEY_L | KEY_R) && (hidKeysDown() & KEY_A)) { /* run 52: sharp 3D disabled -> L+R+A does nothing (still swallowed) */ } /* run 47: L+R+A = res3d 0/2 (was the zinv debug toggle; zinv stays config-only gpu3d_zinv) */
     if ((k & (KEY_SELECT | KEY_START)) == (KEY_SELECT | KEY_START) && !(k & (KEY_L | KEY_R))) { if (++held == 60) { if (conOnBottom) bottomToGame(); else uiShowChecklist(); } } else held = 0;

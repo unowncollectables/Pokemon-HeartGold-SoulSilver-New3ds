@@ -1,0 +1,26 @@
+From 35175bd4a469e5fdd8f5b4fd8c7b79858ec483cf Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 4 Nov 2026 21:27:07 -0500
+Subject: [PATCH] ss3ds: route the foe intro OBJ copy (ov12_02260CDC ->
+ ov07_0221FB90) to SS3DS_BattleMonOBJ_One
+
+---
+ port/soulsilver-native-play/maploader/call-retargets.json | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/port/soulsilver-native-play/maploader/call-retargets.json b/port/soulsilver-native-play/maploader/call-retargets.json
+index 36fcf05..25ad265 100644
+--- a/port/soulsilver-native-play/maploader/call-retargets.json
++++ b/port/soulsilver-native-play/maploader/call-retargets.json
+@@ -22,5 +22,8 @@
+   "G2x_ChangeBlendBrightness_": "SSAsm_G2x_ChangeBlendBrightness_",
+   "ov07_0221FDFC": "SS3DS_BattleMonOBJ_NewAll",
+   "sub_0205DE88": "SS3DS_RunHeld"
++ },
++ "ov12_02260CDC": {
++  "ov07_0221FB90": "SS3DS_BattleMonOBJ_One"
+  }
+ }
+-- 
+2.53.0
+

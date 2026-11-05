@@ -4,6 +4,25 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Whole game wide, one screen mode
+- The screen is always the 1.25x wide picture. The Screen scale setting (Display tab), `gpuscale=` in config.txt and the L+R+SELECT cycle are gone; 1:1 is only the automatic fallback when the GPU scaler cannot start. Log `[3DS] screen mode fixed at 1.25x wide`.
+- Edge fill (`wide_fill`) is on by default and also covers screens the wide renderer does not know, so the title screen, the Game Freak / Lugia intro and the main menu no longer have black side bars. Field pixels the wide renderer leaves unresolved are taken from the edge fill (log `[WIDE] ... unresolved strip pixels filled`).
+- Fix: with Wide FX on, the edge fill was handed the empty Wide FX buffer, which showed as black bars.
+- Checked in Azahar: intro, title, main menu, field, party, summary, bag, Pokedex, trainer card, save prompt.
+
+### Bellchime Trail: sky no longer covers the map
+- Nathan saw the sky box low at the Bell Tower: on Bellchime Trail the screen was all sky. Field triangles past the 2x guard band (but inside near/far) went through the CPU clipper, which draws in screen space without perspective; the trail's big sky quads then covered the whole map. They now stay on the PICA path like every other field triangle (new config key `g3_guardclip`, default 0; 1 = old behaviour). Near/far crossings still use the CPU clipper. Checked in Azahar: Bellchime Trail fixed; Ilex Forest, Lake of Rage, Ecruteak, Union Cave, Olivine, Ice Path, Cianwood, National Park and a wild battle look the same as before (no black spots).
+
+### Battle intro: no doubled wild Pokemon
+- During the wild Pokemon's slide-in the game also draws a 2D sprite copy of it (ov07_0221FB90, called from ov12_02260CDC); with the 3D battler on top, two foes showed. Patch 0216 retargets that call to `SS3DS_BattleMonOBJ_One` (ss3ds_glue.c), which hides the copy's sprites. Log `[BATTLE] foe intro OBJ copy ... hidden`. Checked frame by frame in Azahar (Route 34 Drowzee): one foe through the whole intro.
+
+### Clean menu transitions (Azahar pass over the tile flows)
+- Wide battles: rows where a black front layer reaches the picture edge (battle intro band, the message-box band) are black in the side strips too, instead of the battle background showing beside a black band.
+- FAST AUTO (Sharp 3D) decides 2x in 15 frames instead of 60, and battles stay 1x with the 3D slider up: the first battle still spent ~2-5 s at 2x (run 148 log 53 ms frames, Azahar 87 ms) before dropping.
+- Between a tile tap and the new screen the bottom stays black (the menu faded back in for ~0.7 s before the Bag / Pokemon screen).
+- Opening the Pokedex / Pokemon menu from a tile showed the Bottom menu picture on the TOP screen for a frame at full brightness (screen swap on a frame where engine B had not been redrawn). That frame is black now (log `[2D] screen swap`).
+- The Bottom menu now fades out and in with the game (MASTER_BRIGHT of the engine on the bottom screen) instead of staying bright while the top fades; not while the panel holds the field (log `[BMENU] bottom menu follows the game's fade`).
+- Hook 0215 (patch 0215, start_menu.c): the Start menu's grey bar and arrow no longer flash on the top screen when a tile opens a menu or the panel's party closes.
 ### Audio: notes on time, one fixed clean level
 - Notes now start at their exact DS moment. Each 7.8 ms mixing block used to apply every sound update at its first sample, so notes started up to 7.8 ms late by a different amount each time (beats sounded smeared or doubled, worst in busy songs like the Pokemon Center). Patch 0215 + `P3DS_SasMixPart`. DS RAW style also drops the volume ramp (the DS changes volume in one step). Log `[AUDIO] sample-exact note timing on`.
 - Volume is fixed: the Volume row is gone and the 3DS slider is the only volume control. Level 5 = 1.9 dB above the DS's own level, the loudest that never clips in the logged battles (old 7 clipped and fed the DSP limiter). `audio_gain=N` in config.txt still overrides for tests.
