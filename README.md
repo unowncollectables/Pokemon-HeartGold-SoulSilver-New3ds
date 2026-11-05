@@ -33,6 +33,12 @@
   <a href="#legal">Legal</a>
 </p>
 
+<p align="center">
+  <img src="./assets/screens/field-map.png" alt="Goldenrod City on the wide top screen, with the Johto map and tab row on the bottom screen" width="400" />
+  <img src="./assets/screens/panel-radio.png" alt="The RADIO tab on the bottom-screen panel" width="400" />
+  <br/><sub>Captured in the Azahar emulator: the whole game wide, and the bottom-screen panel (MAP and RADIO tabs).</sub>
+</p>
+
 ---
 
 ## What this is
