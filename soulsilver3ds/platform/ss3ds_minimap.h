@@ -172,8 +172,9 @@ static inline int blNameH() { return pxOn() && pxPane() == 0 ? kBlNameH : 0; }
 static void blDraw(uint32_t *b, const SUiText &T, const SMm &m, int mode, bool blink, const char *const *labels, const char *const *alts, const bool *on, int press) {
   for (int y = 0; y < 192; y++) { const uint32_t c = suiMix(kBlBg0, kBlBg1, y, 191); for (int x = 0; x < 256; x++) b[y * 256 + x] = ((x + y) & 15) == 0 ? suiMix(c, kBlSilverLo, 1, 5) : c; }
   /* location bar on top of the map panel */
-  for (int y = kBlPanY0; y < kBlPanY0 + 16; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - kBlPanY0, 16); for (int x = kBlPanX0; x < kBlPanX1; x++) suiPx(b, x, y, c); }
-  mmFrame(b, kBlPanX0, kBlPanY0, kBlPanX1, kBlPanY0 + 16, kBlNavy);
+  /* run 147: with the tabs on, the row has no silver backing bar (it made silver buttons sit in a silver box); the tabs float on the screen background like the side column's buttons */
+  if (!pxOn()) { for (int y = kBlPanY0; y < kBlPanY0 + 16; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - kBlPanY0, 16); for (int x = kBlPanX0; x < kBlPanX1; x++) suiPx(b, x, y, c); }
+  mmFrame(b, kBlPanX0, kBlPanY0, kBlPanX1, kBlPanY0 + 16, kBlNavy); }
   if (pxOn()) pxBar(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING..."); else suiSDraw(T, b, kBlPanX0 + 5, kBlPanY0 + 2, m.have ? m.name : "LOCATING...", kBlNavy, kBlSilverHi);
   const int nh = blNameH(); if (nh) pxNameStrip(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING...");
   if (mode < 0 && pxPaneDraw(b, T, kBlPanX0, kBlPanY0 + 17, kBlPanX1, kBlPanY1)) {}
