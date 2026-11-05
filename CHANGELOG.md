@@ -10,6 +10,9 @@ All notable changes to this project will be documented here.
 - Fix: with Wide FX on, the edge fill was handed the empty Wide FX buffer, which showed as black bars.
 - Checked in Azahar: intro, title, main menu, field, party, summary, bag, Pokedex, trainer card, save prompt.
 
+### Bellchime Trail: sky no longer covers the map
+- Nathan saw the sky box low at the Bell Tower: on Bellchime Trail the screen was all sky. Field triangles past the 2x guard band (but inside near/far) went through the CPU clipper, which draws in screen space without perspective; the trail's big sky quads then covered the whole map. They now stay on the PICA path like every other field triangle (new config key `g3_guardclip`, default 0; 1 = old behaviour). Near/far crossings still use the CPU clipper. Checked in Azahar: Bellchime Trail fixed; Ilex Forest, Lake of Rage, Ecruteak, Union Cave, Olivine, Ice Path, Cianwood, National Park and a wild battle look the same as before (no black spots).
+
 ### Battle intro: no doubled wild Pokemon
 - During the wild Pokemon's slide-in the game also draws a 2D sprite copy of it (ov07_0221FB90, called from ov12_02260CDC); with the 3D battler on top, two foes showed. Patch 0216 retargets that call to `SS3DS_BattleMonOBJ_One` (ss3ds_glue.c), which hides the copy's sprites. Log `[BATTLE] foe intro OBJ copy ... hidden`. Checked frame by frame in Azahar (Route 34 Drowzee): one foe through the whole intro.
 
