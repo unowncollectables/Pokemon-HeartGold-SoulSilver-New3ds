@@ -55,11 +55,18 @@ It builds on [pspoke](https://github.com/IbrahimIrfan/pspoke) (retargeted from P
 | **Stereoscopic 3D** | Depth from the 3D slider in the overworld, battles, and title. **SHARP 3D** / **FAST 3D** options for crisp mono or supersampled edges (see Settings). |
 | **Johto map on the touch screen** | Bottom screen becomes the Johto map + icon column (Pokédex, Pokémon, Bag, Pokégear, Trainer, Save, Options). Steps aside for the game’s own touch UI (YES/NO, starter Poké Balls, Pokégear). **X** opens a highlight cursor over the tiles. |
 | **Running Shoes button** | A dedicated **RUN** square on the bottom-screen column toggles running shoes (Sprint Button art read from *your* ROM once the shoes are unlocked). ZL run-toggle and Auto run are also available. |
-| **Pokégear on the bottom screen** | MAP / PHONE / RADIO tabs: real Pokégear map, registered contacts (tap to place a call), radio stations, place + time header. |
+| **Bottom-screen panel** | A tab row on the Johto map: **MAP / PHONE / RADIO / PARTY / BAG** (plus **EGGS**, see below). Real Pokégear map, tap a contact to call, tap a radio station, and read-only PARTY and BAG viewers that stay live while you walk. |
+| **Pokédex finder** *(opt-in)* | Tap a place on the Johto map, tap its card, tap a Pokémon: the map pins every place it lives, with ANY / MORN / DAY / NITE time filters. |
+| **Breeding tab** *(opt-in)* | EGGS tab: Day-Care Pokémon and levels gained, egg chance or EGG READY, Masuda, steps left on party eggs. Read-only. |
+| **Hunt stats** *(opt-in)* | Press **ZR** in the overworld for read-only pages from `hunt.txt`: encounters, shinies, time, most met, timeline and best streaks. |
+| **Damage check** *(opt-in)* | The **Y** foe screen gets a last page: rough damage range and % of the foe’s HP for each of your moves, plus who moves first. Singles only. |
+| **Achievements** | Optional Xbox-style toasts and a progress list, including trade and counter achievements. Never writes to your save. |
 | **In-game Settings app** | Press **L+R+Y** (or hold the top-left of the touch screen) for Display, Wide, 3D, Input, Battle, Setup, and Play tabs — toggles apply on close and persist in `config.txt`. |
 | **Battle QoL** | Optional SUPER EFFECTIVE / NOT VERY / NO EFFECT badges on move buttons; faster battles; catch info; encounter counter; shiny-hunt suite (opt-in). |
 | **Local wireless trading** | Full Pokémon trade between two New 3DS consoles via the game’s Union Room over 3DS UDS — confirmed on hardware. |
-| **Visible wild Pokémon** | Optional: wilds from the map’s encounter tables walk the field; walk into one to battle. |
+| **Online GTS** | The game’s own Global Terminal over community revival servers (Wiimmfi / Poké Classic Network), plus Mystery Gift download. Confirmed on hardware. |
+| **Visible & alive wild Pokémon** | Optional: wilds from the map’s encounter tables walk the field; walk into one to battle. **Alive wild Pokémon** (opt-in, untested on hardware) makes them solid and adds ambient flyers, naps, pairs and other small touches. |
+| **Smoother and cleaner** | Work toward a steady 30 fps (off-screen skipping, faster wide battles), and audio fixes: notes start on time and music no longer dips under loud sound effects. |
 | **GPU rendering** | 3D scenes and 2D compositing on the 3DS GPU. |
 | **Safe saves & durable logs** | Rolling `.sav` backups; each save is **fsync’d** to the SD card. `log.txt` is fsync’d in batches (and on HOME / sleep / crash) so the last lines **survive reboots and forced closes**; unclean exits are kept as `log_crash.txt`. |
 | **HOME Menu ready** | `.cia` with a 3D banner, or `.3dsx` from the Homebrew Launcher. |
@@ -70,13 +77,14 @@ It builds on [pspoke](https://github.com/IbrahimIrfan/pspoke) (retargeted from P
 
 | ✅ Confirmed on hardware | 🧪 Built / wired, still baking | 🛠️ Later / wishlist |
 | :--- | :--- | :--- |
-| Boot, title, overworld, battles, menus, saving; online **GTS** (Global Terminal) | Pokégear RADIO tap-to-tune (needs Radio Card) | Solid path to 60 fps (30 fps is the goal now) |
-| 3D depth, wide view, GPU 3D + 2D compose, FAST / SHARP 3D | Roamer + breeding tracker | Wi-Fi Club / Plaza with a real DS |
-| Johto map, X tile cursor, YES/NO & starter balls on touch | Union Room Battle, Records, Draw, Greet, Spin | Pokédex encounter locations / times |
-| Pokégear MAP / PHONE (calls) / header; battle move badges | | Pokéathlon & Bug-Catching helpers |
-| Retail `.sav` round-trip; automatic backups; durable `log.txt`; online **Mystery Gift** (WFC download) | | Tap-to-Fly on the Johto map |
-| HMs without the Pokémon, shortcuts, visible wilds, shiny suite | PARTY / BAG read-only bottom tabs | |
-| **Local wireless trade between two 3DS consoles** | Speed tweaks / FAST AUTO 3D | |
+| Boot, title, overworld, battles, menus, saving; online **GTS** (Global Terminal) | Alive wild Pokémon | Steady 30 fps everywhere; 60 fps later |
+| 3D depth, whole game wide, GPU 3D + 2D compose, FAST / SHARP 3D | Achievements (new toast and list) | Wi-Fi Club / Plaza with a real DS |
+| Johto map, X tile cursor, YES/NO & starter balls on touch | Pokégear RADIO tap-to-tune (needs Radio Card) | Pokéathlon & Bug-Catching helpers |
+| Pokégear MAP / PHONE / PARTY / BAG tabs; battle move badges | Roamer tracker | Tap-to-Fly on the Johto map |
+| Hunt stats, damage check, breeding tab, Pokédex finder | Union Room Battle, Records, Draw, Greet, Spin | |
+| Retail `.sav` round-trip; automatic backups; durable `log.txt`; online **Mystery Gift** (WFC download) | Speed tweaks / FAST AUTO 3D | |
+| HMs without the Pokémon, shortcuts, visible wilds, shiny suite | | |
+| **Local wireless trade between two 3DS consoles** | | |
 
 Details: [`docs/ROADMAP.md`](docs/ROADMAP.md) · history: [`CHANGELOG.md`](CHANGELOG.md) · live notes: [`HANDOFF.md`](HANDOFF.md).
 
@@ -104,7 +112,7 @@ Details: [`docs/ROADMAP.md`](docs/ROADMAP.md) · history: [`CHANGELOG.md`](CHANG
 
 ### 1. Easiest — Pokemon 3DS Builder
 
-Use the one-window [patch-builder / Pokemon 3DS Builder](https://github.com/unowncollectables/patch-builder): tick SoulSilver (and/or Platinum), point it at the ROM you dumped and your SD card, press **Build and install**. It pulls this project, installs toolchain pieces, compiles, and copies the `.3dsx` (and optionally `.cia`) while backing up your save first. Follow that repo’s README for the click-path.
+Use the one-window [patch-builder / Pokemon 3DS Builder](https://github.com/unowncollectables/patch-builder) (Windows 10/11): download `Pokemon3DSBuilder.exe` from its Releases page, tick SoulSilver, point it at the ROM you dumped and your SD card, and press the green button. It sets up WSL + Ubuntu and the toolchain for you (the first build takes an hour or two, later ones minutes), pulls the latest version of this project, compiles, and copies the `.3dsx` (and optionally `.cia`) while backing up your save first. It writes a build log you can attach to an issue. Follow that repo’s README for the click-path.
 
 ### 2. Or build by hand (Linux / WSL Ubuntu)
 
@@ -150,24 +158,24 @@ Press **L+R+Y** (or hold the top-left of the touch screen ~0.3 s). L/R or tap sw
 
 | Tab | Highlights |
 |---|---|
-| **Display** | Wide view, Camera zoom, Bottom menu HD |
+| **Display** | Wide view, Camera zoom, Bottom menu HD (the screen is always the 1.25× wide picture; there is no scale option) |
 | **Wide** | Wide battles / party / Pokédex / PC / menus, Wide FX (slow — keep off), haze, weather strips, edge fill |
 | **3D** | 3D strength, battle depth, Split top, Smooth title 3D, SHARP / FAST 3D modes |
-| **Input** | Bottom menu, Pokégear tabs, Auto run, Bottom layout (Johto map or 4×2 tiles), Kanto gate, Menu button, Circle Pad / C-Stick as D-pad, ZR = Y, **ZL run toggle**, IV/EV on summary (Y) |
-| **Battle** | Faster battles, Catch info, Encounter counter, SELECT = soft reset, Skip intro on reset |
-| **Setup** | Volume, Menu music, Save backups, Export save, Log size / detail, Fast text, Hold B skips text, Auto-advance, FPS counter |
+| **Input** | Bottom menu, Pokégear tabs, Pokédex finder, Auto run, Bottom layout (Johto map or 4×2 tiles), Kanto gate, Menu button, Circle Pad / C-Stick as D-pad, ZR = Y, **ZL run toggle**, IV/EV on summary (Y) |
+| **Battle** | Faster battles, Catch info, Encounter counter, Hunt stats (ZR), Damage check, Alive wild Pokémon, SELECT = soft reset, Skip intro on reset |
+| **Setup** | Volume, Menu music, Save backups, Export save, Log size / detail, Fast text, Hold B skips text, Auto-advance, FPS counter, Breeding tab |
 | **Play** | Reusable TMs, Field moves w/o HM, Repel prompt, No wild battles, Visible wild Pokémon, Pokémon menu X/Y shortcuts, Roamer + breeding tracker, **Local / Online wireless** |
 | **Debug** (SELECT) | GPU compose / 3D direct, audio limiter / stall fade, Speed tweaks — testing only |
 
-`soulsilver3ds/full/README_settings.txt` lists every `config.txt` key. Experimental toggles: try them on a **copy** of your save. Hidden `cheat_*` keys exist only in `config.txt`, default off, and are not shown in the menu (online mode refuses them).
+`soulsilver3ds/full/README_settings.txt` lists every `config.txt` key. Newer features (Pokédex finder, Breeding tab, Hunt stats, Damage check, Alive wild Pokémon) default to OFF until they have had more testing. Experimental toggles: try them on a **copy** of your save. Hidden `cheat_*` keys exist only in `config.txt`, default off, and are not shown in the menu (online mode refuses them).
 
 ---
 
 ## Known issues
 
 - Poké Ball opening can double-image with the 3D slider up.
-- Wide FX costs ~29 ms/frame — leave it off.
-- Steady ~30 fps (the game’s own rate); 60 fps is a later experiment ([`docs/FPS60.md`](docs/FPS60.md)).
+- Wide FX is very slow — leave it off.
+- Steady ~30 fps (the game’s own rate) is the goal and still being tuned; 60 fps is a later experiment ([`docs/FPS60.md`](docs/FPS60.md)).
 - Local wireless: trading works; discovery can be slow; other Union Room modes untested.
 - First visit to a map can hitch while data loads from the SD card.
 - Local wireless Mystery Gift (friend / distribution) still searches forever without a real DS parent; use **Get via Nintendo WFC** with Wireless = ONLINE instead.
