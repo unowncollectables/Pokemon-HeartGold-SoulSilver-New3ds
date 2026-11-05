@@ -105,7 +105,7 @@ static inline bool pxScrolls() { return pxPane() == 1 || pxPane() == 4; } /* pan
 static inline int pxMaxScroll() { const int h = gPx.listY1 - gPx.listY0; const int m = (gPx.pane == 4 ? gPx.bagN : gPx.n) * kPxRowH - h; return m > 0 ? m : 0; }
 
 /* ---- tab bar (run 122: even-width rounded JOHTO tabs; hit rects match draw) ---- */
-enum { kPxMaxTab = 6, kPxTabGap = 2, kPxTabPad = 3 };
+enum { kPxMaxTab = 6, kPxTabGap = 3, kPxTabPad = 3 };
 static bool brCfg();
 static inline int pxNTab() { return brCfg() ? 6 : 5; } /* the BREED tab only exists with breed_tab on */
 static const char *const kPxTabs[kPxMaxTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG", "EGGS" };
@@ -117,21 +117,22 @@ static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0,
 /* run 142: the area name on its own full-width line under the tab row (MAP pane only; the map panel starts below it, see blNameH) */
 static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
   const int y0 = Y0 + 15, y1 = y0 + kBlNameH + 1;
-  for (int y = y0; y < y1; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - y0, y1 - y0); for (int x = X0; x < X1; x++) suiPx(b, x, y, c); }
+  /* run 147: a navy header (not a third silver button): the place name in white on a deep blue gradient, like the panel's other title strips */
+  for (int y = y0; y < y1; y++) { const uint32_t c = suiMix(kBlBlue, kBlNavy, y - y0, y1 - y0); for (int x = X0; x < X1; x++) suiPx(b, x, y, c); }
   mmFrame(b, X0, y0, X1, y1, kBlNavy);
   char nm[48]; pxFit(T, nm, sizeof nm, name, X1 - X0 - 8);
-  suiSDraw(T, b, X0 + 4, y0 + (y1 - y0 - 9) / 2, nm, kBlNavy, kBlSilverHi); }
+  suiSDraw(T, b, X0 + 4, y0 + (y1 - y0 - 9) / 2, nm, SUI_RGB(255, 255, 255), kBlNavy); }
 /* tab row: same look as the side column's buttons (silver gradient, white top lip, navy frame); the open tab takes the pressed blue */
 static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
   (void)X0; (void)name; int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
   for (int i = 0; i < pxNTab(); i++) { const bool on = gPx.pane == i;
-    for (int y = cy0; y < cy1; y++) { const uint32_t c = on ? suiMix(kBlPress, SUI_RGB(92, 140, 214), y - cy0, cy1 - cy0) : suiMix(kBlSilverHi, kBlSilverLo, y - cy0, cy1 - cy0);
+    for (int y = cy0; y < cy1; y++) { const uint32_t c = on ? suiMix(kBlBlue, kBlNavy, y - cy0, cy1 - cy0) : suiMix(kBlSilverHi, kBlSilverLo, y - cy0, cy1 - cy0);
       for (int x = cx0[i]; x < cx1[i]; x++) suiPx(b, x, y, c); }
     mmFrame(b, cx0[i], cy0, cx1[i], cy1, kBlNavy);
     for (int x = cx0[i] + 1; x < cx1[i] - 1; x++) suiPx(b, x, cy0 + 1, SUI_RGB(255, 255, 255));
-    if (on) for (int x = cx0[i] + 1; x < cx1[i] - 1; x++) suiPx(b, x, cy1 - 2, kBlBlue);
+    if (on) for (int x = cx0[i] + 1; x < cx1[i] - 1; x++) suiPx(b, x, cy1 - 2, kBlPress);
     const int tw = suiSWidth(T, kPxTabs[i]);
-    suiSDraw(T, b, cx0[i] + (cx1[i] - cx0[i] - tw) / 2, cy0 + (cy1 - cy0 - 9) / 2, kPxTabs[i], kBlNavy, on ? kBlPress : kBlSilverHi); } }
+    suiSDraw(T, b, cx0[i] + (cx1[i] - cx0[i] - tw) / 2, cy0 + (cy1 - cy0 - 9) / 2, kPxTabs[i], on ? SUI_RGB(255, 255, 255) : kBlNavy, on ? kBlNavy : kBlSilverHi); } }
 /* tab index under bar x, -1 none (same layout as pxBar) */
 static int pxChipHit(const SUiText &T, int X1, int Y0, int x) {
   int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
