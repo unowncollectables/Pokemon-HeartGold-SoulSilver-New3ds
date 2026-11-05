@@ -73,7 +73,7 @@ static void pxBtn(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t hi, uint
   mmFrame(b, x0, y0, x1, y1, edge); }
 /* pane backdrop: the Pokegear's blue, with a navy title strip of height h that shows white text */
 static void pxBack(uint32_t *b, int X0, int Y0, int X1, int Y1, int h) {
-  for (int y = Y0; y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(168, 188, 226), SUI_RGB(120, 144, 196), y - Y0, Y1 - Y0));
+  for (int y = Y0; y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(170, 214, 184), SUI_RGB(90, 150, 108), y - Y0, Y1 - Y0));
   for (int y = Y0; y < Y0 + h; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(kBlBlue, kBlNavy, y - Y0, h));
   for (int x = X0; x < X1; x++) suiPx(b, x, Y0 + h, kBlNavy); }
 static void pxFit(const SUiText &T, char *out, int sz, const char *s, int maxW) {
@@ -147,7 +147,7 @@ static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int vie
   for (int l = 0; l < 100; l++) if (gPx.locN[l]) { int x, y, w, h; pgSpecRect(l, &x, &y, &w, &h);
     if (pgHiddenAt(p, x * 8 + w * 4, y * 8 + h * 4)) continue;
     const int px = X0 + x * 8 + w * 8 - viewX - 2, py = oy + y * 8 + 2; if (px < X0 + 3 || px >= X1 - 3) continue;
-    const bool re = gPx.locRe[l]; const uint32_t fill = re ? SUI_RGB(255, 200, 40) : SUI_RGB(80, 150, 255);
+    const bool re = gPx.locRe[l]; const uint32_t fill = re ? SUI_RGB(255, 200, 40) : SUI_RGB(90, 200, 120);
     for (int yy = -3; yy <= 3; yy++) for (int xx = -3; xx <= 3; xx++) { const int d = abs(xx) + abs(yy); if (d <= 3) suiPx(b, px + xx, py + yy, d == 3 ? kBlNavy : fill); } } }
 /* "Phone: Joey, Wade" for the info card of location `loc` into out (empty if none); true if there is something to show */
 static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW) {
@@ -159,7 +159,7 @@ static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW) {
 static inline int pxMapChipW(const SUiText &T) { return T.width("MAP") + 7; }
 /* ---- the PHONE pane ---- */
 static void pxPhone(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(56, 64, 88);
+  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(40, 66, 50);
   if (!gPx.built || gPx.tick != P3DS_PhTick) pxBuild();
   const uint32_t wh = SUI_RGB(255, 255, 255);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
@@ -211,7 +211,7 @@ static void pxOnAir(int s, int h, int w, const char **what, const char **sub, in
   case 6: *what = "ROCKET RADIO"; break;
   default: *what = "MAHOGANY SIGNAL"; break; } }
 static void pxRadio(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(56, 64, 88);
+  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(40, 66, 50);
   const uint32_t wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(36, 104, 64);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1); gPx.radN = 0; gPx.radX0 = X0 + 2; gPx.radX1 = X1 - 2;
   const time_t now = time(0); struct tm tmv; const struct tm *lt = localtime_r(&now, &tmv); const int hh = lt ? lt->tm_hour : 0, mi = lt ? lt->tm_min : 0, wd = lt ? lt->tm_wday : 0;
@@ -343,7 +343,7 @@ static bool pxLiveSheetTap(int x, int y) {
   return true; }
 
 static void pxParty(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255);
+  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(40, 66, 50), wh = SUI_RGB(255, 255, 255);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
   gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1; /* run 118: hit-test geometry for tap-to-open */
   if (!pxLiveHeader(b, T, X0, Y0, X1)) { T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *hint = (P3DS_PanelPartyWant||P3DS_PanelPartyOn)?"":"TAP TO OPEN"; T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 230, 210), kBlNavy); }
@@ -362,7 +362,7 @@ static void pxParty(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y
     if (m[6]) { T.draw(b, X0 + 5, y0 + 13, "It has not hatched yet.", fg, sh); continue; }
     char lv[12]; snprintf(lv, sizeof lv, "Lv%d", (int)m[1]); T.draw(b, X1 - 5 - T.width(lv), y0 + 2, lv, ink, sh);
     const int hp = m[2] > m[3] ? m[3] : m[2], mx = m[3] ? m[3] : 1; const int bw = 64, bx = X0 + 5, by = y0 + 15;
-    for (int y = by; y < by + 5; y++) for (int x = bx; x < bx + bw; x++) suiPx(b, x, y, SUI_RGB(70, 76, 100));
+    for (int y = by; y < by + 5; y++) for (int x = bx; x < bx + bw; x++) suiPx(b, x, y, SUI_RGB(60, 84, 68));
     const int fw = hp * (bw - 2) / mx; const uint32_t col = hp == 0 ? SUI_RGB(120, 120, 130) : hp * 2 > mx ? SUI_RGB(64, 200, 96) : hp * 5 > mx ? SUI_RGB(240, 200, 48) : SUI_RGB(224, 64, 56);
     for (int y = by + 1; y < by + 4; y++) for (int x = bx + 1; x < bx + 1 + fw; x++) suiPx(b, x, y, col);
     char hs[20]; snprintf(hs, sizeof hs, "%d/%d", (int)m[2], (int)m[3]); T.draw(b, bx + bw + 4, y0 + 12, hs, fg, sh);
@@ -374,7 +374,7 @@ static void pxBagBuild() {
   gPx.bagN = 0; for (int i = 0; i < 165; i++) if (P3DS_VwBagId[gPx.bag][i]) gPx.bagList[gPx.bagN++] = i;
   const int ms = pxMaxScroll(); if (gPx.scroll > ms) gPx.scroll = (float)ms; }
 static void pxBag(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(36, 104, 64);
+  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(40, 66, 50), wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(36, 104, 64);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
   gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1;
   { extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; /* run 136: plain BAG header while the game's own bag is in the panel (the viewer arrows never follow it; < > have no glyph) */
@@ -405,7 +405,7 @@ static void pxBag(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1)
 
 /* ---- the BREED pane (hook 0210 data; read-only) ---- */
 static void pxBreed(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(56, 64, 88), wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(36, 104, 64), gn = SUI_RGB(40, 120, 64);
+  const uint32_t ink = SUI_RGB(22, 72, 44), sh = SUI_RGB(238, 242, 238), fg = SUI_RGB(40, 66, 50), wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(36, 104, 64), gn = SUI_RGB(40, 120, 64);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
   T.draw(b, X0 + 4, Y0 + 2, "BREEDING", wh, kBlNavy); const char *ro = "READ-ONLY"; T.draw(b, X1 - 4 - T.width(ro), Y0 + 2, ro, SUI_RGB(200, 230, 210), kBlNavy);
   if (!P3DS_BrReady) {
@@ -539,7 +539,7 @@ static void pxRingDraw(uint32_t *b, const SUiText &T, bool blink) {
   const int id = ring - 2; char t[48]; snprintf(t, sizeof t, "CALL: %s", id >= 0 && id < 75 ? kPxName[id] : "?"); char fit[48]; pxFit(T, fit, sizeof fit, t, kPxRingX1 - kPxRingX0 - 60);
   T.draw(b, kPxRingX0 + 4, kPxRingY0 + 4, fit, kBlNavy, bg);
   const int w = T.width("ANSWER") + 8, x1 = kPxRingX1 - 3, x0 = x1 - w;
-  pxBtn(b, x0, kPxRingY0 + 3, x1, kPxRingY1 - 3, SUI_RGB(90, 150, 230), kBlNavy, kBlNavy);
+  pxBtn(b, x0, kPxRingY0 + 3, x1, kPxRingY1 - 3, SUI_RGB(90, 190, 120), kBlNavy, kBlNavy);
   T.draw(b, x0 + 4, kPxRingY0 + 4, "ANSWER", SUI_RGB(255, 255, 255), kBlNavy); }
 /* every frame: redraw and log when the (sticky) ringing display changes */
 static void pxRingFrame() {
