@@ -448,20 +448,29 @@ static void drawDwDebris(u32*img,int eye){
   for(int y=y0;y<y0+sz;y++)for(int x=x0;x<x0+sz+(L==0);x++){if(x<0||x>255||y<0||y>191)continue;u32&d=img[y*256+x];
    unsigned r=((d&255)*(16-a)+(col&255)*a)/16,g=(((d>>8)&255)*(16-a)+((col>>8)&255)*a)/16,b=(((d>>16)&255)*(16-a)+((col>>16)&255)*a)/16;d=(d&0xFF000000u)|r|(g<<8)|(b<<16);}}}
 /* achievements (achievements.c): 360-style toast on the top screen's bottom edge; the queue is advanced by eye 0 */
+extern "C" int P3DS_GameFontWidth34(int,const char*);extern "C" int P3DS_GameFontDraw34(u32*,int,int,int,int,int,const char*,u32,int);
 static void drawAchToast(u32*img,int eye){char l1[48],l2[48];int sl=0;if(!P3DS_AchToastNow(l1,sizeof l1,l2,sizeof l2,&sl,eye))return;topTouch();
- /* Xbox-style: dark glass bar, green accent edge, round gold "G" badge on the left, green title over a white name line */
- const int bh=34,by=192-(bh*sl/16)-2,bw=236,bx=(256-bw)/2;
+ /* Xbox 360 style, small: dark pill, green rim, round gold badge, tiny green title + score, name in the game font (3/4 size, lower case works) */
+ const bool gf=P3DS_GameFontReady();char sc[12]="";{char*tb=strchr(l1,'\t');if(tb){*tb=0;snprintf(sc,sizeof sc,"%s",tb+1);}}
+ for(char*p=l1;*p;p++)if(*p>='a'&&*p<='z')*p-=32;
+ if(!gf)for(char*p=l2;*p;p++)if(*p>='a'&&*p<='z')*p-=32;
+ const int nw=gf?P3DS_GameFontWidth34(1,l2):(int)strlen(l2)*4,tw=(int)strlen(l1)*4+(sc[0]?(int)strlen(sc)*4+8:0);
+ int bw=26+(nw>tw?nw:tw)+8;if(bw<120)bw=120;if(bw>230)bw=230;
+ const int bh=24,by=192-(bh*sl/16)-4,bx=(256-bw)/2;
  auto C=[](int r,int g,int b){return (u32)(r|(g<<8)|(b<<16));};
  auto put=[&](int x,int y,u32 c){if(x>=0&&x<256&&y>=0&&y<192)img[y*256+x]=c;};
+ const int rr=bh/2;
  for(int y=by;y<by+bh;y++)for(int x=bx;x<bx+bw;x++){
-  const int cx=x<bx+3?bx+3-x:x>bx+bw-4?x-(bx+bw-4):0,cy=y<by+3?by+3-y:y>by+bh-4?y-(by+bh-4):0;if(cx+cy>3)continue; /* rounded corners */
-  const bool edge=y==by||y==by+bh-1||x==bx||x==bx+bw-1;const int g=(y-by)*10/bh;
-  put(x,y,edge?C(80,200,88):(C(20,26,32)+(unsigned)(g*0x00010101u)));}
- const int cxm=bx+19,cym=by+bh/2,R=12;
- for(int y=-R;y<=R;y++)for(int x=-R;x<=R;x++){const int d=x*x+y*y;if(d>R*R)continue;put(cxm+x,cym+y,d>(R-2)*(R-2)?C(200,160,48):(y<0?C(248,216,96):C(232,176,48)));}
- drawBig(img,cxm-4,cym-3,"G",C(60,40,10));
- {char*tb=strchr(l1,'\t');if(tb){*tb=0;drawBig(img,bx+bw-6-(int)strlen(tb+1)*8,by+5,tb+1,C(255,214,64));}}
- drawBig(img,bx+36,by+5,l1,C(112,224,112));drawBig(img,bx+36,by+19,l2,0x00FFFFFFu);}
+  int dx=x<bx+rr?bx+rr-x:x>bx+bw-1-rr?x-(bx+bw-1-rr):0,dy=y-(by+rr);if(dx*dx+dy*dy>rr*rr)continue; /* full pill */
+  const bool edge=dx*dx+dy*dy>(rr-1)*(rr-1)||y==by||y==by+bh-1;
+  put(x,y,edge?C(70,180,80):(C(18,22,28)+(unsigned)(((y-by)*8/bh)*0x00010101u)));}
+ const int cxm=bx+rr+1,cym=by+rr,R=9;
+ for(int y=-R;y<=R;y++)for(int x=-R;x<=R;x++){const int d=x*x+y*y;if(d>R*R)continue;put(cxm+x,cym+y,d>(R-1)*(R-1)?C(200,160,48):(y<0?C(250,220,100):C(232,178,50)));}
+ drawTiny(img,cxm-1,cym-2,"G",C(70,45,10));
+ const int tx=bx+rr+R+5;
+ drawTiny(img,tx,by+4,l1,C(112,224,112));
+ if(sc[0])drawTiny(img,bx+bw-rr-(int)strlen(sc)*4,by+4,sc,C(255,214,64));
+ if(gf)P3DS_GameFontDraw34(img,256,256,192,tx,by+9,l2,0x00FFFFFFu,1);else drawTiny(img,tx,by+12,l2,0x00FFFFFFu);}
 static void drawToast(u32*img,u64 now){if(!toastAt||now-toastAt>(u64)(1500*CPU_TICKS_PER_MSEC))return;topTouch();
  if(useGF()){char tt2[32];prettyLab(tt2,toastText,sizeof tt2);const char*toastText=tt2;int tw=P3DS_GameFontWidth(1,toastText);int iw=(tw+7)&~7,bx=128-(iw+40)/2+16;P3DS_GameBoxDraw(img,256,256,192,bx,8,iw,16);P3DS_GameFontDraw(img,256,256,192,bx+(iw-tw)/2,8,toastText,kMsgFg,kMsgSh,1,1);return;}
  const int tw=(int)strlen(toastText)*8,bw=tw+12,bh=20,bx=128-bw/2,by=6;

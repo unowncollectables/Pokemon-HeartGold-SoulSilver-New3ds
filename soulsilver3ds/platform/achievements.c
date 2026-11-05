@@ -140,7 +140,7 @@ int P3DS_AchProgress(int id, unsigned *cur, unsigned *goal) {
   if (statKnown) for (int k = 0; k < NSTAT; k++) if (kStat[k].id == id) { ok = 1; g = kStat[k].goal; if (statNow[k] > best) best = statNow[k]; }
   UNLOCK(); if (ok) { if (cur) *cur = best; if (goal) *goal = g; } return ok; }
 
-/* once per eye per frame; eye 0 advances the queue. Slides up from the bottom edge for 0.4 s, holds until 4.4 s, then goes */
+/* once per eye per frame; eye 0 advances the queue. Slides up from the bottom edge for 0.4 s, holds, slides back down 4.0-4.4 s */
 int P3DS_AchToastNow(char *l1, int n1, char *l2, int n2, int *slide, int eye) {
   LOCK();
   const unsigned long long now = nowTick(), tot = 4400ull * TICKS_MS;
@@ -149,7 +149,7 @@ int P3DS_AchToastNow(char *l1, int n1, char *l2, int n2, int *slide, int eye) {
     if (cur == -1000 && qn > 0) { cur = q[0]; memmove(q, q + 1, (size_t)(qn - 1) * sizeof q[0]); qn--; curAt = now; if (cur >= 0) P3DS_HuntChime(); } }
   if (cur == -1000) { UNLOCK(); return 0; }
   const int ms = (int)((now - curAt) / TICKS_MS);
-  *slide = ms < 400 ? ms * 16 / 400 : 16;
-  if (cur >= 0) { snprintf(l1, (size_t)n1, "Achievement Unlocked\t%dG", kAch[cur].i.pts); snprintf(l2, (size_t)n2, "%s", kAch[cur].i.name); }
+  *slide = ms < 400 ? ms * 16 / 400 : ms > 4000 ? (ms < 4400 ? (4400 - ms) * 16 / 400 : 0) : 16;
+  if (cur >= 0) { snprintf(l1, (size_t)n1, "Achievement unlocked\t%dG", kAch[cur].i.pts); snprintf(l2, (size_t)n2, "%s", kAch[cur].i.name); }
   else { snprintf(l1, (size_t)n1, "Achievements"); snprintf(l2, (size_t)n2, "%d found in your save", -cur); }
   UNLOCK(); return 1; }
