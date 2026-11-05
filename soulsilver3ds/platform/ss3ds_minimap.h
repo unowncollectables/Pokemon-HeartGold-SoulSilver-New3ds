@@ -147,23 +147,33 @@ static const char *const kBlIcon[12][12] = {
   { "........#...", ".......#....", "......#.....", "############", "#ooooooooo+#", "#o###oo##o+#", "#o#+#oo##o+#", "#o###oo##o+#", "#ooooooooo+#", "############", "............", "............" }, /* radio (panel tab, run 147) */
   { "....####....", "...#oooo#...", "..#ooooo+#..", "..#oooo++#..", ".#ooooo+++#.", ".#oooo++++#.", ".#ooo+++++#.", ".#oo++++++#.", "..#++++++#..", "..##++++##..", "....####....", "............" }, /* egg (panel tab, run 147) */
 };
-static const uint32_t kBlSilverHi = SUI_RGB(238, 242, 238), kBlSilverLo = SUI_RGB(178, 192, 182), kBlNavy = SUI_RGB(22, 72, 44),
-  kBlBlue = SUI_RGB(56, 150, 84), kBlPress = SUI_RGB(150, 214, 164), kBlBg0 = SUI_RGB(36, 104, 64), kBlBg1 = SUI_RGB(14, 44, 28);
+/* run 151 (Nathan: one style everywhere): the native column's colours (ss3ds_blnative.h bnFrame): BTN / BTN_SHD buttons,
+   NAVY outline, SEL green for the open / pressed state, grey frame behind */
+static const uint32_t kBlSilverHi = SUI_RGB(244, 247, 254), kBlSilverLo = SUI_RGB(189, 201, 222), kBlNavy = SUI_RGB(7, 33, 54),
+  kBlBlue = SUI_RGB(24, 153, 115), kBlPress = SUI_RGB(46, 208, 155), kBlBg0 = SUI_RGB(200, 208, 211), kBlBg1 = SUI_RGB(186, 196, 200),
+  kBlText = SUI_RGB(18, 26, 38), kBlSelO = SUI_RGB(0, 84, 64), kBlIcInk = SUI_RGB(24, 120, 72), kBlIcAcc = SUI_RGB(104, 200, 140);
+/* the native column's button box in DS pixels: outline without its corners, top highlight row, two shade rows */
+static void blBox(uint32_t *b, int x0, int y0, int x1, int y1, bool sel) {
+  const uint32_t fill = sel ? kBlPress : kBlSilverHi, top = sel ? kBlPress : SUI_RGB(252, 253, 255), shd = sel ? kBlBlue : kBlSilverLo;
+  for (int y = y0 + 1; y < y1 - 1; y++) for (int x = x0 + 1; x < x1 - 1; x++) suiPx(b, x, y, y == y0 + 1 ? top : y >= y1 - 3 ? shd : fill);
+  for (int x = x0 + 1; x < x1 - 1; x++) { suiPx(b, x, y0, kBlNavy); suiPx(b, x, y1 - 1, kBlNavy); }
+  for (int y = y0 + 1; y < y1 - 1; y++) { suiPx(b, x0, y, kBlNavy); suiPx(b, x1 - 1, y, kBlNavy); } }
 static void blIcon(uint32_t *b, int x, int y, int i, uint32_t ink, uint32_t acc) {
   for (int r = 0; r < 12; r++) for (int c = 0; c < 12 && kBlIcon[i][r][c]; c++) { const char ch = kBlIcon[i][r][c];
     if (ch == '#') suiPx(b, x + c, y + r, ink); else if (ch == '+') suiPx(b, x + c, y + r, acc); else if (ch == 'o') suiPx(b, x + c, y + r, SUI_RGB(255, 255, 255)); } }
 /* run 11: bit i set = button i's icon comes from the game (drawn at native resolution by gpuscale's overlay), skip ours */
 static unsigned blGameIconMask;
 static void blButton(uint32_t *b, const SUiText &T, int i, const char *label, const char *alt, bool on, bool pressed) {
-  int x0, y0, x1, y1; blRect(i, &x0, &y0, &x1, &y1);
-  for (int y = y0; y < y1; y++) { const uint32_t c = pressed ? kBlPress : suiMix(kBlSilverHi, kBlSilverLo, y - y0, y1 - y0); for (int x = x0; x < x1; x++) suiPx(b, x, y, c); }
-  mmFrame(b, x0, y0, x1, y1, kBlNavy);
-  for (int x = x0 + 1; x < x1 - 1; x++) suiPx(b, x, y0 + 1, SUI_RGB(255, 255, 255));
-  const uint32_t ink = on ? kBlNavy : SUI_RGB(130, 138, 160), acc = on ? kBlBlue : SUI_RGB(190, 196, 210);
-  const bool game = (blGameIconMask >> i) & 1;
-  if (i < 8) { if (!game) blIcon(b, x0 + 2, (y0 + y1) / 2 - 6, i, ink, acc);
-    const char *t = T.width(label) <= x1 - x0 - 17 ? label : alt; T.draw(b, x0 + 16, (y0 + y1) / 2 - 5, t, ink, pressed ? kBlPress : kBlSilverHi); }
-  else { if (!game) blIcon(b, (x0 + x1) / 2 - 6, y0 + 5, i, ink, acc); const char *t = T.width(label) <= x1 - x0 - 2 ? label : alt; T.draw(b, (x0 + x1) / 2 - T.width(t) / 2, game ? y0 + 28 : y0 + 22, t, ink, kBlSilverHi); } }
+  /* run 151: the same look as the sharp column (icon cell, divider, name, red tab at the right edge); only seen at SCALE 1:1 */
+  int x0, y0, x1, y1; blRect(i, &x0, &y0, &x1, &y1); blBox(b, x0, y0, x1, y1, pressed);
+  const bool game = (blGameIconMask >> i) & 1; const uint32_t ink = pressed ? kBlSelO : kBlIcInk, acc = pressed ? SUI_RGB(255, 255, 255) : kBlIcAcc;
+  if (i < 8) {
+    for (int y = y0 + 1; y < y1 - 1; y++) { for (int x = x0 + 1; x < x0 + 15; x++) suiPx(b, x, y, pressed ? SUI_RGB(40, 190, 142) : SUI_RGB(232, 237, 246)); suiPx(b, x0 + 15, y, pressed ? SUI_RGB(26, 108, 95) : SUI_RGB(164, 176, 182)); }
+    for (int y = y0 + 3; y < y1 - 3; y++) { suiPx(b, x1 - 3, y, SUI_RGB(246, 93, 77)); suiPx(b, x1 - 2, y, SUI_RGB(212, 59, 60)); }
+    if (!game) blIcon(b, x0 + 2, (y0 + y1) / 2 - 6, i, ink, acc);
+    const char *t = T.width(label) <= x1 - x0 - 20 ? label : alt; const int tx = x0 + 16 + (x1 - x0 - 19 - T.width(t)) / 2;
+    T.draw(b, tx, (y0 + y1) / 2 - 5, t, pressed ? SUI_RGB(255, 255, 255) : on ? kBlText : SUI_RGB(150, 160, 170), pressed ? kBlSelO : kBlSilverHi); }
+  else { if (!game) blIcon(b, (x0 + x1) / 2 - 6, y0 + 5, i, ink, acc); const char *t = T.width(label) <= x1 - x0 - 2 ? label : alt; T.draw(b, (x0 + x1) / 2 - T.width(t) / 2, game ? y0 + 28 : y0 + 22, t, pressed ? SUI_RGB(255, 255, 255) : kBlText, pressed ? kBlSelO : kBlSilverHi); } }
 /* whole screen for layout 1; `labels`/`alts`/`on` for buttons 0..8, `press` = button held (-1 none) */
 struct SPg; static bool blPgDraw(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1, bool blink); /* ss3ds_pgmap.h, via render3ds.cpp */
 static bool pxOn(); static inline int pxPane(); static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name); static void pxRingDraw(uint32_t *b, const SUiText &T, bool blink); static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name); static bool pxPaneDraw(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1); /* ss3ds_pgextra.h */
@@ -172,7 +182,7 @@ enum { kBlNameH = 12 };
 static inline int blNameH() { return pxOn() && pxPane() == 0 ? kBlNameH : 0; }
 /* mode -1 = the Pokegear map (run 10), 0..2 = bottom_map views */
 static void blDraw(uint32_t *b, const SUiText &T, const SMm &m, int mode, bool blink, const char *const *labels, const char *const *alts, const bool *on, int press) {
-  for (int y = 0; y < 192; y++) { const uint32_t c = suiMix(kBlBg0, kBlBg1, y, 191); for (int x = 0; x < 256; x++) b[y * 256 + x] = ((x + y) & 15) == 0 ? suiMix(c, kBlSilverLo, 1, 5) : c; }
+  for (int y = 0; y < 192; y++) { const uint32_t c = suiMix(kBlBg0, kBlBg1, y, 191); for (int x = 0; x < 256; x++) b[y * 256 + x] = x >= kBlColX0 - 1 ? SUI_RGB(77, 100, 114) : c; } /* run 151: grey frame + slate column, as the sharp frame */
   /* location bar on top of the map panel */
   /* run 147: with the tabs on, the row has no silver backing bar (it made silver buttons sit in a silver box); the tabs float on the screen background like the side column's buttons */
   if (!pxOn()) { for (int y = kBlPanY0; y < kBlPanY0 + 16; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - kBlPanY0, 16); for (int x = kBlPanX0; x < kBlPanX1; x++) suiPx(b, x, y, c); }

@@ -800,7 +800,7 @@ extern "C" int P3DS_InWideKind;
 static int wideDexV=-1,widePcV=-1,bottomHdV=-1;
 static int wideDexCfg(){if(wideDexV<0){wideDexV=P3DS_CfgInt("wide_pokedex",0)!=0;PSPNativeMemLog("[WIDE] wide_pokedex=%d",wideDexV);}return wideDexV;}
 static int widePcCfg(){if(widePcV<0){widePcV=P3DS_CfgInt("wide_pc",0)!=0;PSPNativeMemLog("[WIDE] wide_pc=%d",widePcV);}return widePcV;}
-static int bottomHdCfg(){if(bottomHdV<0){bottomHdV=P3DS_CfgInt("bottom_hd",1)!=0;PSPNativeMemLog("[BMENU] bottom_hd=%d (native-resolution button column)",bottomHdV);}return bottomHdV;}
+static int bottomHdCfg(){bottomHdV=1;return 1;} /* run 151 (Nathan): the sharp column is the only one; the bottom_hd toggle and the old stretched column look are gone */
 static int wideScreensV=-1;static int wideScreensCfg(){if(wideScreensV<0){wideScreensV=P3DS_CfgInt("wide_menu_screens",0)!=0;PSPNativeMemLog("[WIDE] wide_menu_screens=%d (party, bag, summary)",wideScreensV);}return wideScreensV;}
 /* ss3ds wide_boxes (Settings > Wide > Wide HP boxes, default 0): the Platinum port's battle layout. The game hook (pspoke patch
    0100, battle_hp_bar.c) moves the player's HP box 32 px right and the enemy's 32 px left via P3DS_WideBoxExtra(); the wide
@@ -1348,9 +1348,8 @@ struct SAppRow{int it;const char*nm,*tip;};
 struct SAppTab{int n;SAppRow r[14];};
 static const char*const kTabNm[8]={"Display","Wide","3D","Input","Battle","Play","Setup","Debug"};
 static const SAppTab kTabs[8]={
- {5,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+ {4,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
-     {90,"Bottom menu HD","Draws the Johto touch-menu buttons at full 3DS sharpness."},
      {0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
      {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."}}},
  {10,{{74,"Wide battles","Battle scenes fill the wide screen. Needs Wide view ON."},
