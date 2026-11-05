@@ -126,7 +126,8 @@ volatile int P3DS_AudioAptPaused, P3DS_AudioWoke, P3DS_AudioWokeDsp; /* P3DS_Aud
 void __real_PSPNativeSasSnapshot(u32 cycles);
 void __wrap_PSPNativeSasSnapshot(u32 cycles) { P3DS_SndPumps++; __real_PSPNativeSasSnapshot(cycles); }
 void P3DS_SetAudioGain(int g) { if (g > 0 && g <= 64) { P3DS_AudioGainV = g; PSPNativeMemLog("[AUDIO] audio_gain=%d (from settings)", g); } }
-void P3DS_SetAudioLimiter(int on) { P3DS_AudioLimiterV = on < 0 ? 0 : on > 3 ? 3 : on; PSPNativeMemLog("[AUDIO] audio_limiter=%d (from settings; 0 off, 1 clean, 2 light, 3 DS raw)", P3DS_AudioLimiterV); }
+static void ndspApplyClip(const char *why);
+void P3DS_SetAudioLimiter(int on) { P3DS_AudioLimiterV = on < 0 ? 0 : on > 3 ? 3 : on; PSPNativeMemLog("[AUDIO] audio_limiter=%d (from settings; 0 off, 1 clean, 2 light, 3 DS raw)", P3DS_AudioLimiterV); ndspApplyClip("settings"); }
 void P3DS_SetAudioStallFade(int on) { P3DS_AudioStallFadeV = on != 0; PSPNativeMemLog("[AUDIO] audio_stallfade=%d (from settings)", on != 0); }
 int __sceSasCore(void *c, void *out) {
     (void)c; static int acc[2 * 2048]; memset(acc, 0, sasGrain * 2 * sizeof(int));
@@ -196,6 +197,16 @@ int __sceSasCore(void *c, void *out) {
 int __sceSasGetAllEnvelopeHeights(void *c, int *h) { (void)c; for (int v = 0; v < 32; v++) h[v] = v < 16 && sasv[v].on ? 0x40000000 : 0; return 0; }
 #define NWB 16  /* 16 x 256 = 4096 samples (93 ms) of DSP lead */
 static ndspWaveBuf wb[NWB]; static s16 *wbData; static int ndspOk = -1, wbNext;
+/* 2026-11-05 (Nathan: "when waves sound I hear the music dim"): libctru starts the DSP in NDSP_CLIP_SOFT, which is the DSP's
+   own output LIMITER (gain riding on the whole mix; Azahar does not emulate it, so only real hardware pumped). A loud SE such as
+   the sea waves raised the mix level and the limiter pulled everything down, music included. The DS has no such stage: its
+   mixer just clamps to s16. Audio style DS RAW (audio_limiter=3, the default) now runs the DSP in NDSP_CLIP_NORMAL (plain clamp);
+   our mixer already clamps to s16 before the DSP, so the samples reaching the speaker are now exactly what we mixed.
+   Styles OFF/CLEAN/LIGHT keep the old soft (limiter) mode for an A/B in Settings > Debug > Audio style. */
+static void ndspApplyClip(const char *why) {
+    if (ndspOk != 1) return; int st = P3DS_AudioLimiterV; if (st < 0) st = P3DS_CfgInt("audio_limiter", 3);
+    ndspClippingMode m = st == 3 ? NDSP_CLIP_NORMAL : NDSP_CLIP_SOFT; static int last = -1;
+    ndspSetClippingMode(m); if ((int)m != last) { last = (int)m; PSPNativeMemLog("[AUDIO] dsp clipping %s (%s, audio style %d)", m == NDSP_CLIP_NORMAL ? "NORMAL: plain clamp like the DS, no DSP limiter" : "SOFT: DSP output limiter (rides the whole mix)", why, st); } }
 static void ndspSetup(void) {
     if (ndspOk >= 0) return;
     Result r = ndspInit();
@@ -204,7 +215,7 @@ static void ndspSetup(void) {
     float mix[12] = {1.0f, 1.0f}; ndspChnSetMix(0, mix);
     wbData = linearAlloc(NWB * sasGrain * 4); memset(wb, 0, sizeof wb);
     for (int i = 0; i < NWB; i++) { wb[i].data_vaddr = wbData + i * sasGrain * 2; wb[i].nsamples = sasGrain; wb[i].status = NDSP_WBUF_DONE; }
-    ndspOk = 1; PSPNativeMemLog("[AUDIO] ndsp ready: %d Hz stereo", P3DS_SasRate); PSPNativeMemLog("[AUDIO] buffers, %d x %d-sample buffers", NWB, sasGrain);
+    ndspOk = 1; ndspApplyClip("init"); PSPNativeMemLog("[AUDIO] ndsp ready: %d Hz stereo", P3DS_SasRate); PSPNativeMemLog("[AUDIO] buffers, %d x %d-sample buffers", NWB, sasGrain);
 }
 int sceAudioChReserve(int ch, int s, int f) { (void)s; (void)f; return ch < 0 ? 0 : ch; }
 int sceAudioChRelease(int ch) { (void)ch; return 0; }
@@ -214,7 +225,7 @@ int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
     /* run 46 audio_lead=N (default 8 = 62 ms, was 16 = 125 ms of DSP lead): with the 83 ms snapshot latency the total
        sound delay drops from ~250 ms to ~145 ms (Poketch / menu taps felt late). 16 = old. */
     static int lead = -1; if (lead < 0) { lead = 8; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); if (f) { char l[64]; int x; while (fgets(l, sizeof l, f)) if (sscanf(l, "audio_lead=%d", &x) == 1 && x >= 4 && x <= NWB) lead = x; fclose(f); } PSPNativeMemLog("[AUDIO] audio_lead=%d buffers (%d ms)", lead, lead * sasGrain * 1000 / P3DS_SasRate); }
-    if (P3DS_AudioWokeDsp) { P3DS_AudioWokeDsp = 0; float mx[12] = {1.0f, 1.0f}; ndspSetOutputMode(NDSP_OUTPUT_STEREO); ndspSetMasterVol(1.0f); ndspChnSetMix(0, mx); ndspChnSetRate(0, P3DS_SasRate == 32728 ? 32728.498f : (float)P3DS_SasRate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16); PSPNativeMemLog("[AUDIO] wake: DSP master volume, mix, rate re-applied"); }
+    if (P3DS_AudioWokeDsp) { P3DS_AudioWokeDsp = 0; float mx[12] = {1.0f, 1.0f}; ndspSetOutputMode(NDSP_OUTPUT_STEREO); ndspSetMasterVol(1.0f); ndspChnSetMix(0, mx); ndspChnSetRate(0, P3DS_SasRate == 32728 ? 32728.498f : (float)P3DS_SasRate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16); ndspApplyClip("wake"); PSPNativeMemLog("[AUDIO] wake: DSP master volume, mix, rate re-applied"); }
     if (wbNext >= lead) wbNext = 0;
     ndspWaveBuf *w = &wb[wbNext];
     /* 2026-10-26 DSP watchdog: this wait used to be unbounded. If the DSP stops consuming (it did after some HOME /

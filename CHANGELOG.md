@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Music no longer dims when loud sounds play (waves, battles)
+- libctru starts the 3DS DSP in its "soft" clipping mode, which is a limiter on the whole output: a loud sound effect (sea waves, battle hits) pulled the music down with it. The DS has no limiter, only a plain clamp. Audio style DS RAW (the default) now sets the DSP to NORMAL clipping, so the mix reaches the speakers unchanged. Azahar does not emulate the DSP limiter, so this only showed on hardware. Other Audio style values keep the old soft mode for an A/B. Log `[AUDIO] dsp clipping NORMAL ...`.
+
 ### Battle entry no longer stalls with Sharp 3D = FAST AUTO (run 148 log)
 - With the 3D slider up, every battle and every return to the field retried the 2x left eye and ran ~2 s at 18-20 fps before FAST AUTO dropped to 1x (no GPU 3D direct at 2x; the battle intro then fell back to the 14 ms CPU composite). Scenes that could not hold 2x now stay 1x for the session; once a battle could not, battles start at 1x; after two such scenes, all do. Log `[3DRES] FAST AUTO: scene changed, staying 1x`.
 
