@@ -134,13 +134,13 @@ void P3DS_SetAudioStallFade(int on) { P3DS_AudioStallFadeV = on != 0; PSPNativeM
    each 5.2 ms sound pump at its own moment). sas_out.c now mixes each grain in pieces through P3DS_SasMixPart, applying each
    snapshot at its own sample, then calls __sceSasCore, which only adds the output stage when the pieces filled the grain. */
 static int sasAcc[2 * 2048], sasPartFill, sasVr = -1, sasIp = -1;
+volatile int P3DS_SasMasterVol = -1; /* SOUNDCNT master volume, set by sas_out.c when it applies a snapshot (patch 0222) */
 /* Fixed level (Nathan 2026-11-05: "proper volume for the speakers, not a settings thing"; the 3DS volume slider is the only
    control). audio_gain 4 = the DS's own level (melonDS: one full centred channel = 0.496 of full scale); the loudest battle in
    the run-148 log peaked at 26k at DS level, so 5 (+1.9 dB) is the loudest level that still never clips. 7 (old default)
    clipped battles and fed the DSP limiter. config audio_gain=N still overrides for tests. */
 static int sasGain(void) { if (P3DS_AudioGainV < 0) { int g0 = P3DS_CfgInt("audio_gain", 5); if (g0 < 1 || g0 > 64) g0 = 5; P3DS_AudioGainV = g0; PSPNativeMemLog("[AUDIO] audio_gain=%d (fixed level, 4 = DS, 5 = loudest without clipping; the 3DS slider is the volume)", g0); } return P3DS_AudioGainV; }
 static void sasMixRange(int off, int n) {
-    const int g = sasGain();
     /* run 39 (battle rain crackle): rain = looping ADPCM voice at ~20 kHz with constant CC7 volume / CC10 pan ramps.
        (a) audio_volramp=1: volume/pan changes were applied as a step once per 256-sample grain (zipper noise on every
        ramp step); now ramped linearly across the grain (keyon still starts at full target: attacks stay crisp).
@@ -154,13 +154,27 @@ static void sasMixRange(int off, int n) {
     for (int v = 0; v < 16; v++) { SasV *x = &sasv[v]; if (!x->on) continue;
         u32 step = (u32)x->pitch;   /* 0x1000 = 1 sample per output sample */
         if (x->pl < 0 || !vrOn) { x->pl = x->vl; x->pr = x->vr; }
-        int l0 = x->pl, r0 = x->pr, sl = ((x->vl - l0) << 16) / n, sr = ((x->vr - r0) << 16) / n; /* 16.16 per-sample step */
+        /* 2026-11-05 bit-exact DS SPU math: vl/vr are the DS factor (1 << {4,3,2,0}[div]) * vol * (128 - pan | pan) from
+           sas_out.c (patch 0222); each channel adds (sample * F) >> 10 like melonDS/GBATEK, the output stage below applies
+           master volume and >> 8. (Was a 0..1016 scale with gain g/8192 per voice: ~10-bit volume steps.) */
+        const int l0 = x->pl, r0 = x->pr; const long long sl = ((long long)(x->vl - l0) << 16) / n, sr = ((long long)(x->vr - r0) << 16) / n; /* 16.16 per-sample step */
+        if (x->pitch < 0) { /* patch 0222: exact DS SPU timer stepping (pitch = -timer period at the 32728 Hz DS mixer rate):
+                               the timer advances 512 per output sample and steps one source sample per period; nearest sample */
+            const u32 P = (u32)-x->pitch;
+            for (int i = 0; i < n; i++) {
+                x->frac += 512; while (x->frac >= P) { x->frac -= P; x->pos++; }
+                if (x->pos >= x->n) { if (x->loop >= 0 && (u32)x->loop < x->n) x->pos = (u32)x->loop + (x->pos - x->n) % (x->n - (u32)x->loop); else { x->on = 0; break; } }
+                const int smp = x->d[x->pos];
+                const int vl = l0 + (int)((sl * (i + 1)) >> 16), vrr = r0 + (int)((sr * (i + 1)) >> 16);
+                acc[2 * i] += (int)(((long long)smp * vl) >> 10); acc[2 * i + 1] += (int)(((long long)smp * vrr) >> 10);
+            }
+            x->pl = x->vl; x->pr = x->vr; continue; }
         for (int i = 0; i < n; i++) {
             if (x->pos >= x->n) { if (x->loop >= 0 && (u32)x->loop < x->n) x->pos = (u32)x->loop + (x->pos - x->n) % (x->n - (u32)x->loop); else { x->on = 0; break; } }
             int smp = x->d[x->pos];
             if (ipOn && x->frac) { u32 q = x->pos + 1; if (q >= x->n) q = (x->loop >= 0 && (u32)x->loop < x->n) ? (u32)x->loop : x->pos; smp += ((x->d[q] - smp) * (int)x->frac) >> 12; }
-            int vl = l0 + ((sl * (i + 1)) >> 16), vrr = r0 + ((sr * (i + 1)) >> 16);
-            acc[2 * i] += (smp * vl * g) >> 13; acc[2 * i + 1] += (smp * vrr * g) >> 13;  /* run 34: gain g/8192 per vl (old fixed 3/1024 = g 24) */
+            const int vl = l0 + (int)((sl * (i + 1)) >> 16), vrr = r0 + (int)((sr * (i + 1)) >> 16);
+            acc[2 * i] += (int)(((long long)smp * vl) >> 10); acc[2 * i + 1] += (int)(((long long)smp * vrr) >> 10);
             x->frac += step; x->pos += x->frac >> 12; x->frac &= 0xFFF;
         }
         x->pl = x->vl; x->pr = x->vr; }
@@ -180,6 +194,11 @@ int __sceSasCore(void *c, void *out) {
     const int G = sasGrain;
     if (sasPartFill != G) { memset(acc, 0, G * 2 * sizeof(int)); sasMixRange(0, G); }
     sasPartFill = 0;
+    /* DS output stage: (sum * master) >> 7 (master 127 counts as 128, SOUNDCNT from the snapshot, patch 0222; the Hall of
+       Fame fades and battle-recording pauses use it), then >> 8. Our level: * g >> 10, so g 4 = the DS exactly. */
+    { int mv = P3DS_SasMasterVol; if (mv < 0 || mv >= 127) mv = 128;
+      static int lastMv = 128; if (mv != lastMv) { if (mv == 0 || lastMv == 0) PSPNativeMemLog("[AUDIO] master volume %d -> %d", lastMv, mv); lastMv = mv; }
+      for (int i = 0; i < G * 2; i++) acc[i] = (int)((((long long)acc[i] * mv) >> 7) * g >> 10); }
     /* audio_limiter (default on): peaks >24576 used to hit the soft knee (up to 1090 of 1720 grains clipped per 10 s at gain 7, peak 53k).
        A per-grain limiter now pulls the whole mix down to a 24576 peak: gain drops at once (ramped across the grain) and recovers
        over ~16 grains (~0.12 s). The knee stays as a safety net. audio_limiter=0 = old behaviour. */
