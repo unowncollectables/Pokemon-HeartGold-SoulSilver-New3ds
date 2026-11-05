@@ -1,0 +1,48 @@
+From 16f66054d4978dbc5deb9d2c5b6a96056e99b4f0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 17:59:00 +0000
+Subject: [PATCH] ss3ds: hook 0219 fixes 0217 (encounter_check anchor after the
+ gameplay patch) and partner squabbles
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py   | 2 +-
+ scripts/ss3ds_hooks.d/0217_wildalive.py | 6 +++---
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 52e45a1..baea387 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -709,7 +709,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 for (int j = 0; j < SS3DS_WILD_MAX; j++) {
+                     SS3DSWildMon *o = &S->m[j];
+                     int ox = o->x - m->x, oz = o->z - m->z;
+-                    if (j != i && o->on && !o->battle && !o->sleep && !o->fight && !o->noticed && o->kind == m->kind && (ox < 0 ? -ox : ox) + (oz < 0 ? -oz : oz) <= 2) {
++                    if (j != i && o->on && !o->battle && !o->sleep && !o->fight && !o->noticed && o->kind == m->kind && o->leader != i + 1 && m->leader != j + 1 && (ox < 0 ? -ox : ox) + (oz < 0 ? -oz : oz) <= 2) {
+                         m->fight = o->fight = 96;
+                         m->bang = o->bang = 30;
+                         m->dir = (ox < 0 ? -ox : ox) > (oz < 0 ? -oz : oz) ? (ox > 0 ? 3 : 2) : (oz > 0 ? 1 : 0);
+diff --git a/scripts/ss3ds_hooks.d/0217_wildalive.py b/scripts/ss3ds_hooks.d/0217_wildalive.py
+index 5b04156..fb7dc08 100755
+--- a/scripts/ss3ds_hooks.d/0217_wildalive.py
++++ b/scripts/ss3ds_hooks.d/0217_wildalive.py
+@@ -47,13 +47,13 @@ if which in ('all', 'control'):
+     ])
+ if which in ('all', 'enc'):
+     edit('src/field/encounter_check.c', [
+-        ('    encounterRate = FieldSystem_GetTileEncounterTypeAndRate(fieldSystem, metatileBehavior, &encounterType);\n    if (encounterRate == 0) {\n        return FALSE;\n    }\n    FieldSystem_UpdateTurnFrameCounter(fieldSystem);\n',
++        # one line only: the gameplay patch (0040) rewrites the "encounterRate == 0" check that follows it (0219 fix)
++        ('    encounterRate = FieldSystem_GetTileEncounterTypeAndRate(fieldSystem, metatileBehavior, &encounterType);\n',
+          '    encounterRate = FieldSystem_GetTileEncounterTypeAndRate(fieldSystem, metatileBehavior, &encounterType);\n'
+          '    if (sSS3DS_Force) { // SS3DS 0217: the visible one decides land or water (the player may stand next to it, off the grass)\n'
+          '        encounterType = sSS3DS_ForceKind == 2 ? ENCOUNTER_TYPE_SURFING : ENCOUNTER_TYPE_LAND;\n'
+          '        if (encounterRate == 0) {\n'
+          '            encounterRate = 1;\n'
+          '        }\n'
+-         '    }\n'
+-         '    if (encounterRate == 0) {\n        return FALSE;\n    }\n    FieldSystem_UpdateTurnFrameCounter(fieldSystem);\n'),
++         '    }\n'),
+     ])
+-- 
+2.43.0
+

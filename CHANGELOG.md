@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Alive wild Pokemon fix
+- Hook 0219: 0217 was skipped on real builds (its encounter_check.c anchor did not match after the gameplay patch), so visible wild Pokemon stayed walk-through and A did nothing. The anchor is now one line. Partners that travel together no longer squabble with each other.
+
 ### Alive wild Pokemon round 2 (same toggle)
 - Hook 0218 (0110 block v4): night naps with Zz, sneaking vs running (notice range), pairs that travel together, squabbles, water splashes (Magikarp), rain sheltering, a rare huge wild Pokemon (1/1024, achievement "Something Big"), flyer flocks. All random, nothing saved. Untested on hardware.
 
