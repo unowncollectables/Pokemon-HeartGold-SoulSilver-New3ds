@@ -7,6 +7,9 @@ All notable changes to this project will be documented here.
 ### Visible wild Pokemon spacing
 - Patch 0221: visible wild Pokemon no longer spawn on or walk onto NPCs, the player or the follower (they were drawn on a trainer's head), and they keep a free tile between each other, so pairs and groups no longer clump into one spot. Pairs now start two tiles apart.
 
+### Visible wild Pokemon in dark caves
+- Patch 0220: in a dark cave before Flash, visible wild Pokemon show only inside the player's small light circle (2 tiles); they used to be drawn over the darkness. After Flash they all show again.
+
 ### Alive wild Pokemon fix
 - Hook 0219: 0217 was skipped on real builds (its encounter_check.c anchor did not match after the gameplay patch), so visible wild Pokemon stayed walk-through and A did nothing. The anchor is now one line. Partners that travel together no longer squabble with each other.
 

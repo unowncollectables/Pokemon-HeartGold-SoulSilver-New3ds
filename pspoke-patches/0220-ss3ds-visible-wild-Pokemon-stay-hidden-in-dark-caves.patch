@@ -1,0 +1,43 @@
+From 1c553fc1b18c5909e53eb38072c752145e048ea6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 19:11:21 +0000
+Subject: [PATCH] ss3ds: visible wild Pokemon stay hidden in dark caves outside
+ the player's light (before Flash)
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index baea387..2d99266 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -259,7 +259,8 @@ int SS3DS_WildTalk(FieldSystem *fieldSystem, int interact) {
+ int SS3DS_WildEnv(FieldSystem *fieldSystem) {
+     int weather = LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
+     TIMEOFDAY tod = GF_RTC_GetTimeOfDay();
+-    return ((tod == RTC_TIMEOFDAY_NITE || tod == RTC_TIMEOFDAY_LATE) ? 1 : 0) | ((weather >= WEATHER_RAIN && weather <= WEATHER_UNKNOWN_4) ? 2 : 0) | ((weather == WEATHER_SNOW || weather == WEATHER_BLIZZARD) ? 4 : 0);
++    return ((tod == RTC_TIMEOFDAY_NITE || tod == RTC_TIMEOFDAY_LATE) ? 1 : 0) | ((weather >= WEATHER_RAIN && weather <= WEATHER_UNKNOWN_4) ? 2 : 0) | ((weather == WEATHER_SNOW || weather == WEATHER_BLIZZARD) ? 4 : 0)
++        | (weather == WEATHER_FLASH ? 8 : 0); // 8: dark cave, Flash not used yet (Flash switches it to WEATHER_FLASH_2)
+ }
+ 
+ // Ambient flyer for this area, time of day and weather (decoration). 0 = none here (indoors, caves). *legend = 1 for a rare legendary.
+@@ -1048,8 +1049,15 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+         return;
+     }
+     fx32 py = PlayerAvatar_GetPositionVector(fieldSystem->playerAvatar)->y;
++    // 0220: in a dark cave (before Flash) only the ones inside the player's small light circle show; the 3D cave darkness does not cover them
++    int dark = (SS3DS_WildEnv(fieldSystem) & 8) != 0;
++    int dpx = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), dpz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
+     NNS_G3dGeFlushBuffer();
+     for (i = 0; i < SS3DS_WILD_MAX; i++) {
++        int ddx = S->m[i].x - dpx, ddz = S->m[i].z - dpz;
++        if (dark && ((ddx < 0 ? -ddx : ddx) > 2 || (ddz < 0 ? -ddz : ddz) > 2)) {
++            continue;
++        }
+         if (S->m[i].on && !S->m[i].battle) {
+             SS3DS_WildDrawOne(&S->m[i], i + 1, py, S->anim + i * 7);
+         }
+-- 
+2.43.0
+
