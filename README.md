@@ -51,7 +51,7 @@ It builds on [pspoke](https://github.com/IbrahimIrfan/pspoke) (retargeted from P
 | | What you get |
 | :--- | :--- |
 | **Native, not emulated** | Decompiled game code compiled for the 3DS. Real 512 KiB `.sav` files, compatible with carts / flashcarts / PKHeX. |
-| **Both screens used** | DS picture scaled ~1.25× onto the 3DS screens, with an optional **wide view** that stretches battles, menus, party, Pokédex and PC across the full 400 px top screen. |
+| **Both screens used** | DS picture scaled 1.25× onto the 3DS screens (fixed, no scale option) and the **whole game wide**: title, intro, field, battles, menus, party, Pokédex and PC fill the full 400 px top screen. |
 | **Stereoscopic 3D** | Depth from the 3D slider in the overworld, battles, and title. **SHARP 3D** / **FAST 3D** options for crisp mono or supersampled edges (see Settings). |
 | **Johto map on the touch screen** | Bottom screen becomes the Johto map + icon column (Pokédex, Pokémon, Bag, Pokégear, Trainer, Save, Options). Steps aside for the game’s own touch UI (YES/NO, starter Poké Balls, Pokégear). **X** opens a highlight cursor over the tiles. |
 | **Running Shoes button** | A dedicated **RUN** square on the bottom-screen column toggles running shoes (Sprint Button art read from *your* ROM once the shoes are unlocked). ZL run-toggle and Auto run are also available. |
@@ -150,7 +150,7 @@ Press **L+R+Y** (or hold the top-left of the touch screen ~0.3 s). L/R or tap sw
 
 | Tab | Highlights |
 |---|---|
-| **Display** | Screen scale, Wide view, Camera zoom, Bottom menu HD |
+| **Display** | Wide view, Camera zoom, Bottom menu HD |
 | **Wide** | Wide battles / party / Pokédex / PC / menus, Wide FX (slow — keep off), haze, weather strips, edge fill |
 | **3D** | 3D strength, battle depth, Split top, Smooth title 3D, SHARP / FAST 3D modes |
 | **Input** | Bottom menu, Pokégear tabs, Auto run, Bottom layout (Johto map or 4×2 tiles), Kanto gate, Menu button, Circle Pad / C-Stick as D-pad, ZR = Y, **ZL run toggle**, IV/EV on summary (Y) |

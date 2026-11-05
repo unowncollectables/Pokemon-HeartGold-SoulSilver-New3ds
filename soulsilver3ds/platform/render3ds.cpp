@@ -721,7 +721,7 @@ static void wideWeatherRun(){memset(P3DS_WeatherObj,0,sizeof P3DS_WeatherObj);wi
    picture's own edge, mirrored and softened (box blur 9x9, 80% brightness) instead of black bars. Built from the same
    frame's final picture, so fades/flashes follow; nothing is stretched, the centre stays native size. 0 = black bars. */
 extern "C" { u32 P3DS_WideFillBuf[64*192]; int P3DS_CfgInt(const char*,int); }
-static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",0)!=0;PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v;}
+static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",1)!=0; /* 2026-11-05 default 1 (Nathan: the whole game wide) */PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v;}
 static void wideFill(const u32*C){static u16 acc[3][64*192];
  /* mirror: left strip col i (DS x -32+i) <- x 31-i, right strip col i (DS x 256+i) <- x 255-i; horizontal 9-tap box */
  for(int y=0;y<192;y++){const u32*row=C+y*256;
@@ -1336,8 +1336,7 @@ struct SAppRow{int it;const char*nm,*tip;};
 struct SAppTab{int n;SAppRow r[13];};
 static const char*const kTabNm[8]={"Display","Wide","3D","Input","Battle","Play","Setup","Debug"};
 static const SAppTab kTabs[8]={
- {6,{{2,"Screen scale","Size of the picture: 1:1 DS pixels, 1.25X, or fill the whole 3DS screen."},
-     {1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+ {5,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {90,"Bottom menu HD","Draws the Johto touch-menu buttons at full 3DS sharpness."},
      {0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
@@ -1929,6 +1928,11 @@ static int Present(bool){
  static bool wnReady;wnReady=false;
  {static bool wbPrev;const bool wbNow=wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg());if(wbNow&&!wbPrev)PSPNativeMemLog("[WIDE] battle entered (wide_battle=1, wide native pass)");wbPrev=wbNow;}
  if(wideCfg>0&&P3DS_ScaleMode()==1&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
+  /* 2026-11-05 (Nathan: the whole game wide): strip pixels no repeating layer reached (title, intro, plain menu screens) were
+     backdrop, i.e. black bars; with edge fill on they take the mirrored, softened picture edge instead (wideFill) */
+  if(!P3DS_InBattle&&P3DS_InWideKind==0&&wideFillCfg()){int un=0;for(int i=0;i<64*192;i++)un+=wnUnres[i];
+   if(un){static u32 keep[64*192];memcpy(keep,P3DS_WideFillBuf,sizeof keep);topTouch();wideFill(display[0]);for(int i=0;i<64*192;i++)if(!wnUnres[i])P3DS_WideFillBuf[i]=keep[i];
+    {static unsigned n;if(n++%600==0)PSPNativeMemLog("[WIDE] %d unresolved strip pixels filled from the picture edge (screen without repeating background)",un);}}}
   /* run 18: HGSS menu screens (wide_pokedex / wide_pc / wide_menu_screens): strip pixels no layer covered take the final
      picture's edge pixel of that row (DS x 0 / 255) instead of the backdrop (often black) */
   /* run 18b: rows whose strip does not continue the picture (no layer covered it, or its inner pixel differs from the
@@ -1944,7 +1948,7 @@ static int Present(bool){
  else if(wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_InWideKind>0&&!P3DS_InBattle&&!P3DS_PanelPartyOn&&((P3DS_InWideKind==1&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(power&0x8000)){
   if(P3DS_InWideKind>=2)wideTile(display[1]);else wideFill(display[1]);/* run 21: kinds 2/3 tiled. engine B is the top screen here (display[0] = engine A = the touch screen) */
   wnReady=true;static int lg;if(lg!=P3DS_InWideKind){lg=P3DS_InWideKind;PSPNativeMemLog("[WIDE] screen kind %d on engine B (top): %s strips",lg,lg>=2?"tiled":"wide_fill mirrored");}}
- else if(wideCfg>0&&P3DS_ScaleMode()==1&&wideFillCfg()&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)){topTouch();wideFill(display[0]);fillReady=true;}
+ else if(wideCfg>0&&P3DS_ScaleMode()==1&&wideFillCfg()&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)){const u32*fc=(power&0x8000)?display[0]:display[1];if(fc==display[0])topTouch();wideFill(fc);fillReady=true; /* 2026-11-05: also when engine B is the top screen (title, intro, Pokedex...) */}
  P3DS_WeatherOn=0;if(wideWeatherCfg()&&G3G_Wide&&G3G_StripValid>=1&&P3DS_InField&&(power&0x8000))wideWeatherRun();
  {extern int P3DS_HazeOn;P3DS_HazeOn=0;if(P3DS_WideHazeCfg()&&!wideFxCfg()&&G3G_Wide&&G3G_StripValid>=1&&P3DS_InField&&(power&0x8000))wideHaze(display[0],GPU3D::NativeFrame);}
  P3DS_WideFxOn=0;if(wideFxCfg()&&G3G_Wide&&G3G_StripValid>=1&&P3DS_InField&&(power&0x8000)){topTouch();u64 tw=svcGetSystemTick();wideFx(display[0],GPU3D::NativeFrame,G3G_StripValid>=2?2:1);P3DS_WideFxOn=G3G_StripValid>=2?2:1;
@@ -2236,7 +2240,9 @@ static int Present(bool){
    if(rows){winStripN++;winStripRows+=rows;if(winStripN==1||winStripN%300==0)PSPNativeMemLog("[WIDE] window/black-BG hidden strip rows: %u frames, avg %u rows (DISPCNT %08x WININ %04x WINOUT %04x)",winStripN,winStripRows/winStripN,(unsigned)dc,reg16(0x48),reg16(0x4A));}}
   if(!P3DS_WideStrip[0]&&fillReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=P3DS_WideFillBuf;P3DS_WideFxOn=1;}
   if(!P3DS_WideStrip[0]&&wnReady&&gpuOk==1){P3DS_WideStrip[0]=P3DS_WideFillBuf;P3DS_WideStrip[1]=stereo?P3DS_WideFillBuf:nullptr;} /* run 65 wide_menus (fade applied in strips()) */
-  if(P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
+  /* 2026-11-05: only the real wide_fx pass fills P3DS_WideFxBuf; the edge fill also sets WideFxOn (= fades already in the picture),
+     and this swap used to replace its strips with the empty wide_fx buffer: edge fill always showed black bars */
+  if(wideFxCfg()&&P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(wideFxCfg()&&P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
   if(panelPartyCfg()&&P3DS_InField&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold){sStripHoldOk=0;for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){memcpy(sStripHold[e],P3DS_WideStrip[e],sizeof sStripHold[e]);sStripHoldOk|=1<<e;}} /* run 136 */
   G3G_Wide=act;
   /* run 45 wide_cull=1 (default; only while wideview is active): the game's box test (map props / buildings) uses a

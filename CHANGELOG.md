@@ -4,6 +4,12 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Whole game wide, one screen mode
+- The screen is always the 1.25x wide picture. The Screen scale setting (Display tab), `gpuscale=` in config.txt and the L+R+SELECT cycle are gone; 1:1 is only the automatic fallback when the GPU scaler cannot start. Log `[3DS] screen mode fixed at 1.25x wide`.
+- Edge fill (`wide_fill`) is on by default and also covers screens the wide renderer does not know, so the title screen, the Game Freak / Lugia intro and the main menu no longer have black side bars. Field pixels the wide renderer leaves unresolved are taken from the edge fill (log `[WIDE] ... unresolved strip pixels filled`).
+- Fix: with Wide FX on, the edge fill was handed the empty Wide FX buffer, which showed as black bars.
+- Checked in Azahar: intro, title, main menu, field, party, summary, bag, Pokedex, trainer card, save prompt.
+
 ### Clean menu transitions (Azahar pass over the tile flows)
 - Wide battles: rows where a black front layer reaches the picture edge (battle intro band, the message-box band) are black in the side strips too, instead of the battle background showing beside a black band.
 - FAST AUTO (Sharp 3D) decides 2x in 15 frames instead of 60, and battles stay 1x with the 3D slider up: the first battle still spent ~2-5 s at 2x (run 148 log 53 ms frames, Azahar 87 ms) before dropping.
