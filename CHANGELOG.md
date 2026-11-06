@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Achievement toast in full 3DS resolution
+- The Xbox-style achievement pop-up is drawn at the final 400x240 resolution instead of inside the DS picture that is stretched 1.25x (Nathan: "still a bit blocky"): anti-aliased glossy pill with a soft rim, smooth gold coin, game-font text 1:1 ("Achievement unlocked", the score in gold, the name in white). New native top-screen overlay in gpuscale.c (`P3DS_TopOvBuf`, both eyes at screen depth, drawn after the wide strips; log `[TOPOV]`). Without the game font or the buffer the old toast is drawn as before.
 ### Flash lights dark caves again
 - Using Flash in a dark cave (Cerulean Cave tested) turned the whole screen black. The game keeps its black darkness fog registers after Flash (weather FLASH_2) but removes the 2D darkness layer and the light sphere; the port's 3D fog then covered the whole cave. Frames with that full black fog while the weather is FLASH_2 now skip the fog (g3gpu.c, weather from `SS3DS_FieldWeather` in ss3ds_glue.c). Before Flash nothing changes. Log `[GPU3D] Flash used (weather FLASH_2): dark-cave fog skipped`.
 - Deferred translucent batches (non-raw 3D path) now keep their own polygon fog bit when they are replayed.
