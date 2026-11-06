@@ -557,8 +557,16 @@ extern void *__real_Heap_Alloc(u32 h, u32 n); extern void *__real_Heap_AllocAtEn
 static unsigned hwAddr = 1; static unsigned hwA(void) { if (hwAddr == 1) hwAddr = (unsigned)P3DS_CfgInt("heap_watch", 0); return hwAddr; }
 static void hwChk(const char *k, void *p, u32 h, u32 n, void *ra) { unsigned a = hwA(), q = (unsigned)p; if (!a || !p) return;
   if (n ? (q <= a && a < q + n) : (q <= a && a - q < 0x10000)) PSPNativeMemLog("[HEAPW] %s %p heap %lu size %lu from %p (watch %x)", k, p, (unsigned long)h, (unsigned long)n, ra, a); }
-void *__wrap_Heap_Alloc(u32 h, u32 n) { void *p = __real_Heap_Alloc(h, n); hwChk("alloc", p, h, n, __builtin_return_address(0)); return p; }
-void *__wrap_Heap_AllocAtEnd(u32 h, u32 n) { void *p = __real_Heap_AllocAtEnd(h, n); hwChk("allocEnd", p, h, n, __builtin_return_address(0)); return p; }
+/* run 681 crash (Heap_Alloc -> NNS_FndAllocFromExpHeapEx, NULL heap handle): the game allocated from a heap id whose heap is not
+   created (destroyed or never made). The game's GF_ASSERT does not stop here, so it dereferenced NULL. sHeapInfo sits at DS RAM
+   0x020d10c0 (heapHandles @0, heapIdxs @16, totalNumHeaps @20, as the compiled Heap_Alloc reads it). Use the default heap instead. */
+static u32 heapGuard(u32 h, const char *k, u32 n, void *ra) {
+    const u32 *hi = (const u32 *)0x020d10c0; const void *const *handles = (const void *const *)hi[0]; const u8 *idx = (const u8 *)hi[4];
+    unsigned total = *(const u16 *)((const u8 *)hi + 20);
+    if (h < total && handles && idx && !handles[idx[h]]) { static unsigned c; if (c++ < 20) PSPNativeMemLog("[HEAP] %s on heap id %lu with no heap (size %lu, from %p): using the default heap (#%u)", k, (unsigned long)h, (unsigned long)n, ra, c); return 0; }
+    return h; }
+void *__wrap_Heap_Alloc(u32 h, u32 n) { h = heapGuard(h, "Heap_Alloc", n, __builtin_return_address(0)); void *p = __real_Heap_Alloc(h, n); hwChk("alloc", p, h, n, __builtin_return_address(0)); return p; }
+void *__wrap_Heap_AllocAtEnd(u32 h, u32 n) { h = heapGuard(h, "Heap_AllocAtEnd", n, __builtin_return_address(0)); void *p = __real_Heap_AllocAtEnd(h, n); hwChk("allocEnd", p, h, n, __builtin_return_address(0)); return p; }
 void __wrap_Heap_Free(void *p) { hwChk("free", p, 0, 0, __builtin_return_address(0)); __real_Heap_Free(p); }
 void __wrap_Heap_FreeExplicit(u32 h, void *p) { hwChk("freeX", p, h, 0, __builtin_return_address(0)); __real_Heap_FreeExplicit(h, p); }
 void __wrap_VramTransfer_Process(void) { __real_VramTransfer_Process(); vtProc++; if (vtPer > vtMaxPer) vtMaxPer = vtPer; vtPer = 0; vtLog(); }
