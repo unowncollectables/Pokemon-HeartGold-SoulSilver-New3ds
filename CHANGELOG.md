@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Achievement toast in full 3DS resolution
+- The Xbox-style achievement pop-up is drawn at the final 400x240 resolution instead of inside the DS picture that is stretched 1.25x (Nathan: "still a bit blocky"): anti-aliased glossy pill with a soft rim, smooth gold coin, game-font text 1:1 ("Achievement unlocked", the score in gold, the name in white). New native top-screen overlay in gpuscale.c (`P3DS_TopOvBuf`, both eyes at screen depth, drawn after the wide strips; log `[TOPOV]`). Without the game font or the buffer the old toast is drawn as before.
+
 ### Audio: bit-exact DS sound chip math
 - Channel volume, pan and pitch now use the DS sound chip's own integer math (melonDS / GBATEK): volume was rounded to a ~10-bit scale (quiet notes, echo tracks and fade-outs up to ~30% off) and pitch was a 12-bit ratio up to ~2 cents off (unison parts drifted against each other). Host test: output identical to the DS formula, sample for sample. Patch 0222.
 - The DS master volume is honoured (Hall of Fame fades).

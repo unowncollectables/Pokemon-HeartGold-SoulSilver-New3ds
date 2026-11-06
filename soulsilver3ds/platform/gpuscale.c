@@ -377,6 +377,33 @@ static void ovDraw(C3D_RenderTarget *t) {
         C3D_ImmDrawEnd(); }
     C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
 }
+/* 2026-11-05 (Nathan: the achievement toast looked blocky): one port picture for the TOP screen at the final 400x240 resolution.
+   The platform draws it into P3DS_TopOvBuf (512x64 words R<<24|G<<16|B<<8|A, stride 512), sets P3DS_TopOvX/Y/W/H in 400x240 px and
+   P3DS_TopOvOn for that present (consumed); drawn 1:1 NEAREST, alpha-blended, on both eyes at screen depth, after the strips. */
+u32 *P3DS_TopOvBuf; volatile int P3DS_TopOvOn, P3DS_TopOvDirty; int P3DS_TopOvX, P3DS_TopOvY, P3DS_TopOvW, P3DS_TopOvH;
+static C3D_Tex tovTex; static int tovOk = -1;
+u32 *P3DS_TopOvBufGet(void) { if (!P3DS_TopOvBuf) { P3DS_TopOvBuf = linearAlloc(512 * 64 * 4); if (P3DS_TopOvBuf) memset(P3DS_TopOvBuf, 0, 512 * 64 * 4); } return P3DS_TopOvBuf; }
+static void topOvDraw(C3D_RenderTarget *t) {
+    if (!P3DS_TopOvBuf || P3DS_TopOvW < 1 || P3DS_TopOvH < 1 || P3DS_TopOvW > 512 || P3DS_TopOvH > 64) return;
+    if (tovOk < 0) { tovOk = C3D_TexInit(&tovTex, 512, 64, GPU_RGBA8) ? 1 : 0; if (tovOk) { C3D_TexSetFilter(&tovTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&tovTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_TopOvDirty = 1; }
+        PSPNativeMemLog("[TOPOV] native top overlay texture %s", tovOk ? "ready" : "FAILED (toast stays in the DS picture)"); }
+    if (!tovOk) return;
+    if (P3DS_TopOvDirty) { P3DS_TopOvDirty = 0; GSPGPU_FlushDataCache(P3DS_TopOvBuf, 512 * 64 * 4);
+        C3D_SyncDisplayTransfer(P3DS_TopOvBuf, GX_BUFFER_DIM(512, 64), tovTex.data, GX_BUFFER_DIM(512, 64), TEX_FLAGS); }
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &tovTex);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ZERO, GPU_ONE);
+    const float x0 = P3DS_TopOvX, y0 = P3DS_TopOvY, x1 = P3DS_TopOvX + P3DS_TopOvW, y1 = P3DS_TopOvY + P3DS_TopOvH, s1 = P3DS_TopOvW / 512.0f, t1 = P3DS_TopOvH / 64.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
+    C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+}
 /* run 138: the panel app picture (party / bag / summary in the JOHTO panel) at the final bottom-screen resolution. The platform resamples the DS 256x192
    picture ONCE to P3DS_PnW x P3DS_PnH words (R<<24|G<<16|B<<8|A) in P3DS_PnBuf (stride 256, up to 256x256); drawn 1:1 NEAREST at P3DS_PnX,P3DS_PnY (320x240 px)
    over the stretched DS bottom, so it is not resampled a second time by the 1.25x stretch. P3DS_PnOn is consumed (cleared) by each present. */
@@ -437,6 +464,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     u64 stT = 0;
     if (mode == 2) { quad(tgtTop, 400.0f, 0, fx, fy, fx + fw, fy + fh); if (crisp) crispDraw(tgtTop, 400.0f, fx, fy, fx + fw, fy + fh); } else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); if (crisp) crispDraw(tgtTop, 400.0f, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTop, 0); stT += svcGetSystemTick() - a; }
     if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTopR, 1); stT += svcGetSystemTick() - a; } }
+    if (P3DS_TopOvOn) { P3DS_TopOvOn = 0; topOvDraw(tgtTop); if (st) topOvDraw(tgtTopR); }
     if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); pnDraw(tgtBot); ovDraw(tgtBot); botFadeDraw(tgtBot); } else P3DS_PnOn = 0;
     if (crN >= 600) { if (crOn) PSPNativeMemLog("[CRISP] %u of %u presents drew the 3D at final size, avg plain-3D cover %u%%, avg prep %u us", crOn, crN, (unsigned)(crMask / crOn * 100 / (256 * 192)), (unsigned)(crTicks / crOn / 268)); crN = crOn = 0; crMask = 0; crTicks = 0; }
     P3DS_GpStripUs = (unsigned)(stT / 268); P3DS_GpDrawUs = (unsigned)((svcGetSystemTick() - tDr0 - stT) / 268);
