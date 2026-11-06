@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### GTS: send the request like the real GameSpy client
+- GTS server (ASP.NET behind ARR) now answers `400 Bad request` to our HTTP/1.0 GET. Requests are now HTTP/1.1 with the same headers the DS game sends (User-Agent, Host, Accept, Connection: close). Run 151 log will show if it helps.
+
 ### GTS: log non-200 replies
 - GTS login works but info.asp returned 400 from the server; the log now shows the reply and the request.
 

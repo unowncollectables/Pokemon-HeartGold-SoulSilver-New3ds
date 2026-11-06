@@ -284,7 +284,7 @@ static void ghWork(void *arg)
             int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
             struct sockaddr_in sa; memset(&sa, 0, sizeof sa); sa.sin_family = AF_INET; sa.sin_port = htons(80); sa.sin_addr.s_addr = ip;
             if (fd >= 0 && connect(fd, (struct sockaddr *)&sa, sizeof sa) == 0) {
-                char req[2300]; int rl = snprintf(req, sizeof req, "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: GameSpyHTTP/1.0\r\nConnection: close\r\n\r\n", path, host);
+                char req[2300]; int rl = snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nUser-Agent: GameSpyHTTP/1.0\r\nHost: %s\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, host);
                 static char resp[GH_MAX + 2048]; int tot = 0; /* run 100: static, the worker stack is 32 KiB */
                 if (send(fd, req, rl, 0) == rl) {
                     for (;;) {
@@ -304,7 +304,7 @@ static void ghWork(void *arg)
                     char dump[420]; int n = tot < (int)sizeof dump - 1 ? tot : (int)sizeof dump - 1;
                     for (int i = 0; i < n; i++) dump[i] = (resp[i] == '\r' || resp[i] == '\n') ? '|' : (resp[i] < 32 || resp[i] > 126 ? '.' : resp[i]);
                     dump[n] = 0; NLOG("[GHTTP] non-200 reply: %s", dump);
-                    NLOG("[GHTTP] request was: GET %s HTTP/1.0 Host: %s", path, host);
+                    NLOG("[GHTTP] request was: GET %s HTTP/1.1 Host: %s", path, host);
                 }
                 char *body = strstr(resp, "\r\n\r\n");
                 if (tot > 12 && strncmp(resp, "HTTP/", 5) == 0 && strstr(resp, " 200") && strstr(resp, " 200") < resp + 16 && body) {
