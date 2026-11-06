@@ -449,7 +449,42 @@ static void drawDwDebris(u32*img,int eye){
    unsigned r=((d&255)*(16-a)+(col&255)*a)/16,g=(((d>>8)&255)*(16-a)+((col>>8)&255)*a)/16,b=(((d>>16)&255)*(16-a)+((col>>16)&255)*a)/16;d=(d&0xFF000000u)|r|(g<<8)|(b<<16);}}}
 /* achievements (achievements.c): 360-style toast on the top screen's bottom edge; the queue is advanced by eye 0 */
 extern "C" int P3DS_GameFontWidth34(int,const char*);extern "C" int P3DS_GameFontDraw34(u32*,int,int,int,int,int,const char*,u32,int);
-static void drawAchToast(u32*img,int eye){char l1[48],l2[48];int sl=0;if(!P3DS_AchToastNow(l1,sizeof l1,l2,sizeof l2,&sl,eye))return;topTouch();
+/* 2026-11-05 (Nathan: "make these look even more Xbox 360 like, they are still a bit blocky"): the toast is drawn at the final
+   400x240 resolution into the native top overlay (gpuscale.c topOvDraw), not into the DS picture that gets stretched 1.25x:
+   anti-aliased pill (4x4 coverage) with a glossy dark gradient and soft rim, round gold coin, game-font text 1:1. Both eyes show
+   it at screen depth. Falls back to the DS-picture toast below when the overlay buffer or the game font is missing. */
+extern "C" u32*P3DS_TopOvBufGet(void);extern "C" volatile int P3DS_TopOvOn,P3DS_TopOvDirty;extern "C" int P3DS_TopOvX,P3DS_TopOvY,P3DS_TopOvW,P3DS_TopOvH;
+extern "C" int P3DS_GameFontWidth(int,const char*);extern "C" int P3DS_GameFontDraw(u32*,int,int,int,int,int,const char*,u32,u32,int,int);
+static bool drawAchToastHD(const char*l1in,const char*l2,int sl){
+ if(!P3DS_GameFontReady())return false;u32*ob=P3DS_TopOvBufGet();if(!ob)return false;
+ static char key[100];static int lastSl=-1;char k2[100];snprintf(k2,sizeof k2,"%s|%s",l1in,l2);
+ char l1[48],sc[12]="";snprintf(l1,sizeof l1,"%s",l1in);{char*tb=strchr(l1,'\t');if(tb){*tb=0;snprintf(sc,sizeof sc,"%s",tb+1);}}
+ const int fw1=P3DS_GameFontWidth34(1,l1),fw2=P3DS_GameFontWidth(1,l2)+(sc[0]?P3DS_GameFontWidth(1,sc)+8:0);
+ const int H=36,R=H/2,coin=13,tx=R+2*coin-4;int W=tx+(fw1>fw2?fw1:fw2)+R;if(W<200)W=200;if(W>380)W=380;
+ if(strcmp(k2,key)||P3DS_TopOvW!=W){snprintf(key,sizeof key,"%s",k2);
+  static u32 cv[64*512];memset(cv,0,sizeof cv);   /* canvas: r|g<<8|b<<16|a<<24 */
+  auto blend=[&](int x,int y,int r,int g,int b,int a){if(x<0||x>=W||y<0||y>=H||a<=0)return;u32&d=cv[y*512+x];const int da=d>>24;
+   const int oa=a+da*(255-a)/255;if(!oa)return;const int rr=(r*a+(d&255)*da*(255-a)/255)/oa,gg=(g*a+((d>>8)&255)*da*(255-a)/255)/oa,bb=(b*a+((d>>16)&255)*da*(255-a)/255)/oa;
+   d=(u32)rr|((u32)gg<<8)|((u32)bb<<16)|((u32)oa<<24);};
+  /* pill coverage (4x4) and rim */
+  auto inPill=[&](float x,float y,float r){const float cx=x<R?R:x>W-R?W-R:x,dx=x-cx,dy=y-R;return dx*dx+dy*dy<=r*r;};
+  for(int y=0;y<H;y++)for(int x=0;x<W;x++){int c=0,ci=0;for(int sy=0;sy<4;sy++)for(int sx=0;sx<4;sx++){const float fx=x+(sx+0.5f)/4,fy=y+(sy+0.5f)/4;if(inPill(fx,fy,R))c++;if(inPill(fx,fy,R-1.6f))ci++;}
+   if(!c)continue;const float t=(float)y/(H-1);int r=(int)(58-40*t),g=(int)(60-40*t),b=(int)(64-40*t);if(y<H/2){r+=14;g+=14;b+=14;}   /* gloss on the upper half */
+   blend(x,y,r,g,b,ci*235/16);if(c>ci)blend(x,y,150,155,160,(c-ci)*230/16);}
+  /* gold coin with a highlight, anti-aliased */
+  const float ccx=R+3.0f,ccy=R;for(int y=0;y<H;y++)for(int x=0;x<(int)(ccx+coin+2);x++){int c=0;float hl=0;for(int sy=0;sy<4;sy++)for(int sx=0;sx<4;sx++){const float fx=x+(sx+0.5f)/4-ccx,fy=y+(sy+0.5f)/4-ccy;if(fx*fx+fy*fy<=coin*coin)c++;}
+   if(!c)continue;const float fx=x+0.5f-ccx,fy=y+0.5f-ccy,d=sqrtf(fx*fx+fy*fy)/coin;hl=fy<0?(-fy/coin)*0.5f:0;const bool ring=d>0.78f;
+   int r=ring?196:(int)(236+19*hl),g=ring?150:(int)(182+50*hl),b=ring?40:(int)(52+60*hl);blend(x,y,r>255?255:r,g>255?255:g,b>255?255:b,c*255/16);}
+  P3DS_GameFontDraw34(cv,512,W,H,(int)ccx-3,(int)ccy-6,"G",0xFF0A3A5Au,1);
+  /* text: small grey title, then the score in gold and the name in white, 1:1 game font */
+  P3DS_GameFontDraw34(cv,512,W,H,tx,4,l1,0xFFC8C8C8u,1);
+  int x2=tx;if(sc[0]){x2+=P3DS_GameFontDraw(cv,512,W,H,x2,16,sc,0xFF40D6FFu,0,1,1)+8;}
+  P3DS_GameFontDraw(cv,512,W,H,x2,16,l2,0xFFFFFFFFu,0,1,1);
+  for(int y=0;y<H;y++)for(int x=0;x<W;x++){const u32 c=cv[y*512+x];ob[y*512+x]=((c&255)<<24)|(((c>>8)&255)<<16)|(((c>>16)&255)<<8)|(c>>24);}
+  P3DS_TopOvW=W;P3DS_TopOvH=H;P3DS_TopOvDirty=1;}
+ (void)lastSl;P3DS_TopOvX=(400-W)/2;P3DS_TopOvY=240-((H+6)*sl/16);P3DS_TopOvOn=1;return true;}
+static void drawAchToast(u32*img,int eye){char l1[48],l2[48];int sl=0;if(!P3DS_AchToastNow(l1,sizeof l1,l2,sizeof l2,&sl,eye))return;
+ if(eye==0&&drawAchToastHD(l1,l2,sl))return;if(eye==1&&P3DS_TopOvOn)return;topTouch();
  /* Xbox 360 style, small: dark pill, green rim, round gold badge, tiny green title + score, name in the game font (3/4 size, lower case works) */
  const bool gf=P3DS_GameFontReady();char sc[12]="";{char*tb=strchr(l1,'\t');if(tb){*tb=0;snprintf(sc,sizeof sc,"%s",tb+1);}}
  for(char*p=l1;*p;p++)if(*p>='a'&&*p<='z')*p-=32;
