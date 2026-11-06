@@ -1,0 +1,50 @@
+From 00f679b712ada370490b99ef5388799f221cd3a7 Mon Sep 17 00:00:00 2001
+From: a <a@b>
+Date: Fri, 6 Nov 2026 03:38:42 +0000
+Subject: [PATCH] ss3ds: hook 0226 steady_music (field music is not faded by
+ soundplates)
+
+FieldSystem_ProcessSoundplateAtCoords fades the BGM to 96/64/32 of 128 on soundplate tiles and back after. With steady_music on the BGM fade is skipped; the ambient sound stays.
+---
+ scripts/ss3ds_hooks.d/0226_steadymusic.py | 16 ++++++++++++++++
+ scripts/ss3ds_hooks.d/0226_steadymusic.sh |  5 +++++
+ 2 files changed, 21 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0226_steadymusic.py
+ create mode 100644 scripts/ss3ds_hooks.d/0226_steadymusic.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0226_steadymusic.py b/scripts/ss3ds_hooks.d/0226_steadymusic.py
+new file mode 100644
+index 0000000..17c715b
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0226_steadymusic.py
+@@ -0,0 +1,16 @@
++#!/usr/bin/env python3
++"""ss3ds 0226: steady_music (Settings > Setup > Steady music, default ON). FieldSystem_ProcessSoundplateAtCoords (src/field/field_control.c)
++fades the field BGM to 96/64/32 of 128 while the player stands on a soundplate tile (sea, waterfalls, trees, windmills...) and back to 128
++after it, so walking around makes the music swell and dip. With steady_music ON the BGM fade is skipped (music stays at 128); the ambient
++sound effect and its own volume still play. Reads only, nothing is saved. Idempotent ('SS3DS 0226'); edits src/field/field_control.c in cwd."""
++import sys
++p = 'src/field/field_control.c'
++s = open(p).read()
++if 'SS3DS 0226' in s:
++    sys.exit(0)
++old = '                    GF_SndHandleMoveVolume(0, sBGMVolume[volumeIndex], 15);\n'
++if s.count(old) != 1:
++    sys.exit('0226_steadymusic: anchor not found exactly once in %s' % p)
++s = s.replace(old, '                    extern int P3DS_SteadyMusicCfg(void); /* SS3DS 0226 */\n                    if (!P3DS_SteadyMusicCfg()) GF_SndHandleMoveVolume(0, sBGMVolume[volumeIndex], 15);\n')
++open(p, 'w').write(s)
++print('0226_steadymusic: field_control.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0226_steadymusic.sh b/scripts/ss3ds_hooks.d/0226_steadymusic.sh
+new file mode 100644
+index 0000000..13c7072
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0226_steadymusic.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0226: steady_music (Settings > Setup > Steady music): src/field/field_control.c skips the soundplate BGM fade.
++# Optional: on failure only this setting does nothing.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0226_steadymusic.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
++  log "ss3ds 0226 steadymusic hook skipped (see message above); steady_music does nothing"
++fi
+-- 
+2.43.0
+

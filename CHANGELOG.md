@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Steady field music (patch 0226)
+- Settings > Setup > "Steady music" (default ON): walking past water, trees, waterfalls and windmills no longer fades the field music down and back up (the game's own soundplates, which made the music suddenly loud again after each spot). The ambient sound still plays. OFF = the original DS behaviour. Needs a game rebuild (field_control.o).
+
 ### Event scenes without event Pokemon (patch 0225)
 - Settings > Play > "Event Pokemon w/o event" (default OFF): the Ilex Forest shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu/Pikachu/Raichu, Celebi or Arceus in the lead; no Nintendo-event metadata or shiny needed. Nothing is saved by the port. Needs a game rebuild.
 
