@@ -41,6 +41,16 @@
 
 ---
 
+## At a glance
+
+Looking for **Pokémon SoulSilver on Nintendo 3DS**? This is a native **Pokémon SoulSilver 3DS port** (a `.cia` / `.3dsx` homebrew, not an emulator) for the **New 3DS, New 3DS XL and New 2DS XL**. It is built from the [pret/pokeheartgold](https://github.com/pret/pokeheartgold) decompilation with devkitARM, runs the whole game wide on both screens with stereoscopic 3D, and adds a touch-screen Johto map panel, an in-game settings app, local wireless trading between two 3DS consoles, and online GTS and Mystery Gift through community servers.
+
+**Quick install:** use the [Pokemon 3DS Builder](https://github.com/unowncollectables/patch-builder) (Windows) or the [build steps](#getting-started) with your own `SoulSilver.nds` dump (US version), then copy the `.cia` or `.3dsx` to your SD card. No ROM or game data is included here.
+
+**Keywords:** Pokémon SoulSilver 3DS, SoulSilver New 3DS port, native 3DS homebrew, pokeheartgold 3DS, SoulSilver .cia, Johto on 3DS.
+
+---
+
 ## What this is
 
 **Pokémon SoulSilver New 3DS Edition** compiles the [pret/pokeheartgold](https://github.com/pret/pokeheartgold) decompilation for the New 3DS CPU. It is **not an emulator**: the game’s own C runs natively, drawn the way a 3DS title draws, with both screens filled and optional stereoscopic 3D.
