@@ -299,6 +299,13 @@ static void ghWork(void *arg)
                 }
                 resp[tot] = 0;
                 NLOG("[GHTTP] got %d bytes, status line: %.40s", tot, tot > 0 ? resp : "(none)");
+                if (tot > 0 && !(strncmp(resp, "HTTP/", 5) == 0 && strstr(resp, " 200") && strstr(resp, " 200") < resp + 16)) {
+                    /* non-200 reply (2026-11-06: nginx 400 from the GTS host): show headers and body, control chars as '.' */
+                    char dump[420]; int n = tot < (int)sizeof dump - 1 ? tot : (int)sizeof dump - 1;
+                    for (int i = 0; i < n; i++) dump[i] = (resp[i] == '\r' || resp[i] == '\n') ? '|' : (resp[i] < 32 || resp[i] > 126 ? '.' : resp[i]);
+                    dump[n] = 0; NLOG("[GHTTP] non-200 reply: %s", dump);
+                    NLOG("[GHTTP] request was: GET %s HTTP/1.0 Host: %s", path, host);
+                }
                 char *body = strstr(resp, "\r\n\r\n");
                 if (tot > 12 && strncmp(resp, "HTTP/", 5) == 0 && strstr(resp, " 200") && strstr(resp, " 200") < resp + 16 && body) {
                     body += 4; len = tot - (int)(body - resp); if (len > GH_MAX - 1) len = GH_MAX - 1;
