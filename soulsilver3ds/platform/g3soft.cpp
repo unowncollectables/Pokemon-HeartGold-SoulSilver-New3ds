@@ -182,7 +182,9 @@ static Tex*GetTextureImpl(){
 }
 /* ---------------- rasterizer ---------------- */
 static u16 depth[256*192];
-struct Batch{const GuVertex*v;unsigned n;Tex*tex;G3SIM_TexImageParam_t tp;bool dw;unsigned dtest;};
+/* 2026-11-05: fog = the polygon fog bit when the batch was deferred. The replay ran with whatever G3G_CurFog the last polygon
+   left, so a deferred translucent batch could get the wrong fog bit in fog frames (non-raw path). */
+struct Batch{const GuVertex*v;unsigned n;Tex*tex;G3SIM_TexImageParam_t tp;bool dw;unsigned dtest;int fog;};
 static GuVertex transVerts[24576];static unsigned transVN;static Batch trans[1024];static unsigned transN;
 static inline unsigned wrap(int c,unsigned size,bool rep,bool flip){
  if(!rep)return c<0?0:(unsigned)c>=size?size-1:c;
@@ -485,7 +487,7 @@ static void DrawScreen(const GuVertex*v,unsigned n,bool deferOk){
  if(!n||cullAll)return;G3G_CurFog=s_curPolygonAttr.fogEnable?1:0;Tex*tex=GetTexture();const G3SIM_TexImageParam_t tp=s_texImageParam;
  bool translucent=(v[0].color>>24)<250||(tex&&(tp.textureFormat==1||tp.textureFormat==6));
  unsigned dtest=s_curPolygonAttr.depthTest;
- if(translucent&&deferOk){if(transN<1024&&transVN+n<=24576){memcpy(transVerts+transVN,v,n*sizeof(GuVertex));trans[transN++]={transVerts+transVN,n,tex,tp,(bool)s_SIM_transDepthWrite,dtest};transVN+=n;return;}}
+ if(translucent&&deferOk){if(transN<1024&&transVN+n<=24576){memcpy(transVerts+transVN,v,n*sizeof(GuVertex));trans[transN++]={transVerts+transVN,n,tex,tp,(bool)s_SIM_transDepthWrite,dtest,G3G_CurFog};transVN+=n;return;}}
  for(unsigned i=0;i+2<n;i+=3)Tri(v[i],v[i+1],v[i+2],tex,tp,translucent,!translucent||s_SIM_transDepthWrite,dtest);
 }
 extern "C" {
@@ -514,8 +516,9 @@ void G3SIM_FlushArray(){G3SIM_DrawArray();ResetVertices();}
 static u64 frameTicks,sumTicks;static unsigned frames,lastUs,lastTris;
 void G3SIM_FlushDeferred(){
  CRUMB("g3-flush");G3SIM_FlushArray();G3SIM_TexImageParam_t save=s_texImageParam;
- for(unsigned i=0;i<transN;i++){Batch&b=trans[i];for(unsigned k=0;k+2<b.n;k+=3)Tri(b.v[k],b.v[k+1],b.v[k+2],b.tex,b.tp,true,b.dw,b.dtest);}
- transN=transVN=0;s_texImageParam=save;
+ const int fogSave=G3G_CurFog;
+ for(unsigned i=0;i<transN;i++){Batch&b=trans[i];G3G_CurFog=b.fog;for(unsigned k=0;k+2<b.n;k+=3)Tri(b.v[k],b.v[k+1],b.v[k+2],b.tex,b.tp,true,b.dw,b.dtest);}
+ transN=transVN=0;s_texImageParam=save;G3G_CurFog=fogSave;
  if(gpuOn==1&&!G3G_Async&&G3G_RbSyncOn()&&postVblCfg()){
   for(unsigned i=0;i<usedN;i++){Tex*t=usedTex[i];if(!t->px||t->useF!=g3FrameNo+1||t->gen==PSPNativeVramGen)continue;
    if(TexPageGen(t->fmt,t->w,t->h,t->off,t->pal)>t->gen){unsigned rn=GatherRaw(t->fmt,t->w,t->h,t->off,t->pal);

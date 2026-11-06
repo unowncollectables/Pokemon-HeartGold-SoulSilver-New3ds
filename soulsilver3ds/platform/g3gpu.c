@@ -648,6 +648,13 @@ void G3G_End(u32 *outL, u32 *outR) {
             if (!drb[0] || !drb[1]) { for (int e = 0; e < 2; e++) { if (drb[e]) linearFree(drb[e]); drb[e] = NULL; }
                 if (fogCfg == 2) { PSPNativeMemLog("[GPU3D] fog3d: no linear memory, fog off"); fogCfg = 0; fm = 0; }
                 else { PSPNativeMemLog("[GPU3D] fog_hole: no linear memory (640 KiB), cave light fix off"); fogHoleV = 0; fm = 1; } } }
+        /* 2026-11-05 (Nathan: Flash in a dark cave turned the whole screen black): Flash weather fogs the 3D black (FOG_COLOR 0,
+           table all 127) while a 2D darkness layer with a lit hole covers the DS picture. After Flash (weather 12, FLASH_2) the game
+           removes that layer and stops drawing the light sphere, but the fog registers stay the same, and here the fog then painted the
+           whole cave black (on the DS the cave is lit). In that state the darkness fog is skipped. Before Flash nothing changes. */
+        if (fm) { extern int SS3DS_FieldWeather(void); const unsigned char *R = PSPNative_GfxRegisters; int black = (*(const u32 *)(R + 0x358) & 0x1F7FFF) == 0;
+            for (int i = 0; i < 32 && black; i++) if ((R[0x360 + i] & 127) != 127) black = 0;
+            if (black && SS3DS_FieldWeather() == 12) { static unsigned nl; if (nl++ % 600 == 0) PSPNativeMemLog("[GPU3D] Flash used (weather FLASH_2): dark-cave fog skipped (%u frames)", nl); fm = 0; } }
         fogFrame = fm; if (fogFrame == 1) { fogLutSetup(); const u32 fc = *(const u32 *)(PSPNative_GfxRegisters + 0x358);
             C3D_FogColor(((fc & 31) * 255 / 31) | (((fc >> 5) & 31) * 255 / 31) << 8 | (((fc >> 10) & 31) * 255 / 31) << 16); }
         if (fogFrame && ++fogFrames % 600 == 1) PSPNativeMemLog("[GPU3D] fog3d: fog frame (DISP3DCNT %04x, FOG_COLOR %08lx, offset %04x)", *(const u16 *)(PSPNative_GfxRegisters + 0x60), (unsigned long)*(const u32 *)(PSPNative_GfxRegisters + 0x358), *(const u16 *)(PSPNative_GfxRegisters + 0x35C)); }

@@ -308,3 +308,13 @@ __attribute__((weak)) int sub_02038D90(void) {
 /* run 3: sub_02039AA4 ("comm is idle, OK to reset", unk_02037C94.s) was also only a trap; DoSoftReset polls it every
    frame before OS_ResetSystem. Offline (_021D4150 == NULL, sub_02037D78() false) the DS returns TRUE. */
 __attribute__((weak)) int sub_02039AA4(void) { return 1; }
+
+/* 2026-11-05: the field weather for the renderer (g3gpu.c dark-cave fog), -1 outside the field or before a save is loaded */
+extern void *SaveData_Get(void);
+extern void *Save_LocalFieldData_Get(void *saveData);
+extern unsigned LocalFieldData_GetWeatherType(void *localFieldData);
+int SS3DS_FieldWeather(void) {
+    if (!P3DS_InField) return -1;
+    void *save = SaveData_Get();
+    return save ? (int)LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(save)) : -1;
+}
