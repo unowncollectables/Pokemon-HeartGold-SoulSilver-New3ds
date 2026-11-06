@@ -32,8 +32,8 @@ extern int P3DS_Cheat(int);        /* render3ds.cpp: cheat_money .. cheat_candy,
 extern int P3DS_CheatNoEncCfg(void);
 extern unsigned long CPSDnsIp[2]; /* libntrwifi cps; u32 there, 4 bytes on this ABI */
 /* GTS network debug logs ([SOC] [LOGIN] [CPS] [GHTTP] [DNS]) are off now that the GTS chain is proven on hardware
-   (2026-11-05). Arguments are still compiled (if (0)), so no behaviour or warnings change. Build with -DSS3DS_NET_LOG to bring them back. */
-#ifdef SS3DS_NET_LOG
+   (2026-11-05). Arguments are still compiled (if (0)), so no behaviour or warnings change. Back ON by default again (2026-11-06, GTS 'disconnected' regression); build with -DSS3DS_NET_NOLOG to turn them off. */
+#ifndef SS3DS_NET_NOLOG
 #define NLOG(...) do { PSPNativeMemLog(__VA_ARGS__); P3DS_LogFlushSync(); } while (0)
 #else
 #define NLOG(...) do { if (0) PSPNativeMemLog(__VA_ARGS__); } while (0)
