@@ -482,8 +482,14 @@ void P3DS_ShutdownThreads(void) {
         for (int i = 0; i < 64; i++) if (sems[i].used) LightSemaphore_Release(&sems[i].s, 4);
         svcSleepThread(5000000);
     }
-    for (int i = 1; i <= MAXT; i++) if (pts[i].th) { if (R_SUCCEEDED(threadJoin(pts[i].th, 300000000ULL))) threadFree(pts[i].th); pts[i].th = NULL; }
-    if (alarmTh) { if (R_SUCCEEDED(threadJoin(alarmTh, 300000000ULL))) threadFree(alarmTh); alarmTh = NULL; }
+    /* Soft-reset crash (2026-11-06, hunt reset 12: prefetch abort in a worker, pc into a heap address): a game thread that had not
+       reached a quit point within the join timeout kept running while the loop below freed the game's partition blocks. The
+       allocator then overwrote a callback pointer inside a freed block and the thread jumped through it. The process is about to
+       exit and the kernel reclaims everything, so the blocks (and ndsp) are only released when EVERY thread has really ended. */
+    int alive = 0;
+    for (int i = 1; i <= MAXT; i++) if (pts[i].th) { if (R_SUCCEEDED(threadJoin(pts[i].th, 300000000ULL))) threadFree(pts[i].th); else { alive++; PSPNativeMemLog("[3DS] exit: thread slot %d (%s) did not stop in 300 ms", i, pts[i].name); } pts[i].th = NULL; }
+    if (alarmTh) { if (R_SUCCEEDED(threadJoin(alarmTh, 300000000ULL))) threadFree(alarmTh); else { alive++; PSPNativeMemLog("[3DS] exit: alarm thread did not stop in 300 ms"); } alarmTh = NULL; }
+    if (alive) { PSPNativeMemLog("[3DS] exit: %d thread(s) still running; keeping game memory and ndsp for the process exit", alive); return; }
     for (int i = 0; i < P3DS_BLOCKS; i++) if (blocks[i]) { free(blocks[i]); blocks[i] = NULL; }
     if (ndspOk == 1) { ndspExit(); ndspOk = -1; }
 }
