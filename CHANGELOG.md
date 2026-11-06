@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### GTS logs back on
+- GTS room says "disconnected" again: the [SOC]/[LOGIN]/[CPS]/[GHTTP]/[NET] lines are on by default again so the failing step shows in log.txt.
+
 ### Steady field music (patch 0226)
 - Settings > Setup > "Steady music" (default ON): walking past water, trees, waterfalls and windmills no longer fades the field music down and back up (the game's own soundplates, which made the music suddenly loud again after each spot). The ambient sound still plays. OFF = the original DS behaviour. Needs a game rebuild (field_control.o).
 
