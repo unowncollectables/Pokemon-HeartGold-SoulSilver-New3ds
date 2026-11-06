@@ -6,6 +6,10 @@ All notable changes to this project will be documented here.
 
 ### Achievement toast in full 3DS resolution
 - The Xbox-style achievement pop-up is drawn at the final 400x240 resolution instead of inside the DS picture that is stretched 1.25x (Nathan: "still a bit blocky"): anti-aliased glossy pill with a soft rim, smooth gold coin, game-font text 1:1 ("Achievement unlocked", the score in gold, the name in white). New native top-screen overlay in gpuscale.c (`P3DS_TopOvBuf`, both eyes at screen depth, drawn after the wide strips; log `[TOPOV]`). Without the game font or the buffer the old toast is drawn as before.
+### Flash lights dark caves again
+- Using Flash in a dark cave (Cerulean Cave tested) turned the whole screen black. The game keeps its black darkness fog registers after Flash (weather FLASH_2) but removes the 2D darkness layer and the light sphere; the port's 3D fog then covered the whole cave. Frames with that full black fog while the weather is FLASH_2 now skip the fog (g3gpu.c, weather from `SS3DS_FieldWeather` in ss3ds_glue.c). Before Flash nothing changes. Log `[GPU3D] Flash used (weather FLASH_2): dark-cave fog skipped`.
+- Deferred translucent batches (non-raw 3D path) now keep their own polygon fog bit when they are replayed.
+- Checked in Azahar: Cerulean Cave before Flash (small lit circle, as before) and after Flash (cave lit, wild Pokemon visible).
 
 ### Audio: bit-exact DS sound chip math
 - Channel volume, pan and pitch now use the DS sound chip's own integer math (melonDS / GBATEK): volume was rounded to a ~10-bit scale (quiet notes, echo tracks and fade-outs up to ~30% off) and pitch was a 12-bit ratio up to ~2 cents off (unison parts drifted against each other). Host test: output identical to the DS formula, sample for sample. Patch 0222.
@@ -21,6 +25,12 @@ All notable changes to this project will be documented here.
 
 ### Alive wild Pokemon fix
 - Hook 0219: 0217 was skipped on real builds (its encounter_check.c anchor did not match after the gameplay patch), so visible wild Pokemon stayed walk-through and A did nothing. The anchor is now one line. Partners that travel together no longer squabble with each other.
+
+### Lively towns: a mix per town (patch 0224)
+- Every Johto and Kanto town except Cinnabar (default mix) has its own day / night / water mix of ambient Pokemon.
+
+### Lively towns (third value of the Alive wild Pokemon toggle)
+- Settings > Battle > Alive wild Pokemon > ON + TOWNS (`wild_vis_alive=2`, patch 0223, 0110 block v5): towns and cities get a few ambient Pokemon (wander, doze, hop, curious or shy, pairs, water splashes) using the same sprites as the visible wild ones. Decoration only: not solid, never a battle, no cries, nothing saved. Own flavour for New Bark, Goldenrod and Ecruteak, a default mix elsewhere.
 
 ### Alive wild Pokemon round 2 (same toggle)
 - Hook 0218 (0110 block v4): night naps with Zz, sneaking vs running (notice range), pairs that travel together, squabbles, water splashes (Magikarp), rain sheltering, a rare huge wild Pokemon (1/1024, achievement "Something Big"), flyer flocks. All random, nothing saved. Untested on hardware.
