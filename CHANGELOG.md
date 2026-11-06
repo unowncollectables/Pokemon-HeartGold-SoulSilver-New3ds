@@ -19,6 +19,9 @@ All notable changes to this project will be documented here.
 ### Alive wild Pokemon fix
 - Hook 0219: 0217 was skipped on real builds (its encounter_check.c anchor did not match after the gameplay patch), so visible wild Pokemon stayed walk-through and A did nothing. The anchor is now one line. Partners that travel together no longer squabble with each other.
 
+### Lively towns (third value of the Alive wild Pokemon toggle)
+- Settings > Battle > Alive wild Pokemon > ON + TOWNS (`wild_vis_alive=2`, patch 0223, 0110 block v5): towns and cities get a few ambient Pokemon (wander, doze, hop, curious or shy, pairs, water splashes) using the same sprites as the visible wild ones. Decoration only: not solid, never a battle, no cries, nothing saved. Own flavour for New Bark, Goldenrod and Ecruteak, a default mix elsewhere.
+
 ### Alive wild Pokemon round 2 (same toggle)
 - Hook 0218 (0110 block v4): night naps with Zz, sneaking vs running (notice range), pairs that travel together, squabbles, water splashes (Magikarp), rain sheltering, a rare huge wild Pokemon (1/1024, achievement "Something Big"), flyer flocks. All random, nothing saved. Untested on hardware.
 
