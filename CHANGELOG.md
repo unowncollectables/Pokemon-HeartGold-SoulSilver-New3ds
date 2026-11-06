@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Event scenes without event Pokemon (patch 0225)
+- Settings > Play > "Event Pokemon w/o event" (default OFF): the Ilex Forest shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu/Pikachu/Raichu, Celebi or Arceus in the lead; no Nintendo-event metadata or shiny needed. Nothing is saved by the port. Needs a game rebuild.
+
 ### Achievement toast in full 3DS resolution
 - The Xbox-style achievement pop-up is drawn at the final 400x240 resolution instead of inside the DS picture that is stretched 1.25x (Nathan: "still a bit blocky"): anti-aliased glossy pill with a soft rim, smooth gold coin, game-font text 1:1 ("Achievement unlocked", the score in gold, the name in white). New native top-screen overlay in gpuscale.c (`P3DS_TopOvBuf`, both eyes at screen depth, drawn after the wide strips; log `[TOPOV]`). Without the game font or the buffer the old toast is drawn as before.
 ### Flash lights dark caves again
