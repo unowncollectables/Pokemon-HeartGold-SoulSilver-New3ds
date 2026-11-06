@@ -23,10 +23,15 @@ SSOBJS := $(filter-out $(PSPONLY),$(shell sed -n 's/^OBJS = //p' $(SSMK) 2>/dev/
 SSLIBS := $(filter-out libss-render.a -lpsp% -lstdc++ -lm,$(shell sed -n 's/^LIBS = //p' $(SSMK) 2>/dev/null))
 # --wrap=OverlayManager_New belongs to naming_osk_ss.o (the PSP keyboard naming screen), which we drop.
 SSWRAP := $(filter-out -Wl$(COMMA)--wrap=OverlayManager_New,$(filter -Wl$(COMMA)--wrap=%,$(shell sed -n 's/^LDFLAGS = //p' $(SSMK) 2>/dev/null)))
-SSVER  := $(shell sed -n 's/^#define SS3DS_VERSION "\(.*\)"/\1/p' ../platform/ss3ds_version.h)
-# CIA title version shown by FBI = <run/64>.<run%64>.0, taken from the "run N" in ss3ds_version.h. makerom caps minor at 63,
-# so runs past 63 roll into major (run 64 = 1.0.0, run 65 = 1.1.0). Still strictly increasing, so it installs over older CIAs.
-CIA_RUN   ?= $(shell sed -n 's/^#define SS3DS_VERSION "run \([0-9]*\).*/\1/p' ../platform/ss3ds_version.h)
+# Version = git: run number = commit count of HEAD, plus short hash (+ if edited). Written to build/ss3ds_buildid.h only when it
+# changes, so objects that include ss3ds_version.h rebuild only on a new commit. A shallow clone/no git gives "run 0 (no git)".
+SSGIT_N := $(shell git -C .. rev-list --count HEAD 2>/dev/null || echo 0)
+SSGIT_H := $(shell git -C .. rev-parse --short=7 HEAD 2>/dev/null || echo nogit)$(shell git -C .. diff --quiet HEAD -- 2>/dev/null || echo +)
+SSVER  := run $(SSGIT_N) ($(SSGIT_H))
+$(shell mkdir -p build; printf '#define SS3DS_VERSION "%s"\n' '$(SSVER)' > build/ss3ds_buildid.h.new; cmp -s build/ss3ds_buildid.h.new build/ss3ds_buildid.h && rm -f build/ss3ds_buildid.h.new || mv -f build/ss3ds_buildid.h.new build/ss3ds_buildid.h)
+# CIA title version shown by FBI = <run/64>.<run%64>.0 (run = commit count). makerom caps minor at 63 and major at 63 (run <= 4095),
+# so runs past 63 roll into major. Strictly increasing, so it installs over older CIAs.
+CIA_RUN   ?= $(SSGIT_N)
 CIA_MAJOR ?= $(shell echo $$(($(CIA_RUN) / 64)))
 CIA_MINOR ?= $(shell echo $$(($(CIA_RUN) % 64)))
 DEFS   := -O2 -DSDK_PORT -DSDK_X86 -DSDK_TS -DSDK_4M -DSDK_FINALROM -DNNS_FINALROM -DSDK_VERSION_MAJOR=4 -DSDL_MAIN_HANDLED -DMELONDS_PSP -DPSP_NATIVE_RGBA_OUTPUT=1 -DSS3DS -ffunction-sections -fdata-sections
@@ -48,10 +53,10 @@ check:
 	@test -f $(SSMK) || { echo "Run scripts/ss3ds_build.sh first (no $(SSMK))"; exit 1; }
 	@echo "game objects: $(words $(SSOBJS)), archives: $(words $(SSLIBS)), game wraps: $(words $(SSWRAP))"
 build/%.o: $(PLAT)/%.c
-	@mkdir -p build; $(CC) $(DEFS) $(INC) -c $< -o $@
+	@mkdir -p build; $(CC) $(DEFS) -Ibuild $(INC) -c $< -o $@
 build/main3ds.o build/stubs3ds.o: DEFS += -DPLATINUM3DS_APP
 build/%.o: $(PLAT)/%.cpp
-	@mkdir -p build; $(CXX) $(DEFS) $(INC) -std=gnu++17 -fno-exceptions -fno-rtti -fpermissive -c $< -o $@
+	@mkdir -p build; $(CXX) $(DEFS) -Ibuild $(INC) -std=gnu++17 -fno-exceptions -fno-rtti -fpermissive -c $< -o $@
 build/sdl_ctru.o build/psp_ctru.o build/psp_ss_ctru.o build/ss3ds_glue.o build/uds_ctru.o build/ss3ds_net.o: INC :=
 # libctru/citro3d ABI uses short enums; game-facing code uses int enums (pspoke/DS data layout).
 build/sdl_ctru.o build/psp_ctru.o build/psp_ss_ctru.o build/gpuscale.o build/uds_ctru.o build/ss3ds_net.o: DEFS += -fshort-enums
@@ -76,7 +81,7 @@ build/p3ds.specs:
 soulsilver3ds.elf: check $(POBJS) $(addprefix $(P)/,$(filter %.o %.a,$(SSOBJS) $(SSLIBS))) build/soulsilver3ds.ld build/p3ds.specs
 	cd $(P) && $(DKA)gcc -specs=$(CURDIR)/build/p3ds.specs -B$(DKP)/devkitARM/arm-none-eabi/lib/ $(ARCH) -Wl,--gc-sections -Wl,--allow-multiple-definition $(SSWRAP) $(P3WRAP) -Wl,--no-enum-size-warning -Wl,-Map,$(CURDIR)/build/full.map \
 	  $(addprefix $(CURDIR)/,$(POBJS)) $(SSOBJS) $(RENDER) $(SSLIBS) -L$(DKP)/libctru/lib -lcitro3d -lctru -lstdc++ -lm -o $(CURDIR)/$@
-soulsilver3ds.smdh: ../platform/ss3ds_version.h cia/art/icon.png
+soulsilver3ds.smdh: build/ss3ds_buildid.h cia/art/icon.png
 	@# run 3: depends on the version (was stuck at the first build's string) and uses the committed SoulSilver icon art
 	$(DKP)/tools/bin/smdhtool --create "SoulSilver 3DS ($(SSVER))" "native New 3DS port" "local build" cia/art/icon.png $@
 soulsilver3ds.3dsx: soulsilver3ds.elf soulsilver3ds.smdh
@@ -132,4 +137,4 @@ soulsilver3ds.cia: soulsilver3ds.elf $(ROOT)/tools/home_menu_art.py cia/soulsilv
 .PHONY: cia
 
 # the version string is compiled into these two; rebuild them when it changes
-build/render3ds.o build/main3ds.o: ../platform/ss3ds_version.h
+build/render3ds.o build/main3ds.o: ../platform/ss3ds_version.h build/ss3ds_buildid.h
