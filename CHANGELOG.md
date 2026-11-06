@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Event scenes without event Pokemon (patch 0225)
+- Settings > Play > "Event Pokemon w/o event" (default OFF): the Ilex Forest shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu/Pikachu/Raichu, Celebi or Arceus in the lead; no Nintendo-event metadata or shiny needed. Nothing is saved by the port. Needs a game rebuild.
+
 ### Audio: bit-exact DS sound chip math
 - Channel volume, pan and pitch now use the DS sound chip's own integer math (melonDS / GBATEK): volume was rounded to a ~10-bit scale (quiet notes, echo tracks and fade-outs up to ~30% off) and pitch was a 12-bit ratio up to ~2 cents off (unison parts drifted against each other). Host test: output identical to the DS formula, sample for sample. Patch 0222.
 - The DS master volume is honoured (Hall of Fame fades).

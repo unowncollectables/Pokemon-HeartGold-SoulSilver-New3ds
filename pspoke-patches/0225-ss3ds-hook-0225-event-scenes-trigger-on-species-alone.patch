@@ -1,0 +1,56 @@
+From ac1aa35f800c3f706e13974462e72b0ef2827e53 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Fri, 6 Nov 2026 01:20:34 +0000
+Subject: [PATCH] ss3ds: hook 0225 event_any_mon (event scenes trigger on
+ species alone)
+
+ScrCmd_FollowerPokeIsEventTrigger skips the Nintendo-event metadata (and the Pichu shiny requirement) when the setting is on, so any Pichu/Pikachu/Raichu, Celebi or Arceus in the lead starts the Ilex shrine / Arceus scenes. Nothing is saved by the port.
+---
+ scripts/ss3ds_hooks.d/0225_eventany.py | 22 ++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0225_eventany.sh |  5 +++++
+ 2 files changed, 27 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0225_eventany.py
+ create mode 100644 scripts/ss3ds_hooks.d/0225_eventany.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0225_eventany.py b/scripts/ss3ds_hooks.d/0225_eventany.py
+new file mode 100644
+index 0000000..55616e3
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0225_eventany.py
+@@ -0,0 +1,22 @@
++#!/usr/bin/env python3
++"""ss3ds 0225: event_any_mon (Settings > Play "Event Pokemon w/o event"). The HGSS event scenes (Spiky-eared Pichu and Celebi at the Ilex
++Forest shrine, Arceus at the Ruins of Alph / Sinjoh Ruins / Hall of Origin) are all triggered by ScrCmd_FollowerPokeIsEventTrigger
++(src/scrcmd_c.c): the lead Pokemon must be the right species AND carry the Nintendo-event metadata (MonMetadataMatchesEvent), and for
++the Pichu scene also be shiny. With event_any_mon ON the metadata check and the shiny requirement are skipped: any Pichu / Pikachu /
++Raichu, any Celebi, any Arceus in the lead slot starts its scene. The scenes' own story conditions and once-only flags are unchanged.
++Reads only; the port writes nothing itself (the scene's own gift, e.g. GiveSpikyEarPichu, is the game's normal save write).
++Idempotent ('SS3DS 0225'); applied to the staged decomp's src/scrcmd_c.c in cwd (= $C)."""
++import sys
++p = 'src/scrcmd_c.c'
++s = open(p).read()
++if 'SS3DS 0225' in s:
++    sys.exit(0)
++old1 = ('    if (!MonMetadataMatchesEvent(event, mon, ')
++old2 = ('        if ((species == SPECIES_PICHU || species == SPECIES_PIKACHU || species == SPECIES_RAICHU) && MonIsShiny(mon)) {\n')
++for o in (old1, old2):
++    if s.count(o) != 1:
++        sys.exit('0225_eventany: anchor not found exactly once in %s: %r' % (p, o[:70]))
++s = s.replace(old1, '    extern int P3DS_EventAnyCfg(void); /* SS3DS 0225 */\n    if (!P3DS_EventAnyCfg() && !MonMetadataMatchesEvent(event, mon, ')
++s = s.replace(old2, '        if ((species == SPECIES_PICHU || species == SPECIES_PIKACHU || species == SPECIES_RAICHU) && (P3DS_EventAnyCfg() || MonIsShiny(mon))) {\n')
++open(p, 'w').write(s)
++print('0225_eventany: scrcmd_c.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0225_eventany.sh b/scripts/ss3ds_hooks.d/0225_eventany.sh
+new file mode 100644
+index 0000000..1563f06
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0225_eventany.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0225: event_any_mon (Settings > Play "Event Pokemon w/o event"): src/scrcmd_c.c ScrCmd_FollowerPokeIsEventTrigger skips the event
++# metadata and shiny checks. Optional: on failure only this setting does nothing.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0225_eventany.py" && bash rebuild_game_object.sh src/scrcmd_c.c scrcmd_c.o none); then
++  log "ss3ds 0225 eventany hook skipped (see message above); event_any_mon does nothing"
++fi
+-- 
+2.43.0
+
