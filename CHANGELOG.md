@@ -19,6 +19,9 @@ All notable changes to this project will be documented here.
 ### Alive wild Pokemon fix
 - Hook 0219: 0217 was skipped on real builds (its encounter_check.c anchor did not match after the gameplay patch), so visible wild Pokemon stayed walk-through and A did nothing. The anchor is now one line. Partners that travel together no longer squabble with each other.
 
+### Lively towns: a mix per town (patch 0224)
+- Every Johto and Kanto town except Cinnabar (default mix) has its own day / night / water mix of ambient Pokemon.
+
 ### Lively towns (third value of the Alive wild Pokemon toggle)
 - Settings > Battle > Alive wild Pokemon > ON + TOWNS (`wild_vis_alive=2`, patch 0223, 0110 block v5): towns and cities get a few ambient Pokemon (wander, doze, hop, curious or shy, pairs, water splashes) using the same sprites as the visible wild ones. Decoration only: not solid, never a battle, no cries, nothing saved. Own flavour for New Bark, Goldenrod and Ecruteak, a default mix elsewhere.
 

@@ -1,0 +1,108 @@
+From 9fb104e312a318aec6b99cbf2e912229bb41c1ca Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Fri, 6 Nov 2026 01:16:03 +0000
+Subject: [PATCH] ss3ds: tailored ambient Pokemon mix for every Johto and Kanto
+ town
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 74 +++++++++++++++------------
+ 1 file changed, 40 insertions(+), 34 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 5d65d4e..6c4f88f 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v5 (0110/0111/0217/0218/0223: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v6 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMem, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -97,42 +97,48 @@ int SS3DS_TownTile(FieldSystem *fieldSystem, int x, int z) {
+     return 0;
+ }
+ 
+-// Who hangs around: per town and time of day (species numbers; repeats are the weights). rnd is the caller's own random number,
+-// so the game's RNG is not touched. 0 = none.
++// Who hangs around: per town and time of day (species numbers; repeats are the weights; 0 ends a list). rnd is the caller's own
++// random number, so the game's RNG is not touched. Towns not listed use the first row. Water: 0 = this town's water uses the default.
++typedef struct { u16 map; u16 day[8], night[8], water[6]; } SS3DSTownMix;
++static const SS3DSTownMix kSS3DSTown[] = {
++    { 0, { 19, 16, 161, 187, 183, 19 }, { 19, 163, 163, 198 }, { 129, 129, 54, 60 } },                    // default: Rattata Pidgey Sentret Hoppip Marill / Hoothoot Murkrow / Magikarp Psyduck Poliwag
++    { MAP_NEW_BARK, { 161, 161, 19, 16, 187, 183 }, { 163, 163, 19, 161 }, { 72, 129, 118, 183, 129 } },  // Sentret, Tentacool Goldeen
++    { MAP_CHERRYGROVE, { 19, 16, 161, 183, 21, 187 }, { 19, 163, 163, 198 }, { 72, 129, 118, 129 } },
++    { MAP_VIOLET, { 16, 16, 21, 17, 163, 19 }, { 163, 163, 198, 19 }, { 129, 54, 60 } },                  // birds: Pidgey Spearow Pidgeotto
++    { MAP_AZALEA, { 10, 13, 48, 46, 19, 183 }, { 163, 41, 19, 198 }, { 129, 54, 60 } },                   // bug town: Caterpie Weedle Venonat Paras
++    { MAP_GOLDENROD, { 52, 52, 19, 16, 209, 209, 25, 133 }, { 52, 163, 198, 19, 19, 163 }, { 0 } },       // Meowth Snubbull Pikachu, rarely Eevee
++    { MAP_ECRUTEAK, { 19, 19, 16, 161, 58, 37 }, { 92, 92, 200, 163, 198, 19 }, { 0 } },                  // Growlithe Vulpix / Gastly Misdreavus
++    { MAP_OLIVINE, { 21, 16, 183, 19, 81, 163 }, { 163, 198, 81, 19 }, { 72, 72, 129, 118, 90 } },        // Spearow Magnemite, Tentacool Shellder
++    { MAP_CIANWOOD, { 19, 66, 56, 21, 183, 16 }, { 163, 66, 19, 198 }, { 72, 72, 129, 118, 90 } },        // Machop Mankey (fighting town)
++    { MAP_MAHOGANY, { 19, 19, 27, 50, 161, 183 }, { 163, 41, 198, 19 }, { 129, 54 } },                   // Sandshrew Diglett
++    { MAP_BLACKTHORN, { 19, 147, 16, 215, 161, 27 }, { 163, 198, 215, 19 }, { 129, 129, 147 } },         // Dratini, Sneasel at night
++    { MAP_PALLET, { 19, 16, 161, 183, 133, 21 }, { 19, 163, 163, 198 }, { 72, 129, 118, 129 } },
++    { MAP_VIRIDIAN, { 19, 16, 21, 10, 13, 29 }, { 19, 163, 41, 198 }, { 129, 54 } },
++    { MAP_PEWTER, { 27, 19, 74, 95, 16, 21 }, { 19, 41, 163, 198 }, { 129, 54 } },                       // Sandshrew Geodude Onix
++    { MAP_CERULEAN, { 54, 60, 16, 19, 25, 183 }, { 19, 163, 41, 198 }, { 54, 60, 118, 129, 118 } },       // Psyduck Poliwag Goldeen
++    { MAP_LAVENDER, { 19, 16, 92, 163, 104, 41 }, { 92, 92, 93, 200, 41, 163 }, { 129, 54 } },           // Gastly Haunter Misdreavus
++    { MAP_VERMILION, { 25, 25, 100, 81, 19, 16 }, { 100, 81, 19, 163 }, { 72, 72, 129, 118, 90 } },      // Pikachu Voltorb Magnemite
++    { MAP_CELADON, { 43, 43, 16, 19, 133, 52 }, { 43, 163, 198, 19 }, { 129, 54 } },                     // Oddish, Eevee
++    { MAP_FUCHSIA, { 19, 16, 111, 84, 29, 32 }, { 41, 163, 19, 198 }, { 129, 54, 60, 118 } },            // Rhyhorn Doduo
++    { MAP_SAFFRON, { 63, 63, 52, 19, 16, 96 }, { 63, 92, 96, 19, 198 }, { 129, 54 } },                   // Abra Drowzee Meowth
++};
++
+ int SS3DS_TownPick(FieldSystem *fieldSystem, int water, int night, u32 rnd) {
+-    static const u16 kDay[] = { 19, 16, 161, 187, 183, 19 };                // Rattata Pidgey Sentret Hoppip Marill
+-    static const u16 kNight[] = { 19, 163, 163, 198 };                      // Rattata Hoothoot Murkrow
+-    static const u16 kWater[] = { 129, 129, 54, 60 };                       // Magikarp Psyduck Poliwag
+-    static const u16 kNBDay[] = { 161, 161, 19, 16, 187, 183 };             // New Bark: Sentret
+-    static const u16 kNBNight[] = { 163, 163, 19, 161 };
+-    static const u16 kNBWater[] = { 72, 129, 118, 183, 129 };               // Tentacool Magikarp Goldeen Marill
+-    static const u16 kGRDay[] = { 52, 52, 19, 16, 209, 209, 25, 133 };      // Goldenrod: Meowth Snubbull, a Pikachu, rarely an Eevee
+-    static const u16 kGRNight[] = { 52, 163, 198, 19, 19, 163 };
+-    static const u16 kECDay[] = { 19, 19, 16, 161, 58, 37 };                // Ecruteak: Growlithe Vulpix
+-    static const u16 kECNight[] = { 92, 92, 200, 163, 198, 19 };            // Gastly Misdreavus Hoothoot Murkrow
+-    const u16 *t = water ? kWater : night ? kNight : kDay;
+-    u32 n = water ? sizeof(kWater) / 2 : night ? sizeof(kNight) / 2 : sizeof(kDay) / 2;
+-    switch (fieldSystem->location->mapId) {
+-    case MAP_NEW_BARK:
+-        t = water ? kNBWater : night ? kNBNight : kNBDay;
+-        n = water ? sizeof(kNBWater) / 2 : night ? sizeof(kNBNight) / 2 : sizeof(kNBDay) / 2;
+-        break;
+-    case MAP_GOLDENROD:
+-        if (!water) {
+-            t = night ? kGRNight : kGRDay;
+-            n = night ? sizeof(kGRNight) / 2 : sizeof(kGRDay) / 2;
+-        }
+-        break;
+-    case MAP_ECRUTEAK:
+-        if (!water) {
+-            t = night ? kECNight : kECDay;
+-            n = night ? sizeof(kECNight) / 2 : sizeof(kECDay) / 2;
++    const SS3DSTownMix *mix = &kSS3DSTown[0];
++    for (u32 i = 1; i < sizeof(kSS3DSTown) / sizeof(kSS3DSTown[0]); i++) {
++        if (kSS3DSTown[i].map == fieldSystem->location->mapId) {
++            mix = &kSS3DSTown[i];
+         }
+-        break;
+-    default:
+-        break;
+     }
+-    return t[rnd % n];
++    const u16 *t = water ? mix->water : night ? mix->night : mix->day;
++    if (water && t[0] == 0) {
++        t = kSS3DSTown[0].water; // no pond of its own: the default one
++    }
++    u32 n = 0;
++    while (n < (water ? 6u : 8u) && t[n] != 0) {
++        n++;
++    }
++    return n ? t[rnd % n] : 0;
+ }
+ 
+ // The same slot tables the random encounter uses: time of day, swarm and radio replacements for land, swarm for surf.
+-- 
+2.43.0
+
