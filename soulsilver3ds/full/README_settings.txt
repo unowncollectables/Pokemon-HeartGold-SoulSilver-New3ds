@@ -449,5 +449,10 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   water ones jump and splash (Magikarp a lot), in rain fewer show (only tall grass / water; others go shelter), a rare huge one
   (1/1024: 1.5x size, 5-10 levels higher, bold; achievement "Something Big"), and flyers sometimes come as a flock of 2-4.
   Log: [WILD] ... asleep / woke up / travels with / squabble / sheltering from the rain / HUGE.
+  Lively towns (2026-11-06, patch 0223, 0110 block v5): set wild_vis_alive=2 (Settings > Battle > Alive wild Pokemon > ON + TOWNS).
+  Outdoor maps with no wild table (towns and cities) get up to 4 ambient Pokemon at a time: they wander, doze in the sun, hop, come
+  up to you (curious) or keep away (shy), sometimes as a pair, water ones splash. Town flavour: New Bark (Sentret, Tentacool), Goldenrod
+  (Meowth, Snubbull, Pikachu, rarely Eevee), Ecruteak (Growlithe, Vulpix; Gastly and Misdreavus at night); other towns use a default
+  mix. They are decoration only: not solid, never a battle, no cries. Nothing is saved. Log: [WILD] town life on/off ... / spawn ... TOWN.
 pg_find=0               (2026-11-03, default 0; Settings > Input > Pokedex finder) Pokedex encounter finder on the JOHTO map: tap a place, tap its card (wild list), tap a Pokemon name and the map pins every place that species lives. Chips ANY / MORN / DAY / NITE filter by time of day (MORN 4-10h, DAY 10-20h, NITE 20-4h; surf, fishing and Rock Smash count at any time); X clears. Times come from hook 0209 (without it only ANY works). Read-only, never touches the save. Log [FIND].
 breed_tab=0             (2026-11-03, default 0; Settings > Setup > Breeding tab) adds an EGGS tab (6th) to the JOHTO panel: Day-Care Pokemon, levels gained, egg chance / EGG READY, Masuda, steps left on party eggs. Read-only (hook 0210). Remove the toggle once tested.

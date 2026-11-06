@@ -1174,8 +1174,9 @@ static const MItem mItems[]={
     frames go to the screen without the readback / CPU colour pass / re-upload; Display tab, remove once tested */
  {"DIRECT SCREEN","gc_direct",2,{"OFF","ON"}},
  /* 128 (2026-11-05, hook 0217): wild_vis_alive, default OFF until tested: visible wild Pokemon are solid (the player cannot walk through one),
-    A facing one or walking into one starts its battle, and some chase you (Scarlet/Violet style). Needs wild_vis. Battle tab; remove once tested */
- {"ALIVE WILD POKEMON","wild_vis_alive",2,{"OFF","ON"}},
+    A facing one or walking into one starts its battle, and some chase you (Scarlet/Violet style). Needs wild_vis. Battle tab; remove once tested.
+    2026-11-06 (hook 0110 block v5): third value ON + TOWNS also fills towns and cities with ambient Pokemon (no battles, not solid) */
+ {"ALIVE WILD POKEMON","wild_vis_alive",3,{"OFF","ON","ON + TOWNS"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
@@ -1395,7 +1396,7 @@ static const SAppTab kTabs[8]={
       {99,"Visible shiny sparkle","A visible Pokemon can be shiny: it sparkles and a chime plays."},
       {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."},
       {101,"Visible wild cries","A Pokemon that notices you cries out."},
-      {128,"Alive wild Pokemon","Visible Pokemon are solid, some chase you; A at one or walking into one starts the battle."}}},
+      {128,"Alive wild Pokemon","ON: visible Pokemon are solid, some chase you, A starts the battle. ON + TOWNS: towns get harmless Pokemon too."}}},
  {13,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
       {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},
       {25,"Repel prompt","When a Repel runs out, asks if you want to use another."},
