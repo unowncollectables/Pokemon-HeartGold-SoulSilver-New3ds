@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Steady field music (patch 0226)
+- Settings > Setup > "Steady music" (default ON): walking past water, trees, waterfalls and windmills no longer fades the field music down and back up (the game's own soundplates, which made the music suddenly loud again after each spot). The ambient sound still plays. OFF = the original DS behaviour. Needs a game rebuild (field_control.o).
+
 ### Fix: crash on the second Mystery Gift Wi-Fi download in one run
 - Run 150 log: the first download worked, the second aborted right after `NdCallback reason=3`. The NHTTP cleanup thread (`g_CleanupThread`) was never joined, so re-creating it on the next cleanup aborted in the thread shim. `ov00_021ED308` now joins it first (platform only, no patch). Test: receive two gifts in one session; expect `[SS-MG] NdCleanupAsync -> 1` both times.
 

@@ -459,3 +459,4 @@ event_any_mon=0         (2026-11-06, default 0, hook 0225; Settings > Play > Eve
   Pichu and Celebi; Arceus at the Ruins of Alph / Sinjoh Ruins / Hall of Origin) normally need a Nintendo-event Pokemon in the lead. ON: any Pichu / Pikachu /
   Raichu (shiny not needed), any Celebi, any Arceus in the lead starts its scene. The scenes' story conditions and once-only flags stay as in the game; the
   port writes nothing (the Pichu scene's own GiveSpikyEarPichu is the game's normal gift). Log: [EVENT]. Needs a game rebuild (scrcmd_c.o).
+steady_music=1        (2026-11-06, default 1, hook 0226; Settings > Setup > Steady music) The game fades the field music to 3/4, 1/2 or 1/4 volume on soundplate tiles (sea, waterfalls, trees, windmills) and back to full after them. ON: the music stays at one volume (ambient sound unchanged). OFF: original DS behaviour. Log: [AUDIO] steady_music. Needs a game rebuild (field_control.o). Remove the toggle once tested.
