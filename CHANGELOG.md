@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### GTS: log non-200 replies
+- GTS login works but info.asp returned 400 from the server; the log now shows the reply and the request.
+
 ### GTS logs back on
 - GTS room says "disconnected" again: the [SOC]/[LOGIN]/[CPS]/[GHTTP]/[NET] lines are on by default again so the failing step shows in log.txt.
 
