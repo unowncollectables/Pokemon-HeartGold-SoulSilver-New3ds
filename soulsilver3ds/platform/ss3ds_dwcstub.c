@@ -209,9 +209,16 @@ unsigned int ov00_021ED1F0(SS3DS_NdCallback cb, char *gamecd, char *passwd)
     PSPNativeMemLog("[SS-MG] NdInitAsync -> %d", r);
     return (unsigned)r;
 }
+extern unsigned char g_CleanupThread[]; /* NHTTP cleanup OSThread (nhttp_bgnend.c) */
+extern void OS_JoinThread(void *thread);
 unsigned int ov00_021ED308(SS3DS_NdCleanupCallback cb)
 {
     gSS_MG_NdSvlActive = 0;
+    /* 2nd Wi-Fi download in one run aborted here (run 150 log: 1st gift ok, 2nd crashed right after
+       NdCallback reason=3, no NdCleanupAsync line). NHTTP_CleanupAsync re-creates the static
+       g_CleanupThread every time, but the thread shim (OS_CreateThreadReal) abort()s while that OSThread
+       is still registered, and nobody joins it. The previous cleanup thread has long exited: reap it. */
+    OS_JoinThread(&g_CleanupThread);
     int r = DWC_NdCleanupAsync(cb);
     PSPNativeMemLog("[SS-MG] NdCleanupAsync -> %d", r);
     return (unsigned)r;

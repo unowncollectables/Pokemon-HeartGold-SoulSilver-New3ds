@@ -1603,26 +1603,26 @@ static void drawDmgPage(u32*b,const int*d,int pgNo){
  snprintf(l,sizeof l,"YOUR MOVES VS %s",fs>0&&fs<494?kP3dsSpec[fs]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
  {char pn[8];snprintf(pn,sizeof pn,"%d/%d",pgNo,sPgN);cBack(b,l,pn);}
  const int ms=(d[6]&0x40)?d[5]/4:d[5],fsp=(d[16]&0x40)?d[12]/4:d[12];/* paralysis quarters speed in Gen 4 */
- cPanel(b,4,24,252,47);
- snprintf(l,sizeof l,"Speed  you %d  foe %d",ms,fsp);gtxt(b,10,26,l,kCTx,kCSh);
+ cPanel(b,4,24,252,43);
+ snprintf(l,sizeof l,"Speed  you %d  foe %d",ms,fsp);gtxt(b,10,28,l,kCTx,kCSh);
  const char*who=ms>fsp?"YOU MOVE FIRST":ms<fsp?"FOE MOVES FIRST":"SPEED TIE";
- gtxt(b,246-gw(who),26,who,ms>fsp?SUI_RGB(96,232,128):ms<fsp?SUI_RGB(255,120,96):kCGold,kCSh);
- for(int k=0;k<4;k++){const int y0=50+k*27,id=d[18+k],ty=d[22+k],pw=d[26+k];cPanel(b,4,y0,252,y0+25);
-  if(id<=0||id>=468){gtxt(b,10,y0+3,"-",kCDim,kCSh);continue;}
-  gtxt(b,10,y0+1,kP3dsMove[id],kCTx,kCSh);
-  if(pw<=0||ty>=18){gtxt(b,130,y0+1,"no damage",kCDim,kCSh);continue;}
-  if(pw==1){gtxt(b,130,y0+1,"varies",kCDim,kCSh);continue;}
+ gtxt(b,246-gw(who),28,who,ms>fsp?SUI_RGB(96,232,128):ms<fsp?SUI_RGB(255,120,96):kCGold,kCSh);
+ for(int k=0;k<4;k++){const int y0=46+k*28,id=d[18+k],ty=d[22+k],pw=d[26+k];cPanel(b,4,y0,252,y0+26);
+  if(id<=0||id>=468){gtxt(b,10,y0+8,"-",kCDim,kCSh);continue;}
+  gtxt(b,10,y0+2,kP3dsMove[id],kCTx,kCSh);
+  if(pw<=0||ty>=18){gtxt(b,130,y0+2,"no damage",kCDim,kCSh);continue;}
+  if(pw==1){gtxt(b,130,y0+2,"varies",kCDim,kCSh);continue;}
   const bool phys=ty<9;const int A=phys?d[3]/((d[6]&0x10)?2:1):d[4];int D=phys?d[10]:d[11];
   const int t1=d[14],t2=d[15];int m=hintMult(ty,t1)*(t2<18&&t2!=t1?hintMult(ty,t2):2);/* x4 units */
-  if(m==0){gtxt(b,130,y0+1,"NO EFFECT",SUI_RGB(160,160,160),kCSh);continue;}
+  if(m==0){gtxt(b,130,y0+2,"NO EFFECT",SUI_RGB(160,160,160),kCSh);continue;}
   if(D<1)D=1;int base=((2*d[2]/5+2)*pw*A/D)/50+2;
   const bool stab=ty==d[7]||ty==d[8];if(stab)base=base*3/2;
   const int hi=base*m/4,lo=hi*85/100;const int hp=d[13];
-  snprintf(l,sizeof l,"%d-%d",lo,hi);gtxt(b,130,y0+1,l,kCTx,kCSh);
+  snprintf(l,sizeof l,"%d-%d",lo,hi);gtxt(b,130,y0+2,l,kCTx,kCSh);
   const int pl=hp>0?lo*100/hp:0,ph=hp>0?hi*100/hp:0;
-  snprintf(l,sizeof l,"%d-%d%% of its HP",pl>999?999:pl,ph>999?999:ph);gtxt(b,10,y0+11,l,kCDim,kCSh);
+  snprintf(l,sizeof l,"%d-%d%% of its HP",pl>999?999:pl,ph>999?999:ph);gtxt(b,10,y0+14,l,kCDim,kCSh);
   const char*e=lo>=hp?"KO!":hi>=hp?"may KO":m>4?(m>8?"x4":"x2"):m<4?(m<2?"x1/4":"x1/2"):"";
-  if(*e)gtxt(b,246-gw(e),y0+11,e,lo>=hp||hi>=hp?SUI_RGB(255,120,96):m>4?SUI_RGB(96,232,128):kCGold,kCSh);}
+  if(*e)gtxt(b,246-gw(e),y0+14,e,lo>=hp||hi>=hp?SUI_RGB(255,120,96):m>4?SUI_RGB(96,232,128):kCGold,kCSh);}
  gtxt(b,128-gw("Rough: no crits, items, abilities, priority")/2,161,"Rough: no crits, items, abilities, priority",kCDim,kCSh);
  gtxt(b,128-gw("Left/Right: page   B: close")/2,177,"Left/Right: page   B: close",kCDim,kCSh);
 }
@@ -2430,7 +2430,7 @@ static int Present(bool){
   const bool pr=tNow&&bIn&&in&&side>=0;if(pr!=btnPressed){btnPressed=pr;btnDirty=true;BLINV;}
   if(!tNow)bIn=false;bPrev=tNow;}
  {u32 kd=hidKeysDown(),kh=hidKeysHeld();catchTick();
-  if((kd&KEY_Y)&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&!P3DS_InField&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))runCatch(stereo?eyeL:top,mode,mode&&gpuOk==1);
+  if((kd&KEY_Y)&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&!P3DS_InField&&!P3DS_SumOpen&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))runCatch(stereo?eyeL:top,mode,mode&&gpuOk==1);
   else if((kd&KEY_ZR)&&!(kh&(KEY_L|KEY_R|KEY_X|KEY_Y))&&P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&P3DS_CfgInt("hunt_stats",0)&&P3DS_HuntCounting())runHuntStats(stereo?eyeL:top,mode,mode&&gpuOk==1);
   else if(cornerOpen||btnOpen||((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R)&&!(kh&KEY_X)&&menuCfg())){if(!P3DS_ConsoleOnBottom())runApp(stereo?eyeL:top,mode,mode&&gpuOk==1);BLINV;}}
  return 0;
