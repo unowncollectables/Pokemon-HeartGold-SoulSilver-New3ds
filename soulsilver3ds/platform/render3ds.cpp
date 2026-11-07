@@ -1488,12 +1488,9 @@ static const SAppTab kTabs[8]={
      {71,"3D frame reuse","Reuses the last 3D picture when nothing changed, to save time."},
      {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS), very early test."},
      {119,"Grey unsupported menu","Title menu: greys Connect to Wii / Nintendo WFC Settings / Wii Message Settings / Ranger / Migrate AGB (dead on 3DS). A/touch buzzes. Continue, New Game, Mystery Gift, Pokewalker stay normal. OFF = original."}}},
- /* hidden unless SELECT is pressed inside the app */
- {10,{{11,"Fast upload","Sends finished screens straight to the GPU. Leave ON."},
-      {12,"Fast 3D convert","Faster 3D picture conversion with identical results. Leave ON."},
-      {15,"GPU compose","How the screen is built: OFF, ANALYZE, GPU or VERIFY (compares with CPU)."},
-      {19,"GPU compose 3D","With the 3D slider up, builds both eyes on the GPU in the overworld."},
-      {88,"GPU compose 3D menus","Same, for battles and menus."},
+ /* hidden unless SELECT is pressed inside the app. Fast upload, Fast 3D convert, GPU compose and GPU compose 3D were removed once proven
+    (defaults ON/2; config.txt keys gpu_swizzle, fast_conv, gpu_compose, gpu_compose_stereo still work, mItems 11/12/15/19 unchanged). */
+ {6,{{88,"GPU compose 3D menus","Same, for battles and menus."},
       {89,"GPU 3D direct","Experimental: keeps the 3D layer on the GPU. Leave OFF."},
       {86,"Audio limiter","Pulls loud moments down instead of letting them crackle."},
       {87,"Audio stall fade","Fades sound out when the game stops making any, instead of buzzing."},
