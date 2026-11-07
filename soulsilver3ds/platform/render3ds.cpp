@@ -1418,22 +1418,12 @@ static void drawTypeHint(u32*img){
    Rows may be more than one screen long (the list scrolls). */
 struct SAppRow{int it;const char*nm,*tip;};
 struct SAppTab{int n;SAppRow r[14];};
-static const char*const kTabNm[8]={"Display","Wide","3D","Input","Battle","Play","Setup","Debug"};
-static const SAppTab kTabs[8]={
- {4,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+/* the Wide tab was removed (its rows stay in config.txt: wide_battle, wide_boxes, wide_menus ... all default ON, wide_fx default OFF) */
+static const char*const kTabNm[7]={"Display","3D","Input","Battle","Play","Setup","Debug"};
+static const SAppTab kTabs[7]={
+ {3,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
-     {0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
      {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."}}},
- {10,{{74,"Wide battles","Battle scenes fill the wide screen. Needs Wide view ON."},
-      {95,"Wide HP boxes","Moves the battle HP boxes out to the screen edges."},
-      {80,"Wide party/bag","Party, bag and summary screens fill the wide screen."},
-      {91,"Wide Pokedex","The Pokedex fills the wide screen."},
-      {92,"Wide PC boxes","The PC boxes fill the wide screen."},
-      {44,"Wide menus","Other menus and 2D screens fill the wide screen too."},
-      {7,"Wide FX (slow)","Side areas copy fades and flashes. Costs about 29 ms a frame: keep OFF."},
-      {21,"Wide haze","Fog and haze layers also cover the side areas."},
-      {42,"Weather in strips","Rain and snow also fall in the side areas."},
-      {43,"Edge fill","Fills the sides with the picture's edge colours instead of black."}}},
  {7,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up."},
      {13,"Split top (mono)","Experimental: two CPU cores draw the top screen when 3D is off."},
@@ -1441,17 +1431,13 @@ static const SAppTab kTabs[8]={
      {117,"Sharp 3D","Experimental: 3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps. CRISP (test): 3D drawn at the final screen size where nothing is on top of it; needs Wide view off and the 3D slider at 0."},
      {115,"Sprite depth","Walking sprites (following Pokemon, NPCs, you) stand on the ground in 3D instead of leaning. Experimental."},
      {126,"Off-screen skip","Speed: 3D scenery that is wholly off screen is skipped before any work is done on it. Same picture. Turn OFF only if 3D bits go missing."}}},
- {13,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
+ {9,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
      {112,"Pokegear tabs","MAP / PHONE / RADIO / PARTY / BAG tabs on the Johto panel: phone list, radio on air, contact pins, read-only party and bag."},
      {120,"Party in panel","PARTY tab opens the real Pokemon menu inside the left panel; the field stays on the top screen. OFF = full-screen Party (run 119). Summary and reorder use the game's own menus. Experimental."},
      {121,"Live party/bag","PARTY and BAG tabs work with the world still running: tap two Pokemon to swap them, or a medicine then a Pokemon to use it. MENU opens the full menu. Experimental."},
      {124,"Pokedex finder","On the JOHTO map tap a place, tap its card for the wild list, then tap a Pokemon: the map pins every place it lives. Chips filter by MORN / DAY / NITE; X clears. Experimental."},
      {84,"Kanto on map","GATED: Kanto appears once you have been there. ALWAYS: shown from the start."},
      {73,"Menu button","A touch button in the corner that opens these settings. L+R+Y always works."},
-     {6,"Circle pad D-pad","The Circle Pad walks like the D-pad."},
-     {3,"C-stick D-pad","The C-stick works like the D-pad too."},
-     {5,"ZR = Y button","ZR presses Y, so it uses your registered item."},
-     {4,"ZL run toggle","ZL switches running on and off (changes what B does)."},
      {114,"Auto run","Run by default; B walks instead. ZL or the RUN tile still flip it."},
      {116,"X tile cursor","X (or the D-pad) moves a highlight over the Bottom menu buttons, A taps the lit one, B drops it."}}},
  {14,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
@@ -1493,11 +1479,9 @@ static const SAppTab kTabs[8]={
      {71,"3D frame reuse","Reuses the last 3D picture when nothing changed, to save time."},
      {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS), very early test."},
      {119,"Grey unsupported menu","Title menu: greys Connect to Wii / Nintendo WFC Settings / Wii Message Settings / Ranger / Migrate AGB (dead on 3DS). A/touch buzzes. Continue, New Game, Mystery Gift, Pokewalker stay normal. OFF = original."}}},
- /* hidden unless SELECT is pressed inside the app */
- {10,{{11,"Fast upload","Sends finished screens straight to the GPU. Leave ON."},
-      {12,"Fast 3D convert","Faster 3D picture conversion with identical results. Leave ON."},
-      {15,"GPU compose","How the screen is built: OFF, ANALYZE, GPU or VERIFY (compares with CPU)."},
-      {19,"GPU compose 3D","With the 3D slider up, builds both eyes on the GPU in the overworld."},
+ /* hidden unless SELECT is pressed inside the app. Fast upload, Fast 3D convert, GPU compose and GPU compose 3D were removed once proven
+    (defaults ON/2; config.txt keys gpu_swizzle, fast_conv, gpu_compose, gpu_compose_stereo still work, mItems 11/12/15/19 unchanged). */
+ {7,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
       {88,"GPU compose 3D menus","Same, for battles and menus."},
       {89,"GPU 3D direct","Experimental: keeps the 3D layer on the GPU. Leave OFF."},
       {86,"Audio limiter","Pulls loud moments down instead of letting them crackle."},
@@ -1529,13 +1513,13 @@ static void runApp(const u32*top,int mode,bool gpu){
  enum{N=MENU_N};int val[N];for(int i=0;i<N;i++)val[i]=menuGet(i);int old[N];memcpy(old,val,sizeof old);
  for(int i=0;i<256*192;i++){u32 c=base[i];base[i]=((c>>1)&0x007F7F7Fu)|(c&0xFF000000u);}
  P3DS_MenuOpen=1;P3DS_OvN=0;P3DS_BmOn=0;P3DS_Toast("");toastAt=0; /* the JOHTO icon overlay is drawn by the GPU present; clear it so it cannot sit on top of the settings screen */
- static bool dbgTabs=false;static int tab=0;int NT=dbgTabs?8:7;if(tab>=NT)tab=0;int sel=0,ltop=0;
+ static bool dbgTabs=false;static int tab=0;int NT=dbgTabs?7:6;if(tab>=NT)tab=0;int sel=0,ltop=0;
  PSPNativeMemLog("[APP] settings open (tab %s, font %d, frame %d)",kTabNm[tab],P3DS_GameFontReady(),P3DS_GameBoxReady());
  u32 held=hidKeysHeld();bool wasTouch=(held&KEY_TOUCH)!=0;u64 t0=svcGetSystemTick();
  while(aptMainLoop()){
   hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
   if(kd&(KEY_B|KEY_START))break;if((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R))break;
-  if(kd&KEY_SELECT){dbgTabs=!dbgTabs;NT=dbgTabs?8:7;if(tab>=NT)tab=0;sel=0;PSPNativeMemLog("[APP] debug tab %s",dbgTabs?"shown":"hidden");}
+  if(kd&KEY_SELECT){dbgTabs=!dbgTabs;NT=dbgTabs?7:6;if(tab>=NT)tab=0;sel=0;PSPNativeMemLog("[APP] debug tab %s",dbgTabs?"shown":"hidden");}
   if(kd&KEY_L){tab=(tab+NT-1)%NT;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}if(kd&KEY_R){tab=(tab+1)%NT;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}
   const SAppTab&T=kTabs[tab];const int cnt=T.n;
   /* Up/Down = row, Left/X = value back, Right/A = value forward */
