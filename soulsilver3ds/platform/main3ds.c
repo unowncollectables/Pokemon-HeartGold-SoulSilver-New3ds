@@ -561,8 +561,23 @@ static void hwChk(const char *k, void *p, u32 h, u32 n, void *ra) { unsigned a =
 /* run 681 crash (Heap_Alloc -> NNS_FndAllocFromExpHeapEx, NULL heap handle): the game allocated from a heap id whose heap is not
    created (destroyed or never made). The game's GF_ASSERT does not stop here, so it dereferenced NULL. sHeapInfo sits at DS RAM
    0x020d10c0 (heapHandles @0, heapIdxs @16, totalNumHeaps @20, as the compiled Heap_Alloc reads it). Use the default heap instead. */
+/* run 688 fix: the address of sHeapInfo moves with every build (run 687 crashed in this guard reading the old fixed 0x020d10c0). Read it
+   from the compiled Heap_Alloc itself instead: its first literal load is the sHeapInfo address and it reads +0x14 as a halfword. If that
+   pattern is not found the guard does nothing (never dereferences a guessed address). */
+static const u32 *heapInfoAddr(void) {
+    static const u32 *cached; static int done; if (done) return cached; done = 1;
+    const u32 *fn = (const u32 *)(uintptr_t)__real_Heap_Alloc;
+    for (int i = 0; i < 10; i++) { const u32 w = fn[i];
+        if ((w & 0x0f7f0000u) != 0x051f0000u || !(w & 0x00800000u)) continue;               /* ldr rd, [pc, #+imm] */
+        const u32 rd = (w >> 12) & 15, lit = *(const u32 *)((const u8 *)&fn[i] + 8 + (w & 0xfff)); const u32 *hi = (const u32 *)(uintptr_t)lit;
+        for (int j = i + 1; j < i + 6; j++) { const u32 x = fn[j];                           /* ldrh rt, [rd, #0x14] */
+            if ((x & 0xfff00000u) == 0xe1d00000u && ((x >> 16) & 15) == rd && (x & 0xf0u) == 0xb0u && ((((x >> 4) & 0xf0u) | (x & 0xfu)) == 0x14)) {
+                const unsigned total = *(const u16 *)((const u8 *)hi + 20);
+                if (total >= 1 && total <= 256 && hi[0] && hi[4]) { cached = hi; PSPNativeMemLog("[HEAP] heap guard: sHeapInfo at %p (read from Heap_Alloc), %u heap ids", (const void *)hi, total); return cached; } } } }
+    PSPNativeMemLog("[HEAP] heap guard: sHeapInfo not found in Heap_Alloc, guard off"); return cached; }
 static u32 heapGuard(u32 h, const char *k, u32 n, void *ra) {
-    const u32 *hi = (const u32 *)0x020d10c0; const void *const *handles = (const void *const *)hi[0]; const u8 *idx = (const u8 *)hi[4];
+    const u32 *hi = heapInfoAddr(); if (!hi) return h;
+    const void *const *handles = (const void *const *)hi[0]; const u8 *idx = (const u8 *)hi[4];
     unsigned total = *(const u16 *)((const u8 *)hi + 20);
     if (h < total && handles && idx && !handles[idx[h]]) { static unsigned c; if (c++ < 20) PSPNativeMemLog("[HEAP] %s on heap id %lu with no heap (size %lu, from %p): using the default heap (#%u)", k, (unsigned long)h, (unsigned long)n, ra, c); return 0; }
     return h; }
