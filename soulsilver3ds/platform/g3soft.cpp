@@ -373,7 +373,7 @@ static unsigned culledTris,cpuClipped,rejOut,rejMask;int vdump,vdumpN;
    Ecruteak, Union Cave, Olivine, Ice Path, Cianwood, National Park identical with 0 and 1; no black spots). */
 /* 2026-11-07 (enemy attacks / Intimidate invisible since #353): battle effect quads are huge and run far past the 2x guard band; #353 sent them to the PICA clipper, which
    drops them. Battles keep the old CPU-clip rule; only the field (Bellchime sky) uses the new one. */
-static inline bool guardBattle(){extern int P3DS_InBattle;return P3DS_InBattle!=0;}
+static inline bool guardBattle(){extern int P3DS_InBattle,P3DS_InField;return P3DS_InBattle!=0||P3DS_InField==0;} /* name kept: "not the field" = battle, evolution, Hall of Fame, title/intro, contest, Pokedex... only the field uses the PICA clipper for the guard band */
 static int guardClip(){static int v=-1;if(v<0){v=P3DS_CfgInt("g3_guardclip",0);PSPNativeMemLog("[GPU3D] g3_guardclip=%d",v);}return v;}
 /* gpu3d_cpuclip=1 (default): clip/divide on the CPU (same as the clean CPU renderer), raster on the GPU.
    Run 26: black spots only on the clip-space GPU path. 0 = old clip-space path. */
