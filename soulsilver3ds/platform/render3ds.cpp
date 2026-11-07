@@ -483,6 +483,29 @@ static bool drawAchToastHD(const char*l1in,const char*l2,int sl){
   for(int y=0;y<H;y++)for(int x=0;x<W;x++){const u32 c=cv[y*512+x];ob[y*512+x]=((c&255)<<24)|(((c>>8)&255)<<16)|(((c>>16)&255)<<8)|(c>>24);}
   P3DS_TopOvW=W;P3DS_TopOvH=H;P3DS_TopOvDirty=1;}
  (void)lastSl;P3DS_TopOvX=(400-W)/2;P3DS_TopOvY=240-((H+6)*sl/16);P3DS_TopOvOn=1;return true;}
+/* 2026-11-06 (Nathan: no cursor on the Mystery Gift menu): the game prints its list cursor as a text character into the list window,
+   and on some lists (Mystery Gift) that never shows up. SS3DS_ListMenuProcessInput (ss3ds_glue.c, patch 0227) records the list the game
+   is running; when that list's cursor spot in the finished top picture is still blank (nothing of the game's own cursor there), a
+   smooth full-resolution arrow is drawn on it in the native top overlay. Lists whose own cursor shows are left alone. */
+extern "C" volatile struct{unsigned frame;unsigned char bgId,left,top,width,height,cursorX,upY,kind;unsigned short pos,above,total,shown;unsigned char font,padding;}P3DS_ListMenuNow;
+extern "C" u32*P3DS_TopOv2BufGet(void);extern "C" volatile int P3DS_TopOv2On,P3DS_TopOv2Dirty;extern "C" int P3DS_TopOv2X,P3DS_TopOv2Y,P3DS_TopOv2W,P3DS_TopOv2H;
+extern "C" unsigned PSPNativeRenderFrameCount(void);extern "C" void P3DS_TopOvInit(void);
+__attribute__((noinline)) static void drawListCursor(const u32*img){
+ static bool pre;if(!pre){pre=true;P3DS_TopOvInit();}   /* buffers and textures at the first frame, never while a screen is loading (they crashed the game thread) */
+ const unsigned fr=PSPNativeRenderFrameCount();if(!P3DS_ListMenuNow.frame||fr>P3DS_ListMenuNow.frame+3||fr+3<P3DS_ListMenuNow.frame)return;
+ if(P3DS_ListMenuNow.kind!=0||P3DS_ListMenuNow.bgId>3||P3DS_ListMenuNow.total==0||P3DS_ListMenuNow.height<2)return;
+ const int rowH=16+P3DS_ListMenuNow.padding,bx=P3DS_ListMenuNow.left*8+P3DS_ListMenuNow.cursorX,by=P3DS_ListMenuNow.top*8+P3DS_ListMenuNow.upY+P3DS_ListMenuNow.above*rowH;
+ if(bx<0||by<0||bx+7>256||by+16>192)return;
+ /* the game's own cursor is there when this 7x16 spot holds ink: more than a few pixels that differ from the corner (window fill) */
+ const u32 fill=img[by*256+bx];int ink=0;for(int y=by;y<by+16;y++)for(int x=bx;x<bx+7;x++)if((img[y*256+x]&0xFFFFFF)!=(fill&0xFFFFFF))ink++;
+ if(ink>4)return;
+ u32*ob=P3DS_TopOv2BufGet();if(!ob)return;
+ static bool made;if(!made){made=true;memset(ob,0,64*32*4);const int W=10,H=18;   /* right-pointing triangle, 4x4 coverage, dark with a soft edge */
+  for(int y=0;y<H;y++)for(int x=0;x<W;x++){int c=0;for(int sy=0;sy<4;sy++)for(int sx=0;sx<4;sx++){const float fx=x+(sx+0.5f)/4,fy=y+(sy+0.5f)/4;const float ty=fy-H*0.5f;const float lim=(fx-1.0f)*(H*0.5f-2.0f)/(W-3.0f);   /* half height shrinks toward the tip */
+    if(fx>=1.0f&&fx<=W-2.0f&&ty<=((W-2.0f-fx)/(W-3.0f))*(H*0.5f-2.0f)+0*lim&&ty>=-((W-2.0f-fx)/(W-3.0f))*(H*0.5f-2.0f))c++;}
+   if(c)ob[y*64+x]=(0x30u<<24)|(0x30u<<16)|(0x30u<<8)|(unsigned)(c*255/16);}   /* R<<24|G<<16|B<<8|A */
+  P3DS_TopOv2Dirty=1;}
+ P3DS_TopOv2W=10;P3DS_TopOv2H=18;P3DS_TopOv2X=40+(int)(bx*1.25f);P3DS_TopOv2Y=(int)(by*1.25f)+1;P3DS_TopOv2On=1;}
 static void drawAchToast(u32*img,int eye){char l1[48],l2[48];int sl=0;if(!P3DS_AchToastNow(l1,sizeof l1,l2,sizeof l2,&sl,eye))return;
  if(eye==0&&drawAchToastHD(l1,l2,sl))return;if(eye==1&&P3DS_TopOvOn)return;topTouch();
  /* Xbox 360 style, small: dark pill, green rim, round gold badge, tiny green title + score, name in the game font (3/4 size, lower case works) */
@@ -2016,7 +2039,7 @@ static int Present(bool){
       Say so once in log.txt and on screen, so a menu toggle is not mistaken for a renderer bug. */
    static bool warned;if(us>8000&&!warned){warned=true;PSPNativeMemLog("[WIDE] wide_fx costs %u ms per frame: the overworld drops to ~15 fps. Turn Settings > Display > Wide FX (slow) OFF (config.txt wide_fx=0).",us/1000);P3DS_Toast("WIDE FX IS SLOW");}}}}
  const u64 tOv0=svcGetSystemTick();pfT[PF_WPREP]+=tOv0-tComp;
- {u64 nowT=svcGetSystemTick();u32*tt=(u32*)(stereo?eyeL:top);drawSaveBox(tt,nowT);if(stereo)drawSaveBox((u32*)eyeR,nowT);drawToast(tt,nowT);if(stereo)drawToast((u32*)eyeR,nowT);drawAchToast(tt,0);if(stereo)drawAchToast((u32*)eyeR,1);drawShinyFlash(tt,nowT);if(stereo)drawShinyFlash((u32*)eyeR,nowT);drawTodTint(tt);if(stereo)drawTodTint((u32*)eyeR);drawDwRoll(tt);if(stereo)drawDwRoll((u32*)eyeR);drawFolTalk(tt,nowT);drawFolEmote(tt,nowT);drawDwDebris(tt,0);if(stereo)drawDwDebris((u32*)eyeR,1);if(stereo)drawFolEmote((u32*)eyeR,nowT);drawSumIV(tt);P3DS_RibbonFrame(hidKeysHeld());P3DS_RibbonDraw(tt);P3DS_CelebDraw(tt,0);if(stereo)P3DS_CelebDraw((u32*)eyeR,1);drawPrompt(tt);if(stereo)drawPrompt((u32*)eyeR);if(stereo&&sumShow)drawSumIV((u32*)eyeR);if(stereo)P3DS_RibbonDraw((u32*)eyeR);if(stereo)drawFolTalk((u32*)eyeR,nowT);}
+ {u64 nowT=svcGetSystemTick();u32*tt=(u32*)(stereo?eyeL:top);drawSaveBox(tt,nowT);if(stereo)drawSaveBox((u32*)eyeR,nowT);drawToast(tt,nowT);if(stereo)drawToast((u32*)eyeR,nowT);drawAchToast(tt,0);if(stereo)drawAchToast((u32*)eyeR,1);drawListCursor(tt);drawShinyFlash(tt,nowT);if(stereo)drawShinyFlash((u32*)eyeR,nowT);drawTodTint(tt);if(stereo)drawTodTint((u32*)eyeR);drawDwRoll(tt);if(stereo)drawDwRoll((u32*)eyeR);drawFolTalk(tt,nowT);drawFolEmote(tt,nowT);drawDwDebris(tt,0);if(stereo)drawDwDebris((u32*)eyeR,1);if(stereo)drawFolEmote((u32*)eyeR,nowT);drawSumIV(tt);P3DS_RibbonFrame(hidKeysHeld());P3DS_RibbonDraw(tt);P3DS_CelebDraw(tt,0);if(stereo)P3DS_CelebDraw((u32*)eyeR,1);drawPrompt(tt);if(stereo)drawPrompt((u32*)eyeR);if(stereo&&sumShow)drawSumIV((u32*)eyeR);if(stereo)P3DS_RibbonDraw((u32*)eyeR);if(stereo)drawFolTalk((u32*)eyeR,nowT);}
  {static int fi;if(!fi){fi=1;fpsOn=P3DS_CfgInt("fps_counter",0)!=0;/* run 64: default 0 (clean launch) */}}/* run 55: fps_counter (menu-saved) */
  P3DS_GpTextOn=0;
  if(fpsOn){char b[24];snprintf(b,sizeof b,"%u %u.%u",fpsShown,msShown/10,msShown%10);u32*tt=(u32*)(stereo?eyeL:top);

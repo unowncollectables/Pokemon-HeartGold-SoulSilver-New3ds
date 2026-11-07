@@ -1,0 +1,27 @@
+From e50506905756f4922d02e99fe8d36350d2baed23 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Fri, 6 Nov 2026 21:44:09 -0500
+Subject: [PATCH] ss3ds: route ListMenu_ProcessInput to
+ SS3DS_ListMenuProcessInput (port list cursor)
+
+---
+ port/soulsilver-native-play/maploader/call-retargets.json | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/port/soulsilver-native-play/maploader/call-retargets.json b/port/soulsilver-native-play/maploader/call-retargets.json
+index 25ad265..0c817db 100644
+--- a/port/soulsilver-native-play/maploader/call-retargets.json
++++ b/port/soulsilver-native-play/maploader/call-retargets.json
+@@ -21,7 +21,8 @@
+   "G2x_SetBlendBrightnessExt_": "SSAsm_G2x_SetBlendBrightnessExt_",
+   "G2x_ChangeBlendBrightness_": "SSAsm_G2x_ChangeBlendBrightness_",
+   "ov07_0221FDFC": "SS3DS_BattleMonOBJ_NewAll",
+-  "sub_0205DE88": "SS3DS_RunHeld"
++  "sub_0205DE88": "SS3DS_RunHeld",
++  "ListMenu_ProcessInput": "SS3DS_ListMenuProcessInput"
+  },
+  "ov12_02260CDC": {
+   "ov07_0221FB90": "SS3DS_BattleMonOBJ_One"
+-- 
+2.53.0
+

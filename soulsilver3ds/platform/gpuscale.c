@@ -385,10 +385,15 @@ static void ovDraw(C3D_RenderTarget *t) {
 u32 *P3DS_TopOvBuf; volatile int P3DS_TopOvOn, P3DS_TopOvDirty; int P3DS_TopOvX, P3DS_TopOvY, P3DS_TopOvW, P3DS_TopOvH;
 static C3D_Tex tovTex; static int tovOk = -1;
 u32 *P3DS_TopOvBufGet(void) { if (!P3DS_TopOvBuf) { P3DS_TopOvBuf = linearAlloc(512 * 64 * 4); if (P3DS_TopOvBuf) memset(P3DS_TopOvBuf, 0, 512 * 64 * 4); } return P3DS_TopOvBuf; }
-static void topOvDraw(C3D_RenderTarget *t) {
-    if (!P3DS_TopOvBuf || P3DS_TopOvW < 1 || P3DS_TopOvH < 1 || P3DS_TopOvW > 512 || P3DS_TopOvH > 64) return;
+static void tovEnsure(void) {
     if (tovOk < 0) { tovOk = C3D_TexInit(&tovTex, 512, 64, GPU_RGBA8) ? 1 : 0; if (tovOk) { C3D_TexSetFilter(&tovTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&tovTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_TopOvDirty = 1; }
         PSPNativeMemLog("[TOPOV] native top overlay texture %s", tovOk ? "ready" : "FAILED (toast stays in the DS picture)"); }
+}
+static void tov2Ensure(void); u32 *P3DS_TopOv2BufGet(void);
+void P3DS_TopOvInit(void) { P3DS_TopOvBufGet(); P3DS_TopOv2BufGet(); tovEnsure(); tov2Ensure(); }
+static void topOvDraw(C3D_RenderTarget *t) {
+    if (!P3DS_TopOvBuf || P3DS_TopOvW < 1 || P3DS_TopOvH < 1 || P3DS_TopOvW > 512 || P3DS_TopOvH > 64) return;
+    P3DS_TopOvInit();
     if (!tovOk) return;
     if (P3DS_TopOvDirty) { P3DS_TopOvDirty = 0; GSPGPU_FlushDataCache(P3DS_TopOvBuf, 512 * 64 * 4);
         C3D_SyncDisplayTransfer(P3DS_TopOvBuf, GX_BUFFER_DIM(512, 64), tovTex.data, GX_BUFFER_DIM(512, 64), TEX_FLAGS); }
@@ -398,6 +403,34 @@ static void topOvDraw(C3D_RenderTarget *t) {
     C3D_TexBind(0, &tovTex);
     C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ZERO, GPU_ONE);
     const float x0 = P3DS_TopOvX, y0 = P3DS_TopOvY, x1 = P3DS_TopOvX + P3DS_TopOvW, y1 = P3DS_TopOvY + P3DS_TopOvH, s1 = P3DS_TopOvW / 512.0f, t1 = P3DS_TopOvH / 64.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
+    C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+}
+/* 2026-11-06: a second, small native top overlay (64x32) for port-drawn list cursors; same rules as P3DS_TopOv above. */
+u32 *P3DS_TopOv2Buf; volatile int P3DS_TopOv2On, P3DS_TopOv2Dirty; int P3DS_TopOv2X, P3DS_TopOv2Y, P3DS_TopOv2W, P3DS_TopOv2H;
+static C3D_Tex tov2Tex; static int tov2Ok = -1;
+u32 *P3DS_TopOv2BufGet(void) { if (!P3DS_TopOv2Buf) { P3DS_TopOv2Buf = linearAlloc(64 * 32 * 4); if (P3DS_TopOv2Buf) memset(P3DS_TopOv2Buf, 0, 64 * 32 * 4); } return P3DS_TopOv2Buf; }
+static void tov2Ensure(void) {
+    if (tov2Ok < 0) { tov2Ok = C3D_TexInit(&tov2Tex, 64, 32, GPU_RGBA8) ? 1 : 0; if (tov2Ok) { C3D_TexSetFilter(&tov2Tex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&tov2Tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_TopOv2Dirty = 1; }
+        PSPNativeMemLog("[TOPOV] small top overlay texture %s", tov2Ok ? "ready" : "FAILED"); }
+}
+static void topOv2Draw(C3D_RenderTarget *t) {
+    if (!P3DS_TopOv2Buf || P3DS_TopOv2W < 1 || P3DS_TopOv2H < 1 || P3DS_TopOv2W > 64 || P3DS_TopOv2H > 32) return;
+    P3DS_TopOvInit();
+    if (!tov2Ok) return;
+    if (P3DS_TopOv2Dirty) { P3DS_TopOv2Dirty = 0; GSPGPU_FlushDataCache(P3DS_TopOv2Buf, 64 * 32 * 4);
+        C3D_SyncDisplayTransfer(P3DS_TopOv2Buf, GX_BUFFER_DIM(64, 32), tov2Tex.data, GX_BUFFER_DIM(64, 32), TEX_FLAGS); }
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &tov2Tex);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ZERO, GPU_ONE);
+    const float x0 = P3DS_TopOv2X, y0 = P3DS_TopOv2Y, x1 = P3DS_TopOv2X + P3DS_TopOv2W, y1 = P3DS_TopOv2Y + P3DS_TopOv2H, s1 = P3DS_TopOv2W / 64.0f, t1 = P3DS_TopOv2H / 32.0f;
     C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
     C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
     C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
@@ -467,6 +500,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     if (mode == 2) { quad(tgtTop, 400.0f, 0, fx, fy, fx + fw, fy + fh); if (crisp) crispDraw(tgtTop, 400.0f, fx, fy, fx + fw, fy + fh); } else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); if (crisp) crispDraw(tgtTop, 400.0f, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTop, 0); stT += svcGetSystemTick() - a; }
     if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTopR, 1); stT += svcGetSystemTick() - a; } }
     if (P3DS_TopOvOn) { P3DS_TopOvOn = 0; topOvDraw(tgtTop); if (st) topOvDraw(tgtTopR); }
+    if (P3DS_TopOv2On) { P3DS_TopOv2On = 0; topOv2Draw(tgtTop); if (st) topOv2Draw(tgtTopR); }
     if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); pnDraw(tgtBot); ovDraw(tgtBot); botFadeDraw(tgtBot); } else P3DS_PnOn = 0;
     if (crN >= 600) { if (crOn) PSPNativeMemLog("[CRISP] %u of %u presents drew the 3D at final size, avg plain-3D cover %u%%, avg prep %u us", crOn, crN, (unsigned)(crMask / crOn * 100 / (256 * 192)), (unsigned)(crTicks / crOn / 268)); crN = crOn = 0; crMask = 0; crTicks = 0; }
     P3DS_GpStripUs = (unsigned)(stT / 268); P3DS_GpDrawUs = (unsigned)((svcGetSystemTick() - tDr0 - stT) / 268);
