@@ -161,7 +161,10 @@ extern "C" void P3DS_WildFree(int sl){if(sl<1||sl>7)return;for(int k=0;k<8;k++){
 static inline Tex*folLookup(const G3SIM_TexImageParam_t&p){if(p.textureOffset>0x7FFF8||p.textureOffset<0x7FFC0||p.textureFormat!=3||(s_texPlttBase&~0x70u)!=0x1FF00)return nullptr;Tex*t=&folTex[((0x7FFF8-p.textureOffset)/8)*8+((s_texPlttBase>>4)&7)];return t->px?t:nullptr;}
 static Tex*GetTextureImpl(){
  const auto&p=s_texImageParam;unsigned fmt=p.textureFormat;if(!fmt)return nullptr;
- if(p.textureOffset>=0x7FFC0&&p.textureOffset<=0x7FFF8)return folLookup(p);
+ /* 2026-11-07: only a live follower/wild/flyer slot (format 3, its palette base, pixels loaded) takes this branch. #357 widened it to 0x7FFC0 and
+    returned folLookup's nullptr for any other texture there: a real texture at the very top of texture VRAM (the battle grass / shiny sparkle
+    8x8 at 0x7FFC0) then drew untextured, a big flat box in the wild battle intro and no shiny effect. Everything else uses the normal cache. */
+ if(p.textureOffset>=0x7FFC0&&p.textureOffset<=0x7FFF8){Tex*ft=folLookup(p);if(ft)return ft;}
  unsigned w=p.textureSSize,h=p.textureTSize;if(w<8||h<8||w>1024||h>1024)return nullptr;
  for(unsigned i=0;i<texN;i++){Tex&t=texCache[i];if(t.off==p.textureOffset&&t.pal==s_texPlttBase&&t.fmt==fmt&&t.w==w&&t.h==h&&t.c0==p.color0){
    if(t.gen==PSPNativeVramGen){t.lru=++texTick;return &t;}
