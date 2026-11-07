@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Poke Ball throw / catch animation invisible
+- The thrown ball and capture effect were drawn by the game but never shown: the thrown ball is a rotating sprite, which the GPU compositor rejects, and the "direct screen" path (`gc_direct`) kept presenting the last GPU-composed picture instead of the CPU one. A frame composed by the CPU now drops the stale pending GPU picture first (`P3DS_GcDrop`). Found by catching a wild Pokemon in the cloud emulator (ball visible with `gc_direct=0` or `gpu_compose=0`). Other screens with rotating/scaling sprites, windows or other rejected frames that follow a GPU frame in battle or the field could have shown the same frozen picture.
 ### Bug-Catching Contest helper
 - Settings > Input > "Contest helper" (`contest_helper`, default OFF, patch 0229): during the Bug-Catching Contest the Bottom menu panel shows a card with minutes left (the game's own 20-minute counter), Sport Balls left and the Pokemon you hold. Read-only (reads the game's contest state, writes nothing). Log: `[CONTEST]`. Pokeathlon not covered (own overlay app, no field hook).
 
