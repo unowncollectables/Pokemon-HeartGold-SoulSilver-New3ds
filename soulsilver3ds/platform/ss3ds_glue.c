@@ -318,3 +318,27 @@ int SS3DS_FieldWeather(void) {
     void *save = SaveData_Get();
     return save ? (int)LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(save)) : -1;
 }
+
+/* 2026-11-06 (Nathan: Mystery Gift shows no cursor): every translated caller of ListMenu_ProcessInput (call-retargets "*", patch 0227)
+   goes through here. It runs the real function and remembers the list the game is processing, so the port can draw a cursor where
+   the game's own printed one is missing. Layout: ListMenu / Window in the decomp (list_menu.h, bg_window.h). */
+extern int ListMenu_ProcessInput(void *list);
+volatile struct { unsigned frame; unsigned char bgId, left, top, width, height, cursorX, upY, kind; unsigned short pos, above, total, shown; unsigned char font, padding; } P3DS_ListMenuNow;
+int SS3DS_ListMenuProcessInput(void *list) {
+    const int r = ListMenu_ProcessInput(list);
+    extern unsigned PSPNativeRenderFrameCount(void);
+    const unsigned char *l = (const unsigned char *)list; const unsigned char *w = *(const unsigned char *const *)(l + 0x0C);
+    if (w) {
+        P3DS_ListMenuNow.bgId = w[4]; P3DS_ListMenuNow.left = w[5]; P3DS_ListMenuNow.top = w[6]; P3DS_ListMenuNow.width = w[7]; P3DS_ListMenuNow.height = w[8];
+        P3DS_ListMenuNow.cursorX = l[0x16]; P3DS_ListMenuNow.upY = l[0x17] & 15;
+        { const unsigned short b = *(const unsigned short *)(l + 0x1A); P3DS_ListMenuNow.padding = (b >> 3) & 15; P3DS_ListMenuNow.font = (b >> 9) & 63; P3DS_ListMenuNow.kind = (b >> 15) & 1; }
+        P3DS_ListMenuNow.total = *(const unsigned short *)(l + 0x10); P3DS_ListMenuNow.shown = *(const unsigned short *)(l + 0x12);
+        P3DS_ListMenuNow.pos = *(const unsigned short *)(l + 0x2C); P3DS_ListMenuNow.above = *(const unsigned short *)(l + 0x2E);
+        P3DS_ListMenuNow.frame = PSPNativeRenderFrameCount() + 1;
+        { static unsigned short lp, la; static int ln; if ((P3DS_ListMenuNow.pos != lp || P3DS_ListMenuNow.above != la || ln++ < 3)) { lp = P3DS_ListMenuNow.pos; la = P3DS_ListMenuNow.above;
+            PSPNativeMemLog("[LISTMENU] bg %u win %u,%u %ux%u cursor_X %u upY %u kind %u font %u pad %u total %u shown %u pos %u above %u", P3DS_ListMenuNow.bgId, P3DS_ListMenuNow.left, P3DS_ListMenuNow.top,
+                P3DS_ListMenuNow.width, P3DS_ListMenuNow.height, P3DS_ListMenuNow.cursorX, P3DS_ListMenuNow.upY, P3DS_ListMenuNow.kind, P3DS_ListMenuNow.font, P3DS_ListMenuNow.padding,
+                P3DS_ListMenuNow.total, P3DS_ListMenuNow.shown, P3DS_ListMenuNow.pos, P3DS_ListMenuNow.above); } }
+    }
+    return r;
+}

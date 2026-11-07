@@ -4,6 +4,10 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Mystery Gift menu shows its cursor
+- The Mystery Gift menu (Receive Gift / Check Card / Exit) had no pointer: the game prints its list cursor as a text character into the list window, and on this screen it never appeared (the selection itself always worked). Every translated caller of `ListMenu_ProcessInput` now goes through `SS3DS_ListMenuProcessInput` (patch 0227, call-retargets `*`; ss3ds_glue.c), which remembers the list the game is running. When that list's cursor spot in the finished top picture is still blank, a smooth full-resolution arrow is drawn on the highlighted row in a second small native top overlay (gpuscale.c `P3DS_TopOv2*`, render3ds.cpp `drawListCursor`). Lists whose own cursor shows are left alone. Log `[LISTMENU]` on selection changes.
+- Both native top overlays (achievement toast and this cursor) now get their buffers and textures at the first frame (`P3DS_TopOvInit`), not on first use: creating the texture while a screen was loading crashed the game thread (Azahar: Undefined Instruction in AddCellOrAnimResObjFromNarc after pressing A twice at the title).
+
 ### GTS: send the request like the real GameSpy client
 - GTS server (ASP.NET behind ARR) now answers `400 Bad request` to our HTTP/1.0 GET. Requests are now HTTP/1.1 with the same headers the DS game sends (User-Agent, Host, Accept, Connection: close). Run 151 log will show if it helps.
 
