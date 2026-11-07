@@ -139,6 +139,7 @@ volatile int P3DS_SasMasterVol = -1; /* SOUNDCNT master volume, set by sas_out.c
    control). audio_gain 4 = the DS's own level (melonDS: one full centred channel = 0.496 of full scale); the loudest battle in
    the run-148 log peaked at 26k at DS level, so 5 (+1.9 dB) is the loudest level that still never clips. 7 (old default)
    clipped battles and fed the DSP limiter. config audio_gain=N still overrides for tests. */
+extern int P3DS_EvenLoudnessCfg(void);
 static int sasGain(void) { if (P3DS_AudioGainV < 0) { int g0 = P3DS_CfgInt("audio_gain", 5); if (g0 < 1 || g0 > 64) g0 = 5; P3DS_AudioGainV = g0; PSPNativeMemLog("[AUDIO] audio_gain=%d (fixed level, 4 = DS, 5 = loudest without clipping; the 3DS slider is the volume)", g0); } return P3DS_AudioGainV; }
 static void sasMixRange(int off, int n) {
     /* run 39 (battle rain crackle): rain = looping ADPCM voice at ~20 kHz with constant CC7 volume / CC10 pan ramps.
@@ -214,7 +215,21 @@ int __sceSasCore(void *c, void *out) {
       if (holdRun == 64 && P3DS_AudioStallFadeV) { P3DS_AudioStallFades++; PSPNativeMemLog("[AUDIO] stall fade: no game sound pump for %u ms, fading out (fades %u)", 64u * (unsigned)G * 1000u / (unsigned)P3DS_SasRate, P3DS_AudioStallFades); } }
     if (P3DS_AudioWoke) { P3DS_AudioWoke = 0; sf = 0; PSPNativeMemLog("[AUDIO] wake/restore: fading in, gain %d limiter %d", g, P3DS_AudioLimiterV); }
     const int sf0 = sf; if (P3DS_AudioStallFadeV && holdRun >= 64) { sf -= 65536 / 16; if (sf < 0) sf = 0; } else if (sf < 65536) { sf += 65536 / 32; if (sf > 65536) sf = 65536; }
-    s16 *o = out; int pk = 0; for (int i = 0; i < G * 2; i++) { int s = acc[i]; if (s > pk) pk = s; if (-s > pk) pk = -s; }
+    s16 *o = out; int pk = 0; long long sumAbs = 0; for (int i = 0; i < G * 2; i++) { int s = acc[i]; if (s > pk) pk = s; if (-s > pk) pk = -s; sumAbs += s < 0 ? -s : s; }
+    /* 2026-11-07 audio_even (Settings > Setup > Even loudness, default ON; Nathan: "audio going up and down", route -> Goldenrod): the DS
+       area themes are mixed at very different levels (route peaks 17-21k, Goldenrod 25-36k, battle starts 70-120k that hard-clipped at the
+       rail). Two stages, neither rides the gain on single notes: (1) a SLOW leveller: the average level is followed over ~1 s, and when it
+       sits above the target the whole mix is turned down (fast down 1/32 per grain ~0.25 s, back up 1/128 ~1 s), never below 40%;
+       (2) a brickwall guard that only acts when the leveller's output would pass 32000 (full scale): instant, recovers in ~16 grains.
+       OFF = the exact DS levels (hard clip at the rail). config audio_even_level (default 5200) = target average |sample|. */
+    static int evG = 65536, bgG = 65536; static long long evAvg = 0; int evOn = P3DS_EvenLoudnessCfg();
+    const int evG0 = evG, bgG0 = bgG;
+    if (evOn) { static int tgt = -1; if (tgt < 0) { tgt = P3DS_CfgInt("audio_even_level", 5200); if (tgt < 1500 || tgt > 20000) tgt = 5200; PSPNativeMemLog("[AUDIO] audio_even_level=%d (target average level of the leveller)", tgt); }
+      const long long ma = sumAbs / (G * 2); evAvg += (ma - evAvg) / 128;
+      int want = evAvg > tgt ? (int)((long long)tgt * 65536 / evAvg) : 65536; if (want < 26214) want = 26214;
+      if (want < evG) evG += (want - evG) / 32 - 1; else evG += (want - evG) / 128 + 1; if (evG > 65536) evG = 65536; if (evG < 26214) evG = 26214;
+      { long long pe = (long long)pk * evG / 65536; int need = pe > 32000 ? (int)(32000LL * 65536 / pe) : 65536; if (need < bgG) bgG = need; else { bgG += (65536 - bgG) / 16 + 1; if (bgG > need) bgG = need; if (bgG > 65536) bgG = 65536; } }
+    } else { evG = bgG = 65536; evAvg = 0; }
     const int lg0 = lim_ ? lg : 65536;
     if (lim_) { static int ceil_ = -1; if (ceil_ < 0) { ceil_ = P3DS_CfgInt("audio_ceiling", 14000); if (ceil_ < 4000 || ceil_ > 24576) ceil_ = 14000; PSPNativeMemLog("[AUDIO] audio_ceiling=%d (loud scenes such as battles peaked at 47000 while the overworld peaks 9000-20000; the limiter now levels them to this peak)", ceil_); }
       const int cl_ = lim_ == 1 ? ceil_ : 24576; /* styles 2/3 only catch real overs, so battle dynamics match the DS */
@@ -225,13 +240,15 @@ int __sceSasCore(void *c, void *out) {
     /* DS RAW: static waveshaper knee at 16384 (was 24576) so random loud spikes (battle/SE peaks 40k+ vs 15k for the overworld) are tamed without any gain riding; music below 16k is untouched */
     const int kn_ = P3DS_AudioLimiterV == 3 ? 32767 : 24576; /* 3 = plain s16 hard clip like the DS output stage (Nathan: exact; lower Volume for loud scenes) */
     for (int i = 0; i < G * 2; i++) { int s = acc[i];
+        if (evG0 != 65536 || evG != 65536 || bgG0 != 65536 || bgG != 65536) { int e = evG0 + (int)(((long long)(evG - evG0) * (i >> 1)) / G), b = bgG0 + (int)(((long long)(bgG - bgG0) * (i >> 1)) / G); s = (int)(((long long)s * e >> 16) * b >> 16); }
         if (lg0 != 65536 || lg != 65536) { int gg = lg0 + (int)(((long long)(lg - lg0) * (i >> 1)) / G); s = (int)(((long long)s * gg) >> 16); }
         if (sf0 != 65536 || sf != 65536) { int ff = sf0 + (int)(((long long)(sf - sf0) * (i >> 1)) / G); s = (int)(((long long)s * ff) >> 16); }
         int m = s < 0 ? -s : s; if (m > kn_) { kneeS++; int ex = m - kn_; m = kn_ + ex * 8192 / (ex + 8192); if (m > 32767) { m = 32767; hardS++; } s = s < 0 ? -m : m; } if (m > opk) opk = m; o[i] = (s16)s; }
-    { static int gN, mpk, mon, mvl, mopk, minLg = 65536; static unsigned clipG, kneeG, kneeT, hardT, fadeG; gN++; if (pk > 24576) clipG++; if (pk > mpk) mpk = pk; if (opk > mopk) mopk = opk; if (kneeS) kneeG++; kneeT += kneeS; hardT += hardS; if (lg < minLg) minLg = lg; if (sf < 65536) fadeG++;
+    { static int gN, mpk, mon, mvl, mopk, minLg = 65536, minEv = 65536, minBg = 65536; static unsigned clipG, kneeG, kneeT, hardT, fadeG; gN++; if (evG < minEv) minEv = evG; if (bgG < minBg) minBg = bgG; if (pk > 24576) clipG++; if (pk > mpk) mpk = pk; if (opk > mopk) mopk = opk; if (kneeS) kneeG++; kneeT += kneeS; hardT += hardS; if (lg < minLg) minLg = lg; if (sf < 65536) fadeG++;
       int on = 0; for (int v = 0; v < 16; v++) if (sasv[v].on) { on++; if (sasv[v].vl > mvl) mvl = sasv[v].vl; } if (on > mon) mon = on;
       if (gN % 1720 == 0) { PSPNativeMemLog("[AUDIO] 10s: peak in %d out %d | grains over 24576 before limiter %u, after limiter (soft-clipped) %u (%u samples, %u at the rail) | limiter min %d%% (limiter %d, gain %d) | faded grains %u | max voices on %d, max vl %d | dsp stalls %u, longest buffer wait %u ms",
           mpk, mopk, clipG, kneeG, kneeT, hardT, minLg * 100 / 65536, lim_, g, fadeG, mon, mvl, P3DS_AudioDspStalls, P3DS_AudioMaxWaitMs);
+        if (evOn) PSPNativeMemLog("[AUDIO] even loudness: leveller gain min %d%%, guard min %d%% (10 s)", minEv * 100 / 65536, minBg * 100 / 65536); minEv = minBg = 65536;
         P3DS_AudioClipTotal += kneeG; mpk = mon = mvl = mopk = 0; minLg = 65536; clipG = kneeG = kneeT = hardT = fadeG = 0; P3DS_AudioMaxWaitMs = 0; } }
     return 0;
 }
@@ -311,7 +328,7 @@ void P3DS_CfgInvalidate(void) { if (!cfgLkInit) { LightLock_Init(&cfgLk); cfgLkI
    that read P3DS_CfgInt(key, 0) get them too. A key that IS in config.txt always wins. Keep in step with logring.c cfgTab. */
 static const struct { const char *key; int def; } kCfgDefaults[] = {
     { "shiny_suite", 1 }, { "catch_overlay", 1 },
-    { "wild_vis", 1 }, { "wild_vis_alive", 0 }, { "event_any_mon", 0 }, { "steady_music", 1 }, { "wild_vis_shiny", 1 }, { "ribbon_check", 1 }, { "celebrations", 1 }, { "summary_ivs", 1 }, { "hm_free", 1 }, { "repel_prompt", 1 }, { "select_reset", 1 }, { "wide_battle", 1 }, { "wide_boxes", 1 }, { "wide_menu_screens", 1 }, { "fast_text", 2 },
+    { "wild_vis", 1 }, { "wild_vis_alive", 0 }, { "event_any_mon", 0 }, { "audio_even", 1 }, { "steady_music", 1 }, { "wild_vis_shiny", 1 }, { "ribbon_check", 1 }, { "celebrations", 1 }, { "summary_ivs", 1 }, { "hm_free", 1 }, { "repel_prompt", 1 }, { "select_reset", 1 }, { "wide_battle", 1 }, { "wide_boxes", 1 }, { "wide_menu_screens", 1 }, { "fast_text", 2 },
     /* 2026-11-03: Nathan's tuned config.txt values (everything he runs with is now the default; g3_sharp stays 0, experimental) */
     { "fps_counter", 1 }, { "stereo_strength", 2 }, { "zl_run", 1 }, { "hunt_counter", 1 }, { "hunt_stats", 0 },{ "menu_button", 0 }, { "g3_wmode", 2 }, { "reset_skip_intro", 1 }, { "wide_menus", 1 }, { "wide_pokedex", 1 }, { "wide_pc", 1 }, { "gpu_direct3d", 1 }, { "fps_tweaks", 7 }, { "wireless", 2 }, { "dc_flush_skip", 1 }, { "wild_vis_count", 6 }, { "battery_warn", 1 }, { "tracker", 1 }, { "type_hint", 1 }, { "pm_shortcuts", 1 }, { "sprite_depth", 1 }, { "zr_item", 0 }, { "panel_party", 1 }, { "log_level", 2 }, { "battle_anim_speed", 0 },
 };

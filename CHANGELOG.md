@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Even loudness (route vs city, battle starts)
+- Settings > Setup > "Even loudness" (default ON): the DS area themes are mixed at very different levels (run 681: route peaks 17-21k, Goldenrod 25-36k, battle starts 70-120k that hard-clipped), so walking between areas made the music jump. A slow leveller (about 1 s, never on single notes) turns the whole mix down toward a target average, plus a full-scale guard that only acts above 32000. OFF = exact DS levels. Log: `[AUDIO] even loudness: leveller gain min ..%`.
+
 ### Mystery Gift menu shows its cursor
 - The Mystery Gift menu (Receive Gift / Check Card / Exit) had no pointer: the game prints its list cursor as a text character into the list window, and on this screen it never appeared (the selection itself always worked). Every translated caller of `ListMenu_ProcessInput` now goes through `SS3DS_ListMenuProcessInput` (patch 0227, call-retargets `*`; ss3ds_glue.c), which remembers the list the game is running. When that list's cursor spot in the finished top picture is still blank, a smooth full-resolution arrow is drawn on the highlighted row in a second small native top overlay (gpuscale.c `P3DS_TopOv2*`, render3ds.cpp `drawListCursor`). Lists whose own cursor shows are left alone. Log `[LISTMENU]` on selection changes.
 - Both native top overlays (achievement toast and this cursor) now get their buffers and textures at the first frame (`P3DS_TopOvInit`), not on first use: creating the texture while a screen was loading crashed the game thread (Azahar: Undefined Instruction in AddCellOrAnimResObjFromNarc after pressing A twice at the title).
