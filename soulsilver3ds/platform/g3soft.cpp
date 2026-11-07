@@ -371,6 +371,9 @@ static unsigned culledTris,cpuClipped,rejOut,rejMask;int vdump,vdumpN;
    through the CPU clipper. That path draws in screen space without perspective, and on Bellchime Trail its sky quads covered
    the whole map (Nathan saw the sky box low at the tower). The PICA draws those tris correctly (Azahar: Ilex, Lake of Rage,
    Ecruteak, Union Cave, Olivine, Ice Path, Cianwood, National Park identical with 0 and 1; no black spots). */
+/* 2026-11-07 (enemy attacks / Intimidate invisible since #353): battle effect quads are huge and run far past the 2x guard band; #353 sent them to the PICA clipper, which
+   drops them. Battles keep the old CPU-clip rule; only the field (Bellchime sky) uses the new one. */
+static inline bool guardBattle(){extern int P3DS_InBattle;return P3DS_InBattle!=0;}
 static int guardClip(){static int v=-1;if(v<0){v=P3DS_CfgInt("g3_guardclip",0);PSPNativeMemLog("[GPU3D] g3_guardclip=%d",v);}return v;}
 /* gpu3d_cpuclip=1 (default): clip/divide on the CPU (same as the clean CPU renderer), raster on the GPU.
    Run 26: black spots only on the clip-space GPU path. 0 = old clip-space path. */
@@ -456,7 +459,7 @@ static void GpuRaw(const GuVertex*v,unsigned n){
   if(vdump&&vdumpN<400&&(drawnTris%8)==0){vdumpN++;PSPNativeMemLog("[VDUMP] OK v0 %.2f %.2f %.2f %.2f v1 %.2f %.2f %.2f %.2f v2 %.2f %.2f %.2f %.2f",c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11]);}
   if(gpuCpuClip()){/* run 27: only tris touching the near/far planes or outside a 2x guard band go through CPU clipping
      (PICA clipping there gave the black spots); the rest stay on the fast clip-space path. 2026-11-05: guard band only with g3_guardclip=1. */
-   bool hard=false;for(int k=0;k<3;k++){const float*q=c+4*k;float w=q[3];if(w<1e-3f||q[2]>w||q[2]<-w||(guardClip()&&(fabsf(q[0])>2*w||fabsf(q[1])>2*w))){hard=true;break;}}
+   bool hard=false;for(int k=0;k<3;k++){const float*q=c+4*k;float w=q[3];if(w<1e-3f||q[2]>w||q[2]<-w||((guardClip()||guardBattle())&&(fabsf(q[0])>2*w||fabsf(q[1])>2*w))){hard=true;break;}}
    if(hard){unsigned m=RawToScreen(v+i,3);if(m)DrawScreen(rawOut,m,false);cpuClipped++;continue;}}
   if(cullFace&&cullMode3d&&c[3]>1e-6f&&c[7]>1e-6f&&c[11]>1e-6f){
    float x0=c[0]/c[3],y0=c[1]/c[3],x1=c[4]/c[7],y1=c[5]/c[7],x2=c[8]/c[11],y2=c[9]/c[11];
