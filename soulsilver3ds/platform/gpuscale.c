@@ -44,7 +44,7 @@ int P3DS_FpsTweaks(void) {
         fpsTwV = P3DS_CfgInt("fps_tweaks", 0); if (fpsTwV < 2 || fpsTwV > 7) fpsTwV = 0;
         FILE *g = fopen(FPS_PENDING, "r");
         if (g) { fclose(g); remove(FPS_PENDING);
-            if (fpsTwV) { fpsTwV = 0; P3DS_CfgWrite("fps_tweaks", 0); fpsGuardMsg = 1; PSPNativeMemLog("[PERF4] SAFE BOOT: the last boot with Speed tweaks on never reached 600 frames, fps_tweaks forced to 0 (config.txt rewritten)"); } }
+            if (fpsTwV) { fpsTwV = 0; fpsGuardMsg = 1; PSPNativeMemLog("[PERF4] SAFE BOOT: the last boot with Speed tweaks on never reached 600 frames; tweaks are OFF for THIS boot only, config.txt keeps its fps_tweaks level"); } }
         else if (fpsTwV) fpsArm();
         fpsLean = P3DS_CfgInt("fps_leanflush", 0) != 0;
         PSPNativeMemLog("[PERF4] fps_tweaks=%d (0 off, 2 hidden bottom skip / blink cache, 3 + GPU fades, 4 + GPU 3D translucency, 5 + CPU trims, 6 + stereo compose overlap, 7 + pixel passes on two cores), fps_leanflush=%d", fpsTwV, fpsLean);
@@ -58,6 +58,8 @@ unsigned long long P3DS_FeTicks; unsigned P3DS_FeN;
 /* C3D_FrameEnd(0) also flushes the whole linear heap from the cache on every call; fps_leanflush=1 ends frames with GX_CMDLIST_FLUSH only (hung on hardware, see above) */
 void P3DS_FrameEnd(void) { P3DS_FpsTweaks(); const u64 t0 = svcGetSystemTick(); C3D_FrameEnd(fpsLean > 0 ? GX_CMDLIST_FLUSH : 0); P3DS_FeTicks += svcGetSystemTick() - t0; P3DS_FeN++; }
 /* called once per presented frame */
+/* clean exit: a short healthy session must not count as a failed boot (it used to reset fps_tweaks=7 to 0 after any quick test or unrelated crash) */
+void P3DS_FpsGuardClean(void) { remove(FPS_PENDING); }
 void P3DS_FpsGuardFrame(void) { if (fpsTwV > 0 && fpsOkFrames >= 0 && ++fpsOkFrames >= 600) { fpsOkFrames = -1; remove(FPS_PENDING); } }
 /* [PERF4] present stages, last frame (us): FrameBegin wait (previous GPU queue), tearfix wait, FrameEnd */
 unsigned P3DS_GpBeginUs, P3DS_GpTearUs, P3DS_GpEndUs, P3DS_GpUpUs, P3DS_GpDrawUs, P3DS_GpStripUs;
