@@ -77,7 +77,7 @@ It builds on [pspoke](https://github.com/IbrahimIrfan/pspoke) (retargeted from P
 | **Hunt stats** *(opt-in)* | Press **ZR** in the overworld for read-only pages from `hunt.txt`: encounters, shinies, time, most met, timeline and best streaks. |
 | **Damage check** *(opt-in)* | The **Y** foe screen gets a last page: rough damage range and % of the foe’s HP for each of your moves, plus who moves first. Singles only. |
 | **Achievements** | Optional Xbox-style toasts and a progress list, including trade and counter achievements. Never writes to your save. |
-| **In-game Settings app** | Press **L+R+Y** (or hold the top-left of the touch screen) for Display, Wide, 3D, Input, Battle, Setup, and Play tabs — toggles apply on close and persist in `config.txt`. |
+| **In-game Settings app** | Press **L+R+Y** (or hold the top-left of the touch screen) for Display, 3D, Input, Battle, Play, and Setup tabs — toggles apply on close and persist in `config.txt`. |
 | **Battle QoL** | Optional SUPER EFFECTIVE / NOT VERY / NO EFFECT badges on move buttons; faster battles; catch info; encounter counter; shiny-hunt suite (opt-in). |
 | **Local wireless trading** | Full Pokémon trade between two New 3DS consoles via the game’s Union Room over 3DS UDS — confirmed on hardware. |
 | **Online GTS** | The game’s own Global Terminal over community revival servers (Wiimmfi / Poké Classic Network), plus Mystery Gift download. Confirmed on hardware. |
