@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Bug-Catching Contest helper
+- Settings > Input > "Contest helper" (`contest_helper`, default OFF, patch 0229): during the Bug-Catching Contest the Bottom menu panel shows a card with minutes left (the game's own 20-minute counter), Sport Balls left and the Pokemon you hold. Read-only (reads the game's contest state, writes nothing). Log: `[CONTEST]`. Pokeathlon not covered (own overlay app, no field hook).
+
 ### Tap to Fly on the JOHTO map
 - Settings > Input > "Tap to Fly" (`pg_flytap`, default OFF until tested). On the JOHTO map tap a town you can Fly to; its info card shows a FLY chip (green when Fly works here, grey otherwise and the tap says why). Tapping it starts the game's own Fly flight to that town. Hook 0228 (`field_control.c`, `SS3DS_FlyTick` in `FieldInput_Process`) publishes the unlocked Fly points (the same flag the game's Fly map tests) and starts the same task the Fly map starts (`sub_02067BF8` / `sub_02067C30`); the checks mirror `FieldMove_CheckFly`, and a Pokemon with Fly is needed unless HM free is on. Optional hook (logs "skipped"). Log `[FLY]`. Not compiled, untested.
 
