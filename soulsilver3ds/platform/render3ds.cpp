@@ -312,7 +312,7 @@ static volatile u64 shinyAt;
    GPU (gpucomp.c P3DS_GcDeferOut) and the screen scaler samples it, so the readback, the CPU colour pass and the re-upload are
    skipped. Every CPU reader or writer of that picture calls topTouch() first, which fetches the pixels exactly as before; the
    field hold for the party panel is fetched only when the panel needs it (holdSync). */
-extern "C" {extern int P3DS_GcDeferOut;u32*P3DS_GcResolveOut(void);int P3DS_GcResolveTo(u32*);void*P3DS_GcPendTex(const u32*);extern unsigned P3DS_GcDeferN,P3DS_GcResolveN;extern unsigned char P3DS_GpTextMask[8][64];extern int P3DS_GpTextOn;}
+extern "C" {extern int P3DS_GcDeferOut;u32*P3DS_GcResolveOut(void);int P3DS_GcResolveTo(u32*);void P3DS_GcDrop(void);void*P3DS_GcPendTex(const u32*);extern unsigned P3DS_GcDeferN,P3DS_GcResolveN;extern unsigned char P3DS_GpTextMask[8][64];extern int P3DS_GpTextOn;}
 static u32*gHoldBuf;static int gHoldLazy,gDfDec;static unsigned gTouchN;
 static void topTouch(){u32*o=P3DS_GcResolveOut();if(o){gTouchN++;if(gHoldLazy&&gHoldBuf){memcpy(gHoldBuf,o,256*192*4);gHoldLazy=0;}}}
 static void holdSync(){if(gHoldLazy){if(gHoldBuf)P3DS_GcResolveTo(gHoldBuf);gHoldLazy=0;}}
@@ -1880,7 +1880,7 @@ static int Present(bool){
  if(splitCfg<0){splitCfg=1;/* run 57: default 1 (Azahar: identical images overworld/battle/menus, mono composite -37%) */FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"split_top=%d",&x)==1)splitCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] split_top=%d",splitCfg);}
  const int gcMode=P3DS_GpuComposeCfg();if(gcMode>=2)gcFrames++;
  const bool gcOK=gcMode==2&&(!stereo||gcSt)&&!rightPar&&engineA.Enabled&&(gcSt||gcEligible());
- if(!gcOK)G3G_DirectResolveWhy(3);  /* gpu_direct3d: CPU composite (or the split-top worker) reads NativeFrame */
+ if(!gcOK){G3G_DirectResolveWhy(3);holdSync();P3DS_GcDrop();}  /* gpu_direct3d: CPU composite (or the split-top worker) reads NativeFrame. CPU frame: a picture left pending by the last GPU frame is stale (thrown Poke Ball invisible with gc_direct) */
  const bool splitNow=!gcOK&&splitCfg&&async&&!stereo&&!rightPar&&!onC1&&!stealNow&&engineA.Enabled&&((a>>16)&3)==1&&!(reg32(0x64)&0x80000000u);
  if(splitNow){memcpy((void*)&engineAS,(const void*)&engineA,sizeof engineA);line0Done=false;bSplit=true;splitN++;}
  if(async)bPost();

@@ -90,6 +90,9 @@ int P3DS_GcResolveTo(u32 *dst) { if (!dfPend[0] || !dst) return 0; P3DS_Crumb("g
 /* the composed GPU picture for buf, or NULL when buf holds (or must hold) CPU pixels */
 C3D_Tex *P3DS_GcPendTex(const u32 *buf) { for (int e = 0; e < 2; e++) if (dfPend[e] && buf && buf == dfOut[e]) return dfTex(e); return NULL; }
 /* called by the present after its FrameBegin (which waited for the compose draws): the atlas may be written again */
+/* a frame the compositor will NOT compose (ineligible: rotating/scaling OBJ such as the thrown Poke Ball, windows, ...) is drawn by the CPU into the same buffer, so a
+   picture still pending from the last GPU-composed frame is stale: drop it, or the present (P3DS_GcPendTex) and topTouch() show / write back that old picture. */
+void P3DS_GcDrop(void) { if (dfPend[0] || dfPend[1]) { gcIdle(); dfPend[0] = dfPend[1] = 0; } }
 void P3DS_GcPresented(void) { if (dfPend[0] || dfPend[1]) gpuBusy = 0; }
 void P3DS_GcFinish(void) { if (fpPend.out) { gcIdle(); gcOut(fpPend.rbuf, fpPend.mbr, fpPend.out); fpPend.out = 0; fpFinN++; } fpDefer = 0; fpEye = 0; }
 
