@@ -1,5 +1,8 @@
 # Release notes
 
+## Audio fix awaiting device validation
+Field music requests of 128 are bounded to the decibel table's valid 0..127 range, preventing an accidental +256 boost. Goldenrod / Route 34 tested in local Azahar; owner reported improved sound, and the checked test intervals had no clipping or automatic gain reduction. Existing audio settings remain unchanged. Requires a normal platform rebuild/link; real New 3DS testing is pending.
+
 Current build (main). Not an official release; see README for install and known issues.
 
 ## Highlights (2026-10-29, run 59)

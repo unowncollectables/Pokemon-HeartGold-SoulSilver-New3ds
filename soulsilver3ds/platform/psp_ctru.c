@@ -514,3 +514,20 @@ volatile int P3DS_FoeInfo[40]; /* hook 0031 trainer foe snapshot (battle -> foe 
 volatile int P3DS_DmgInfo[32]; /* hook 0208 damage/speed check snapshot (battle -> foe info screen), read-only */
 volatile int P3DS_CatchInfo[20]; /* run 75 catch info snapshot (battle -> settings app), read-only */
 volatile int P3DS_MoveHint[24]; /* hook 0121 fight-menu snapshot (moves, types, foe types), read-only */
+
+/* SoulSilver requests 128 when restoring field music. libntr's decibel
+   table only covers 0..127: an unchecked 128 reads the next object in rodata.
+   In the tested port that word is +256, turning Goldenrod's -49 attenuation
+   into a +207 boost. Saturate the fader target before it reaches the lookup;
+   valid targets and fade durations retain the library's normal behavior. */
+extern void __real_NNS_SndPlayerMoveVolume(void *handle, int target, int frames);
+void __wrap_NNS_SndPlayerMoveVolume(void *handle, int target, int frames)
+{
+    int bounded = target < 0 ? 0 : target > 127 ? 127 : target;
+    if (target != bounded) {
+        static unsigned logged;
+        if (logged++ < 8)
+            PSPNativeMemLog("[AUDIO] fader target %d -> %d frames %d (decibel table bounds)", target, bounded, frames);
+    }
+    __real_NNS_SndPlayerMoveVolume(handle, bounded, frames);
+}

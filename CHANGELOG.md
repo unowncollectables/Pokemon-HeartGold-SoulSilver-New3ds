@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Field music volume lookup overflow
+- Bound NNS_SndPlayerMoveVolume targets to 0..127 before libntr's decibel lookup. SoulSilver's field code requests 128; in the inspected US ROM the next signed word after SNDi_DecibelTable is 0, but the port places VolumeTable there (bytes 00 01 = +256). The resulting Goldenrod player fade was +207 instead of -49, boosting the music and triggering the loudness workarounds.
+- Added a platform link wrapper; existing audio gain, Steady music, Even loudness and other settings are unchanged. Logs the first eight corrected targets under `[AUDIO]`.
+- Local Azahar 2126.2 test at Goldenrod / Route 34: nine corrected requests, largest input peak 31,141 across five summary windows, no clipped samples, leveller and guard both at 100%. Owner reported improved sound. Real New 3DS testing is still needed; this does not claim complete original-hardware audio fidelity. Diagnostic code and private files are not included.
+
 ### Poke Ball throw / catch animation invisible
 - The thrown ball and capture effect were drawn by the game but never shown: the thrown ball is a rotating sprite, which the GPU compositor rejects, and the "direct screen" path (`gc_direct`) kept presenting the last GPU-composed picture instead of the CPU one. A frame composed by the CPU now drops the stale pending GPU picture first (`P3DS_GcDrop`). Found by catching a wild Pokemon in the cloud emulator (ball visible with `gc_direct=0` or `gpu_compose=0`). Other screens with rotating/scaling sprites, windows or other rejected frames that follow a GPU frame in battle or the field could have shown the same frozen picture.
 ### Bug-Catching Contest helper
