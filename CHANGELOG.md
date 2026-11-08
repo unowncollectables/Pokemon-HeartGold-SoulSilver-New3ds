@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Rendering performance and wide title
+- Add optional command and bounds shortcuts for 3D scenes, plus GPU composition for compatible second-screen frames and rotating sprites.
+- Add a Wide title layout that fills the top display with the animated background and keeps the logo and text proportional. Exact brightness and supported alpha endpoints can run on the GPU. Other effects fall back to the CPU.
+- Make the FPS research probe opt-in through `fps60_probe`. It no longer runs automatically with the highest speed setting.
+
 ### JOHTO panel: tab icons and achievement list
 - Top tabs use the same native-resolution button chrome and green pixel icons as the right-hand menu, so they stay sharp when the bottom screen is scaled. The map's place name stays, with the selected tab's word in a chip beside it. No new setting.
 - The achievement list gives the point total its own band under the corner buttons, keeps each name clear of its points, wraps the description, and puts the earned date on a smaller line. Unlock rules, dates, rewards, and the toast are unchanged.

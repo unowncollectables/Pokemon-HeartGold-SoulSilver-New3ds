@@ -411,7 +411,7 @@ static float(*BoxesFor(const GuVertex*v,unsigned n))[6]{
  free(b->cb);b->p=nullptr;b->cb=(float(*)[6])malloc((2+n/kChunkV)*sizeof(float[6]));if(!b->cb){BoxesOf(v,n,bcTmp);return bcTmp;}
  BoxesOf(v,n,b->cb);b->p=v;b->n=n;return b->cb;}
 /* plane mask that all 8 corners of box B share (0 = may be visible) */
-static unsigned BoxOut(const float*B,float qwK,bool zp){
+static unsigned BoxOutOrig(const float*B,float qwK,bool zp){
  const float*M=rawM;unsigned all=zp?0x3F:0x0F;
  for(int c=0;c<8&&all;c++){const float x=B[(c&1)?3:0],y=B[(c&2)?4:1],z=B[(c&4)?5:2];
   const float q0=x*M[0]+y*M[4]+z*M[8]+M[12],q1=x*M[1]+y*M[5]+z*M[9]+M[13],q2=x*M[2]+y*M[6]+z*M[10]+M[14],q3=x*M[3]+y*M[7]+z*M[11]+M[15];
@@ -419,12 +419,32 @@ static unsigned BoxOut(const float*B,float qwK,bool zp){
   const float qw=qwK*q3,e=1e-4f*(fabsf(q0)+fabsf(q1)+fabsf(q2)+fabsf(q3))+1e-4f;unsigned o=0;
   if(q0>qw+e)o|=1;if(q0<-qw-e)o|=2;if(q1>q3+e)o|=4;if(q1<-q3-e)o|=8;if(zp){if(q2>q3+e)o|=16;if(q2<-q3-e)o|=32;}all&=o;}
  return all;}
+
+#include "g3_boxplanes.h"
+static FastBoxPlanes fastPlanes;static bool fastBatchOn;static int fastBoundsV=-1;
+extern "C" int P3DS_FastBoundsCfg(void){if(fastBoundsV<0){fastBoundsV=P3DS_CfgInt("g3_fast_bounds",0)!=0;PSPNativeMemLog("[G3BOUNDS] g3_fast_bounds=%d (support planes, original calculation near boundaries)",fastBoundsV);}return fastBoundsV;}
+extern "C" void P3DS_SetFastBounds(int v){fastBoundsV=v!=0;PSPNativeMemLog("[G3BOUNDS] g3_fast_bounds=%d from settings",fastBoundsV);}
+static unsigned fastBox(const float*B,float qwK,bool zp){unsigned m=fastPlanes.test(B);return (m&0x80000000u)?BoxOutOrig(B,qwK,zp):m;}
+static unsigned BoxOut(const float*B,float qwK,bool zp){
+ if(!fastBatchOn)return BoxOutOrig(B,qwK,zp);
+#ifdef P3DS_BOUNDS_ORACLE
+ static unsigned checks,bad,samples;static u64 oldTicks,newTicks;
+ if(checks<500000){unsigned ref,next;bool timed=((checks&63)==0);
+  if(timed){u64 a=svcGetSystemTick();ref=BoxOutOrig(B,qwK,zp);u64 b=svcGetSystemTick();next=fastBox(B,qwK,zp);u64 c=svcGetSystemTick();oldTicks+=b-a;newTicks+=c-b;samples++;}
+  else{ref=BoxOutOrig(B,qwK,zp);next=fastBox(B,qwK,zp);}
+  checks++;if(next!=ref){if(bad++<8)PSPNativeMemLog("[BOUNDSCHECK] mismatch old=%02x new=%02x",ref,next);fastBoundsV=0;fastBatchOn=false;next=ref;}
+  if(checks%100000==0)PSPNativeMemLog("[BOUNDSCHECK] checks=%u mismatches=%u samples=%u old_ticks=%llu new_ticks=%llu",checks,bad,samples,oldTicks,newTicks);
+  return next;
+ }
+#endif
+ return fastBox(B,qwK,zp);
+}
 static void GpuRaw(const GuVertex*v,unsigned n){
  if(cullAll)return;
  static int edgeFix=-1;if(edgeFix<0){edgeFix=P3DS_CfgInt("stereo_edgefix",1)!=0;PSPNativeMemLog("[G3] stereo_edgefix=%d",edgeFix);}
  const float qwK=(G3G_Wide?1.25f:1.0f)+(edgeFix&&stereoSd?stereoSd*(1.0f/128.0f):0.0f);
  bool chunked=false;
- if(n>=(v==replayV?9u:24u)&&P3DS_BatchCullCfg()){float(*cb)[6]=BoxesFor(v,n);const bool zp=!wbufOn();bcTested++;
+ if(n>=(v==replayV?9u:24u)&&P3DS_BatchCullCfg()){float(*cb)[6]=BoxesFor(v,n);const bool zp=!wbufOn();bcTested++;fastBatchOn=P3DS_FastBoundsCfg()!=0;if(fastBatchOn)fastPlanes.prepare(rawM,qwK,zp);
   const unsigned m=BoxOut(cb[0],qwK,zp);if(m){bcSkipB++;bcSkipT+=n/3;rejOut+=n/3;rejMask|=m;return;}
   if(n>kChunkV){const unsigned nc=(n+kChunkV-1)/kChunkV;for(unsigned c=0;c<nc;c++){const unsigned mc=BoxOut(cb[1+c],qwK,zp);chunkOff[c]=mc!=0;rejMask|=mc;}chunked=true;}}
  G3G_CurFog=s_curPolygonAttr.fogEnable?1:0;const int cullMode3d=cull3dCfg();Tex*tex=GetTexture();const G3SIM_TexImageParam_t tp=s_texImageParam;
