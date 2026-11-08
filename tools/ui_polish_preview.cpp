@@ -112,6 +112,75 @@ int main(int argc, char **argv) {
   int city = 0, chip = 0;
   for (int y = 18; y < 32; y++) for (int x = 3; x < 187; x++) if (ds[y * 256 + x] == SUI_RGB(255, 255, 255)) { if (x < 40) chip++; else city++; }
   expect(chip > 0 && city > 0, "selected caption and place name are both on the line");
+  /* Scroll uses the same subtraction as the bottom-menu touch path: achScroll -= (new DS y - previous DS y).
+     Finger up => DS y falls => scroll grows => later rows move up into the list. DS y is touchToDS:
+     scale 0 is py-24 (1:1, centered); any other scale is py*192/240. Wide view does not retarget the bottom. */
+  { const int dsHi = 160 * 192 / 240, dsLo = 120 * 192 / 240;
+    expect(dsHi - dsLo == 32, "40 native px is 32 DS px on the scaled bottom");
+    expect((dsHi - dsLo) * 5 / 4 == 40, "32 DS px of list motion displays as those same 40 px");
+    expect((160 - 24) - (120 - 24) == 40, "1:1 touch moves 1:1 after the centered inset"); }
+  { const int top = Y0 + 39, textX = X0 + 22, textW = (X1 - 6) - textX;
+    int nameAt[16]; int gymEnd = kPgAchLine;
+    for (int id = 0; id < 16; id++) {
+      nameAt[id] = gymEnd + 1;
+      char desc[2][64]; const int dl = pgAchWrap(T, P3DS_AchGet(id)->desc, textW, desc);
+      const int lines = dl > 0 ? dl : 1, d = P3DS_AchDate(id); unsigned cu = 0, go = 0;
+      const int prog = !d && P3DS_AchProgress(id, &cu, &go) && go > 1;
+      const int extra = (d || prog) ? kPgAchDate + 1 : 0;
+      gymEnd += 2 + kPgAchLine + lines * kPgAchLine + extra + 2; }
+    auto mark = [&](int y) { if (y < top || y >= Y1) return 0; for (int x = textX; x < textX + 10; x++) {
+      const uint32_t c = ds[y * 256 + x]; if (c == ink || c == dim) return 1; } return 0; };
+    /* third gym, only the lower part of its name across the list edge (the case that used to vanish) */
+    p.achScroll = nameAt[2] + 6; pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    expect(p.achScroll == nameAt[2] + 6, "that scroll is inside the list range");
+    int partial = 0; for (int y = top; y < top + 8; y++) partial += mark(y);
+    expect(partial > 0, "a name that only partly enters the list is still drawn");
+    int leaked = 0; for (int x = textX; x < textX + 40; x++) if (ds[(top - 1) * 256 + x] == ink || ds[(top - 1) * 256 + x] == dim) leaked++;
+    expect(leaked == 0, "the clipped name does not paint the header");
+    /* continuous upward strokes, same 16px drag gate as the menu, each longer than the viewport */
+    const int view = Y1 - top;
+    auto gesture = [&](int fromDs, int toDs) {
+      const int step = toDs > fromDs ? 1 : -1; int tY0 = fromDs, tYp = fromDs, drag = 0;
+      for (int tY = fromDs; tY != toDs; tY += step) {
+        if (abs(tY - tY0) > 16) drag = 1;
+        if (drag && tY != tYp) p.achScroll -= tY - tYp;
+        tYp = tY; } };
+    p.achScroll = 0; int strokes = 0;
+    while (p.achScroll < view * 2 && strokes < 12) { gesture(150, 150 - (view + 30)); strokes++; }
+    pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    expect(p.achScroll > view, "repeated upward drags pass a full viewport");
+    p.achScroll = nameAt[8] > 8 ? nameAt[8] - 8 : 0;
+    pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    const int yLater = top + nameAt[8] - p.achScroll; int sawLater = 0;
+    for (int y = yLater; y < yLater + 12; y++) sawLater += mark(y);
+    expect(sawLater > 0, "gym row 9 is drawn when the list is scrolled onto it");
+    expect(top + nameAt[0] + 16 - p.achScroll <= top, "the first gym has left the list");
+    while (p.achScroll > 0 && strokes < 40) { gesture(40, 40 + view + 30); strokes++; }
+    if (p.achScroll < 0) p.achScroll = 0;
+    pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    expect(p.achScroll < 40, "downward drags return to the start");
+    int sawFirst = 0; const int yFirst = top + nameAt[0] - p.achScroll;
+    for (int y = yFirst; y < yFirst + 12; y++) sawFirst += mark(y);
+    expect(sawFirst > 0, "the first gym is visible again");
+    p.achScroll = -80; pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    expect(p.achScroll == 0, "scroll clamps at the top");
+    p.achScroll = 1000000; pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    const int maxS = p.achScroll;
+    expect(maxS >= nameAt[15], "scroll can reach the 16th gym, not only the first screen");
+    p.achScroll = nameAt[15] > 4 ? nameAt[15] - 4 : 0;
+    pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    const int yLast = top + nameAt[15] - p.achScroll; int sawLast = 0;
+    for (int y = yLast; y < yLast + 16; y++) sawLast += mark(y);
+    expect(sawLast > 0, "the 16th gym row is drawn when scrolled onto it");
+    p.achScroll = maxS;
+    int blank = 0;
+    for (int s = 0; s <= maxS; s += 4) {
+      p.achScroll = s; pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+      int marks = 0;
+      for (int y = top; y < Y1; y += 2) if (mark(y)) marks++;
+      if (!marks) blank++; }
+    expect(blank == 0, "no scroll step leaves the list blank");
+    p.achScroll = 0; pgAchPanel(ds, T, p, X0, Y0, X1, Y1); }
   pgDots(ds, p, X1, Y0);
   ppm(argv[1], ds, 256, 192, 256);
   /* native tab strip: same box colours as a column button */

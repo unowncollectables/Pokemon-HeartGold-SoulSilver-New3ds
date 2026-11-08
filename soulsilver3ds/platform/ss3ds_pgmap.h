@@ -323,7 +323,8 @@ static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int vie
 static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW);
 /* achievements list. The trophy and the dots buttons sit on the title row (pgDots, drawn after this), so the point total
    has its own band under them. Each entry is name + points, then a wrapped description, then the earned date on a smaller line.
-   Scroll is in pixels; a line is drawn only when the whole glyph fits between the header and the bottom edge. */
+   Scroll is in pixels. A line that crosses the list edge is still drawn: pixels outside the list are clipped, so a tall
+   row cannot vanish and leave a blank gap before the next one. */
 enum { kPgAchCtrl = 42, kPgAchLine = 16, kPgAchDate = 16 }; /* date is drawn with the 3/4 font; the slot stays a full line so the fallback font cannot run into the next row */
 static int pgAchWrap(const SUiText &T, const char *s, int room, char out[][64]) {
   int n = pgWrap(T, s, room, out, 2); if (n < 1) { out[0][0] = 0; return 0; }
@@ -347,12 +348,14 @@ static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
   { const int bx = X0 + 4, bw = X1 - X0 - 8, by = band0 + 17, fill = mx > 0 ? bw * tot / mx : 0;
     if (by + 2 < Y1) for (int x = 0; x < bw; x++) for (int yy = 0; yy < 3; yy++) suiPx(b, bx + x, by + yy, x < fill ? green : SUI_RGB(190, 204, 186)); }
   const int top = band1 + 1; int off = 0; const int textX = X0 + 22, textR = X1 - 6;
+  const int clipX0 = suiClipX0, clipY0 = suiClipY0, clipX1 = suiClipX1, clipY1 = suiClipY1;
+  suiClipX0 = X0; suiClipX1 = X1; suiClipY0 = top; suiClipY1 = Y1;
   for (int c = 0; c < ACH_CATS; c++) {
     int cm = 0; const int cs = P3DS_AchTotal(c, &cm); int cnt = 0, got = 0;
     for (int id = 0; id < ACH_COUNT; id++) if (P3DS_AchGet(id)->cat == c) { cnt++; if (P3DS_AchDate(id)) got++; }
     char left[48], right[32]; snprintf(left, sizeof left, "%s  %d/%d", P3DS_AchCatName(c), got, cnt); snprintf(right, sizeof right, "%dG of %dG", cs, cm);
     const int hy = top + off - p.achScroll; off += kPgAchLine;
-    if (hy >= top && hy + kPgAchLine <= Y1) {
+    if (hy + kPgAchLine > top && hy < Y1) {
       for (int y = hy; y < hy + kPgAchLine; y++) for (int x = X0 + 2; x < X1 - 2; x++) suiPx(b, x, y, suiMix(SUI_RGB(218, 240, 232), SUI_RGB(190, 226, 212), y - hy, kPgAchLine));
       const int rw = T.width(right), room = textR - (X0 + 5) - 8;
       if (rw + 8 < room) { pgFit(T, nm, sizeof nm, left, room - rw - 8); T.draw(b, X0 + 5, hy, nm, ink, SUI_RGB(218, 240, 232)); T.draw(b, textR - rw, hy, right, dim, SUI_RGB(206, 232, 222)); }
@@ -364,7 +367,7 @@ static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
       const int rh = 2 + kPgAchLine + lines * kPgAchLine + extra + 2;
       const int y = top + off - p.achScroll; off += rh;
       if (y + rh <= top || y >= Y1) continue;
-      auto glyph = [&](int gy, int gh) { return gy >= top && gy + gh <= Y1; };
+      auto glyph = [&](int gy, int gh) { return gy + gh > top && gy < Y1; };
       if (glyph(y + 2, 12)) {
         const int ix = X0 + 5, iy = y + 2;
         for (int dy = 0; dy < 12; dy++) for (int dx = 0; dx < 12; dx++) { const int ex = dx - 6, ey = dy - 6; if (ex * ex + ey * ey > 33) continue;
@@ -383,6 +386,7 @@ static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
         if (bx2 > textX) for (int x = 0; x < bw2; x++) for (int yy = 0; yy < 3; yy++) suiPx(b, bx2 + x, ly + 3 + yy, x < f2 ? green : SUI_RGB(200, 192, 168));
         suiSDraw(T, b, textR - lw, ly, t, dim, sh); } }
   }
+  suiClipX0 = clipX0; suiClipY0 = clipY0; suiClipX1 = clipX1; suiClipY1 = clipY1;
   const int maxS = off - (Y1 - top); if (p.achScroll > maxS) p.achScroll = maxS; if (p.achScroll < 0) p.achScroll = 0; }
 
 static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1, bool blink) {
