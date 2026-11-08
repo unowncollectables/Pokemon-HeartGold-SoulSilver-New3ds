@@ -1,3 +1,11 @@
+# Audio boundary fix (2026-11-08)
+
+Bound NNS_SndPlayerMoveVolume targets to 0..127 before libntr's decibel lookup. SoulSilver's field code requests 128; in the inspected US ROM the next signed word after SNDi_DecibelTable is 0, but the port places VolumeTable there (bytes 00 01 = +256). The resulting Goldenrod player fade was +207 instead of -49, boosting the music and triggering the loudness workarounds.
+
+Platform-only: `psp_ctru.c` wraps `NNS_SndPlayerMoveVolume`, enabled by `full/Makefile`'s `--wrap`. No pspoke patch or clean game rebuild is required; normal platform rebuild/link. Existing audio settings remain unchanged. `[AUDIO] fader target ...` logs the first eight corrections. Local diagnostic code is excluded.
+
+Validation: isolated Azahar 2126.2 build, owner's copied save at Goldenrod / Route 34. Pre-fix playerfade=207; US ROM table and port ELF inspected to verify the out-of-bounds word. Fixed test logged nine corrected requests (uncapped diagnostic logging), maximum input peak 31,141 across five audio summary windows, zero clipped samples, leveller/guard at 100%; owner reported improved sound. New 3DS hardware remains untested. Owner builds and merges; no SD deployment performed.
+
 
 - 0147 (unbuilt, Grok): NULL guard in SysTask_TimedPaletteFade for the run 67 crash leaving Kurt's house after the Fast Ball. User builds and tests.
 - 0148 (unbuilt, Grok): seed overlay_01_021F1348.s, drop the ov01_021F1A34 stub (run 67 Slowpoke Well crash, [SS-MISSING] ov01_021F1A34).
