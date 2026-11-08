@@ -52,6 +52,7 @@ struct SPg {
   struct { short x, y; uint8_t k; } ico[48]; int nIco; bool gameIco; /* small stat icons drawn by the native overlay */
   int dotsX0, dotsY0, dotsX1, dotsY1;
   bool achOpen; int achScroll, achX0, achY0, achX1, achY1; /* achievements list (achievements.c), button left of the dots */
+  int achUpX0, achUpY0, achUpX1, achUpY1, achDnX0, achDnY0, achDnX1, achDnY1, achPage, achMax; /* UP/DN page the list; achMax is the clamp */
   int flyX0, flyY0, flyX1, flyY1; /* hook 0228 (pg_flytap): the FLY chip on the open info card, 0 size = none (screen px) */
   int find, findTm; /* run 146 pg_find: species being looked for (0 none) and the time filter (0 any, 1 morning, 2 day, 3 night) */
   int page; /* run 16: info card page, 0 = info, 1 = wild Pokemon list (tap the card to flip) */
@@ -326,6 +327,18 @@ static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW);
    Scroll is in pixels. A line that crosses the list edge is still drawn: pixels outside the list are clipped, so a tall
    row cannot vanish and leave a blank gap before the next one. */
 enum { kPgAchCtrl = 42, kPgAchLine = 16, kPgAchDate = 16 }; /* date is drawn with the 3/4 font; the slot stays a full line so the fallback font cannot run into the next row */
+/* One sample of a finger that went down on the map panel. *drag is 0 until the finger has moved more than 16px
+   (the tap gate). *prevY stays at the press y until that happens, so the sample that crosses the gate applies the
+   whole stroke, not only the last step. Return value is added to achScroll: finger up (y smaller) is positive. */
+static int pgAchDragDelta(int *drag, int *prevY, int y, int dist) {
+  if (!*drag) { if (dist <= 16) return 0; *drag = 1; }
+  int dy = y - *prevY; *prevY = y; return -dy; }
+/* 1 = UP (toward the start of the list), 2 = DN (later rows), 0 = not on those chips */
+static int pgAchBtnHit(const SPg &p, int x, int y) {
+  if (!p.achOpen) return 0;
+  if (p.achUpX1 > p.achUpX0 && x >= p.achUpX0 - 2 && x < p.achUpX1 + 2 && y >= p.achUpY0 - 2 && y < p.achUpY1 + 2) return 1;
+  if (p.achDnX1 > p.achDnX0 && x >= p.achDnX0 - 2 && x < p.achDnX1 + 2 && y >= p.achDnY0 - 2 && y < p.achDnY1 + 2) return 2;
+  return 0; }
 static int pgAchWrap(const SUiText &T, const char *s, int room, char out[][64]) {
   int n = pgWrap(T, s, room, out, 2); if (n < 1) { out[0][0] = 0; return 0; }
   char probe[3][64]; if (n >= 2 && pgWrap(T, s, room, probe, 3) > 2) { char cut[68]; snprintf(cut, sizeof cut, "%s..", out[1]); pgFit(T, out[1], 64, cut, room); }
@@ -343,7 +356,17 @@ static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
   /* totals band, full width, under the buttons */
   const int band0 = Y0 + 18, band1 = Y0 + 38;
   for (int y = band0; y < band1 && y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, y == band0 ? SUI_RGB(12, 90, 70) : SUI_RGB(232, 244, 226));
-  snprintf(t, sizeof t, "%d / %d G", tot, mx); pgFit(T, nm, sizeof nm, t, X1 - X0 - 8);
+  snprintf(t, sizeof t, "%d / %d G", tot, mx);
+  p.achUpX0 = p.achUpX1 = p.achDnX0 = p.achDnX1 = 0;
+  { const int bw = suiSWidth(T, "DN") + 10, gap = 3, dnX1 = X1 - 3, dnX0 = dnX1 - bw, upX1 = dnX0 - gap, upX0 = upX1 - bw;
+    const int by0 = band0 + 2, by1 = band0 + 16;
+    pgFit(T, nm, sizeof nm, t, upX0 - (X0 + 4) - 6);
+    if (upX0 > X0 + 24 && by1 <= band1) {
+      p.achUpX0 = upX0; p.achUpY0 = by0; p.achUpX1 = upX1; p.achUpY1 = by1;
+      p.achDnX0 = dnX0; p.achDnY0 = by0; p.achDnX1 = dnX1; p.achDnY1 = by1;
+      for (int y = by0; y < by1; y++) for (int x = upX0; x < upX1; x++) suiPx(b, x, y, (x == upX0 || x == upX1 - 1 || y == by0 || y == by1 - 1) ? kBlNavy : kBlPress);
+      for (int y = by0; y < by1; y++) for (int x = dnX0; x < dnX1; x++) suiPx(b, x, y, (x == dnX0 || x == dnX1 - 1 || y == by0 || y == by1 - 1) ? kBlNavy : kBlPress);
+      suiSDraw(T, b, upX0 + 5, by0 + 1, "UP", wh, kBlSelO); suiSDraw(T, b, dnX0 + 5, by0 + 1, "DN", wh, kBlSelO); } }
   if (band0 + 1 + kPgAchLine <= Y1) T.draw(b, X0 + 4, band0 + 1, nm, ink, SUI_RGB(232, 244, 226));
   { const int bx = X0 + 4, bw = X1 - X0 - 8, by = band0 + 17, fill = mx > 0 ? bw * tot / mx : 0;
     if (by + 2 < Y1) for (int x = 0; x < bw; x++) for (int yy = 0; yy < 3; yy++) suiPx(b, bx + x, by + yy, x < fill ? green : SUI_RGB(190, 204, 186)); }
@@ -387,7 +410,9 @@ static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
         suiSDraw(T, b, textR - lw, ly, t, dim, sh); } }
   }
   suiClipX0 = clipX0; suiClipY0 = clipY0; suiClipX1 = clipX1; suiClipY1 = clipY1;
-  const int maxS = off - (Y1 - top); if (p.achScroll > maxS) p.achScroll = maxS; if (p.achScroll < 0) p.achScroll = 0; }
+  const int view = Y1 - top; int maxS = off - view; if (maxS < 0) maxS = 0;
+  p.achMax = maxS; p.achPage = view > 24 ? view - 8 : 48;
+  if (p.achScroll > maxS) p.achScroll = maxS; if (p.achScroll < 0) p.achScroll = 0; }
 
 static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1, bool blink) {
   const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0;

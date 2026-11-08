@@ -2136,9 +2136,9 @@ static int Present(bool){
      if(swTouch&&!swPrev&&swTgt<0){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)&&blHit(x,y)==11&&pxOn()){const int t=pxChipHit(kSuiText,kBlPanX1,kBlPanY0,x);if(t>=0&&t!=pxPane()){swTgt=t;swT=0;PSPNativeMemLog("[PANEL] tab swap: %s tapped while an app is open, closing it first",kPxTabs[t]);}}}
      if(swTgt>=0){swT++;if(swT%24==6&&swT<400){P3DS_InjectKeys=KEY_B;P3DS_InjectFrames=2;}if(swT>=420){PSPNativeMemLog("[PANEL] tab swap to %s gave up after %u frames",kPxTabs[swTgt],swT);swTgt=-1;}}}
     sSwapAct=swTgt>=0&&P3DS_PanelPartyOn;swPrev=swTouch;}
-   static int tX0,tY0,tXl,tYl,tXp,hLast=-1;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
+   static int tX0,tY0,tXl,tYl,tXp,hLast=-1,achScr0;static bool tDrag;int hit=-1;const bool tNow=(hidKeysHeld()&KEY_TOUCH)!=0&&!bmFlow;
    if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){hit=blHit(x,y);if(hit==10&&pxRingHit(x,y))hit=3;if(hit==10)hit=21;else if(hit==8)hit=20;else if(hit==9)hit=22;else if(hit==11)hit=pxOn()?23:-1;tXl=x;tYl=y;}}
-   if(tNow&&!bmPrev){bmDown=hit;tX0=tXp=tXl;tY0=tYl;tDrag=false;}
+   if(tNow&&!bmPrev){bmDown=hit;tX0=tXp=tXl;tY0=tYl;tDrag=false;if(gPg.achOpen)achScr0=gPg.achScroll;}
    if(tNow)hLast=hit; /* run 148: where the finger is NOW; a button tap only counts if it lifts on the button it landed on */
    {/* run 128 panel_party: tapping the PARTY tab itself opens the real party in the panel (no row tap needed); leaving the party returns the panel to MAP so the next PARTY tap is a fresh tap */
     static int ppPane,ppWasOn;const int pn=pxPane();
@@ -2161,7 +2161,9 @@ static int Present(bool){
      PSPNativeMemLog("[LIVE] opening the real %s (slot %d pocket %d item slot %d, in panel %d), %s",o==1?"Pokemon menu":"Bag",gPx.lvOpenSlot,gPx.lvPocket,gPx.lvSlot,P3DS_PanelPartyWant,bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}}
    /* run 118 A1: tap vs drag threshold 16 DS px (was 6); list scroll only after drag so stylus jitter does not eat row taps */
    if(tNow&&bmDown==21&&pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);if(dist>16){if(!tDrag){tDrag=true;PSPNativeMemLog("[BMENU] panel drag (dist %d): row tap suppressed until release without drag",dist);} }pxDrag(tXl,tYl,!bmPrev,tDrag);}
-   if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){if(abs(tXl-tX0)+abs(tYl-tY0)>16)tDrag=true;static int tYp;if(tNow&&!bmPrev)tYp=tYl;if(tDrag&&(gPg.ov||gPg.achOpen)){if(tYl!=tYp){(gPg.achOpen?gPg.achScroll:gPg.ovScroll)-=tYl-tYp;BLINV;}}else if(tDrag&&tXl!=tXp){gPg.glide=false;gPg.viewX-=tXl-tXp;BLINV;}tXp=tXl;tYp=tYl;}
+   if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);static int tYp,aPrev,aDrag;if(tNow&&!bmPrev){tYp=tYl;aPrev=tYl;aDrag=0;}
+    if(gPg.achOpen){const int d=pgAchDragDelta(&aDrag,&aPrev,tYl,dist);if(aDrag)tDrag=true;if(d){int n=gPg.achScroll+d;if(n<0)n=0;if(gPg.achMax>0&&n>gPg.achMax)n=gPg.achMax;if(n!=gPg.achScroll){gPg.achScroll=n;BLINV;}}}
+    else{if(dist>16)tDrag=true;if(tDrag&&gPg.ov){if(tYl!=tYp){gPg.ovScroll-=tYl-tYp;BLINV;}}else if(tDrag&&tXl!=tXp){gPg.glide=false;gPg.viewX-=tXl-tXp;BLINV;}tYp=tYl;}tXp=tXl;}
    const int press=(tNow&&hit==bmDown)?bmDown:-1;
    /* run 49 (Nathan): X is a tile cursor, not a wave. psp_ctru.c swallows X (and A/B/D-pad while the cursor is up) and queues the presses in P3DS_TileKeys;
       X opens the cursor (a second X closes it), D-pad right/down steps to the next usable tile, D-pad left/up to the previous, A taps it, B or 6 s idle drops it. */
@@ -2216,6 +2218,8 @@ static int Present(bool){
         if(!((P3DS_StartAvail>>2)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[VIEW] bag tap: not in the game's menu (avail mask %04x)",P3DS_StartAvail);}
         else if(P3DS_StartReq<0){const int row=pxBagRowAt(tX0,tY0);if(row>=0){P3DS_VwBagPocket=gPx.bag;P3DS_VwBagSlot=gPx.bagList[row];}else{P3DS_VwBagPocket=-1;P3DS_VwBagSlot=-1;}P3DS_StartReq=2;bmAge=0;bmFlow=1;bmFlowT=0;if(!bmHold){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2;}if(row>=0)PSPNativeMemLog("[VIEW] bag tap pocket %d slot %d -> open Bag, %s",gPx.bag,gPx.bagList[row],bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");else PSPNativeMemLog("[VIEW] bag tap -> open Bag (no row), %s",bmHold?"Start menu already open, selecting it":"pressing X to open the Start menu");}
         else PSPNativeMemLog("[VIEW] bag tap ignored: a menu request is already running");}}
+    else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&gPg.achOpen&&tDrag){static int nlog;if(gPg.achScroll!=achScr0&&nlog<8){nlog++;PSPNativeMemLog("[ACH] drag scroll %d -> %d",achScr0,gPg.achScroll);}}
+    else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&gPg.achOpen&&!tDrag&&pgAchBtnHit(gPg,tX0,tY0)){const int h=pgAchBtnHit(gPg,tX0,tY0);const int was=gPg.achScroll,step=gPg.achPage>16?gPg.achPage:48;int n=was+(h==2?step:-step);if(n<0)n=0;if(gPg.achMax>0&&n>gPg.achMax)n=gPg.achMax;gPg.achScroll=n;BLINV;PSPNativeMemLog("[ACH] %s scroll %d -> %d",h==2?"DN":"UP",was,n);}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&!tDrag&&tX0>=gPg.achX0&&tX0<gPg.achX1&&tY0>=gPg.achY0&&tY0<gPg.achY1){gPg.achOpen=!gPg.achOpen;gPg.ov=false;gPg.sel=-1;gPg.achScroll=0;if(gPg.achOpen)P3DS_AchViewed();BLINV;PSPNativeMemLog("[ACH] list %s",gPg.achOpen?"open":"closed");}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&!tDrag&&tX0>=gPg.dotsX0-3&&tX0<gPg.dotsX1+3&&tY0>=gPg.dotsY0-3&&tY0<gPg.dotsY1+3){gPg.achOpen=false;gPg.ov=!gPg.ov;gPg.sel=-1;gPg.ovScroll=0;BLINV;PSPNativeMemLog("[PGSTAT] overview %s",gPg.ov?"open":"closed");}
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()&&gPg.ov){if(!tDrag){const int l=pgOvHit(gPg,tY0);if(l>=0){gPg.ov=false;gPg.sel=l;int x,y,w,h;pgSpecRect(l,&x,&y,&w,&h);gPg.viewX=x*8+w*4-(kBlPanX1-kBlPanX0-4)/2;if(gPg.viewX<0)gPg.viewX=0;BLINV;

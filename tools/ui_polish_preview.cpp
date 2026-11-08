@@ -180,6 +180,20 @@ int main(int argc, char **argv) {
       for (int y = top; y < Y1; y += 2) if (mark(y)) marks++;
       if (!marks) blank++; }
     expect(blank == 0, "no scroll step leaves the list blank");
+    p.achScroll = 0; pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    /* The runtime only scrolls from a held touch that started on the panel. A move of 10px stays a tap.
+       The sample that passes 16px applies the whole stroke, then DN/UP are ordinary taps. */
+    int drag = 0, prev = 100;
+    expect(pgAchDragDelta(&drag, &prev, 90, 10) == 0 && !drag && prev == 100, "10px of movement does not scroll");
+    expect(pgAchDragDelta(&drag, &prev, 70, 30) == 30 && drag && prev == 70, "passing 16px scrolls the whole stroke");
+    expect(pgAchDragDelta(&drag, &prev, 50, 50) == 20, "later samples keep scrolling");
+    const int medal0 = firstY(ds, 256, 192, SUI_RGB(250, 214, 90));
+    expect(pgAchBtnHit(p, (p.achDnX0 + p.achDnX1) / 2, (p.achDnY0 + p.achDnY1) / 2) == 2, "DN is a tap target on the totals band");
+    expect(pgAchBtnHit(p, (p.achUpX0 + p.achUpX1) / 2, (p.achUpY0 + p.achUpY1) / 2) == 1, "UP is a tap target on the totals band");
+    expect(p.achPage > 16, "one tap moves by most of the visible list");
+    p.achScroll = p.achPage; pgAchPanel(ds, T, p, X0, Y0, X1, Y1);
+    int still = 0; for (int x = 0; x < 40; x++) if (ds[medal0 * 256 + x] == SUI_RGB(250, 214, 90)) still++;
+    expect(medal0 > 0 && still == 0, "a DN tap moves the top medal off that row");
     p.achScroll = 0; pgAchPanel(ds, T, p, X0, Y0, X1, Y1); }
   pgDots(ds, p, X1, Y0);
   ppm(argv[1], ds, 256, 192, 256);
