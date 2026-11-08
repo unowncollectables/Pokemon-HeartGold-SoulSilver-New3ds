@@ -1,3 +1,15 @@
+# JOHTO panel visual polish (2026-11-08)
+
+Platform-only spacing and icon polish for the bottom-screen JOHTO panel. No new setting, no pspoke patch, no save write, no achievement unlock/date/reward change, no toast change. Wide view (`wideview`, `wide_menu_screens`, `gpu_direct3d_wide`) was not edited.
+
+Tabs: when the sharp column is on (the normal scaled bottom screen), the MAP/PHONE/RADIO/PARTY/BAG(/EGGS) buttons are drawn again at native resolution with the same box, shade, and green pixel icons as the right-hand menu (`bnTabStrip` in `ss3ds_blnative.h`, registered on the existing bottom overlay). Hit rectangles are unchanged. On the map, the place-name line keeps the location and adds the selected tab's word in a green chip on the left. 1:1 scale still uses the DS-resolution buttons.
+
+Achievements: the title stops before the trophy and dots buttons. The point total and progress bar sit on their own band underneath. Each row is the name and the points, then the description wrapped inside the margins, then the earned date on its own smaller line. Rows are taller, so fewer fit. Dragging still scrolls by pixels; a line is drawn only when the whole glyph fits between the header and the bottom edge.
+
+Build: platform rebuild and link only (`soulsilver3ds/full` `make`). No clean game rebuild. No new objects outside `render3ds.cpp` and the headers it already includes.
+
+Tests here: host layout check only, block font, synthetic achievement state under `/tmp`, no ROM and no save. `tools/ui_polish_preview.cpp` passed (title misses the corner buttons, names stay clear of points, descriptions stay inside the margin, an 8px drag moves the list 8px, native tabs match the column's green/silver/navy and do not overlap). Not run in Azahar and not run on a 3DS. The owner should open the JOHTO menu and the achievement list on a local build.
+
 # Audio boundary fix (2026-11-08)
 
 Bound NNS_SndPlayerMoveVolume targets to 0..127 before libntr's decibel lookup. SoulSilver's field code requests 128; in the inspected US ROM the next signed word after SNDi_DecibelTable is 0, but the port places VolumeTable there (bytes 00 01 = +256). The resulting Goldenrod player fade was +207 instead of -49, boosting the music and triggering the loudness workarounds.
