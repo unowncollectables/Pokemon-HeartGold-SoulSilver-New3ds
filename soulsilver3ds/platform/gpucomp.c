@@ -18,8 +18,31 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "blit_shbin.h"
+static unsigned gcEngineB;
+int P3DS_TitleWideRequested,P3DS_GcTitleWideValid;
+u32 P3DS_GcTitleStrips[64*192];
+static int gcTitleWide,gcTitleScale,titleReady;
+static C3D_Tex titleTex;static C3D_RenderTarget*titleTarget;static u32*titleReadback;
+static int titleInit(void){if(titleReady)return titleReady>0;
+ if(!(C3D_TexInitVRAM(&titleTex,512,256,GPU_RGBA8)||C3D_TexInit(&titleTex,512,256,GPU_RGBA8)))return titleReady=-1,0;
+ titleTarget=C3D_RenderTargetCreateFromTex(&titleTex,GPU_TEXFACE_2D,0,-1);titleReadback=linearAlloc(512*256*4);
+ if(!titleTarget||!titleReadback){if(titleTarget)C3D_RenderTargetDelete(titleTarget);if(titleReadback)linearFree(titleReadback);C3D_TexDelete(&titleTex);return titleReady=-1,0;}titleReady=1;return 1;}
+
 extern void PSPNativeMemLog(const char *, ...);
 extern int P3DS_CfgInt(const char *, int);
+#include "g3_affine_sample.h"
+static int fadeV=-1,gcTileFx;
+int P3DS_GcBFadesCfg(void){if(fadeV<0)fadeV=P3DS_CfgInt("gpu_b_fades",0)!=0;return fadeV;}
+void P3DS_GcBFadesSet(int v){fadeV=v!=0;PSPNativeMemLog("[GCBFADE] gpu_b_fades=%d",fadeV);}
+static u32 exactBrightness(u32 c,unsigned eff,unsigned f){
+ u32 out=0xFF;for(int sh=8;sh<=24;sh+=8){unsigned v=(c>>sh)&255;v>>=2;
+  v=eff==2?v+(((63-v)*f+8)>>4):v-((v*f+7)>>4);
+  out|=((v<<2)|(v>>4))<<sh;}return out;
+}
+static int affineV=-1;
+int P3DS_GcAffineCfg(void){if(affineV<0)affineV=P3DS_CfgInt("gpu_obj_affine",0)!=0;return affineV;}
+void P3DS_GcAffineSet(int v){affineV=v!=0;PSPNativeMemLog("[GCAFF] gpu_obj_affine=%d",affineV);}
+
 extern void P3DS_Crumb(const char *tag, void *caller);  /* watchdog crumbs (only on gpu_compose>=2 frames) */
 
 #define AW 512
@@ -170,8 +193,14 @@ int P3DS_GcEligible(const u8 *regs, const u16 *oam) {
       else if ((bl & 0x3F00) || ((bl & 0xC0) && (bl & 0x3F))) return 128; }
     { const u16 mb = rh(regs, 0x6C); const unsigned m = mb >> 14; if ((m == 1 || m == 2) && (mb & 0x1F) && P3DS_FpsTweaks() < 3) return 256; }  /* fps_tweaks 3: applied in the readback pass of P3DS_GcComposeA */
     if (rg(regs, 0x64) & 0x80000000u) return 512;
+    unsigned affineArea=0;
     if (dc & 0x1000) for (int i = 0; i < 128; i++) { const u16 a0 = oam[i * 4]; if ((a0 & 0x300) == 0x200) continue;
-        if (a0 & 0x100) return 1024; if ((a0 >> 10) & 3) return 2048;
+        if (a0 & 0x100) {
+            if(!P3DS_GcAffineCfg())return 1024;
+            unsigned a1=oam[i*4+1],sp=(a0>>14)|((a1&0xC000)>>12);
+            affineArea+=SW[sp]*SH[sp]*((a0&0x200)?4:1);
+            if(affineArea>65536)return 1024;
+        } if ((a0 >> 10) & 3) return 2048;
         if ((a0 & 0x1000) && (mos >> 8)) return 4096;
         if ((a0 & 0x2000) && (dc & 0x80000000u)) return 8192; }
     return 0;
@@ -180,21 +209,26 @@ int P3DS_GcEligible(const u8 *regs, const u16 *oam) {
 static inline u32 col8(u16 c) { /* DS 15-bit -> melonDS final 8-bit, as PICA RGBA8 R<<24|G<<16|B<<8|A */
     const u32 r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
     return (((r << 3) | (r >> 3)) << 24) | (((g << 3) | (g >> 3)) << 16) | (((b << 3) | (b >> 3)) << 8) | 0xFF; }
-static u32 palHash[2][17];  /* [bg/obj][bank 0-15, 16 = 256-colour] */
-static u32 lut[2][256];
-static void palPrep(const u16 *pal, int k) {
-    for (int b = 0; b < 16; b++) { u32 h = 2166136261u; for (int i = 0; i < 16; i++) h = (h ^ pal[b * 16 + i]) * 16777619u; palHash[k][b] = h; }
-    { u32 h = 2166136261u; for (int i = 0; i < 256; i++) h = (h ^ pal[i]) * 16777619u; palHash[k][16] = h; }
-    for (int i = 0; i < 256; i++) lut[k][i] = col8(pal[i]);
+static u32 palHash[2][2][17];  /* [bg/obj][bank 0-15, 16 = 256-colour] */
+static u32 lut[2][2][256];
+static void palPrep(const u16 *pal, int k, unsigned eff, unsigned f) {
+    for (int b = 0; b < 16; b++) { u32 h = 2166136261u; for (int i = 0; i < 16; i++) h = (h ^ pal[b * 16 + i]) * 16777619u; palHash[k][0][b] = h; }
+    { u32 h = 2166136261u; for (int i = 0; i < 256; i++) h = (h ^ pal[i]) * 16777619u; palHash[k][0][16] = h; }
+    for (int i = 0; i < 256; i++) lut[k][0][i] = col8(pal[i]);
+    if(eff>=2){
+      for(int i=0;i<256;i++)lut[k][1][i]=exactBrightness(lut[k][0][i],eff,f);
+      for(int b=0;b<16;b++){u32 h=2166136261u;for(int i=0;i<16;i++)h=(h^lut[k][1][b*16+i])*16777619u;palHash[k][1][b]=h;}
+      u32 h=2166136261u;for(int i=0;i<256;i++)h=(h^lut[k][1][i])*16777619u;palHash[k][1][16]=h;
+    }
 }
 /* key: bit 24 obj, bit 23 8bpp, bits 19-22 bank, bits 0-18 address (32-byte aligned) */
 static int fail;
 static int tile(int obj, int bpp8, unsigned bank, const u8 *src, unsigned addr) {
-    const u32 key = (1u << 31) | ((u32)obj << 24) | ((u32)bpp8 << 23) | ((bpp8 ? 0 : bank) << 19) | addr;
+    const u32 key = (1u << 31) | (gcEngineB << 25) | ((u32)gcTileFx << 27) | ((u32)obj << 24) | ((u32)bpp8 << 23) | ((bpp8 ? 0 : bank) << 19) | addr;
     unsigned h = ((key * 2654435761u) >> 18) & (HSIZE - 1);
     GE *e;
     for (;;) { e = &tab[h]; if (e->key == key || !e->key) break; h = (h + 1) & (HSIZE - 1); }
-    const unsigned n = bpp8 ? 64 : 32; const u32 pv = palHash[obj][bpp8 ? 16 : bank];
+    const unsigned n = bpp8 ? 64 : 32; const u32 pv = palHash[obj][gcTileFx][bpp8 ? 16 : bank];
     if (e->key == key) {
         if (e->stamp == frameNo) return e->empty ? -1 : e->slot;
         e->stamp = frameNo;
@@ -209,7 +243,7 @@ static int tile(int obj, int bpp8, unsigned bank, const u8 *src, unsigned addr) 
     e->empty = !any; if (!any) return -1;
     const unsigned s = e->slot, tx = s % (AW / 8), ty = s / (AW / 8);
     u32 *d = (u32 *)atlas.data + (ty * (AW / 8) + tx) * 64;
-    const u32 *L = lut[obj];
+    const u32 *L = lut[obj][gcTileFx];
     for (int j = 0; j < 8; j++) { const u8 *m = mort + (7 - j) * 8;  /* texture memory row r <-> t = 1 - r/H (measured): DS row j -> tile row 7-j */
         if (bpp8) { const u8 *p = src + j * 8; for (int x = 0; x < 8; x++) { const unsigned c = p[x]; d[m[x]] = c ? L[c] : 0; } }
         else { const u8 *p = src + j * 4; const unsigned pb = bank * 16;
@@ -225,9 +259,15 @@ static void quad(int slot, float x, float y, int hf, int vf) {
     float u0 = tx * 8.0f / AW, u1 = (tx * 8 + 8.0f) / AW, vt = 1.0f - (ty * 8 + 8.0f) / AH, vb_ = 1.0f - ty * 8.0f / AH;
     if (hf) { float t = u0; u0 = u1; u1 = t; }
     if (vf) { float t = vt; vt = vb_; vb_ = t; }
+    float x1=x+8;
+    if(gcTitleWide){
+      if(gcTitleScale){x=x*1.25f;x1=x1*1.25f;const float bias=(hf?-1.0f:1.0f)/(128.0f*AW);u0+=bias;u1+=bias;}
+      else{if(x1<=0||x>=256)return;float oldU0=u0,du=(u1-u0)/8;
+        if(x<0){u0=oldU0-x*du;x=0;}if(x1>256){u1-=du*(x1-256);x1=256;}x+=32;x1+=32;}
+    }
     GV *v = vb + nq * 6; nq++;
-    v[0] = (GV){ x, y, u0, vt }; v[1] = (GV){ x, y + 8, u0, vb_ }; v[2] = (GV){ x + 8, y, u1, vt };
-    v[3] = (GV){ x + 8, y, u1, vt }; v[4] = (GV){ x, y + 8, u0, vb_ }; v[5] = (GV){ x + 8, y + 8, u1, vb_ };
+    v[0] = (GV){ x, y, u0, vt }; v[1] = (GV){ x, y + 8, u0, vb_ }; v[2] = (GV){ x1, y, u1, vt };
+    v[3] = (GV){ x1, y, u1, vt }; v[4] = (GV){ x, y + 8, u0, vb_ }; v[5] = (GV){ x1, y + 8, u1, vb_ };
 }
 typedef struct { unsigned first, count; int is3d; int fx; } GB;  /* fx: 0 none, 1 alpha blend, 2 brighten, 3 darken (BLDCNT effect of this layer) */
 static GB bat[32]; static unsigned nb;
@@ -237,6 +277,7 @@ static void batchEnd(void) { bat[nb - 1].count = nq - bat[nb - 1].first; }
 /* per-frame memo per BG: map entry -> tile result (most map entries repeat, e.g. the blank tile) */
 static struct { u32 stamp; u16 me; s16 slot; } memo[4][1024];
 static void drawBG(const u8 *regs, const u8 *vram, u32 dc, int i) {
+    gcTitleScale=gcTitleWide&&i==3;
     const u16 cnt = rh(regs, 8 + i * 2);
     const unsigned charb = ((cnt >> 2) & 15) * 0x4000 + ((dc >> 24) & 7) * 0x10000;
     const unsigned mapb = ((cnt >> 8) & 31) * 0x800 + ((dc >> 27) & 7) * 0x10000;
@@ -246,19 +287,48 @@ static void drawBG(const u8 *regs, const u8 *vram, u32 dc, int i) {
     for (unsigned r = 0; r < 25; r++) { const unsigned wy = (vofs >> 3) + r, ty = wy & (h - 1); const float sy = r * 8.0f - (vofs & 7);
         if (sy >= 192) break;
         for (unsigned k = 0; k < 33; k++) { const unsigned wx = (hofs >> 3) + k, tx = wx & (w - 1); const float sx = k * 8.0f - (hofs & 7);
-            const unsigned ma = (mapb + ((tx >> 5) + (ty >> 5) * (w >> 5)) * 0x800 + ((ty & 31) * 32 + (tx & 31)) * 2) & 0x7FFFF;
+            const unsigned ma = (mapb + ((tx >> 5) + (ty >> 5) * (w >> 5)) * 0x800 + ((ty & 31) * 32 + (tx & 31)) * 2) & (gcEngineB ? 0x1FFFF : 0x7FFFF);
             const u16 me = *(const u16 *)(vram + ma);
             const unsigned mi = (me ^ (me >> 10)) & 1023; const u16 mk = me & 0xF3FF;
             int s;
             if (memo[i][mi].stamp == frameNo && memo[i][mi].me == mk) s = memo[i][mi].slot;
-            else { const unsigned ta = (charb + (me & 0x3FF) * (bpp8 ? 64 : 32)) & 0x7FFFF;
+            else { const unsigned ta = (charb + (me & 0x3FF) * (bpp8 ? 64 : 32)) & (gcEngineB ? 0x1FFFF : 0x7FFFF);
                 s = tile(0, bpp8, me >> 12, vram + ta, ta); memo[i][mi].stamp = frameNo; memo[i][mi].me = mk; memo[i][mi].slot = (s16)s; }
             if (s >= 0) quad(s, sx, sy, me & 0x400, me & 0x800); } }
 }
+/* Rasterize only affine OBJ indices with the original signed 8.8 sampler.
+ * Existing atlas upload, palette conversion and priority batching stay shared. */
+static void drawAffineOBJ(int n,const u16*oam,const u8*ov,u32 dc,u16 a0,u16 a1,u16 a2,int w,int h){
+ const int bw=w*((a0&0x200)?2:1),bh=h*((a0&0x200)?2:1);
+ const int x=(s32)((u32)a1<<23)>>23,y=a0&255;
+ if(x>=256||x+bw<=0)return;
+ const u16*m=oam+((a1>>9)&31)*16;
+ const int pa=(s16)m[3],pb=(s16)m[7],pc=(s16)m[11],pd=(s16)m[15];
+ const int bpp8=(a0&0x2000)!=0;const unsigned mask=gcEngineB?0x1FFFF:0x3FFFF;
+ for(int ty=0;ty<bh;ty+=8)for(int tx=0;tx<bw;tx+=8){
+  int sx=x+tx,sy=y+ty;
+  if(sx>=256||sx+8<=0||(sy>=192&&sy+8<=256))continue;
+  u8 raw[64]={0};
+  for(int py=0;py<8;py++){
+   int rx=(tx-bw/2)*pa+(ty+py-bh/2)*pb+(w<<7);
+   int ry=(tx-bw/2)*pc+(ty+py-bh/2)*pd+(h<<7);
+   for(int px=0;px<8;px++,rx+=pa,ry+=pc){
+    unsigned c=P3DS_AffineIndex(ov,mask,dc,a2&1023,w,h,bpp8,rx,ry);
+    if(bpp8)raw[py*8+px]=c;else raw[py*4+px/2]|=c<<((px&1)*4);
+   }
+  }
+  unsigned key=0x04000000u|((unsigned)n<<8)|(ty/8*16+tx/8);
+  int slot=tile(1,bpp8,a2>>12,raw,key);if(slot<0)continue;
+  if(sy<192)quad(slot,sx,sy,0,0);
+  if(sy+8>256)quad(slot,sx,sy-256,0,0);
+ }
+}
 static void drawOBJ(const u16 *oam, const u8 *ov, u32 dc, unsigned prio) {
+    gcTitleScale=0;
     for (int n = 127; n >= 0; n--) { const u16 a0 = oam[n * 4], a1 = oam[n * 4 + 1], a2 = oam[n * 4 + 2];
         if (((a2 >> 10) & 3) != prio || (a0 & 0x300) == 0x200) continue;
         const unsigned sp = (a0 >> 14) | ((a1 & 0xC000) >> 12); const int w = SW[sp], hh = SH[sp];
+        if(a0&0x100){drawAffineOBJ(n,oam,ov,dc,a0,a1,a2,w,hh);continue;}
         int y = a0 & 255; if (y >= 192) y -= 256; if (y + hh <= 0) continue;
         const int x = (s32)((u32)a1 << 23) >> 23; if (x <= -w || x >= 256) continue;
         const int bpp8 = (a0 & 0x2000) != 0, hf = (a1 & 0x1000) != 0, vf = (a1 & 0x2000) != 0;
@@ -267,7 +337,7 @@ static void drawOBJ(const u16 *oam, const u8 *ov, u32 dc, unsigned prio) {
             unsigned addr;
             if (dc & 0x10) addr = ((tn << ((dc >> 20) & 3)) << 5) + (r * (w / 8) + c) * ts;
             else addr = (tn << 5) + r * 1024 + c * ts;
-            addr &= 0x3FFFF;
+            addr &= gcEngineB ? 0x1FFFF : 0x3FFFF;
             const int s = tile(1, bpp8, bank, ov + addr, addr);
             if (s < 0) continue;
             const int dcx = hf ? (w / 8 - 1 - c) : c, dry = vf ? (hh / 8 - 1 - r) : r;
@@ -333,18 +403,23 @@ static void setFx(int fx) {
     } else C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
 }
 
-typedef struct { const u32 *r; u32 *o; const u8 *t; } GoJob;
+typedef struct { const u32 *r; u32 *o; const u8 *t; unsigned stride; } GoJob;
 static void gcOutRows(void *ctx, unsigned k) {   /* 24 rows per chunk */
     const GoJob *j = (const GoJob *)ctx; const u32 *r = j->r + k * 24 * 256; u32 *o = j->o + k * 24 * 256; const u8 *t = j->t;
+    if(j->stride!=256){
+     for(unsigned y=k*24;y<k*24+24;y++){const u32*rr=j->r+y*j->stride;u32*oo=j->o+y*256;
+      for(unsigned x=0;x<256;x++){u32 a=rr[x];oo[x]=t?((u32)t[a>>24]|((u32)t[(a>>16)&255]<<8)|((u32)t[(a>>8)&255]<<16)|0xFF000000u):(__builtin_bswap32(a)|0xFF000000u);}}
+     return;
+    }
     if (t) for (unsigned i = 0; i < 24 * 256; i++) { const u32 a = r[i];  /* PICA RGBA8 R<<24|G<<16|B<<8 -> 0xFFBBGGRR */
         o[i] = (u32)t[a >> 24] | ((u32)t[(a >> 16) & 255] << 8) | ((u32)t[(a >> 8) & 255] << 16) | 0xFF000000u; }
     else for (unsigned i = 0; i < 24 * 256; i += 8, r += 8, o += 8) { __builtin_prefetch(r + 24); __builtin_prefetch(o + 24, 1);
         for (unsigned x = 0; x < 8; x++) o[x] = __builtin_bswap32(r[x]) | 0xFF000000u; }
 }
-static void gcOut(const u32 *rbuf, u16 mbr, u32 *out) {
-    GSPGPU_InvalidateDataCache(rbuf, 256 * 192 * 4);
+static void gcOutStride(const u32 *rbuf, u16 mbr, u32 *out,unsigned stride) {
+    GSPGPU_InvalidateDataCache(rbuf, stride * 192 * 4);
     const unsigned mbm = mbr >> 14, mbf = (mbr & 0x1F) > 16 ? 16 : (mbr & 0x1F);
-    u8 t[256]; GoJob job = { rbuf, out, NULL };
+    u8 t[256]; GoJob job = { rbuf, out, NULL, stride };
     if ((mbm == 1 || mbm == 2) && mbf) {
         /* fps_tweaks 3: DS master brightness (melonDS SoftRenderer, after the line is composed): on 6-bit channels,
            up c += ((63 - c) * f) >> 4, down c -= (c * f + 15) >> 4; every composed pixel is an exact 6-bit expansion
@@ -353,10 +428,20 @@ static void gcOut(const u32 *rbuf, u16 mbr, u32 *out) {
         job.t = t; P3DS_GcMbFrames++; }
     P3DS_ParFor(gcOutRows, &job, 8);
 }
+static void gcOut(const u32*r,u16 m,u32*out){gcOutStride(r,m,out,256);}
+static void titleStripOut(u16 mbr){
+ GSPGPU_InvalidateDataCache(titleReadback,512*192*4);unsigned mode=mbr>>14,f=mbr&31;if(f>16)f=16;
+ for(unsigned y=0;y<192;y++)for(unsigned side=0;side<2;side++)for(unsigned x=0;x<32;x++){
+  u32 c=titleReadback[y*512+(side?288:0)+x];
+  if((mode==1||mode==2)&&f){u32 q=0xFF;for(int sh=8;sh<=24;sh+=8){unsigned v=((c>>sh)&255)>>2;v=mode==1?v+(((63-v)*f)>>4):v-((v*f+15)>>4);q|=((v<<2)|(v>>4))<<sh;}c=q;}
+  P3DS_GcTitleStrips[y*64+side*32+x]=c;
+ }P3DS_GcTitleWideValid=1;
+}
 /* returns 1 and fills out[256*192] (0xFFBBGGRR) on success; 0 = not composed (out untouched, caller falls back) */
 int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bgpal, const u16 *objpal, const u16 *oam, const u32 *f3d, u32 *out) {
     P3DS_Crumb("gc-begin", 0);
     if (!init()) return 0;
+    gcTitleWide=gcEngineB&&P3DS_TitleWideRequested;if(gcTitleWide&&!titleInit())return 0;
     const u64 t0 = svcGetSystemTick();
     /* a picture left on the GPU by the last compose is replaced now (its CPU buffer is written by this compose or the CPU fallback) */
     if (!fpEye) dfPend[0] = dfPend[1] = 0; else dfPend[1] = 0;
@@ -368,7 +453,7 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     P3DS_GcBeginUs = P3DS_GcEndUs = P3DS_GcSyncUs = 0;
     const int ov = fpOn(); if (ov) vb = (fpSub & 1) ? vbB : vbA;  /* the other half may still be read by the queued draw */
     if (slotsUsed > SLOTS - 3000 || slotsUsed * 2 > HSIZE - 6000) { memset(tab, 0, HSIZE * sizeof(GE)); slotsUsed = 0; P3DS_GcResets++; }
-    palPrep(bgpal, 0); palPrep(objpal, 1);
+
     const u32 dc = rg(regs, 0);
     int has3d = 0;
     /* colour effects (gpu_blend=1). Layers are drawn bottom to top, so blending with "what is below" is GPU blending with
@@ -378,17 +463,19 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     const u32 bl = P3DS_GcBlendOn ? rh(regs, 0x50) : 0, eff = (bl >> 6) & 3, firstM = bl & 0x3F, secondM = (bl >> 8) & 0x3F;
     const u32 eva = rh(regs, 0x52) & 0x1F, evb = (rh(regs, 0x52) >> 8) & 0x1F, evy = rh(regs, 0x54) & 0x1F;
     blendA = eva > 16 ? 16 : eva; blendB = evb > 16 ? 16 : evb; blendY = evy > 16 ? 16 : evy;
+    const int exactB=gcEngineB&&P3DS_GcBFadesCfg();gcTileFx=0;
+    palPrep(bgpal,0,exactB?eff:0,blendY);palPrep(objpal,1,exactB?eff:0,blendY);
     u32 belowM = 0; int usedFx = 0;
     for (int p = 3; p >= 0; p--) {
         for (int i = 3; i >= 0; i--) { if (!(dc & (0x100u << i)) || (rh(regs, 8 + i * 2) & 3) != (unsigned)p) continue;
             const int fx = (eff && (firstM & (1u << i))) ? (int)eff : 0;
             if (i == 0 && (dc & 8)) { if (fx == 1) { P3DS_GcBlendRej++; rejNote(rh(regs, 0x50), rh(regs, 0x52), dc, 5); fail = 1; break; }
                 batchBegin(1, fx); bat[nb - 1].count = 6; has3d = 1; belowM |= 1; if (fx) usedFx = 1; continue; }
-            batchBegin(0, fx); const unsigned q0 = nq; drawBG(regs, bgv, dc, i); batchEnd();
+            gcTileFx=exactB&&fx>=2; batchBegin(0, gcTileFx?0:fx); const unsigned q0 = nq; drawBG(regs, bgv, dc, i); batchEnd();
             if (nq > q0) { if (fx == 1 && ((belowM & ~secondM) || (belowM & firstM) || !(bl & 0x2000))) { P3DS_GcBlendRej++; rejNote(rh(regs, 0x50), rh(regs, 0x52), dc, (belowM & ~secondM) ? 2 : (belowM & firstM) ? 3 : 4); fail = 1; break; }
                 belowM |= 1u << i; if (fx) usedFx = fx; } }
         if (fail) break;
-        if (dc & 0x1000) { const int fx = (eff && (firstM & 0x10)) ? (int)eff : 0; batchBegin(0, fx); const unsigned q0 = nq; drawOBJ(oam, objv, dc, p); batchEnd();
+        if (dc & 0x1000) { const int fx = (eff && (firstM & 0x10)) ? (int)eff : 0; gcTileFx=exactB&&fx>=2; batchBegin(0, gcTileFx?0:fx); const unsigned q0 = nq; drawOBJ(oam, objv, dc, p); batchEnd();
             if (nq > q0) { if (fx == 1 && ((belowM & ~secondM) || (belowM & firstM) || !(bl & 0x2000))) { P3DS_GcBlendRej++; rejNote(rh(regs, 0x50), rh(regs, 0x52), dc, (belowM & ~secondM) ? 2 : (belowM & firstM) ? 3 : 4); fail = 1; }
                 belowM |= 0x10; if (fx) usedFx = fx; } }
         if (fail) break; }
@@ -409,7 +496,8 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     P3DS_GcQuads = nq;
     const u64 t1 = svcGetSystemTick(); P3DS_GcConvUs = (unsigned)((t1 - tw) / 268);
     u32 bd = col8(bgpal[0]);
-    if (eff >= 2 && (firstM & 0x20)) {  /* backdrop as first target of brightness up/down (bias 8 / 7, as ColorBrightness*) */
+    if (exactB && eff >= 2 && (firstM & 0x20)) bd=exactBrightness(bd,eff,blendY);
+    else if (eff >= 2 && (firstM & 0x20)) {  /* backdrop as first target of brightness up/down (bias 8 / 7, as ColorBrightness*) */
         u32 c[3] = { bd >> 24, (bd >> 16) & 255, (bd >> 8) & 255 };
         for (int k = 0; k < 3; k++) c[k] = eff == 2 ? c[k] + (((255 - c[k]) * blendY + 8) >> 4) : c[k] - ((c[k] * blendY + 7) >> 4);
         bd = (c[0] << 24) | (c[1] << 16) | (c[2] << 8) | 0xFF; }
@@ -418,11 +506,11 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     { const u64 tb = svcGetSystemTick(); C3D_FrameBegin(0); P3DS_GcBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
     gpuBusy = 0;
     G3G_DirectSynced();   /* FrameBegin waited for every queued draw, including g3gpu's direct 3D frame */
-    C3D_RenderTarget *const tgt = dfEye ? rtR : rt;
+    C3D_RenderTarget *const tgt = gcTitleWide ? titleTarget : (dfEye ? rtR : rt);
     C3D_RenderTargetClear(tgt, C3D_CLEAR_ALL, bd, 0);
     C3D_FrameDrawOn(tgt);
     C3D_BindProgram(&prog);
-    C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, 256.0f, 0.0f, 256.0f, 1.0f, -1.0f, true);  /* DS y 0 -> clip -1 (= g3gpu convention, FLIP_VERT readback gives rows top-first) */
+    C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, gcTitleWide?512.0f:256.0f, 0.0f, 256.0f, 1.0f, -1.0f, true);  /* DS y 0 -> clip -1 (= g3gpu convention, FLIP_VERT readback gives rows top-first) */
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
     C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
     AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2);
@@ -439,14 +527,14 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
             if (b3) { C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA); C3D_DrawArrays(GPU_TRIANGLES, q3 * 6, 6); curFx = -1; }
             else C3D_DrawArrays(GPU_TRIANGLES, q3 * 6, 6); }
         else { C3D_TexBind(0, &atlas); C3D_DrawArrays(GPU_TRIANGLES, bat[b].first * 6, bat[b].count * 6); } }
-    u32 *const rbuf = ov && fpEye ? rbR : rb;
+    u32 *const rbuf = gcTitleWide ? titleReadback : (ov && fpEye ? rbR : rb);
     { const u16 m = rh(regs, 0x6C);
       if (P3DS_GcDeferOut && (!fpEye || dfEye) && !(((m >> 14) == 1 || (m >> 14) == 2) && (m & 0x1F))) {   /* no master-brightness fade */
         const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); P3DS_GcEndUs = (unsigned)((svcGetSystemTick() - te) / 268);
         if (ov) fpSub++; fpDefer = 0; fpEye = 0;
         dfPend[dfEye] = 1; dfOut[dfEye] = out; dfMbr[dfEye] = m; gpuBusy = 1; P3DS_GcDeferN++; P3DS_GcOutUs = 0; P3DS_GcGpuUs = 0;
         P3DS_GcCpuUs = (unsigned)((t1 - t0) / 268); P3DS_Crumb("gc-deferred", 0); return 1; } }
-    C3D_SyncDisplayTransfer((u32 *)(dfEye ? rtTexR.data : rtTex.data), GX_BUFFER_DIM(256, 256), rbuf, GX_BUFFER_DIM(256, 256), RB_FLAGS);
+    C3D_SyncDisplayTransfer((u32 *)(gcTitleWide ? titleTex.data : (dfEye ? rtTexR.data : rtTex.data)), GX_BUFFER_DIM(gcTitleWide?512:256, 256), rbuf, GX_BUFFER_DIM(gcTitleWide?512:256, 256), RB_FLAGS);
     { const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); P3DS_GcEndUs = (unsigned)((svcGetSystemTick() - te) / 268); }
     const u16 mbr = rh(regs, 0x6C);
     if (ov) { gpuBusy = 1; fpSub++;
@@ -461,8 +549,48 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     gpuBusy = 0; fpEye = 0;
     P3DS_Crumb("gc-done", 0);
     const u64 t2 = svcGetSystemTick();
-    gcOut(rbuf, mbr, out);
+    if(gcTitleWide){gcOutStride(rbuf+32,mbr,out,512);titleStripOut(mbr);}else gcOut(rbuf, mbr, out);
     const u64 t3 = svcGetSystemTick(); P3DS_GcOutUs = (unsigned)((t3 - t2) / 268);
     P3DS_GcCpuUs = (unsigned)((t1 - t0 + t3 - t2) / 268); P3DS_GcGpuUs = (unsigned)((t2 - t1) / 268);
     return 1;
+}
+
+/* Main-thread only. The output is fully resolved before engine A reuses the
+ * shared target/atlas. Engine-specific tile keys prevent A/B atlas churn. */
+int P3DS_GcComposeB(const u8*in,const u8*bg,const u8*obj,const u16*bp,const u16*op,const u16*oam,u32*out,unsigned*why){
+ u32 regs[0x400/4]={0};memcpy(regs,in,0x70);
+ regs[0]&=~((7u<<24)|(7u<<27)|8u); /* B ignores A's base offsets and 3D bit. */
+ regs[0x64/4]=0; /* B has no display capture. */
+ /* Brightness/blend fades can differ by a few channel levels on the
+  * existing 8-bit TEV path. Keep B on the original exact CPU fade for now. */
+ const unsigned bl=regs[0x50/4]&0xFFFF,mb=(regs[0x6C/4]&0xFFFF);
+ const unsigned eff=(bl>>6)&3;
+ if(!P3DS_GcBFadesCfg()){
+  if(eff||(((mb>>14)==1||(mb>>14)==2)&&(mb&31))){if(why)*why=0x8000u;return 0;}
+ }else{
+  /* Engine B has no 3D layer; plain OBJs cannot trigger implicit alpha.
+   * An empty first-target mask makes the effect inert. Active alpha stays CPU. */
+  if(!(bl&63))regs[0x50/4]&=~0xC0u;
+  else if(eff==1){
+   unsigned eva=(regs[0x50/4]>>16)&31,evb=(regs[0x50/4]>>24)&31;
+   if(eva>16)eva=16;if(evb>16)evb=16;
+   if(eva==16&&evb==0)regs[0x50/4]&=~0xC0u;
+   else if(eva==0&&(evb==0||evb==16)){/* Exact black or destination, subject to normal layer/target validation. */}
+   else{
+
+   static unsigned seen[12],ns;unsigned sig=bl|(regs[0x50/4]&0xFFFF0000u),i=0;
+   for(;i<ns&&seen[i]!=sig;i++);if(i==ns&&ns<12){seen[ns++]=sig;PSPNativeMemLog("[GCBFADE] alpha fallback BLDCNT=%04x BLDALPHA=%04x MBRIGHT=%04x",bl,(unsigned)(regs[0x50/4]>>16),mb);}
+   if(why)*why=0x8000u;return 0;
+   }
+  }
+ }
+ gcEngineB=1;
+ unsigned reject=P3DS_GcEligible((const u8*)regs,oam);if(why)*why=reject;
+ if(reject){gcEngineB=0;return 0;}
+ P3DS_GcEye(0,0);P3DS_GcDeferOut=0;
+ int ok=P3DS_GcComposeA((const u8*)regs,bg,obj,bp,op,oam,NULL,out);
+ P3DS_GcFinish();gcEngineB=0;
+ if(ok&&P3DS_GcBFadesCfg()){static unsigned n,e[4],m; n++;e[eff]++;m+=((mb>>14)==1||(mb>>14)==2)&&(mb&31);
+  if(n%120==0)PSPNativeMemLog("[GCBFADE] accepted=%u plain=%u alpha_endpoints=%u brighten=%u darken=%u master=%u",n,e[0],e[1],e[2],e[3],m);}
+ if(!ok&&why)*why=0x4000u;return ok;
 }

@@ -534,7 +534,7 @@ static void fps60Probe(void) {
     extern int P3DS_CfgInt(const char *, int); extern int P3DS_InField;
     extern int P3DS_FpsTweaks(void);
     if (cfg < 0) cfg = P3DS_CfgInt("fps60_probe", 0) != 0;
-    on = (cfg || P3DS_FpsTweaks() >= 5) && !pfail;   /* follows the live Speed tweaks level, not just the boot one */
+    on = cfg && !pfail;   /* Research-only: explicitly opt in with fps60_probe=1. */
     if (on && !prev) { prev = malloc(MAXV * sizeof(V)); if (!prev) { pfail = 1; on = 0; } }
     if (!on || !P3DS_InField || eyes < 1) { prevN = 0; return; }
     const unsigned n = vn[0] / 3;

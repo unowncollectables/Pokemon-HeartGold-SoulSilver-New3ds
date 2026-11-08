@@ -1,3 +1,9 @@
+# Rendering performance hardware trial (2026-11-08)
+
+Platform rebuild/link against main after PR #401. The field command and bounds shortcuts were checked against paired stereo frames. The user confirmed smoother battle send-outs and approved the GPU wide title appearance in Azahar. A steady 300-frame title sample averaged 38.79 ms. GPU title verification compared the centre and side panels against the exact CPU layout and reported zero differing pixels across 240 checks. These measurements are from the local experiment. Device performance and GPU parity still need testing.
+
+See Release Notes for the settings to reproduce the trial. Second screen GPU CHECK presents the CPU result and logs pixel differences. Use ON for timing. Unsupported composition falls back to the CPU. Keep the ROM, 512 KiB save, and build artifacts outside Git.
+
 # JOHTO panel visual polish (2026-11-08)
 
 Platform-only spacing and icon polish for the bottom-screen JOHTO panel. No new setting, no pspoke patch, no save write, no achievement unlock/date/reward change, no toast change. Wide view (`wideview`, `wide_menu_screens`, `gpu_direct3d_wide`) was not edited.

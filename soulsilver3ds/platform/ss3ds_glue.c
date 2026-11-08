@@ -38,6 +38,8 @@ extern int P3DS_InField;
 extern const char ov01_02206378[] __attribute__((weak));
 extern const char gOverlayTemplate_Battle[] __attribute__((weak));
 int P3DS_InBattle;
+int P3DS_InTitle;
+extern const char gApplication_TitleScreen[] __attribute__((weak));
 /* wide_menu_screens: party menu, bag and Pokemon summary. Weak: a renamed symbol just leaves the toggle without effect;
    the first template changes are logged so the log shows which pointers were seen. */
 int P3DS_InWideMenu;
@@ -56,6 +58,7 @@ extern void *__real_OverlayManager_New(const void *template, void *parentWork, i
 void *__wrap_OverlayManager_New(const void *template, void *parentWork, int heapID)
 {
     const int field = template && template == (const void *)ov01_02206378;
+    {int title=gApplication_TitleScreen&&template==(const void*)gApplication_TitleScreen;if(title!=P3DS_InTitle){extern void PSPNativeMemLog(const char*,...);PSPNativeMemLog("[TITLE] overlay active=%d",title);}P3DS_InTitle=title;}
     if (field != P3DS_InField) { extern void PSPNativeMemLog(const char *, ...); PSPNativeMemLog("[3DS] field %d", field); }
     P3DS_InField = field;
     /* wide_battle: the battle overlay manager (gOverlayTemplate_Battle, overlay 12) marks the battle; the field

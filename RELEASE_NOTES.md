@@ -1,5 +1,8 @@
 # Release notes
 
+## Rendering performance hardware trial
+Use L+R+Y to open settings. Under 3D, enable Command shortcut, Bounds shortcut, Second screen GPU (ON), Affine object GPU, and Second screen fades. Under Display, set Title layout to WIDE. These settings default to the existing renderer and layout. Start with the title reveal, Goldenrod, and a battle send-out, then repeat gameplay with the 3D slider down. The wide title averaged about 26 FPS in the local Azahar trial. Fades and some battle effects can still dip. New 3DS testing is pending.
+
 ## JOHTO panel polish
 The bottom-screen tabs match the sharp green icons and button shading of the menu on the right. The achievement list keeps the score, names, points, descriptions, and dates apart. Azahar confirmed that layout. Dragging the list did not move it; UP and DN next to the score page it with a tap. Unlocks, the toast, and the save are unchanged. Needs another platform rebuild before that is checked.
 
