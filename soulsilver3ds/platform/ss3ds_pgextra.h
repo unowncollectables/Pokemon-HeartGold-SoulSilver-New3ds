@@ -115,21 +115,30 @@ static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0,
   (void)T; const int L = kBlPanX0 + 2, R = X1 - 2, N = pxNTab(), W = R - L - (N - 1) * kPxTabGap;
   for (int i = 0; i < N; i++) { x0[i] = L + i * kPxTabGap + W * i / N; x1[i] = L + i * kPxTabGap + W * (i + 1) / N; }
   *y0 = Y0 + 1; *y1 = Y0 + 15; }
-/* run 142: the area name on its own full-width line under the tab row (MAP pane only; the map panel starts below it, see blNameH) */
+/* run 142: the area name on its own full-width line under the tab row (MAP pane only; the map panel starts below it, see blNameH).
+   The selected tab's word sits in a green chip on the left; the place name keeps the rest of the line. */
 static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
   const int y0 = Y0 + 15, y1 = y0 + kBlNameH + 1;
   /* run 147: a navy header (not a third silver button): the place name in white on a deep blue gradient, like the panel's other title strips */
   for (int y = y0; y < y1; y++) { const uint32_t c = suiMix(kBlPress, kBlBlue, y - y0, y1 - y0); for (int x = X0; x < X1; x++) suiPx(b, x, y, c); }
   mmFrame(b, X0, y0, X1, y1, kBlNavy);
-  char nm[48]; pxFit(T, nm, sizeof nm, name, X1 - X0 - 8);
-  suiSDraw(T, b, X0 + 4, y0 + (y1 - y0 - 9) / 2, nm, SUI_RGB(255, 255, 255), kBlSelO); }
-/* tab row: same look as the side column's buttons (silver gradient, white top lip, navy frame); the open tab takes the pressed blue */
+  const int ty = y0 + (y1 - y0 - 9) / 2;
+  const char *cap = (gPx.pane >= 0 && gPx.pane < pxNTab()) ? kPxTabs[gPx.pane] : "MAP";
+  const int cw = suiSWidth(T, cap) + 8, cx0 = X0 + 2, cx1 = cx0 + cw;
+  int nx = X0 + 4;
+  if (cx1 + 16 < X1) {
+    for (int y = y0 + 1; y < y1 - 1; y++) for (int x = cx0; x < cx1; x++) suiPx(b, x, y, (x == cx0 || x == cx1 - 1 || y == y0 + 1 || y == y1 - 2) ? kBlSelO : kBlPress);
+    suiSDraw(T, b, cx0 + 4, ty, cap, SUI_RGB(255, 255, 255), kBlSelO); nx = cx1 + 4; }
+  char nm[48]; pxFit(T, nm, sizeof nm, name, X1 - nx - 4);
+  suiSDraw(T, b, nx, ty, nm, SUI_RGB(255, 255, 255), kBlSelO); }
+/* tab icons: same art as the column. When the bottom picture is scaled, render3ds draws these again at native size (bnTabStrip). */
+static const int kPxTabIcon[kPxMaxTab] = { 7, 3, 10, 1, 2, 11 }; /* map, pokegear, radio, ball, bag, egg */
+/* tab row: same look as the side column's buttons (silver gradient, white top lip, navy frame); the open tab takes the pressed green.
+   This is the 1:1 picture. The scaled screen covers it with the native strip so the icons stay crisp. */
 static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
-  /* run 151: each tab is the sharp column's button box (blBox) with its icon; the open tab takes the column's selected green */
   (void)X0; (void)name; int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
-  static const int kIc[kPxMaxTab] = { 7, 3, 10, 1, 2, 11 };
   for (int i = 0; i < pxNTab(); i++) { const bool on = gPx.pane == i; blBox(b, cx0[i], cy0, cx1[i], cy1, on);
-    blIcon(b, cx0[i] + (cx1[i] - cx0[i] - 12) / 2, cy0 + (cy1 - cy0 - 12) / 2, kIc[i], on ? kBlSelO : kBlIcInk, on ? SUI_RGB(255, 255, 255) : kBlIcAcc); } }
+    blIcon(b, cx0[i] + (cx1[i] - cx0[i] - 12) / 2, cy0 + (cy1 - cy0 - 12) / 2, kPxTabIcon[i], on ? kBlSelO : kBlIcInk, on ? SUI_RGB(255, 255, 255) : kBlIcAcc); } }
 /* tab index under bar x, -1 none (same layout as pxBar) */
 static int pxChipHit(const SUiText &T, int X1, int Y0, int x) {
   int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);

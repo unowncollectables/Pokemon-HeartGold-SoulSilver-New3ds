@@ -1,3 +1,19 @@
+# JOHTO panel visual polish (2026-11-08)
+
+Platform-only spacing and icon polish for the bottom-screen JOHTO panel. No new setting, no pspoke patch, no save write, no achievement unlock/date/reward change, no toast change. Wide view (`wideview`, `wide_menu_screens`, `gpu_direct3d_wide`) was not edited.
+
+Tabs: when the sharp column is on (the normal scaled bottom screen), the MAP/PHONE/RADIO/PARTY/BAG(/EGGS) buttons are drawn again at native resolution with the same box, shade, and green pixel icons as the right-hand menu (`bnTabStrip` in `ss3ds_blnative.h`, registered on the existing bottom overlay). Hit rectangles are unchanged. On the map, the place-name line keeps the location and adds the selected tab's word in a green chip on the left. 1:1 scale still uses the DS-resolution buttons.
+
+Achievements: the title stops before the trophy and dots buttons. The point total and progress bar sit on their own band underneath. Each row is the name and the points, then the description wrapped inside the margins, then the earned date on its own smaller line. Rows are taller, so fewer fit. Dragging still scrolls by pixels (`achScroll -=` the DS y delta, finger up reveals later rows). A line that crosses the list edge is clipped to the list instead of being skipped, so the next row cannot vanish into a blank gap.
+
+Build: platform rebuild and link only (`soulsilver3ds/full` `make`). No clean game rebuild. No new objects outside `render3ds.cpp` and the headers it already includes.
+
+`ea3b911` built from scratch on the owner's machine (devkitARM gcc 16.1.0, all 168 patches, platform `make` exit 0; preexisting `-fpermissive` notes at `render3ds.cpp:2039` and the `crtn` linker warning). Archive string `run 0 (no git)` is expected. Azahar 2126.2: tabs PASS, list layout PASS. Scroll FAIL. `d759a06` (clip partial lines) was rebuilt (`render3ds.o` / `tracker.o` forced) and retested in the same Azahar: still no movement. Many upward and reverse drags left Zephyr and Hive on screen. The tester could not confirm the drag was delivered as a held touch.
+
+The list does not move unless a touch goes down on the panel (`blHit` 10 -> `bmDown` 21), stays held, and travels more than 16 DS px. Until that gate, `achScroll` is unchanged. The host check before `d759a06` wrote `achScroll` directly, so it never ran this dispatch. A 10px move is still a tap. The sample that passes 16px now applies the whole stroke (`pgAchDragDelta`). UP and DN chips on the totals band page the list with an ordinary tap, the same kind of press that already opens the list. `[ACH] DN scroll A -> B` and `[ACH] drag scroll A -> B` (first 8 drags) are the only new logs.
+
+Host check covers that dispatch, a DN tap moving the top row, the 16 gym rows, both clamps, and the scaled / 1:1 touch mapping. Not re-run in Azahar. On the next local build, tap DN (right of the score) to bring in Plain Badge. A real held drag should also move the list and write one `[ACH] drag scroll` line.
+
 # Audio boundary fix (2026-11-08)
 
 Bound NNS_SndPlayerMoveVolume targets to 0..127 before libntr's decibel lookup. SoulSilver's field code requests 128; in the inspected US ROM the next signed word after SNDi_DecibelTable is 0, but the port places VolumeTable there (bytes 00 01 = +256). The resulting Goldenrod player fade was +207 instead of -49, boosting the music and triggering the loudness workarounds.

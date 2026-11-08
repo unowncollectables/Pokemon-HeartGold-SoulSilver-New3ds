@@ -17,7 +17,11 @@ static const uint32_t kSuiBgTop = SUI_RGB(208, 224, 248), kSuiBgBot = SUI_RGB(16
   kSuiSelEdge = SUI_RGB(56, 128, 232), kSuiSelCell = SUI_RGB(232, 244, 255), kSuiSelLo = SUI_RGB(208, 228, 255),
   kSuiName = SUI_RGB(72, 72, 80), kSuiNameSh = SUI_RGB(208, 208, 216), kSuiVal = SUI_RGB(40, 88, 208), kSuiValSh = SUI_RGB(176, 196, 240),
   kSuiArrow = SUI_RGB(120, 136, 184), kSuiChanged = SUI_RGB(232, 72, 56), kSuiNote = SUI_RGB(112, 120, 144), kSuiNoteSh = SUI_RGB(216, 220, 232);
-static inline void suiPx(uint32_t *b, int x, int y, uint32_t c) { if (x >= 0 && x < 256 && y >= 0 && y < 192) b[y * 256 + x] = c; }
+/* optional clip, in addition to the 256x192 screen. Defaults to the whole screen; the achievement list narrows it while a row slides across the header. */
+static int suiClipX0 = 0, suiClipY0 = 0, suiClipX1 = 256, suiClipY1 = 192;
+static inline void suiPx(uint32_t *b, int x, int y, uint32_t c) {
+  if (x < suiClipX0 || y < suiClipY0 || x >= suiClipX1 || y >= suiClipY1) return;
+  if ((unsigned)x < 256u && (unsigned)y < 192u) b[y * 256 + x] = c; }
 static inline uint32_t suiMix(uint32_t a, uint32_t c, int t, int n) { /* a..c, t of n */
   uint32_t o = 0; for (int s = 0; s < 24; s += 8) { int x = (a >> s) & 255, y = (c >> s) & 255; o |= (uint32_t)(x + (y - x) * t / n) << s; } return o; }
 /* rounded panel: 1 px rim (2 px when thick), top half `fill`, bottom half shaded towards `lo` like the game's panels */

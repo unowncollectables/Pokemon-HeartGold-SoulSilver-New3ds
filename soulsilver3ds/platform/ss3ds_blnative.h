@@ -82,6 +82,30 @@ static void bnRectOf(int i, int *x0, int *y0, int *x1, int *y1) {
   else if (i == 8) { *x0 = 250; *y0 = 197; *x1 = 282; *y1 = 229; } else { *x0 = 285; *y0 = 197; *x1 = 317; *y1 = 229; } }
 /* the same in DS pixels (touch), x 4/5 */
 static void bnDsRect(int i, int *x0, int *y0, int *x1, int *y1) { bnRectOf(i, x0, y0, x1, y1); *x0 = *x0 * 4 / 5; *y0 = *y0 * 4 / 5; *x1 = (*x1 + 1) * 4 / 5; *y1 = (*y1 + 1) * 4 / 5; }
+/* DS pixel span [ds0, ds1) on the 256x192 picture, as the native pixels that cover it when that picture is stretched to 320x240 (x5/4). */
+static void bnDsSpan(int ds0, int ds1, int *n0, int *n1) {
+  *n0 = ds0 * 5 / 4; *n1 = (ds1 * 5 + 3) / 4; if (*n1 < *n0) *n1 = *n0; }
+/* One native tab button, placed in the atlas by bnTabStrip. Screen rect is 320x240; source is 1:1 in the atlas. */
+struct SBnTabDst { short dx, dy, w, h, sx, sy; };
+/* JOHTO top tabs at native resolution, same box and green pixel icons as the column (bnBox / bnIcon2x).
+   ds* are the DS hit rects from pxChips. Drawn into atlas row y=180 (the frame windows stop at y=168). */
+static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const int *dsX1, int dsY0, int dsY1, const int *icons, SBnTabDst *dst, int maxDst) {
+  if (!atlas || n < 1) return 0;
+  const uint32_t NAVY = bnRGB(7, 33, 54), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255), BTN_SHD = bnRGB(189, 201, 222),
+    SEL = bnRGB(46, 208, 155), SEL_SHD = bnRGB(24, 153, 115), BG = bnRGB(200, 208, 211),
+    INK = bnRGB(24, 120, 72), ACC = bnRGB(104, 200, 140), SEL_INK = bnRGB(0, 84, 64), WHITE = bnRGB(255, 255, 255);
+  int nd = 0, ax = 0;
+  for (int i = 0; i < n && nd < maxDst; i++) {
+    int x0, x1, y0, y1; bnDsSpan(dsX0[i], dsX1[i], &x0, &x1); bnDsSpan(dsY0, dsY1, &y0, &y1);
+    const int w = x1 - x0, h = y1 - y0; if (w < 8 || h < 8 || ax + w > 250) continue;
+    const SBnCanvas c = { atlas, ax, 180, 0, 0, w, h };
+    bnRect(c, 0, 0, w - 1, h - 1, BG); /* opaque corners: bnBox leaves them out, same cut as the column */
+    const bool on = i == pane;
+    bnBox(c, 0, 0, w - 1, h - 1, NAVY, on ? SEL : BTN, on ? SEL : BTN_TOP, on ? SEL_SHD : BTN_SHD, 2);
+    int iy = 2; if (iy + 12 > h - 4) iy = (h - 12) / 2; if (iy < 1) iy = 1;
+    bnIcon2x(c, (w - 12) / 2, iy, icons[i], on ? SEL_INK : INK, on ? WHITE : ACC);
+    dst[nd++] = { (short)x0, (short)y0, (short)w, (short)h, (short)ax, 180 }; ax += w; }
+  return nd; }
 /* Atlas areas (512x256): column = native (235,0) 85x240 at atlas (256,0); top = native (0,0) 235x4 at (0,160);
    bottom = native (0,236) 235x4 at (0,164); left = native (0,4) 4x232 at (344,0). The DS-drawn map panel shows between. */
 static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *al, const bool *on, int press, unsigned gameIco, int iconX[10], int iconY[10]) {

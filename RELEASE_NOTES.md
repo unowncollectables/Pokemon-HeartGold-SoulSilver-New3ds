@@ -1,5 +1,8 @@
 # Release notes
 
+## JOHTO panel polish
+The bottom-screen tabs match the sharp green icons and button shading of the menu on the right. The achievement list keeps the score, names, points, descriptions, and dates apart. Azahar confirmed that layout. Dragging the list did not move it; UP and DN next to the score page it with a tap. Unlocks, the toast, and the save are unchanged. Needs another platform rebuild before that is checked.
+
 ## Audio fix awaiting device validation
 Field music requests of 128 are bounded to the decibel table's valid 0..127 range, preventing an accidental +256 boost. Goldenrod / Route 34 tested in local Azahar; owner reported improved sound, and the checked test intervals had no clipping or automatic gain reduction. Existing audio settings remain unchanged. Requires a normal platform rebuild/link; real New 3DS testing is pending.
 

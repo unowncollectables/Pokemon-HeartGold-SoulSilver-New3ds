@@ -52,6 +52,7 @@ struct SPg {
   struct { short x, y; uint8_t k; } ico[48]; int nIco; bool gameIco; /* small stat icons drawn by the native overlay */
   int dotsX0, dotsY0, dotsX1, dotsY1;
   bool achOpen; int achScroll, achX0, achY0, achX1, achY1; /* achievements list (achievements.c), button left of the dots */
+  int achUpX0, achUpY0, achUpX1, achUpY1, achDnX0, achDnY0, achDnX1, achDnY1, achPage, achMax; /* UP/DN page the list; achMax is the clamp */
   int flyX0, flyY0, flyX1, flyY1; /* hook 0228 (pg_flytap): the FLY chip on the open info card, 0 size = none (screen px) */
   int find, findTm; /* run 146 pg_find: species being looked for (0 none) and the time filter (0 any, 1 morning, 2 day, 3 night) */
   int page; /* run 16: info card page, 0 = info, 1 = wild Pokemon list (tap the card to flip) */
@@ -120,6 +121,21 @@ static int pgWrap(const SUiText &T, const char *s, int room, char out[][64], int
     if (T.width(tryl) <= room || !line[0]) snprintf(line, sizeof line, "%s", tryl);
     else { snprintf(out[n++], 64, "%s", line); snprintf(line, sizeof line, "%s", word); } }
   if (line[0] && n < maxLines) snprintf(out[n++], 64, "%s", line); return n; }
+/* shorten `s` into `out` so it fits maxW; a cut string ends with ".." */
+static void pgFit(const SUiText &T, char *out, int sz, const char *s, int maxW) {
+  if (sz < 1) return;
+  snprintf(out, (size_t)sz, "%s", s ? s : "");
+  if (maxW <= 0) { out[0] = 0; return; }
+  if (T.width(out) <= maxW) return;
+  int k = (int)strlen(out);
+  while (k > 0) {
+    k--;
+    if (k + 3 <= sz) { out[k] = '.'; out[k + 1] = '.'; out[k + 2] = 0; }
+    else out[k] = 0;
+    if (out[0] && T.width(out) <= maxW) return;
+    out[k] = 0;
+  }
+}
 
 /* run 14: labelled stats ("Caught 2/9", "Trainers 1/3", "Items 1/2", "Hidden 0/2", optional "Seen"), two per line in
    columns at x and x + col; only stats the place has. Returns the number of lines drawn. */
@@ -306,47 +322,97 @@ static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, in
 /* draw the map into the panel interior (X0,Y0)-(X1,Y1); the view follows the player's location unless panned */
 static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int viewX); /* ss3ds_pgextra.h: phone contact pins */
 static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW);
-/* achievements list (achievements.c): name + description + points per entry, greyed when locked; categories with subtotals */
+/* achievements list. The trophy and the dots buttons sit on the title row (pgDots, drawn after this), so the point total
+   has its own band under them. Each entry is name + points, then a wrapped description, then the earned date on a smaller line.
+   Scroll is in pixels. A line that crosses the list edge is still drawn: pixels outside the list are clipped, so a tall
+   row cannot vanish and leave a blank gap before the next one. */
+enum { kPgAchCtrl = 42, kPgAchLine = 16, kPgAchDate = 16 }; /* date is drawn with the 3/4 font; the slot stays a full line so the fallback font cannot run into the next row */
+/* One sample of a finger that went down on the map panel. *drag is 0 until the finger has moved more than 16px
+   (the tap gate). *prevY stays at the press y until that happens, so the sample that crosses the gate applies the
+   whole stroke, not only the last step. Return value is added to achScroll: finger up (y smaller) is positive. */
+static int pgAchDragDelta(int *drag, int *prevY, int y, int dist) {
+  if (!*drag) { if (dist <= 16) return 0; *drag = 1; }
+  int dy = y - *prevY; *prevY = y; return -dy; }
+/* 1 = UP (toward the start of the list), 2 = DN (later rows), 0 = not on those chips */
+static int pgAchBtnHit(const SPg &p, int x, int y) {
+  if (!p.achOpen) return 0;
+  if (p.achUpX1 > p.achUpX0 && x >= p.achUpX0 - 2 && x < p.achUpX1 + 2 && y >= p.achUpY0 - 2 && y < p.achUpY1 + 2) return 1;
+  if (p.achDnX1 > p.achDnX0 && x >= p.achDnX0 - 2 && x < p.achDnX1 + 2 && y >= p.achDnY0 - 2 && y < p.achDnY1 + 2) return 2;
+  return 0; }
+static int pgAchWrap(const SUiText &T, const char *s, int room, char out[][64]) {
+  int n = pgWrap(T, s, room, out, 2); if (n < 1) { out[0][0] = 0; return 0; }
+  char probe[3][64]; if (n >= 2 && pgWrap(T, s, room, probe, 3) > 2) { char cut[68]; snprintf(cut, sizeof cut, "%s..", out[1]); pgFit(T, out[1], 64, cut, room); }
+  for (int i = 0; i < n; i++) { char cut[64]; snprintf(cut, sizeof cut, "%s", out[i]); pgFit(T, out[i], 64, cut, room); }
+  return n; }
 static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(236, 240, 248), dim = SUI_RGB(124, 138, 140), gold = SUI_RGB(226, 168, 36), green = SUI_RGB(60, 170, 80);
+  const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(236, 240, 248), dim = SUI_RGB(100, 116, 112), gold = SUI_RGB(226, 168, 36), green = SUI_RGB(60, 170, 80);
+  const uint32_t wh = SUI_RGB(255, 255, 255);
   for (int y = Y0; y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(252, 250, 240), SUI_RGB(226, 218, 190), y - Y0, Y1 - Y0));
-  int mx = 0; const int tot = P3DS_AchTotal(-1, &mx); char t[64];
-  /* header band: title, points, and an overall progress bar */
-  for (int y = Y0; y < Y0 + 13; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(40, 170, 128), SUI_RGB(20, 140, 104), y - Y0, 13));
+  int mx = 0; const int tot = P3DS_AchTotal(-1, &mx); char t[64], nm[64];
+  /* title row: words stop before the corner buttons. The glyph is 16px, so the totals band starts under it. */
+  for (int y = Y0; y < Y0 + 17; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(40, 170, 128), SUI_RGB(20, 140, 104), y - Y0, 17));
+  pgFit(T, nm, sizeof nm, "ACHIEVEMENTS", (X1 - kPgAchCtrl) - (X0 + 4) - 4);
+  T.draw(b, X0 + 4, Y0 + 1, nm, wh, SUI_RGB(7, 33, 54));
+  /* totals band, full width, under the buttons */
+  const int band0 = Y0 + 18, band1 = Y0 + 38;
+  for (int y = band0; y < band1 && y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, y == band0 ? SUI_RGB(12, 90, 70) : SUI_RGB(232, 244, 226));
   snprintf(t, sizeof t, "%d / %d G", tot, mx);
-  T.draw(b, X0 + 4, Y0 + 2, "ACHIEVEMENTS", SUI_RGB(255, 255, 255), SUI_RGB(7, 33, 54)); T.draw(b, X1 - 6 - T.width(t), Y0 + 2, t, SUI_RGB(255, 224, 120), SUI_RGB(7, 33, 54));
-  { const int bw = X1 - X0 - 8, fill = mx > 0 ? bw * tot / mx : 0;
-    for (int x = 0; x < bw; x++) { suiPx(b, X0 + 4 + x, Y0 + 14, x < fill ? green : SUI_RGB(200, 192, 168)); suiPx(b, X0 + 4 + x, Y0 + 15, x < fill ? SUI_RGB(40, 130, 60) : SUI_RGB(176, 168, 142)); } }
-  const int top = Y0 + 18; int off = 0;
+  p.achUpX0 = p.achUpX1 = p.achDnX0 = p.achDnX1 = 0;
+  { const int bw = suiSWidth(T, "DN") + 10, gap = 3, dnX1 = X1 - 3, dnX0 = dnX1 - bw, upX1 = dnX0 - gap, upX0 = upX1 - bw;
+    const int by0 = band0 + 2, by1 = band0 + 16;
+    pgFit(T, nm, sizeof nm, t, upX0 - (X0 + 4) - 6);
+    if (upX0 > X0 + 24 && by1 <= band1) {
+      p.achUpX0 = upX0; p.achUpY0 = by0; p.achUpX1 = upX1; p.achUpY1 = by1;
+      p.achDnX0 = dnX0; p.achDnY0 = by0; p.achDnX1 = dnX1; p.achDnY1 = by1;
+      for (int y = by0; y < by1; y++) for (int x = upX0; x < upX1; x++) suiPx(b, x, y, (x == upX0 || x == upX1 - 1 || y == by0 || y == by1 - 1) ? kBlNavy : kBlPress);
+      for (int y = by0; y < by1; y++) for (int x = dnX0; x < dnX1; x++) suiPx(b, x, y, (x == dnX0 || x == dnX1 - 1 || y == by0 || y == by1 - 1) ? kBlNavy : kBlPress);
+      suiSDraw(T, b, upX0 + 5, by0 + 1, "UP", wh, kBlSelO); suiSDraw(T, b, dnX0 + 5, by0 + 1, "DN", wh, kBlSelO); } }
+  if (band0 + 1 + kPgAchLine <= Y1) T.draw(b, X0 + 4, band0 + 1, nm, ink, SUI_RGB(232, 244, 226));
+  { const int bx = X0 + 4, bw = X1 - X0 - 8, by = band0 + 17, fill = mx > 0 ? bw * tot / mx : 0;
+    if (by + 2 < Y1) for (int x = 0; x < bw; x++) for (int yy = 0; yy < 3; yy++) suiPx(b, bx + x, by + yy, x < fill ? green : SUI_RGB(190, 204, 186)); }
+  const int top = band1 + 1; int off = 0; const int textX = X0 + 22, textR = X1 - 6;
+  const int clipX0 = suiClipX0, clipY0 = suiClipY0, clipX1 = suiClipX1, clipY1 = suiClipY1;
+  suiClipX0 = X0; suiClipX1 = X1; suiClipY0 = top; suiClipY1 = Y1;
   for (int c = 0; c < ACH_CATS; c++) {
     int cm = 0; const int cs = P3DS_AchTotal(c, &cm); int cnt = 0, got = 0;
     for (int id = 0; id < ACH_COUNT; id++) if (P3DS_AchGet(id)->cat == c) { cnt++; if (P3DS_AchDate(id)) got++; }
-    snprintf(t, sizeof t, "%s  %d/%d", P3DS_AchCatName(c), got, cnt);
-    const int hy = top + off - p.achScroll;
-    if (hy >= top - 10 && hy < Y1) {
-      for (int y = hy - 1; y < hy + 9; y++) if (y >= top && y < Y1) for (int x = X0 + 2; x < X1 - 2; x++) suiPx(b, x, y, suiMix(SUI_RGB(218, 240, 232), SUI_RGB(190, 226, 212), y - hy + 1, 10));
-      if (hy >= top && hy < Y1 - 8) { T.draw(b, X0 + 5, hy, t, ink, SUI_RGB(218, 240, 232)); snprintf(t, sizeof t, "%dG of %dG", cs, cm); T.draw(b, X1 - 6 - T.width(t), hy, t, dim, SUI_RGB(206, 232, 222)); } }
-    off += 12;
+    char left[48], right[32]; snprintf(left, sizeof left, "%s  %d/%d", P3DS_AchCatName(c), got, cnt); snprintf(right, sizeof right, "%dG of %dG", cs, cm);
+    const int hy = top + off - p.achScroll; off += kPgAchLine;
+    if (hy + kPgAchLine > top && hy < Y1) {
+      for (int y = hy; y < hy + kPgAchLine; y++) for (int x = X0 + 2; x < X1 - 2; x++) suiPx(b, x, y, suiMix(SUI_RGB(218, 240, 232), SUI_RGB(190, 226, 212), y - hy, kPgAchLine));
+      const int rw = T.width(right), room = textR - (X0 + 5) - 8;
+      if (rw + 8 < room) { pgFit(T, nm, sizeof nm, left, room - rw - 8); T.draw(b, X0 + 5, hy, nm, ink, SUI_RGB(218, 240, 232)); T.draw(b, textR - rw, hy, right, dim, SUI_RGB(206, 232, 222)); }
+      else { pgFit(T, nm, sizeof nm, left, room); T.draw(b, X0 + 5, hy, nm, ink, SUI_RGB(218, 240, 232)); } }
     for (int id = 0; id < ACH_COUNT; id++) { const P3DS_AchInfo *a = P3DS_AchGet(id); if (a->cat != c) continue;
-      const int d = P3DS_AchDate(id), y = top + off - p.achScroll; off += 22;
-      if (y < top - 20 || y >= Y1) continue;
-      if (y >= top && y < Y1 - 20) {
-        /* icon: gold medal with a check when unlocked, grey padlock when not */
-        const int ix = X0 + 6, iy = y + 3;
+      const int d = P3DS_AchDate(id); unsigned cu = 0, go = 0; const int prog = !d && P3DS_AchProgress(id, &cu, &go) && go > 1;
+      char desc[2][64]; const int dl = pgAchWrap(T, a->desc, textR - textX, desc); const int lines = dl > 0 ? dl : 1;
+      const int extra = (d || prog) ? kPgAchDate + 1 : 0;
+      const int rh = 2 + kPgAchLine + lines * kPgAchLine + extra + 2;
+      const int y = top + off - p.achScroll; off += rh;
+      if (y + rh <= top || y >= Y1) continue;
+      auto glyph = [&](int gy, int gh) { return gy + gh > top && gy < Y1; };
+      if (glyph(y + 2, 12)) {
+        const int ix = X0 + 5, iy = y + 2;
         for (int dy = 0; dy < 12; dy++) for (int dx = 0; dx < 12; dx++) { const int ex = dx - 6, ey = dy - 6; if (ex * ex + ey * ey > 33) continue;
           suiPx(b, ix + dx, iy + dy, d ? (ex * ex + ey * ey > 22 ? SUI_RGB(190, 138, 24) : (dy < 6 ? SUI_RGB(250, 214, 90) : gold)) : (ex * ex + ey * ey > 22 ? SUI_RGB(150, 150, 160) : SUI_RGB(190, 190, 198))); }
-        if (d) { const int ck[7][2] = { {3,6},{4,7},{5,8},{6,7},{7,6},{8,5},{9,4} }; for (auto &q : ck) { suiPx(b, ix + q[0] - 1, iy + q[1] - 1, SUI_RGB(70, 50, 8)); suiPx(b, ix + q[0] - 1, iy + q[1], SUI_RGB(70, 50, 8)); } }
-        else { for (int dy = 5; dy < 9; dy++) for (int dx = 3; dx < 9; dx++) suiPx(b, ix + dx, iy + dy, SUI_RGB(110, 112, 124)); suiPx(b, ix + 4, iy + 4, SUI_RGB(110, 112, 124)); suiPx(b, ix + 7, iy + 4, SUI_RGB(110, 112, 124)); suiPx(b, ix + 5, iy + 3, SUI_RGB(110, 112, 124)); suiPx(b, ix + 6, iy + 3, SUI_RGB(110, 112, 124)); }
-        if (d) snprintf(t, sizeof t, "%d-%02d-%02d  %dG", d / 10000, d / 100 % 100, d % 100, a->pts); else snprintf(t, sizeof t, "%dG", a->pts);
-        T.draw(b, X0 + 22, y, a->name, d ? ink : dim, sh); T.draw(b, X1 - 6 - T.width(t), y, t, d ? gold : dim, sh);
-        unsigned cu = 0, go = 0;
-        if (!d && P3DS_AchProgress(id, &cu, &go) && go > 1) { snprintf(t, sizeof t, "%u/%u", cu > go ? go : cu, go);
-          T.draw(b, X1 - 6 - T.width(t), y + 10, t, dim, sh);
-          const int bw2 = 44, bx2 = X1 - 6 - T.width(t) - bw2 - 4, f2 = (int)((unsigned long long)bw2 * (cu > go ? go : cu) / go);
-          for (int x = 0; x < bw2; x++) for (int yy = 0; yy < 3; yy++) suiPx(b, bx2 + x, y + 12 + yy, x < f2 ? green : SUI_RGB(200, 192, 168)); }
-        T.draw(b, X0 + 22, y + 10, a->desc, dim, sh); } }
+        if (d) { const int ck[7][2] = { {3,6},{4,7},{5,8},{6,7},{7,6},{8,5},{9,4} }; for (auto &q : ck) if (glyph(iy, 12)) { suiPx(b, ix + q[0] - 1, iy + q[1] - 1, SUI_RGB(70, 50, 8)); suiPx(b, ix + q[0] - 1, iy + q[1], SUI_RGB(70, 50, 8)); } }
+        else { for (int dy = 5; dy < 9; dy++) for (int dx = 3; dx < 9; dx++) suiPx(b, ix + dx, iy + dy, SUI_RGB(110, 112, 124)); suiPx(b, ix + 4, iy + 4, SUI_RGB(110, 112, 124)); suiPx(b, ix + 7, iy + 4, SUI_RGB(110, 112, 124)); suiPx(b, ix + 5, iy + 3, SUI_RGB(110, 112, 124)); suiPx(b, ix + 6, iy + 3, SUI_RGB(110, 112, 124)); } }
+      snprintf(t, sizeof t, "%dG", a->pts); const int pw = T.width(t), nameRoom = (textR - pw - 6) - textX;
+      if (glyph(y + 1, kPgAchLine)) { pgFit(T, nm, sizeof nm, a->name, nameRoom > 8 ? nameRoom : 8); T.draw(b, textX, y + 1, nm, d ? ink : dim, sh); T.draw(b, textR - pw, y + 1, t, d ? gold : dim, sh); }
+      for (int i = 0; i < lines; i++) { const int ly = y + 1 + kPgAchLine + i * kPgAchLine; if (glyph(ly, kPgAchLine) && desc[i][0]) T.draw(b, textX, ly, desc[i], dim, sh); }
+      if (d && glyph(y + 1 + kPgAchLine + lines * kPgAchLine, kPgAchDate)) {
+        snprintf(t, sizeof t, "%04d-%02d-%02d", d / 10000, d / 100 % 100, d % 100);
+        suiSDraw(T, b, textX, y + 1 + kPgAchLine + lines * kPgAchLine, t, SUI_RGB(90, 110, 104), sh); }
+      else if (prog && glyph(y + 1 + kPgAchLine + lines * kPgAchLine, kPgAchDate)) {
+        snprintf(t, sizeof t, "%u/%u", cu > go ? go : cu, go); const int lw = suiSWidth(T, t), ly = y + 1 + kPgAchLine + lines * kPgAchLine;
+        const int bw2 = 36, bx2 = textR - lw - bw2 - 4, f2 = (int)((unsigned long long)bw2 * (cu > go ? go : cu) / go);
+        if (bx2 > textX) for (int x = 0; x < bw2; x++) for (int yy = 0; yy < 3; yy++) suiPx(b, bx2 + x, ly + 3 + yy, x < f2 ? green : SUI_RGB(200, 192, 168));
+        suiSDraw(T, b, textR - lw, ly, t, dim, sh); } }
   }
-  const int maxS = off - (Y1 - top); if (p.achScroll > maxS) p.achScroll = maxS; if (p.achScroll < 0) p.achScroll = 0; }
+  suiClipX0 = clipX0; suiClipY0 = clipY0; suiClipX1 = clipX1; suiClipY1 = clipY1;
+  const int view = Y1 - top; int maxS = off - view; if (maxS < 0) maxS = 0;
+  p.achMax = maxS; p.achPage = view > 24 ? view - 8 : 48;
+  if (p.achScroll > maxS) p.achScroll = maxS; if (p.achScroll < 0) p.achScroll = 0; }
 
 static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1, bool blink) {
   const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0;

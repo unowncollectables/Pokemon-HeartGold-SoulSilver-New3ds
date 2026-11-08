@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### JOHTO panel: tab icons and achievement list
+- Top tabs use the same native-resolution button chrome and green pixel icons as the right-hand menu, so they stay sharp when the bottom screen is scaled. The map's place name stays, with the selected tab's word in a chip beside it. No new setting.
+- The achievement list gives the point total its own band under the corner buttons, keeps each name clear of its points, wraps the description, and puts the earned date on a smaller line. Unlock rules, dates, rewards, and the toast are unchanged.
+- Platform rebuild only. Azahar retest of `d759a06` still did not scroll: the list moves only after a held touch travels more than 16 DS px, and that dispatch was not what the host check exercised. UP and DN chips on the score band now page the list with a tap, and a drag that passes the gate keeps the whole stroke. Not re-checked in Azahar yet.
+
 ### Field music volume lookup overflow
 - Bound NNS_SndPlayerMoveVolume targets to 0..127 before libntr's decibel lookup. SoulSilver's field code requests 128; in the inspected US ROM the next signed word after SNDi_DecibelTable is 0, but the port places VolumeTable there (bytes 00 01 = +256). The resulting Goldenrod player fade was +207 instead of -49, boosting the music and triggering the loudness workarounds.
 - Added a platform link wrapper; existing audio gain, Steady music, Even loudness and other settings are unchanged. Logs the first eight corrected targets under `[AUDIO]`.
