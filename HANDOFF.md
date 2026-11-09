@@ -1,3 +1,9 @@
+# Terrain ledges for fliers (0243)
+
+A solo flier looking for a landing now checks the map height at the landing point and around its feet. Flat terrain above a nearby drop can serve as a ledge, including during rain. A steep or missing surface is skipped. The flier can consider another clear lane if the first offers nowhere to land, and nearby players can hear wingbeats again on takeoff. The height check samples field terrain. Building model roofs still need their own landing data.
+
+The generated C passed devkitARM syntax and staged-hook idempotence checks. Host tests covered flat ground, a ledge, a steep slope, and missing terrain. The next device check should verify actual landing frequency and visible ground contact. Ledge candidates that become flights log [WILD] ... (ledge landing pass).
+
 # Resident detours and landmark rain shelter (0242)
 
 Named residents use a bounded search for door and home routes. They can go around an obstruction, wait if no path is available, and retry when the way clears. A resident scheduled outside can switch to the linked building during rain. The matching indoor resident is available if the player enters that building, and the outdoor schedule resumes when that map is dry. The shelter association is transient and follows the current map visit.
