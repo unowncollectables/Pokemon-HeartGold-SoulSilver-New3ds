@@ -1,3 +1,7 @@
+# Town Pokémon greeting cries (0250)
+
+Pressing A next to a town resident now plays its species cry with Visible Wild Cries enabled. The existing audio cooldown and cry-busy check keep repeat presses from cutting off a cry. The greeting still turns the resident toward the player without starting a battle. The generated sources passed devkitARM syntax and hook idempotence checks. A host check covered the A press, mute setting, cooldown and busy audio. Device listening is pending.
+
 # Running shoes toggle (0249)
 
 The JOHTO RUN tile, ZL, Auto run settings and original running-shoes control share the runtime toggle. The field no longer injects B from the saved DS lock. The port starts from `auto_run` and keeps runtime changes in memory. Rebuilds `field__field_control.o` and `player_avatar.o`. Pending New 3DS testing.

@@ -1,0 +1,82 @@
+From f1640d23b803eb4d75f43a9e34486f9007e4212a Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 10:38:05 -0500
+Subject: [PATCH] ss3ds: play the town Pokemon cry when greeted
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 38 ++++++++++++++-------------
+ 1 file changed, 20 insertions(+), 18 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 00120cf..8f4d795 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -38,6 +38,25 @@ extern volatile int P3DS_WildBattleResult; /* winFlag of the last battle (encoun
+ extern int P3DS_FollowerOpen(void);
+ extern void P3DS_WildFree(int slot);
+ extern void PSPNativeMemLog(const char *fmt, ...);
++extern void PlayCry(u16 species, u8 form);
++extern BOOL IsCryFinished(void);
++extern void PlaySE(u16 sndseq);
++
++// Overworld cues share a cooldown. The retail WaitCry script treats a
++// nonzero IsCryFinished result as a cry that is still playing.
++static int SS3DS_WildCue(SS3DSWildState *S, int cry, int effect) {
++    if (!P3DS_WildVisCfg(4) || S->soundT || (cry && IsCryFinished())) {
++        return 0;
++    }
++    if (cry) {
++        PlayCry(cry, 0);
++    } else {
++        PlaySE(effect);
++    }
++    S->soundT = 18;
++    return 1;
++}
++
+ '''
+ 
+ ENC_BLOCK = COMMON + r'''
+@@ -360,6 +379,7 @@ int SS3DS_WildTalk(FieldSystem *fieldSystem, int interact) {
+             m->noticed = WILD_WATCHING;
+             m->hop = 8;
+             m->timer = 40;
++            SS3DS_WildCue(S, m->sp, 0);
+         }
+         return 0;
+     }
+@@ -454,9 +474,6 @@ extern volatile int P3DS_RunLast; /* 0218: platform ss3ds_glue.c, 1 = the player
+ extern int P3DS_FollowerSprite(int species, int form, int female);
+ extern int P3DS_WildLoad(int slot, int spr, int shiny);
+ extern void P3DS_Toast(const char *text);
+-extern void PlayCry(u16 species, u8 form);
+-extern BOOL IsCryFinished(void);
+-extern void PlaySE(u16 sndseq);
+ 
+ static int sSS3DS_TownMode; // 0223: this frame's tick runs the lively-towns rules (set in SS3DS_WildTick)
+ static int SS3DS_Tile(FieldSystem *fieldSystem, int x, int z, int resident) {
+@@ -658,21 +675,6 @@ static int SS3DS_WildNapHabit(int sp, const SS3DSTownHabits *habits, int night)
+     }
+ }
+ 
+-// Ambient cues share a cooldown. The retail WaitCry script treats a
+-// nonzero IsCryFinished result as a cry that is still playing.
+-static int SS3DS_WildCue(SS3DSWildState *S, int cry, int effect) {
+-    if (!P3DS_WildVisCfg(4) || S->soundT || (cry && IsCryFinished())) {
+-        return 0;
+-    }
+-    if (cry) {
+-        PlayCry(cry, 0);
+-    } else {
+-        PlaySE(effect);
+-    }
+-    S->soundT = 18;
+-    return 1;
+-}
+-
+ static void SS3DS_WildEndPlay(SS3DSWildState *S, int i) {
+     SS3DSWildMon *m = &S->m[i];
+     if (m->playWith) {
+-- 
+2.53.0
+
