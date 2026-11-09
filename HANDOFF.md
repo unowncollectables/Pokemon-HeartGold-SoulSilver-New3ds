@@ -12,7 +12,7 @@ The JOHTO RUN tile, ZL, Auto run settings and original running-shoes control sha
 
 # CIA startup splash
 
-Restored the Homebrew startup logo and ExeFS logo flag. On the owner’s New 3DS, run 719 and a repack without the IR mapping both produced an SD-card ErrDisp before game logging. The same run 719 executable repackaged with the pre-run-714 settings booted. The restored logo plus the Pokewalker IR mapping still needs a hardware launch test.
+Restored the Homebrew startup logo and ExeFS logo flag. On the owner’s New 3DS, run 719 and a repack without the IR mapping both produced an SD-card ErrDisp before game logging. The same run 719 executable repackaged with the pre-run-714 settings booted. Run 720 booted with both restored logo settings and the Pokewalker IR mapping. Selecting a Pokemon then stopped on `[SS-MISSING] sub_020957B0`. Patch 0253 translates the original picker cursor table and forwards its fifth argument. Translation and ARM syntax checks passed. The picker fix still needs a game build and a hardware test on a copied save.
 
 # Seasonal ambient weather (0248)
 

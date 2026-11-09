@@ -1,0 +1,76 @@
+From ea9d70b855f2485ceb36ecd8c9441eb04db2ed0a Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 9 Nov 2026 15:37:58 -0500
+Subject: [PATCH] Translate the original Pokewalker picker cursor handlers
+
+---
+ port/soulsilver-native-core/nitromain-perf/missing.c | 12 ------------
+ .../maploader/indirect-stack.json                    |  5 ++++-
+ .../soulsilver-native-play/maploader/seed-files.json |  3 ++-
+ .../soulsilver-native-play/maploader/stack-args.json | 11 ++++++++++-
+ 4 files changed, 16 insertions(+), 15 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index dba7b69..f2d3623 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -462,18 +462,6 @@ __attribute__((noreturn)) void sub_0205D2D0(void){Missing("sub_0205D2D0");}
+ __attribute__((noreturn)) void sub_020850F4(void){Missing("sub_020850F4");}
+ __attribute__((noreturn)) void sub_0208524C(void){Missing("sub_0208524C");}
+ __attribute__((noreturn)) void sub_0208527C(void){Missing("sub_0208527C");}
+-__attribute__((noreturn)) void sub_020957B0(void){Missing("sub_020957B0");}
+-__attribute__((noreturn)) void sub_02095838(void){Missing("sub_02095838");}
+-__attribute__((noreturn)) void sub_020958C0(void){Missing("sub_020958C0");}
+-__attribute__((noreturn)) void sub_02095920(void){Missing("sub_02095920");}
+-__attribute__((noreturn)) void sub_0209592C(void){Missing("sub_0209592C");}
+-__attribute__((noreturn)) void sub_020959D8(void){Missing("sub_020959D8");}
+-__attribute__((noreturn)) void sub_02095A34(void){Missing("sub_02095A34");}
+-__attribute__((noreturn)) void sub_02095A78(void){Missing("sub_02095A78");}
+-__attribute__((noreturn)) void sub_02095A7C(void){Missing("sub_02095A7C");}
+-__attribute__((noreturn)) void sub_02095AF8(void){Missing("sub_02095AF8");}
+-__attribute__((noreturn)) void sub_02095B04(void){Missing("sub_02095B04");}
+-__attribute__((noreturn)) void sub_02095B88(void){Missing("sub_02095B88");}
+ __attribute__((noreturn)) void sub_02096910(void){Missing("sub_02096910");}
+ __attribute__((noreturn)) void sub_02096998(void){Missing("sub_02096998");}
+ __attribute__((noreturn)) void sub_02096A34(void){Missing("sub_02096A34");}
+diff --git a/port/soulsilver-native-play/maploader/indirect-stack.json b/port/soulsilver-native-play/maploader/indirect-stack.json
+index 2e329cb..8b49842 100644
+--- a/port/soulsilver-native-play/maploader/indirect-stack.json
++++ b/port/soulsilver-native-play/maploader/indirect-stack.json
+@@ -1 +1,4 @@
+-{"MapLoadManager_Tick r4": 3}
++{
++ "MapLoadManager_Tick r4": 3,
++ "sub_02095D88 r6": 1
++}
+diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
+index d977ae0..4d1816b 100644
+--- a/port/soulsilver-native-play/maploader/seed-files.json
++++ b/port/soulsilver-native-play/maploader/seed-files.json
+@@ -81,5 +81,6 @@
+  "overlay_103.s",
+  "overlay_70.s",
+  "overlay_74_thumb.s",
+- "overlay_112.s"
++ "overlay_112.s",
++ "unk_020957B0.s"
+ ]
+diff --git a/port/soulsilver-native-play/maploader/stack-args.json b/port/soulsilver-native-play/maploader/stack-args.json
+index ea6815b..6bf58db 100644
+--- a/port/soulsilver-native-play/maploader/stack-args.json
++++ b/port/soulsilver-native-play/maploader/stack-args.json
+@@ -1 +1,10 @@
+-{"ov12_022639B8": 7}
++{
++ "ov12_022639B8": 7,
++ "sub_020957B0": 1,
++ "sub_020958C0": 1,
++ "sub_0209592C": 1,
++ "sub_02095A34": 1,
++ "sub_02095A7C": 1,
++ "sub_02095B04": 1,
++ "sub_02095BF0": 1
++}
+-- 
+2.53.0
+
