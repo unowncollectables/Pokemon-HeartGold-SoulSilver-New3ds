@@ -13,12 +13,24 @@ enum {
 };
 
 static Handle irBus;
+static bool configuring;
+extern void P3DS_Crumb(const char *tag, void *caller);
 extern void PSPNativeMemLog(const char *fmt, ...);
 
 static Result sendCommand(u32 *command)
 {
+    const u32 request = command[0];
+    const u32 reg = command[2];
+    if (configuring)
+        P3DS_Crumb("pw-i2c-init", (void *)(uintptr_t)reg);
     Result rc = svcSendSyncRequest(irBus);
-    return R_FAILED(rc) ? rc : (Result)command[1];
+    if (R_SUCCEEDED(rc))
+        rc = (Result)command[1];
+    if (configuring && R_FAILED(rc))
+        PSPNativeMemLog("[PWALKER] i2c init command %04lx register %02lx: %08lx",
+                        (unsigned long)(request >> 16), (unsigned long)reg,
+                        (unsigned long)(u32)rc);
+    return rc;
 }
 
 static bool readReg(u8 reg, u8 *value)
@@ -75,10 +87,29 @@ static bool configureIr(void)
     return true;
 }
 
+static Result openIrService(Handle *handle)
+{
+    const char *name = "i2c::IR";
+    bool registered = false;
+    P3DS_Crumb("pw-i2c-check", NULL);
+    Result rc = srvIsServiceRegistered(&registered, name);
+    if (R_FAILED(rc))
+        return rc;
+    if (!registered)
+        return MAKERESULT(RL_PERMANENT, RS_NOTFOUND, RM_SRV, RD_NOT_FOUND);
+
+    // SRV can otherwise wait indefinitely when all I2C sessions are in use.
+    P3DS_Crumb("pw-i2c-open", NULL);
+    srvSetBlockingPolicy(true);
+    rc = srvGetServiceHandleDirect(handle, name);
+    srvSetBlockingPolicy(false);
+    return rc;
+}
+
 bool SS3DS_PwalkerIrAvailable(void)
 {
     Handle probe;
-    if (R_FAILED(srvGetServiceHandle(&probe, "i2c::IR")))
+    if (R_FAILED(openIrService(&probe)))
         return false;
     svcCloseHandle(probe);
     return true;
@@ -87,16 +118,19 @@ bool SS3DS_PwalkerIrAvailable(void)
 bool SS3DS_PwalkerIrOpen(void)
 {
     SS3DS_PwalkerIrClose();
-    Result rc = srvGetServiceHandle(&irBus, "i2c::IR");
+    Result rc = openIrService(&irBus);
     if (R_FAILED(rc)) {
         irBus = 0;
         PSPNativeMemLog("[PWALKER] i2c::IR unavailable: %08lx", (unsigned long)(u32)rc);
         return false;
     }
-    if (configureIr())
-        return true;
-    SS3DS_PwalkerIrClose();
-    return false;
+    PSPNativeMemLog("[PWALKER] i2c::IR opened");
+    configuring = true;
+    bool ready = configureIr();
+    configuring = false;
+    if (!ready)
+        SS3DS_PwalkerIrClose();
+    return ready;
 }
 
 void SS3DS_PwalkerIrClose(void)

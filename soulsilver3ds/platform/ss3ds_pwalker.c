@@ -18,6 +18,7 @@ static void reportFailure(const char *operation)
 
 uint32_t SS3DS_Pwalker_SpiWaitInit(void)
 {
+    PSPNativeMemLog("[PWALKER] starting IR initialization");
     reportedFailure = false;
     listening = SS3DS_PwalkerIrOpen() && SS3DS_PwalkerIrListen();
     if (listening)
