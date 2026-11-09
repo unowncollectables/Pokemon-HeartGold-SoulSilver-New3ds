@@ -1,3 +1,9 @@
+# Goldenrod Flower Shop resident (0239)
+
+The first authored schedule uses the Goldenrod Flower Shop map events. A Bellossom can spawn near the entrance in the morning, near the shopkeeper during the day, and a few tiles to the east in the evening. The spawn still requires a legal open tile and respects the town count. The indoor map only participates in this named schedule. The shopkeeper keeps their existing scripts, and the resident's appearance is derived from the clock and current map.
+
+The RTC/map combinations passed host checks, and the generated sources passed devkitARM syntax checks. The exact in-game standing tiles and frequency still need a playtest. A continuous shopkeeper escort, further authored locations and roof ledges remain open.
+
 # Weather, tracks, berry play and landings (0238)
 
 Exposed land Pokémon can shake off water when rain ends. Mud and damp grass can retain short-lived prints at the previous tile. Weather-appropriate species now take precedence over the local species list for regular flyovers in rain or snow. Some low solo fliers can land and rest along a clear route beside scenery, or near a terrain edge in rain. A close player, NPC or nearby resident can shorten the stop. Rain edges are inferred from terrain collision and are not authored roof ledges.
@@ -6,7 +12,7 @@ A rare town play event rolls a small decorative berry across an open tile. Resid
 
 Generated C passed devkitARM syntax and staged-hook idempotence checks. Host checks covered weather recovery, ripple separation, berry route and cleanup, and the glide/rest/climb timing. Build both the game hook and platform together. The transient buffer grew to 576 bytes and uses P3DS_WildMemV2 so mismatched builds fail at link time. Needs New 3DS verification for effect visibility, ground contact, route frequency and audio.
 
-The authored landmark routines are still open. Those include partners waiting for particular shopkeepers, following them indoors, and named awnings or roof ledges. Existing town routines use terrain and spawn positions.
+Named shopkeeper and terrain routines can build on the Goldenrod Flower Shop example above.
 
 # Overworld sound cues (0237)
 
