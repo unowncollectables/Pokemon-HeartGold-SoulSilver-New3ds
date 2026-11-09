@@ -1,3 +1,13 @@
+# Weather, tracks, berry play and landings (0238)
+
+Exposed land Pokémon can shake off water when rain ends. Mud and damp grass can retain short-lived prints at the previous tile. Weather-appropriate species now take precedence over the local species list for regular flyovers in rain or snow. Some low solo fliers can land and rest along a clear route beside scenery, or near a terrain edge in rain. A close player, NPC or nearby resident can shorten the stop. Rain edges are inferred from terrain collision and are not authored roof ledges.
+
+A rare town play event rolls a small decorative berry across an open tile. Residents can follow it and pause to sniff. The prop uses field coordinates and is cleared with the play state, so it does not create a bag item or save entry.
+
+Generated C passed devkitARM syntax and staged-hook idempotence checks. Host checks covered weather recovery, ripple separation, berry route and cleanup, and the glide/rest/climb timing. Build both the game hook and platform together. The transient buffer grew to 576 bytes and uses P3DS_WildMemV2 so mismatched builds fail at link time. Needs New 3DS verification for effect visibility, ground contact, route frequency and audio.
+
+The authored landmark routines are still open. Those include partners waiting for particular shopkeepers, following them indoors, and named awnings or roof ledges. Existing town routines use terrain and spawn positions.
+
 # Overworld sound cues (0237)
 
 With Alive wild Pokémon and Visible wild cries enabled, nearby fliers can play a wing cue as they approach and a species cry as they pass. Nearby Pokémon sometimes call back during their play animation. A startled wild Pokémon uses the game's grass rustle sound when it tucks into nearby cover. New cues share a short cooldown, and ambient calls skip a cry channel that is already in use. Legendary flyovers retain their midpoint call.

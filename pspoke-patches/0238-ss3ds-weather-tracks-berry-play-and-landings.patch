@@ -1,0 +1,508 @@
+From d0d90a6247771c9443926f006e7787774752a549 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:14:13 -0500
+Subject: [PATCH] ss3ds: add weather recovery, tracks, berry play and landings
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 265 +++++++++++++++++++++++---
+ 1 file changed, 234 insertions(+), 31 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 0d6510e..94a674c 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -7,27 +7,27 @@ wild_vis, redone on SoulSilver's own encounter code:
+                      random land/surf checks off (not in the Safari Zone or the Bug-Catching Contest).
+   fieldmap.c         per field frame: spawn / wander / notice (hop + cry) / curious and shy behaviour, and the draw in the
+                      field's 3D pass (followers.bin sprites, platform texture slots 1..4), lower part hidden in tall grass.
+-The state lives in the port (P3DS_WildMem), so menus, the bike, scripts and battles do not remove them; only a map
++The state lives in the port (P3DS_WildMemV2), so menus, the bike, scripts and battles do not remove them; only a map
+ change, walking 12+ tiles away or the battle does. Nothing is saved. Idempotent ('SS3DS 0110')."""
+ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v11 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+-/* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMem, platform g3soft.cpp) so it survives the
++/* SS3DS-WILD-BEGIN v12 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+ #define SS3DS_WILD_MAX 6
+ enum { WILD_UNAWARE, WILD_WATCHING, WILD_STARTLED, WILD_IN_COVER };
+ /* 0218: sleep (night nap, Zz), leader (slot+1 of the one it travels with), fight (squabble frames left), big (rare huge one), splash;
+    0223: spare = 1 for an ambient town Pokemon (town resident, never battles) */
+-typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle; } SS3DSWildMon;
++typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle, wet, tracks; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+-typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C37u /* 'WIL7': ambient sound cues */
+-typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 512 ? 1 : -1]; /* P3DS_WildMem is 128 words */
+-extern void *P3DS_WildMem(void);
++typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch; } SS3DSWildState;
++#define SS3DS_WILD_MAGIC 0x57494C38u /* 'WIL8': weather effects and berry play */
++typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 576 ? 1 : -1]; /* P3DS_WildMemV2 is 144 words */
++extern void *P3DS_WildMemV2(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+ #define SS3DS_BIRD_FRAMES 240
+ extern volatile int P3DS_WildBattleResult; /* winFlag of the last battle (encounter.c hook), -1 = none yet */
+@@ -79,7 +79,7 @@ int Field_GetWarpEventAtXYPos(const FieldSystem *fieldSystem, int x, int z);
+ static int SS3DS_TownOpen(FieldSystem *fieldSystem, int x, int z) {
+     u8 behavior = GetMetatileBehavior(fieldSystem, x, z);
+     return behavior != 0xFF && !MetatileBehavior_IsSurfableWater(behavior)
+-        && (behavior == 0 || MetatileBehavior_CanGenerateWalkingEncounters(behavior))
++        && (behavior == 0 || MetatileBehavior_IsMud(behavior) || MetatileBehavior_CanGenerateWalkingEncounters(behavior))
+         && !sub_020548C0(fieldSystem, x, z) && Field_GetWarpEventAtXYPos(fieldSystem, x, z) < 0;
+ }
+ 
+@@ -244,7 +244,7 @@ BOOL SS3DS_WildEncounter(FieldSystem *fieldSystem, int species, int level, int s
+ 
+ // Called where the game checks for an encounter after each step: the player stepped onto a visible one. -1 = none here.
+ static int SS3DS_WildStepContact(FieldSystem *fieldSystem) {
+-    SS3DSWildState *S = P3DS_WildMem();
++    SS3DSWildState *S = P3DS_WildMemV2();
+     if (S->magic != SS3DS_WILD_MAGIC || !P3DS_WildVisCfg(0)) {
+         return -1;
+     }
+@@ -275,7 +275,7 @@ static int SS3DS_WildAliveOn(void) {
+ 
+ // slot of a visible Pokemon on the tile next to the player in direction dir (0 up/north, 1 down, 2 left, 3 right), or -1
+ static int SS3DS_WildFaceSlot(FieldSystem *fieldSystem, int dir) {
+-    SS3DSWildState *S = P3DS_WildMem();
++    SS3DSWildState *S = P3DS_WildMemV2();
+     if (S->magic != SS3DS_WILD_MAGIC || fieldSystem->location->mapId != S->map || dir < 0 || dir > 3) {
+         return -1;
+     }
+@@ -303,7 +303,7 @@ int SS3DS_WildSolid(FieldSystem *fieldSystem, int dir) {
+         sSS3DS_Bump = 0;
+         return 0;
+     }
+-    SS3DSWildState *S = P3DS_WildMem();
++    SS3DSWildState *S = P3DS_WildMemV2();
+     if (++sSS3DS_Bump == 1) {
+         PSPNativeMemLog("[WILD] slot %d species %d is in the way (solid)", i + 1, S->m[i].sp);
+     }
+@@ -318,7 +318,7 @@ int SS3DS_WildSolid(FieldSystem *fieldSystem, int dir) {
+ 
+ // Called from FieldInput_Process (player at rest, no task) with whether A was pressed. 1 = a battle with a visible one started.
+ int SS3DS_WildTalk(FieldSystem *fieldSystem, int interact) {
+-    SS3DSWildState *S = P3DS_WildMem();
++    SS3DSWildState *S = P3DS_WildMemV2();
+     if (S->magic != SS3DS_WILD_MAGIC) {
+         return 0;
+     }
+@@ -391,6 +391,13 @@ int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend) {
+         *legend = 1;
+         return night ? SPECIES_LUGIA : SPECIES_HO_OH;
+     }
++    // In wet or snowy weather use the species that still fly in those conditions.
++    if (weather >= WEATHER_RAIN && weather <= WEATHER_THUNDERSTORM) {
++        return LCRandRange(2) ? SPECIES_WINGULL : SPECIES_PELIPPER;
++    }
++    if (weather == WEATHER_SNOW || weather == WEATHER_BLIZZARD) {
++        return SPECIES_DELIBIRD;
++    }
+     // a flyer from this area's own grass table (the real morning/day/night and swarm tables) first
+     for (int tries = 0; tries < 6; tries++) {
+         int sp, lv;
+@@ -403,12 +410,6 @@ int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend) {
+             }
+         }
+     }
+-    if (weather >= WEATHER_RAIN && weather <= WEATHER_THUNDERSTORM) {
+-        return LCRandRange(2) ? SPECIES_WINGULL : SPECIES_PELIPPER;
+-    }
+-    if (weather == WEATHER_SNOW || weather == WEATHER_BLIZZARD) {
+-        return SPECIES_DELIBIRD;
+-    }
+     return night ? kNight[LCRandRange(sizeof(kNight) / sizeof(kNight[0]))] : kDay[LCRandRange(sizeof(kDay) / sizeof(kDay[0]))];
+ }
+ 
+@@ -522,11 +523,83 @@ static void SS3DS_WildEndPlay(SS3DSWildState *S, int i) {
+     SS3DSWildMon *m = &S->m[i];
+     if (m->playWith) {
+         SS3DSWildMon *o = &S->m[m->playWith - 1];
++        if (S->berryA == i + 1 || S->berryB == i + 1) {
++            S->berryA = S->berryB = 0;
++        }
+         o->playWith = o->playT = 0;
+         m->playWith = m->playT = 0;
+     }
+ }
+ 
++#define SS3DS_BERRY_ROLL 24
++#define SS3DS_BERRY_SNIFF 72
++#define SS3DS_BERRY_END 88
++
++static int SS3DS_TownBerryStart(FieldSystem *fieldSystem, SS3DSWildState *S, int i, int j) {
++    SS3DSWildMon *m = &S->m[i], *o = &S->m[j];
++    int x = (m->x + o->x) / 2, z = (m->z + o->z) / 2;
++    int first = SS3DS_WildRand(S, 4);
++    for (int turn = 0; turn < 4; turn++) {
++        int d = (first + turn) % 4;
++        int dx = d == 2 ? -1 : d == 3 ? 1 : 0, dz = d == 0 ? -1 : d == 1 ? 1 : 0;
++        int sx = x + dx, sz = z + dz;
++        if ((sx == m->x && sz == m->z) || (sx == o->x && sz == o->z)) {
++            continue;
++        }
++        int start = SS3DS_TownTile(fieldSystem, sx, sz);
++        int finish = SS3DS_TownTile(fieldSystem, sx + dx, sz + dz);
++        if (start == 1 && finish == 1 && !SS3DS_WildCrowded(S, -1, sx + dx, sz + dz)) {
++            S->berryA = i + 1;
++            S->berryB = j + 1;
++            S->berryX = sx;
++            S->berryZ = sz;
++            S->berryDir = d;
++            S->berryT = 0;
++            PSPNativeMemLog("[WILD] slots %d and %d chase a berry", i + 1, j + 1);
++            return 1;
++        }
++    }
++    return 0;
++}
++
++static void SS3DS_TownBerryChase(FieldSystem *fieldSystem, SS3DSWildState *S, int i) {
++    SS3DSWildMon *m = &S->m[i];
++    int d = S->berryDir, dx = d == 2 ? -1 : d == 3 ? 1 : 0, dz = d == 0 ? -1 : d == 1 ? 1 : 0;
++    int bx = S->berryX + dx, bz = S->berryZ + dz;
++    int x = bx - m->x, z = bz - m->z;
++    int ax = x < 0 ? -x : x, az = z < 0 ? -z : z;
++    int horizontal = x < 0 ? 2 : 3, vertical = z < 0 ? 0 : 1;
++    m->dir = ax > az ? horizontal : vertical;
++    if (S->berryT < SS3DS_BERRY_ROLL || S->berryT >= SS3DS_BERRY_SNIFF || m->t < 16) {
++        return;
++    }
++    if (ax + az <= 1) {
++        S->berryT = SS3DS_BERRY_SNIFF;
++        m->hop = 6;
++        PSPNativeMemLog("[WILD] slot %d sniffs the berry", i + 1);
++        return;
++    }
++    for (int n = 0; n < 2; n++) {
++        int tryDir = n ? (ax > az ? vertical : horizontal) : m->dir;
++        if (tryDir < 2 ? az == 0 : ax == 0) {
++            continue;
++        }
++        int nx = m->x + (tryDir == 2 ? -1 : tryDir == 3 ? 1 : 0);
++        int nz = m->z + (tryDir == 0 ? -1 : tryDir == 1 ? 1 : 0);
++        if (SS3DS_TownTile(fieldSystem, nx, nz) == 1 && !SS3DS_WildCrowded(S, i, nx, nz)) {
++            m->dir = tryDir;
++            m->fx = m->x;
++            m->fz = m->z;
++            m->x = nx;
++            m->z = nz;
++            m->t = 0;
++            m->grass = 0;
++            m->tracks = 0;
++            return;
++        }
++    }
++}
++
+ static int SS3DS_WildPlayTick(SS3DSWildState *S, int i, int px, int pz, int dist) {
+     SS3DSWildMon *m = &S->m[i];
+     int j = m->playWith - 1;
+@@ -586,7 +659,7 @@ static void SS3DS_WildKill(SS3DSWildState *S, int i, const char *why) {
+ }
+ 
+ static SS3DSWildState *SS3DS_WildGet(void) {
+-    SS3DSWildState *S = P3DS_WildMem();
++    SS3DSWildState *S = P3DS_WildMemV2();
+     if (S->magic != SS3DS_WILD_MAGIC) {
+         u32 *p = (u32 *)S;
+         for (u32 i = 0; i < sizeof(SS3DSWildState) / 4; i++) {
+@@ -638,6 +711,28 @@ static int SS3DS_BirdLaneOpen(FieldSystem *fieldSystem, int px, int z) {
+     return 1;
+ }
+ 
++#define SS3DS_BIRD_MID (SS3DS_BIRD_FRAMES / 2)
++#define SS3DS_BIRD_REST 60
++#define SS3DS_BIRD_GLIDE 26
++
++static int SS3DS_BirdAirTime(SS3DSWildState *S) {
++    int t = S->birdT;
++    if (S->birdPerch && t > SS3DS_BIRD_MID) {
++        t = t > SS3DS_BIRD_MID + SS3DS_BIRD_REST ? t - SS3DS_BIRD_REST : SS3DS_BIRD_MID;
++    }
++    return t;
++}
++
++static int SS3DS_BirdAltitude(SS3DSWildState *S, int t, int bob) {
++    int height = S->birdLow ? 28 : S->birdBig ? 88 : 72;
++    int mid = t - SS3DS_BIRD_MID;
++    int dist = mid < 0 ? -mid : mid;
++    if (S->birdPerch && dist < SS3DS_BIRD_GLIDE) {
++        return (height + bob) * dist / SS3DS_BIRD_GLIDE;
++    }
++    return height + bob;
++}
++
+ enum { BIRD_WING_CUE = 1, BIRD_CRY_CUE = 2 };
+ 
+ static void SS3DS_BirdSound(SS3DSWildState *S, int px, int pz) {
+@@ -653,7 +748,7 @@ static void SS3DS_BirdSound(SS3DSWildState *S, int px, int pz) {
+     }
+     // Distance ahead of the flier, in tile units scaled by the flight duration.
+     int sign = S->birdDir == 3 ? 1 : -1;
+-    int ahead = sign * (px - S->birdX) * SS3DS_BIRD_FRAMES - 36 * S->birdT;
++    int ahead = sign * (px - S->birdX) * SS3DS_BIRD_FRAMES - 36 * SS3DS_BirdAirTime(S);
+     if (!(S->birdCue & BIRD_WING_CUE) && ahead >= 4 * SS3DS_BIRD_FRAMES && ahead <= 8 * SS3DS_BIRD_FRAMES
+         && SS3DS_WildCue(S, 0, SEQ_SE_DP_BASABASA)) {
+         S->birdCue |= BIRD_WING_CUE;
+@@ -674,8 +769,17 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     }
+     if (S->birdOn) {
+         S->birdT++;
++        if (S->birdPerch && S->birdT >= SS3DS_BIRD_MID && S->birdT < SS3DS_BIRD_MID + SS3DS_BIRD_REST) {
++            int x = S->birdX + (S->birdDir == 3 ? 18 : -18);
++            int dx = px - x, dz = pz - S->birdZ;
++            if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) <= 2 || SS3DS_TownTile(fieldSystem, x, S->birdZ) != 1
++                || SS3DS_WildCrowded(S, -1, x, S->birdZ)) {
++                S->birdT = SS3DS_BIRD_MID + SS3DS_BIRD_REST;
++            }
++        }
+         SS3DS_BirdSound(S, px, pz);
+-        if (S->birdT >= SS3DS_BIRD_FRAMES) {
++        int duration = SS3DS_BIRD_FRAMES + (S->birdPerch ? SS3DS_BIRD_REST : 0);
++        if (S->birdT >= duration) {
+             SS3DS_BirdKill(S, "flew off");
+         }
+         return;
+@@ -707,7 +811,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     S->flock = !legend && !shiny && SS3DS_WildRand(S, 4) == 0 ? 2 + (int)SS3DS_WildRand(S, 3) : 1; // 0218: sometimes a small flock (2-4)
+     S->birdX = px + (S->birdDir == 3 ? -18 : 18);
+     S->birdZ = pz - 5 + (int)SS3DS_WildRand(S, 8);
+-    S->birdLow = 0;
++    S->birdLow = S->birdPerch = 0;
+     if (!legend && S->flock == 1 && fieldSystem->unk60 != NULL) {
+         static const int offsets[] = {0, -3, 3};
+         for (int i = 0; i < 3; i++) {
+@@ -719,8 +823,18 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+             }
+         }
+     }
++    if (S->birdLow && !shiny && SS3DS_WildRand(S, 3) == 0) {
++        // A landing needs a clear lane and a legal open landing tile near scenery.
++        int rain = (SS3DS_WildEnv(fieldSystem) & 2) != 0;
++        int ledge = rain && (SS3DS_TownScenery(fieldSystem, px, S->birdZ - 1, 1) == 0
++            || SS3DS_TownScenery(fieldSystem, px, S->birdZ + 1, 1) == 1);
++        if (SS3DS_TownTile(fieldSystem, px, S->birdZ) == 1 && !SS3DS_WildCrowded(S, -1, px, S->birdZ)
++            && (ledge || (!rain && SS3DS_TownScenery(fieldSystem, px, S->birdZ, 0) >= 0))) {
++            S->birdPerch = 1;
++        }
++    }
+     PSPNativeMemLog("[WILD] flyer species %d x%d%s%s heading %s at z %d (%s pass)", sp, S->flock,
+-        shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ, S->birdLow ? "low" : "high");
++        shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ, S->birdPerch ? "landing" : S->birdLow ? "low" : "high");
+     if (legend) {
+         P3DS_Toast("A LEGENDARY POKEMON FLEW OVERHEAD!");
+         P3DS_AchSky(1);
+@@ -789,6 +903,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     if (S->cool > 0) {
+         S->cool--;
+     }
++    if (S->berryA && ++S->berryT >= SS3DS_BERRY_END) {
++        SS3DS_WildEndPlay(S, S->berryA - 1);
++    }
+     // 0218: sneaking or running: walking steps are quiet, running / the bike are loud; standing still is the quietest
+     if (px != S->lpx || pz != S->lpz) {
+         S->lastStep = (int)S->anim;
+@@ -910,7 +1027,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->battle = m->skip = m->bang = 0;
+             m->pad = 0; // fade-in counter
+             m->sleep = m->leader = m->fight = m->big = m->splash = m->spare = 0;
+-            m->playWith = m->playT = m->rustle = 0;
++            m->playWith = m->playT = m->rustle = m->wet = m->tracks = 0;
+             int napHabit = alive && ro < 0 && m->kind == 1 ? SS3DS_WildNapHabit(sp, town, env & 1) : 0;
+             m->spare = town;
+             if (alive && !town && ro < 0) {
+@@ -1007,12 +1124,18 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         } else if (m->splash < 0) {
+             m->splash++;
+         }
+-        if (m->hop > 0 && --m->hop == 0 && alive && m->splash > 0) {
++        if (m->hop > 0 && --m->hop == 0 && alive && m->kind == 2 && m->splash > 0) {
+             m->splash = -24; // droplets become a ripple on landing
+         }
+         if (m->rustle > 0) {
+             m->rustle--;
+         }
++        if (m->tracks > 0) {
++            m->tracks--;
++        }
++        if (alive && (env & 2) && m->kind == 1) {
++            m->wet = 1;
++        }
+         if (m->leader && (!S->m[m->leader - 1].on || S->m[m->leader - 1].battle)) {
+             m->leader = 0; // its partner is gone: on its own now
+         }
+@@ -1021,6 +1144,14 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             continue;
+         }
+         if (alive) {
++            if (!(env & 2) && m->wet && !m->sleep && !m->fight && !m->playWith && m->hop == 0
++                && m->noticed < WILD_STARTLED) {
++                m->wet = 0;
++                m->splash = 16;
++                m->timer = 16 + (int)SS3DS_WildRand(S, 18);
++                PSPNativeMemLog("[WILD] slot %d species %d shakes off the rain", i + 1, m->sp);
++                continue;
++            }
+             // 0218: napping: only a loud player close by, or one right next to it, wakes it (startled ones run)
+             if (m->sleep) {
+                 if (--m->sleep == 0) {
+@@ -1042,6 +1173,14 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 }
+                 continue;
+             }
++            if (S->berryA == i + 1 || S->berryB == i + 1) {
++                if (dist <= 2 || (env & 2)) {
++                    SS3DS_WildEndPlay(S, i);
++                } else {
++                    SS3DS_TownBerryChase(fieldSystem, S, i);
++                    continue;
++                }
++            }
+             if (m->playWith && SS3DS_WildPlayTick(S, i, px, pz, dist)) {
+                 continue;
+             }
+@@ -1083,6 +1222,10 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                     } else {
+                         m->playWith = j + 1;
+                         o->playWith = i + 1;
++                        if (m->spare && m->kind == 1 && !(env & 2) && !S->berryA && dist <= 8
++                            && SS3DS_WildRand(S, 4) == 0 && SS3DS_TownBerryStart(fieldSystem, S, i, j)) {
++                            break;
++                        }
+                         S->m[i < j ? i : j].playT = 72 + (int)SS3DS_WildRand(S, 48);
+                         m->hop = 10;
+                         if (m->kind == 2) {
+@@ -1260,6 +1403,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         busy |= SS3DS_WildCrowded(S, i, nx, nz);
+         m->dir = d;
+         if (!busy && (kind & 3) == m->kind) {
++            m->tracks = alive && m->kind == 1
++                && ((m->wet && m->grass) || MetatileBehavior_IsMud(GetMetatileBehavior(fieldSystem, m->x, m->z))) ? 26 : 0;
+             m->fx = m->x;
+             m->fz = m->z;
+             m->x = nx;
+@@ -1437,6 +1582,21 @@ static fx32 SS3DS_WildGroundY(FieldSystem *fieldSystem, fx32 x, fx32 z, fx32 hin
+ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slot, fx32 py, u32 anim, int effects) {
+     const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
+     VecFx32 c, v;
++    G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
++    if (effects && m->tracks > 0) {
++        VecFx32 track;
++        track.x = (m->fx * 16 + 8) * FX32_ONE;
++        track.z = (m->fz * 16 + 8) * FX32_ONE;
++        track.y = SS3DS_WildGroundY(fieldSystem, track.x, track.z, py) + FX32_ONE / 4;
++        int dx = m->x - m->fx, dz = m->z - m->fz;
++        track.x += (dx - dz) * FX32_ONE * 2;
++        track.z += (dz + dx) * FX32_ONE * 2;
++        int alpha = 2 + m->tracks / 2;
++        SS3DS_WildGroundEffect(cm, &track, 2 * FX32_ONE, alpha, GX_RGB(9, 6, 3), 0);
++        track.x -= (dx - dz) * FX32_ONE * 4;
++        track.z -= (dz + dx) * FX32_ONE * 4;
++        SS3DS_WildGroundEffect(cm, &track, 2 * FX32_ONE, alpha, GX_RGB(9, 6, 3), 0);
++    }
+     fx32 tt = m->t >= 16 ? FX32_ONE : m->t * FX32_ONE / 16;
+     int sz = m->w, hs = m->big ? sz * 3 / 4 : sz / 2; // 0218: a huge one is drawn 1.5x
+     c.x = ((m->fx * 16 + 8) * FX32_ONE) + FX_Mul((m->x - m->fx) * 16 * FX32_ONE, tt);
+@@ -1456,6 +1616,9 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     c.y = py + hs * FX32_ONE + (m->hop * (12 - m->hop)) * FX32_ONE / 6;
+     v = SS3DS_WildCam(cm, &c);
+     v.y += 3 * FX32_ONE;
++    if (effects && m->kind == 1 && m->splash > 0) {
++        v.x += (m->splash & 2 ? -1 : 1) * FX32_ONE;
++    }
+     int moving = m->t < 16, fr = m->sleep ? 2 : m->dir * 2 + ((anim >> (moving ? 3 : 4)) & 1);
+     fx16 hw = (fx16)(hs * FX16_ONE / 16);
+     // in tall grass the lower 30% is not drawn, so it stands in the grass instead of on top of it
+@@ -1540,11 +1703,11 @@ static void SS3DS_BirdDraw(FieldSystem *fieldSystem, SS3DSWildState *S, fx32 py,
+ static void SS3DS_BirdDrawOne(FieldSystem *fieldSystem, SS3DSWildState *S, fx32 py, u32 anim, int member) {
+     const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
+     VecFx32 c, v;
+-    int sz = S->birdW, t = S->birdT, sgn = S->birdDir == 3 ? 1 : -1;
++    int sz = S->birdW, t = SS3DS_BirdAirTime(S), sgn = S->birdDir == 3 ? 1 : -1;
+     fx32 run = 36 * 16 * FX32_ONE / SS3DS_BIRD_FRAMES; // 36 tiles over the whole flight
+     c.x = (S->birdX * 16 + 8) * FX32_ONE + sgn * run * t - sgn * member * 20 * FX32_ONE;
+     c.z = (S->birdZ * 16 + 8) * FX32_ONE + ((member & 1) ? 14 : -14) * member * FX32_ONE / 2;
+-    if (S->birdLow) {
++    if (S->birdLow && !S->birdPerch) {
+         int bank = t < SS3DS_BIRD_FRAMES / 2 ? t : SS3DS_BIRD_FRAMES - t;
+         c.z += sgn * 12 * FX32_ONE * bank / (SS3DS_BIRD_FRAMES / 2);
+     }
+@@ -1554,9 +1717,10 @@ static void SS3DS_BirdDrawOne(FieldSystem *fieldSystem, SS3DSWildState *S, fx32
+     SS3DS_WildShadow(cm, &c, S->birdBig ? sz : sz / 2);
+     int bob = (int)((anim >> 2) & 7);
+     bob = bob < 4 ? bob : 8 - bob;
+-    c.y = py + (sz / 2 + (S->birdLow ? 28 : S->birdBig ? 88 : 72) + bob) * FX32_ONE;
++    int height = SS3DS_BirdAltitude(S, t, bob);
++    c.y = py + (sz / 2 + height) * FX32_ONE;
+     v = SS3DS_WildCam(cm, &c);
+-    int fr = S->birdDir * 2 + ((anim >> 2) & 1);
++    int fr = S->birdDir * 2 + (height > 0 && ((anim >> 2) & 1));
+     fx16 hw = (fx16)((sz / 2) * FX16_ONE / 16);
+     int edge = t < SS3DS_BIRD_FRAMES - t ? t : SS3DS_BIRD_FRAMES - t;
+     int fade = edge >= 20 ? 31 : 3 + edge * 28 / 20;
+@@ -1582,9 +1746,45 @@ static void SS3DS_BirdDrawOne(FieldSystem *fieldSystem, SS3DSWildState *S, fx32
+     G3_PopMtx(1);
+ }
+ 
++// A small rolling berry, drawn as a camera-facing prop. It has no inventory or collision state.
++static void SS3DS_TownBerryDraw(FieldSystem *fieldSystem, SS3DSWildState *S, fx32 py) {
++    const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
++    int d = S->berryDir, dx = d == 2 ? -1 : d == 3 ? 1 : 0, dz = d == 0 ? -1 : d == 1 ? 1 : 0;
++    int roll = S->berryT < SS3DS_BERRY_ROLL ? S->berryT : SS3DS_BERRY_ROLL;
++    fx32 offset = roll * 16 * FX32_ONE / SS3DS_BERRY_ROLL;
++    VecFx32 c;
++    c.x = (S->berryX * 16 + 8) * FX32_ONE + dx * offset;
++    c.z = (S->berryZ * 16 + 8) * FX32_ONE + dz * offset;
++    c.y = SS3DS_WildGroundY(fieldSystem, c.x, c.z, py) + 3 * FX32_ONE;
++    VecFx32 v = SS3DS_WildCam(cm, &c);
++    fx16 u = FX16_ONE / 16;
++    G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
++    G3_PushMtx();
++    G3_Identity();
++    G3_Translate(v.x, v.y, v.z);
++    G3_Scale(16 * FX32_ONE, 16 * FX32_ONE, 16 * FX32_ONE);
++    G3_PolygonAttr(GX_LIGHTMASK_NONE, GX_POLYGONMODE_MODULATE, GX_CULL_NONE, 0, 31, GX_POLYGON_ATTR_MISC_FOG);
++    G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++    G3_Begin(GX_BEGIN_QUADS);
++    G3_Color(GX_RGB(25, 6, 4));
++    G3_Vtx(0, 2 * u, 0);
++    G3_Vtx(-2 * u, 0, 0);
++    G3_Vtx(0, -2 * u, 0);
++    G3_Vtx(2 * u, 0, 0);
++    G3_End();
++    G3_Begin(GX_BEGIN_TRIANGLES);
++    G3_Color(GX_RGB(13, 23, 5));
++    G3_Vtx(0, u, u);
++    G3_Vtx(((roll / 4) & 1 ? -2 : 2) * u, 3 * u, u);
++    G3_Vtx(u, 2 * u, u);
++    G3_End();
++    G3_Color(GX_RGB(31, 31, 31));
++    G3_PopMtx(1);
++}
++
+ // In the field's 3D pass, after the game's own objects, with the camera the map was drawn with
+ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+-    SS3DSWildState *S = P3DS_WildMem();
++    SS3DSWildState *S = P3DS_WildMemV2();
+     int i, any = 0;
+     if (S->magic != SS3DS_WILD_MAGIC || !P3DS_WildVisCfg(0) || fieldSystem->playerAvatar == NULL || fieldSystem->location == NULL || fieldSystem->location->mapId != S->map) {
+         return;
+@@ -1611,6 +1811,9 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+             SS3DS_WildDrawOne(fieldSystem, &S->m[i], i + 1, py, S->anim + i * 7, effects);
+         }
+     }
++    if (S->berryA && effects >= 2 && !dark) {
++        SS3DS_TownBerryDraw(fieldSystem, S, py);
++    }
+     if (S->birdOn) {
+         SS3DS_BirdDraw(fieldSystem, S, py, S->anim);
+     }
+-- 
+2.53.0
+

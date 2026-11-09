@@ -12,6 +12,7 @@ All notable changes to this project will be documented here.
 - Town residents sometimes stop to face water or greenery and gather by walls or in grass during rain.
 - Startled wild Pokémon can duck into tall grass and peek out again after it gets quiet.
 - Nearby fliers can be heard approaching, startled Pokémon rustle the grass, and playing Pokémon can call back to each other.
+- Land Pokémon can shake dry after rain and leave short-lived tracks in mud or damp grass. Some fliers land briefly beside scenery, and town residents sometimes chase a rolling berry.
 
 ### Johto bottom map: steadier player head, 2X zoom, roamer icons
 - The player head on the scaled bottom map was placed with `mark * 5 / 4`, which does not match the 2x-then-linear scale. On some towns the head slipped a screen pixel against the map while the view moved, then sat off. It now uses the screen pixel that samples that same map pixel. Standing still was already still. Location changes still move it.
