@@ -1,0 +1,116 @@
+From e233c382296b6b181688311c59b50b901963eb5b Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 00:45:44 +0000
+Subject: [PATCH] ss3ds: visible wild Pokemon keep the ground height at their
+ own spot
+
+SS3DS_WildDraw used the player's y for every sprite, so they rose and sank with stairs. Each sprite now samples the map height at its own x/z (sub_02061248, the same query map objects use). Hop, shadow and flyer offsets stay on top of that height. Player y remains only the bridge hint and the fallback.
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 48 ++++++++++++++++++++++-----
+ 1 file changed, 40 insertions(+), 8 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 6c4f88f..a5e4dba 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -1031,13 +1031,44 @@ static void SS3DS_WildSplash(fx16 hw, int left) {
+     G3_Color(GX_RGB(31, 31, 31));
+ }
+ 
+-static void SS3DS_WildDrawOne(SS3DSWildMon *m, int slot, fx32 py, u32 anim) {
++// 0230: same height query map objects run each step (sub_02061248 -> the map mesh).
++// pos->y on the way in only chooses a bridge over the ground under it; the result is the
++// surface at pos->x/z, including stairs and slopes. allowPlate 1 keeps that bridge.
++// Player y is the hint and the fallback when that spot has no surface (unk60 is the collision object).
++BOOL sub_02061248(FieldSystem *fieldSystem, VecFx32 *pos, int allowPlate);
++static fx32 SS3DS_WildGroundY(FieldSystem *fieldSystem, fx32 x, fx32 z, fx32 hint) {
++    VecFx32 pos;
++    fx32 d;
++    static int logged, missed;
++    if (fieldSystem->unk60 == NULL) {
++        return hint;
++    }
++    pos.x = x;
++    pos.y = hint;
++    pos.z = z;
++    if (!sub_02061248(fieldSystem, &pos, 1)) {
++        if (missed < 4) {
++            missed++;
++            PSPNativeMemLog("[WILD] ground height missing, keep player y %d", (int)hint);
++        }
++        return hint;
++    }
++    d = pos.y > hint ? pos.y - hint : hint - pos.y;
++    if (logged < 4 && d > FX32_ONE) {
++        logged++;
++        PSPNativeMemLog("[WILD] own ground y %d, player y %d", (int)pos.y, (int)hint);
++    }
++    return pos.y;
++}
++
++static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slot, fx32 py, u32 anim) {
+     const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
+     VecFx32 c, v;
+     fx32 tt = m->t >= 16 ? FX32_ONE : m->t * FX32_ONE / 16;
+     int sz = m->w, hs = m->big ? sz * 3 / 4 : sz / 2; // 0218: a huge one is drawn 1.5x
+     c.x = ((m->fx * 16 + 8) * FX32_ONE) + FX_Mul((m->x - m->fx) * 16 * FX32_ONE, tt);
+     c.z = ((m->fz * 16 + 8) * FX32_ONE) + FX_Mul((m->z - m->fz) * 16 * FX32_ONE, tt);
++    py = SS3DS_WildGroundY(fieldSystem, c.x, c.z, py);
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+     if (m->kind == 1 && !m->grass) {
+         c.y = py + FX32_ONE / 2;
+@@ -1108,23 +1139,24 @@ static void SS3DS_WildDrawOne(SS3DSWildMon *m, int slot, fx32 py, u32 anim) {
+ }
+ 
+ // 0217 the flyer: high above the ground, flapping (fast frame swap), its shadow on the ground below, fading in and out at the ends
+-static void SS3DS_BirdDrawOne(SS3DSWildState *S, fx32 py, u32 anim, int member);
++static void SS3DS_BirdDrawOne(FieldSystem *fieldSystem, SS3DSWildState *S, fx32 py, u32 anim, int member);
+ 
+-static void SS3DS_BirdDraw(SS3DSWildState *S, fx32 py, u32 anim) {
++static void SS3DS_BirdDraw(FieldSystem *fieldSystem, SS3DSWildState *S, fx32 py, u32 anim) {
+     int n = S->flock < 1 ? 1 : S->flock > 4 ? 4 : S->flock;
+     for (int k = 0; k < n; k++) {
+-        SS3DS_BirdDrawOne(S, py, anim + k * 5, k);
++        SS3DS_BirdDrawOne(fieldSystem, S, py, anim + k * 5, k);
+     }
+ }
+ 
+ // one flyer of the flock; member 0 leads, the others trail behind it in a loose V (0218)
+-static void SS3DS_BirdDrawOne(SS3DSWildState *S, fx32 py, u32 anim, int member) {
++static void SS3DS_BirdDrawOne(FieldSystem *fieldSystem, SS3DSWildState *S, fx32 py, u32 anim, int member) {
+     const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
+     VecFx32 c, v;
+     int sz = S->birdW, t = S->birdT, sgn = S->birdDir == 3 ? 1 : -1;
+     fx32 run = 36 * 16 * FX32_ONE / SS3DS_BIRD_FRAMES; // 36 tiles over the whole flight
+     c.x = (S->birdX * 16 + 8) * FX32_ONE + sgn * run * t - sgn * member * 20 * FX32_ONE;
+     c.z = (S->birdZ * 16 + 8) * FX32_ONE + ((member & 1) ? 14 : -14) * member * FX32_ONE / 2;
++    py = SS3DS_WildGroundY(fieldSystem, c.x, c.z, py); // 0230: altitude stays above the ground under the flyer
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+     c.y = py + FX32_ONE / 2;
+     SS3DS_WildShadow(cm, &c, S->birdBig ? sz : sz / 2);
+@@ -1172,7 +1204,7 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+     if (!any) {
+         return;
+     }
+-    fx32 py = PlayerAvatar_GetPositionVector(fieldSystem->playerAvatar)->y;
++    fx32 py = PlayerAvatar_GetPositionVector(fieldSystem->playerAvatar)->y; // 0230: bridge hint and fallback only
+     // 0220: in a dark cave (before Flash) only the ones inside the player's small light circle show; the 3D cave darkness does not cover them
+     int dark = (SS3DS_WildEnv(fieldSystem) & 8) != 0;
+     int dpx = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), dpz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
+@@ -1183,11 +1215,11 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+             continue;
+         }
+         if (S->m[i].on && !S->m[i].battle) {
+-            SS3DS_WildDrawOne(&S->m[i], i + 1, py, S->anim + i * 7);
++            SS3DS_WildDrawOne(fieldSystem, &S->m[i], i + 1, py, S->anim + i * 7);
+         }
+     }
+     if (S->birdOn) {
+-        SS3DS_BirdDraw(S, py, S->anim);
++        SS3DS_BirdDraw(fieldSystem, S, py, S->anim);
+     }
+ }
+ /* SS3DS-WILD-END */
+-- 
+2.43.0
+
