@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 724 reproduced the connection crash. The ELF resolved the null dereference to `OS_LockMutex`: the native backing pointer is at offset 24, where the next DS overlay object begins. Patch 0254 routes the worker mutex, queue and thread through separate native SDK storage. The system `i2c::IR` port was full on hardware, so the dedicated transport worker returns to the probe’s register backend with controller IRQs disabled and system bus timing preserved. The restored Homebrew CIA startup packaging is unchanged. The overlay translated and the new platform sources passed ARM syntax checks. Hardware retry and transfer remain unverified.
+
 Pokewalker IR IPC now runs on one dedicated worker. The original game only exchanges packets with bounded queues, and closing the screen does not join the IPC worker. This isolates a blocked system request from gameplay. Build and hardware transfer tests are pending.
 
 Run 722 froze at the connection prompt before logging IR ready. The watchdog fired after 10 seconds. The follow-up uses a nonblocking I2C service lookup and records the last initialization step or register in the watchdog log. This covers service acquisition waits. Device validation is pending.

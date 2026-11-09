@@ -1,0 +1,66 @@
+From db475984cfca9fdd6ff27a6ed4010ffcc9210178 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 9 Nov 2026 16:31:58 -0500
+Subject: [PATCH] Use native OS storage for the Pokewalker worker
+
+---
+ .../maploader/arg-overrides.json                     | 12 +++++++++---
+ .../maploader/call-retargets.json                    | 12 +++++++++---
+ 2 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/port/soulsilver-native-play/maploader/arg-overrides.json b/port/soulsilver-native-play/maploader/arg-overrides.json
+index db55f87..86b58ee 100644
+--- a/port/soulsilver-native-play/maploader/arg-overrides.json
++++ b/port/soulsilver-native-play/maploader/arg-overrides.json
+@@ -28,8 +28,14 @@
+  "SS3DS_Pwalker_WorkerSleep": 1,
+  "SS3DS_Pwalker_SpiWaitGetStatus": 0,
+  "OS_CreateThreadReal": 6,
+- "SS3DS_Pwalker_RequestStop": 1,
+- "SS3DS_Pwalker_UnlockAndJoin": 1,
++ "SS3DS_Pwalker_RequestStop": 0,
++ "SS3DS_Pwalker_UnlockAndJoin": 0,
+  "SS3DS_Pwalker_Idle": 0,
+- "RTC_ConvertSecondToDateTime": 4
++ "RTC_ConvertSecondToDateTime": 4,
++ "SS3DS_Pwalker_LockMutex": 0,
++ "SS3DS_Pwalker_UnlockMutex": 0,
++ "SS3DS_Pwalker_InitMutex": 0,
++ "SS3DS_Pwalker_InitQueue": 0,
++ "SS3DS_Pwalker_StartWorker": 0,
++ "SS3DS_Pwalker_CreateWorker": 6
+ }
+diff --git a/port/soulsilver-native-play/maploader/call-retargets.json b/port/soulsilver-native-play/maploader/call-retargets.json
+index ed8a10b..cb563ff 100644
+--- a/port/soulsilver-native-play/maploader/call-retargets.json
++++ b/port/soulsilver-native-play/maploader/call-retargets.json
+@@ -46,17 +46,23 @@
+   "CARD_SpiWaitReadRange": "SS3DS_Pwalker_SpiWaitReadRange"
+  },
+  "ov112_021E7398": {
+-  "OS_Sleep": "SS3DS_Pwalker_WorkerSleep"
++  "OS_Sleep": "SS3DS_Pwalker_WorkerSleep",
++  "OS_LockMutex": "SS3DS_Pwalker_LockMutex",
++  "OS_UnlockMutex": "SS3DS_Pwalker_UnlockMutex"
+  },
+  "ov112_021E73C8": {
+   "CARD_SpiWaitGetStatus": "SS3DS_Pwalker_SpiWaitGetStatus",
+   "CARD_SetSpiWriteWaitCycles": "SS3DS_Pwalker_SetSpiWriteWaitCycles",
+   "CARD_SetSpiReadWaitCycles": "SS3DS_Pwalker_SetSpiReadWaitCycles",
+-  "OS_CreateThread": "OS_CreateThreadReal"
++  "OS_InitMutex": "SS3DS_Pwalker_InitMutex",
++  "OS_InitMessageQueue": "SS3DS_Pwalker_InitQueue",
++  "OS_CreateThread": "SS3DS_Pwalker_CreateWorker",
++  "OS_WakeupThreadDirect": "SS3DS_Pwalker_StartWorker"
+  },
+  "ov112_021E7464": {
+   "OS_KillThread": "SS3DS_Pwalker_RequestStop",
+-  "OS_UnlockMutex": "SS3DS_Pwalker_UnlockAndJoin"
++  "OS_UnlockMutex": "SS3DS_Pwalker_UnlockAndJoin",
++  "OS_LockMutex": "SS3DS_Pwalker_LockMutex"
+  },
+  "ov112_021E5D68": {
+   "OS_Halt": "SS3DS_Pwalker_Idle"
+-- 
+2.53.0
+

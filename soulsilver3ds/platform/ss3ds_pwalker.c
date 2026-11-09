@@ -56,6 +56,7 @@ static void busWorker(void *unused)
     (void)unused;
     u32 session = 0;
     bool listening = false;
+    bool firstReply = true;
     for (;;) {
         Packet packet;
         bool send = false;
@@ -78,6 +79,7 @@ static void busWorker(void *unused)
         }
         if (wanted && session != requested) {
             session = requested;
+            firstReply = true;
             listening = SS3DS_PwalkerIrOpen() && SS3DS_PwalkerIrListen();
             if (!listening)
                 SS3DS_PwalkerIrClose();
@@ -101,6 +103,11 @@ static void busWorker(void *unused)
                 if (active && generation == session)
                     incoming = packet;
                 LightLock_Unlock(&busLock);
+                if (packet.length >= 8 && firstReply) {
+                    firstReply = false;
+                    PSPNativeMemLog("[PWALKER] first response: %u bytes, opcode %02x",
+                                    (unsigned)packet.length, (unsigned)packet.bytes[0]);
+                }
             } else if (count < 0) {
                 PSPNativeMemLog("[PWALKER] IR receive failed");
                 SS3DS_PwalkerIrClose();
@@ -217,14 +224,13 @@ uint32_t SS3DS_Pwalker_SpiWaitWriteRange(const uint8_t *buffer, uint32_t length)
 // mutex held, then releases that mutex before joining the worker.
 
 extern void OS_ExitThread(void);
-extern void OS_JoinThread(void *thread);
-extern void OS_UnlockMutex(void *mutex);
+extern uint32_t SS3DS_Pwalker_UnlockMutex(void);
+extern void SS3DS_Pwalker_JoinWorker(void);
 extern void OS_Sleep(uint32_t milliseconds);
 
 static atomic_bool stopping;
-static void *stoppingThread;
 
-uint32_t SS3DS_Pwalker_RequestStop(void *thread)
+uint32_t SS3DS_Pwalker_RequestStop(void)
 {
     if (busThread) {
         LightLock_Lock(&busLock);
@@ -234,16 +240,14 @@ uint32_t SS3DS_Pwalker_RequestStop(void *thread)
         LightLock_Unlock(&busLock);
         LightEvent_Signal(&busWake);
     }
-    stoppingThread = thread;
     atomic_store(&stopping, true);
     return 0;
 }
 
-uint32_t SS3DS_Pwalker_UnlockAndJoin(void *mutex)
+uint32_t SS3DS_Pwalker_UnlockAndJoin(void)
 {
-    OS_UnlockMutex(mutex);
-    OS_JoinThread(stoppingThread);
-    stoppingThread = NULL;
+    SS3DS_Pwalker_UnlockMutex();
+    SS3DS_Pwalker_JoinWorker();
     atomic_store(&stopping, false);
     return 0;
 }
