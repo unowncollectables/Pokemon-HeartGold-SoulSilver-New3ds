@@ -1,3 +1,9 @@
+# Overworld grass and water cues (0234)
+
+With Alive wild Pokémon enabled, moving into tall grass or being startled while in it briefly draws bending leaves at the Pokémon's feet. The leaves are a small sprite effect. A water Pokémon's jump now ends in an expanding ripple at the surface, and the Pokémon stays on its landing tile until the ripple fades. The effects use the existing field camera, ground height and cave visibility checks.
+
+The staged hook was idempotent and the generated sources passed the devkitARM syntax checks. An isolated timing test covered the splash-to-ripple transition, ripple expiry, and the rustle lingering after a step. The designated build and a device look at the effect size, water-surface alignment and stereo are pending.
+
 # Overworld routines, play and rain (0233)
 
 The Alive wild Pokémon setting also enables species-weighted temperaments and timed naps. Each spawn keeps its own roll. Some land Pokémon return toward their spawn to nap, and nocturnal species are more likely to nap by day. Nearby Pokémon sometimes stop to face each other and take turns hopping or splashing. Pairs end the exchange when approached or when either participant leaves. Wild strangers can still squabble. During rain, ordinary land Pokémon can seek adjacent tall grass and stay there. Those without nearby cover can leave when the player is far away. The behavior uses existing spawn tiles and terrain, with no authored shop or awning anchors.
