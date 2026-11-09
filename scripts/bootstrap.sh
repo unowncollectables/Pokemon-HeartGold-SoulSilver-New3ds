@@ -12,6 +12,16 @@ if [ ! -d "$P/.git" ]; then
   git clone --filter=blob:none "$URL" "$P"
 fi
 cd "$P"
+apply_patch_mail() {
+  local patch="$1"
+  if sed '/^$/q' "$patch" | grep '^From: .\+ <.\+>$' >/dev/null; then
+    git -c user.name=ss3ds -c user.email=ss3ds@localhost am -q "$patch"
+  else
+    # Some patches have a Subject and diff but no mail author.
+    { printf 'From: ss3ds <ss3ds@localhost>\n'; cat "$patch"; } |
+      git -c user.name=ss3ds -c user.email=ss3ds@localhost am -q
+  fi
+}
 if git rev-parse -q --verify ss3ds >/dev/null; then
   # Already bootstrapped: apply only the patches added since (matched by subject line).
   git checkout -q ss3ds; n=0; have=$(git log --format=%s)
@@ -25,11 +35,11 @@ if git rev-parse -q --verify ss3ds >/dev/null; then
         mv -f "$f" "$f.pre-patch"; echo "moved untracked $f aside to $f.pre-patch (patch $(basename "$p") adds it)"
       fi
     done
-    git -c user.name=ss3ds -c user.email=ss3ds@localhost am -q "$p"; n=$((n+1)); echo "applied $(basename "$p")"
+    apply_patch_mail "$p"; n=$((n+1)); echo "applied $(basename "$p")"
   done
   echo "pspoke up to date ($n new patches). Files already staged in pspoke/.work need the same change by hand."; exit 0
 fi
 git fetch -q origin "$COMMIT" 2>/dev/null || true
 git checkout -q -b ss3ds "$COMMIT"
-git -c user.name=ss3ds -c user.email=ss3ds@localhost am -q "$ROOT"/pspoke-patches/*.patch
+for p in "$ROOT"/pspoke-patches/*.patch; do apply_patch_mail "$p"; done
 echo "pspoke ready at $P ($(git log -1 --format=%h) + $(ls "$ROOT"/pspoke-patches/*.patch | wc -l) patches)"
