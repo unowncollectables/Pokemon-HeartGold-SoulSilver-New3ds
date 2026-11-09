@@ -1,5 +1,8 @@
 # Release notes
 
+## Overworld Pokémon behavior
+Set Alive wild Pokémon to ON + TOWNS in Settings > Battle to meet town residents. Try pressing A next to one, then walk and sprint toward a shy Pokémon outside town to see the difference. Fliers can bank along clear low lanes or pass overhead. Pending a game rebuild and New 3DS testing.
+
 ## Johto map head, zoom, and roamer icons
 The player head on the bottom map stays on the town it is marking while the map recentres. Map zoom in Settings > Input defaults to 1X; 2X (or the - and + on the map) is a closer view of the same map. Roamer sprites default off, so the coloured letters stay until you turn them on. Needs a platform rebuild. Not checked on a 3DS yet.
 

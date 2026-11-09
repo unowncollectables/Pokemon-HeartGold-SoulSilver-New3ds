@@ -1,3 +1,9 @@
+# Overworld Pokémon behavior (0232)
+
+Under Settings > Battle > Alive wild Pokémon, ON enables the wild and flight changes and ON + TOWNS also enables town residents. Land residents use the existing tile collision hook on roomy tiles, leave warp approaches clear, and turn toward the player on A. Their spawn tile acts as a home for idle wandering and naps. Shy wild Pokémon watch a quiet approach, while a sprint or bike can trigger retreat into available tall grass. Solo fliers sample three possible low lanes against terrain collision. A flier without a clear lane, a flock, or a legendary uses a higher pass.
+
+The hook was applied twice to copies of staged sources to verify idempotence. The changed C files passed the devkitARM syntax check. A host harness checked narrow corridors, warp approaches, solid town interaction, the wild battle path, and blocked flight lanes. Needs the designated build and a device walk through Goldenrod and Route 34 to check where residents spawn, roof clearance and high-pass visibility. Flight clearance uses terrain tiles and a fixed higher altitude, so roof clearance still needs a visual check. No save data is written.
+
 # Mystery Gift menu
 
 Mystery Gift (0231): draw the selection arrow inside the original overlay 74 list windows. With Grey unsupported menu on, the receive list disables local methods unless Wireless is LOCAL and Nintendo WFC unless Wireless is ONLINE. The port logs blocked selections as [SS-MG]. Needs a game rebuild and device checks on the receive list and Wonder Card menus. Local gift delivery still needs a compatible sender and hardware verification.

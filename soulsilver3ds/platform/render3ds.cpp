@@ -1250,7 +1250,7 @@ static const MItem mItems[]={
  {"DIRECT SCREEN","gc_direct",2,{"OFF","ON"}},
  /* 128 (2026-11-05, hook 0217): wild_vis_alive, default OFF until tested: visible wild Pokemon are solid (the player cannot walk through one),
     A facing one or walking into one starts its battle, and some chase you (Scarlet/Violet style). Needs wild_vis. Battle tab; remove once tested.
-    2026-11-06 (hook 0110 block v5): third value ON + TOWNS also fills towns and cities with ambient Pokemon (no battles, not solid) */
+    2026-11-06 (hook 0110 block v5): third value ON + TOWNS also fills towns and cities with ambient Pokemon (solid on land, no battles) */
  {"ALIVE WILD POKEMON","wild_vis_alive",3,{"OFF","ON","ON + TOWNS"}},
  /* 129 (2026-11-06, hook 0225): event_any_mon, default OFF until tested: the Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus event scenes
     start with any Pichu/Pikachu/Raichu, Celebi or Arceus in the lead (no event metadata, no shiny needed). Play tab; remove once tested */

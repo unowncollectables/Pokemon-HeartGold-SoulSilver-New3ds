@@ -4,6 +4,10 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Overworld Pokémon behavior
+- Town residents on land have collision, face the player on A, and tend to stay near their spawn. Shy wild Pokémon pause for quiet approaches and can retreat into tall grass when startled.
+- Fliers look for a clear low route or take a higher pass. Enabled through the existing Alive wild Pokémon setting.
+
 ### Johto bottom map: steadier player head, 2X zoom, roamer icons
 - The player head on the scaled bottom map was placed with `mark * 5 / 4`, which does not match the 2x-then-linear scale. On some towns the head slipped a screen pixel against the map while the view moved, then sat off. It now uses the screen pixel that samples that same map pixel. Standing still was already still. Location changes still move it.
 - Settings > Input "Map zoom" (`map_zoom`, default 1X). 2X is a closer view. `-` and `+` on the map change the same setting. Taps, Fly, finder pins and roamer marks stay on the place you see. The side buttons and captions stay put.
