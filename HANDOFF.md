@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 730 received valid handshakes after recovering from impossible RX FIFO counts of 128. Three later TX attempts timed out, with 0/59, 64/94 and 0/63 bytes queued. The follow-up preloads the reset TX FIFO for all packet sizes and uses the working probe’s bus timing during the IR session, restoring the previous settings on idle close. Repeated transfers still need device testing.
+
 The owner confirmed a complete Pokewalker send, return and gift on run 727. Subsequent attempts disconnect, including after reboot. RX now distinguishes status read failure, invalid FIFO count and payload read failure. The worker discards incomplete packets and re-arms RX after isolated failures, closing after three consecutive failures or a failed re-arm. The cause of repeated-session failures and the separate power-off symptom remain unverified.
 
 After one reported transfer, the next attempts still got valid F8 replies but failed to transmit 112-byte opcode 52 and 93-byte opcode 00 packets. Commit 93999e1 fills the 64-byte TX FIFO before enabling the transmitter for long packets and logs the failing stage and queued byte count. ARM syntax check passed. Repeated send and return on hardware remain unverified.

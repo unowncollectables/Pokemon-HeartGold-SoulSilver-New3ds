@@ -21,6 +21,8 @@ enum {
 // Poll for completion without raising the system I2C interrupt.
 static vu8 *const bus = (vu8 *)I2C_BASE;
 static bool opened;
+static u16 savedControl;
+static u16 savedClock;
 extern void PSPNativeMemLog(const char *fmt, ...);
 
 static bool waitIdle(void)
@@ -89,6 +91,11 @@ bool SS3DS_PwalkerIrOpen(void)
 {
     if (!irAvailable() || !waitIdle())
         return false;
+    // Match the standalone probe's bus timing for the IR session.
+    savedControl = *(vu16 *)(bus + 2);
+    savedClock = *(vu16 *)(bus + 4);
+    *(vu16 *)(bus + 2) = BIT(1);
+    *(vu16 *)(bus + 4) = 5u << 8;
     opened = true;
     if (!writeReg(EFCR, 6) || !writeReg(FCR, 6))
         return false;
@@ -123,6 +130,12 @@ void SS3DS_PwalkerIrClose(void)
     writeReg(FCR, 0);
     writeReg(IER, BIT(4));
     writeReg(IOSTATE, BIT(0));
+    if (waitIdle()) {
+        *(vu16 *)(bus + 4) = savedClock;
+        *(vu16 *)(bus + 2) = savedControl;
+    } else {
+        PSPNativeMemLog("[PWALKER] bus still busy at close; timing restore skipped");
+    }
 }
 
 bool SS3DS_PwalkerIrListen(void)
@@ -165,14 +178,14 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
     if (!writeReg(EFCR, 6) || !writeReg(FCR, 5))
         goto finish;
 
-    // Give long packets a full FIFO head start before the UART drains it.
-    if (length > 64) {
-        stage = "preload";
-        if (!writeFifo(data, 64))
-            goto finish;
-        data += 64;
-        length -= 64;
-    }
+    // An empty FIFO was just reset. Load it before enabling transmission
+    // instead of waiting for the first TXLVL read to advertise space.
+    stage = "preload";
+    const size_t initial = length < 64 ? length : 64;
+    if (!writeFifo(data, initial))
+        goto finish;
+    data += initial;
+    length -= initial;
 
     stage = "enable";
     if (!writeReg(EFCR, 2))
