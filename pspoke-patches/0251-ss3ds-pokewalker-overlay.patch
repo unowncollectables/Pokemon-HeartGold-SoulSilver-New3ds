@@ -1,0 +1,615 @@
+From dde620887e2c1ca25c86adc2d6247754a3957776 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 9 Nov 2026 14:44:48 -0500
+Subject: [PATCH] ss3ds: port original Pokewalker overlay to 3DS infrared
+
+---
+ .../nitromain-perf/missing.c                  | 228 ------------------
+ .../maploader/arg-overrides.json              |  14 +-
+ .../maploader/call-retargets.json             |  34 +++
+ .../maploader/native-provided.json            |   3 +-
+ port/soulsilver-native-play/maploader/port.py |  33 ++-
+ .../maploader/seed-files.json                 | 165 ++++++-------
+ scripts/ss3ds_hooks.d/0251_pokewalker.py      |  16 ++
+ scripts/ss3ds_hooks.d/0251_pokewalker.sh      |   6 +
+ 8 files changed, 185 insertions(+), 314 deletions(-)
+ create mode 100644 scripts/ss3ds_hooks.d/0251_pokewalker.py
+ create mode 100755 scripts/ss3ds_hooks.d/0251_pokewalker.sh
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index 562e05a..08cf502 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -221,234 +221,6 @@ __attribute__((noreturn)) void ov05_0221CAB8(void){Missing("ov05_0221CAB8");}
+ __attribute__((noreturn)) void ov05_0221CB70(void){Missing("ov05_0221CB70");}
+ __attribute__((noreturn)) void ov05_0221CC04(void){Missing("ov05_0221CC04");}
+ __attribute__((noreturn)) void ov05_0221CC58(void){Missing("ov05_0221CC58");}
+-__attribute__((noreturn)) void ov112_021E76CC(void){Missing("ov112_021E76CC");}
+-__attribute__((noreturn)) void ov112_021E7830(void){Missing("ov112_021E7830");}
+-__attribute__((noreturn)) void ov112_021E7910(void){Missing("ov112_021E7910");}
+-__attribute__((noreturn)) void ov112_021EAC18(void){Missing("ov112_021EAC18");}
+-__attribute__((noreturn)) void ov112_021EAC34(void){Missing("ov112_021EAC34");}
+-__attribute__((noreturn)) void ov112_021EAC58(void){Missing("ov112_021EAC58");}
+-__attribute__((noreturn)) void ov112_021EAC5C(void){Missing("ov112_021EAC5C");}
+-__attribute__((noreturn)) void ov112_021EAF48(void){Missing("ov112_021EAF48");}
+-__attribute__((noreturn)) void ov112_021EAF5C(void){Missing("ov112_021EAF5C");}
+-__attribute__((noreturn)) void ov112_021EAFFC(void){Missing("ov112_021EAFFC");}
+-__attribute__((noreturn)) void ov112_021EB1D8(void){Missing("ov112_021EB1D8");}
+-__attribute__((noreturn)) void ov112_021EB1E8(void){Missing("ov112_021EB1E8");}
+-__attribute__((noreturn)) void ov112_021EB208(void){Missing("ov112_021EB208");}
+-__attribute__((noreturn)) void ov112_021EB244(void){Missing("ov112_021EB244");}
+-__attribute__((noreturn)) void ov112_021EB28C(void){Missing("ov112_021EB28C");}
+-__attribute__((noreturn)) void ov112_021EB388(void){Missing("ov112_021EB388");}
+-__attribute__((noreturn)) void ov112_021EB3A8(void){Missing("ov112_021EB3A8");}
+-__attribute__((noreturn)) void ov112_021EB3B8(void){Missing("ov112_021EB3B8");}
+-__attribute__((noreturn)) void ov112_021EB3D8(void){Missing("ov112_021EB3D8");}
+-__attribute__((noreturn)) void ov112_021EB44C(void){Missing("ov112_021EB44C");}
+-__attribute__((noreturn)) void ov112_021EB568(void){Missing("ov112_021EB568");}
+-__attribute__((noreturn)) void ov112_021EB5AC(void){Missing("ov112_021EB5AC");}
+-__attribute__((noreturn)) void ov112_021EB5BC(void){Missing("ov112_021EB5BC");}
+-__attribute__((noreturn)) void ov112_021EB5DC(void){Missing("ov112_021EB5DC");}
+-__attribute__((noreturn)) void ov112_021EB664(void){Missing("ov112_021EB664");}
+-__attribute__((noreturn)) void ov112_021EB780(void){Missing("ov112_021EB780");}
+-__attribute__((noreturn)) void ov112_021EB7D8(void){Missing("ov112_021EB7D8");}
+-__attribute__((noreturn)) void ov112_021EB838(void){Missing("ov112_021EB838");}
+-__attribute__((noreturn)) void ov112_021EB85C(void){Missing("ov112_021EB85C");}
+-__attribute__((noreturn)) void ov112_021EB864(void){Missing("ov112_021EB864");}
+-__attribute__((noreturn)) void ov112_021EB8C4(void){Missing("ov112_021EB8C4");}
+-__attribute__((noreturn)) void ov112_021EB8E8(void){Missing("ov112_021EB8E8");}
+-__attribute__((noreturn)) void ov112_021EB908(void){Missing("ov112_021EB908");}
+-__attribute__((noreturn)) void ov112_021EBA08(void){Missing("ov112_021EBA08");}
+-__attribute__((noreturn)) void ov112_021EBA28(void){Missing("ov112_021EBA28");}
+-__attribute__((noreturn)) void ov112_021EBA50(void){Missing("ov112_021EBA50");}
+-__attribute__((noreturn)) void ov112_021EBA54(void){Missing("ov112_021EBA54");}
+-__attribute__((noreturn)) void ov112_021EBA6C(void){Missing("ov112_021EBA6C");}
+-__attribute__((noreturn)) void ov112_021EBA8C(void){Missing("ov112_021EBA8C");}
+-__attribute__((noreturn)) void ov112_021EBAB0(void){Missing("ov112_021EBAB0");}
+-__attribute__((noreturn)) void ov112_021EBAB4(void){Missing("ov112_021EBAB4");}
+-__attribute__((noreturn)) void ov112_021EBB58(void){Missing("ov112_021EBB58");}
+-__attribute__((noreturn)) void ov112_021EBB84(void){Missing("ov112_021EBB84");}
+-__attribute__((noreturn)) void ov112_021EBB98(void){Missing("ov112_021EBB98");}
+-__attribute__((noreturn)) void ov112_021EBBB0(void){Missing("ov112_021EBBB0");}
+-__attribute__((noreturn)) void ov112_021EBBD8(void){Missing("ov112_021EBBD8");}
+-__attribute__((noreturn)) void ov112_021EBC3C(void){Missing("ov112_021EBC3C");}
+-__attribute__((noreturn)) void ov112_021EBC7C(void){Missing("ov112_021EBC7C");}
+-__attribute__((noreturn)) void ov112_021EBCD8(void){Missing("ov112_021EBCD8");}
+-__attribute__((noreturn)) void ov112_021EBD9C(void){Missing("ov112_021EBD9C");}
+-__attribute__((noreturn)) void ov112_021EBDE8(void){Missing("ov112_021EBDE8");}
+-__attribute__((noreturn)) void ov112_021EBE4C(void){Missing("ov112_021EBE4C");}
+-__attribute__((noreturn)) void ov112_021EBE6C(void){Missing("ov112_021EBE6C");}
+-__attribute__((noreturn)) void ov112_021EBE78(void){Missing("ov112_021EBE78");}
+-__attribute__((noreturn)) void ov112_021EBF18(void){Missing("ov112_021EBF18");}
+-__attribute__((noreturn)) void ov112_021EBF4C(void){Missing("ov112_021EBF4C");}
+-__attribute__((noreturn)) void ov112_021EBF70(void){Missing("ov112_021EBF70");}
+-__attribute__((noreturn)) void ov112_021EBFC8(void){Missing("ov112_021EBFC8");}
+-__attribute__((noreturn)) void ov112_021EC000(void){Missing("ov112_021EC000");}
+-__attribute__((noreturn)) void ov112_021EC038(void){Missing("ov112_021EC038");}
+-__attribute__((noreturn)) void ov112_021EC044(void){Missing("ov112_021EC044");}
+-__attribute__((noreturn)) void ov112_021EC1A8(void){Missing("ov112_021EC1A8");}
+-__attribute__((noreturn)) void ov112_021EC1E4(void){Missing("ov112_021EC1E4");}
+-__attribute__((noreturn)) void ov112_021EC208(void){Missing("ov112_021EC208");}
+-__attribute__((noreturn)) void ov112_021EC284(void){Missing("ov112_021EC284");}
+-__attribute__((noreturn)) void ov112_021EC2A8(void){Missing("ov112_021EC2A8");}
+-__attribute__((noreturn)) void ov112_021EC2E4(void){Missing("ov112_021EC2E4");}
+-__attribute__((noreturn)) void ov112_021EC304(void){Missing("ov112_021EC304");}
+-__attribute__((noreturn)) void ov112_021EC338(void){Missing("ov112_021EC338");}
+-__attribute__((noreturn)) void ov112_021EC374(void){Missing("ov112_021EC374");}
+-__attribute__((noreturn)) void ov112_021EC378(void){Missing("ov112_021EC378");}
+-__attribute__((noreturn)) void ov112_021EC390(void){Missing("ov112_021EC390");}
+-__attribute__((noreturn)) void ov112_021EC3B0(void){Missing("ov112_021EC3B0");}
+-__attribute__((noreturn)) void ov112_021EC3C8(void){Missing("ov112_021EC3C8");}
+-__attribute__((noreturn)) void ov112_021EC3F0(void){Missing("ov112_021EC3F0");}
+-__attribute__((noreturn)) void ov112_021EC404(void){Missing("ov112_021EC404");}
+-__attribute__((noreturn)) void ov112_021EC414(void){Missing("ov112_021EC414");}
+-__attribute__((noreturn)) void ov112_021EC434(void){Missing("ov112_021EC434");}
+-__attribute__((noreturn)) void ov112_021EC478(void){Missing("ov112_021EC478");}
+-__attribute__((noreturn)) void ov112_021EC520(void){Missing("ov112_021EC520");}
+-__attribute__((noreturn)) void ov112_021EC54C(void){Missing("ov112_021EC54C");}
+-__attribute__((noreturn)) void ov112_021EC55C(void){Missing("ov112_021EC55C");}
+-__attribute__((noreturn)) void ov112_021EC640(void){Missing("ov112_021EC640");}
+-__attribute__((noreturn)) void ov112_021EC67C(void){Missing("ov112_021EC67C");}
+-__attribute__((noreturn)) void ov112_021EC69C(void){Missing("ov112_021EC69C");}
+-__attribute__((noreturn)) void ov112_021EC6C0(void){Missing("ov112_021EC6C0");}
+-__attribute__((noreturn)) void ov112_021EC6D8(void){Missing("ov112_021EC6D8");}
+-__attribute__((noreturn)) void ov112_021EC6F8(void){Missing("ov112_021EC6F8");}
+-__attribute__((noreturn)) void ov112_021EC70C(void){Missing("ov112_021EC70C");}
+-__attribute__((noreturn)) void ov112_021EC778(void){Missing("ov112_021EC778");}
+-__attribute__((noreturn)) void ov112_021EC99C(void){Missing("ov112_021EC99C");}
+-__attribute__((noreturn)) void ov112_021ECAA8(void){Missing("ov112_021ECAA8");}
+-__attribute__((noreturn)) void ov112_021ECCC4(void){Missing("ov112_021ECCC4");}
+-__attribute__((noreturn)) void ov112_021ECE28(void){Missing("ov112_021ECE28");}
+-__attribute__((noreturn)) void ov112_021ECECC(void){Missing("ov112_021ECECC");}
+-__attribute__((noreturn)) void ov112_021ECEEC(void){Missing("ov112_021ECEEC");}
+-__attribute__((noreturn)) void ov112_021ECEF8(void){Missing("ov112_021ECEF8");}
+-__attribute__((noreturn)) void ov112_021ECF38(void){Missing("ov112_021ECF38");}
+-__attribute__((noreturn)) void ov112_021ECF88(void){Missing("ov112_021ECF88");}
+-__attribute__((noreturn)) void ov112_021ECFD4(void){Missing("ov112_021ECFD4");}
+-__attribute__((noreturn)) void ov112_021ED020(void){Missing("ov112_021ED020");}
+-__attribute__((noreturn)) void ov112_021ED054(void){Missing("ov112_021ED054");}
+-__attribute__((noreturn)) void ov112_021ED090(void){Missing("ov112_021ED090");}
+-__attribute__((noreturn)) void ov112_021ED1A0(void){Missing("ov112_021ED1A0");}
+-__attribute__((noreturn)) void ov112_021ED224(void){Missing("ov112_021ED224");}
+-__attribute__((noreturn)) void ov112_021ED264(void){Missing("ov112_021ED264");}
+-__attribute__((noreturn)) void ov112_021ED35C(void){Missing("ov112_021ED35C");}
+-__attribute__((noreturn)) void ov112_021ED4D4(void){Missing("ov112_021ED4D4");}
+-__attribute__((noreturn)) void ov112_021ED66C(void){Missing("ov112_021ED66C");}
+-__attribute__((noreturn)) void ov112_021ED8DC(void){Missing("ov112_021ED8DC");}
+-__attribute__((noreturn)) void ov112_021ED918(void){Missing("ov112_021ED918");}
+-__attribute__((noreturn)) void ov112_021EDA4C(void){Missing("ov112_021EDA4C");}
+-__attribute__((noreturn)) void ov112_021EDB24(void){Missing("ov112_021EDB24");}
+-__attribute__((noreturn)) void ov112_021EDD08(void){Missing("ov112_021EDD08");}
+-__attribute__((noreturn)) void ov112_021EDD30(void){Missing("ov112_021EDD30");}
+-__attribute__((noreturn)) void ov112_021EDD5C(void){Missing("ov112_021EDD5C");}
+-__attribute__((noreturn)) void ov112_021EDD80(void){Missing("ov112_021EDD80");}
+-__attribute__((noreturn)) void ov112_021EDDB4(void){Missing("ov112_021EDDB4");}
+-__attribute__((noreturn)) void ov112_021EDDE8(void){Missing("ov112_021EDDE8");}
+-__attribute__((noreturn)) void ov112_021EDE1C(void){Missing("ov112_021EDE1C");}
+-__attribute__((noreturn)) void ov112_021EDE68(void){Missing("ov112_021EDE68");}
+-__attribute__((noreturn)) void ov112_021EDF08(void){Missing("ov112_021EDF08");}
+-__attribute__((noreturn)) void ov112_021EDF4C(void){Missing("ov112_021EDF4C");}
+-__attribute__((noreturn)) void ov112_021EE044(void){Missing("ov112_021EE044");}
+-__attribute__((noreturn)) void ov112_021EE0F4(void){Missing("ov112_021EE0F4");}
+-__attribute__((noreturn)) void ov112_021EE10C(void){Missing("ov112_021EE10C");}
+-__attribute__((noreturn)) void ov112_021EE12C(void){Missing("ov112_021EE12C");}
+-__attribute__((noreturn)) void ov112_021EE178(void){Missing("ov112_021EE178");}
+-__attribute__((noreturn)) void ov112_021EE1A4(void){Missing("ov112_021EE1A4");}
+-__attribute__((noreturn)) void ov112_021EE1BC(void){Missing("ov112_021EE1BC");}
+-__attribute__((noreturn)) void ov112_021EE1DC(void){Missing("ov112_021EE1DC");}
+-__attribute__((noreturn)) void ov112_021EE1E8(void){Missing("ov112_021EE1E8");}
+-__attribute__((noreturn)) void ov112_021EE29C(void){Missing("ov112_021EE29C");}
+-__attribute__((noreturn)) void ov112_021EE2B4(void){Missing("ov112_021EE2B4");}
+-__attribute__((noreturn)) void ov112_021EE2D4(void){Missing("ov112_021EE2D4");}
+-__attribute__((noreturn)) void ov112_021EE31C(void){Missing("ov112_021EE31C");}
+-__attribute__((noreturn)) void ov112_021EE3E0(void){Missing("ov112_021EE3E0");}
+-__attribute__((noreturn)) void ov112_021EE464(void){Missing("ov112_021EE464");}
+-__attribute__((noreturn)) void ov112_021EE4B8(void){Missing("ov112_021EE4B8");}
+-__attribute__((noreturn)) void ov112_021EE4D0(void){Missing("ov112_021EE4D0");}
+-__attribute__((noreturn)) void ov112_021EE510(void){Missing("ov112_021EE510");}
+-__attribute__((noreturn)) void ov112_021EE514(void){Missing("ov112_021EE514");}
+-__attribute__((noreturn)) void ov112_021EE524(void){Missing("ov112_021EE524");}
+-__attribute__((noreturn)) void ov112_021EE52C(void){Missing("ov112_021EE52C");}
+-__attribute__((noreturn)) void ov112_021EE550(void){Missing("ov112_021EE550");}
+-__attribute__((noreturn)) void ov112_021EE570(void){Missing("ov112_021EE570");}
+-__attribute__((noreturn)) void ov112_021EE594(void){Missing("ov112_021EE594");}
+-__attribute__((noreturn)) void ov112_021EE5B8(void){Missing("ov112_021EE5B8");}
+-__attribute__((noreturn)) void ov112_021EE604(void){Missing("ov112_021EE604");}
+-__attribute__((noreturn)) void ov112_021EE608(void){Missing("ov112_021EE608");}
+-__attribute__((noreturn)) void ov112_021EE624(void){Missing("ov112_021EE624");}
+-__attribute__((noreturn)) void ov112_021EE628(void){Missing("ov112_021EE628");}
+-__attribute__((noreturn)) void ov112_021EE688(void){Missing("ov112_021EE688");}
+-__attribute__((noreturn)) void ov112_021EE6AC(void){Missing("ov112_021EE6AC");}
+-__attribute__((noreturn)) void ov112_021EE6B0(void){Missing("ov112_021EE6B0");}
+-__attribute__((noreturn)) void ov112_021EE6D0(void){Missing("ov112_021EE6D0");}
+-__attribute__((noreturn)) void ov112_021EE6F8(void){Missing("ov112_021EE6F8");}
+-__attribute__((noreturn)) void ov112_021EE70C(void){Missing("ov112_021EE70C");}
+-__attribute__((noreturn)) void ov112_021EE718(void){Missing("ov112_021EE718");}
+-__attribute__((noreturn)) void ov112_021EE73C(void){Missing("ov112_021EE73C");}
+-__attribute__((noreturn)) void ov112_021EE754(void){Missing("ov112_021EE754");}
+-__attribute__((noreturn)) void ov112_021EE778(void){Missing("ov112_021EE778");}
+-__attribute__((noreturn)) void ov112_021EED08(void){Missing("ov112_021EED08");}
+-__attribute__((noreturn)) void ov112_021EEDFC(void){Missing("ov112_021EEDFC");}
+-__attribute__((noreturn)) void ov112_021EEE20(void){Missing("ov112_021EEE20");}
+-__attribute__((noreturn)) void ov112_021EEE2C(void){Missing("ov112_021EEE2C");}
+-__attribute__((noreturn)) void ov112_021EEE4C(void){Missing("ov112_021EEE4C");}
+-__attribute__((noreturn)) void ov112_021EEE8C(void){Missing("ov112_021EEE8C");}
+-__attribute__((noreturn)) void ov112_021EEEA0(void){Missing("ov112_021EEEA0");}
+-__attribute__((noreturn)) void ov112_021EEEAC(void){Missing("ov112_021EEEAC");}
+-__attribute__((noreturn)) void ov112_021EEEC0(void){Missing("ov112_021EEEC0");}
+-__attribute__((noreturn)) void ov112_021EEEE0(void){Missing("ov112_021EEEE0");}
+-__attribute__((noreturn)) void ov112_021EEF08(void){Missing("ov112_021EEF08");}
+-__attribute__((noreturn)) void ov112_021EEF1C(void){Missing("ov112_021EEF1C");}
+-__attribute__((noreturn)) void ov112_021EEF28(void){Missing("ov112_021EEF28");}
+-__attribute__((noreturn)) void ov112_021EEF30(void){Missing("ov112_021EEF30");}
+-__attribute__((noreturn)) void ov112_021EEF68(void){Missing("ov112_021EEF68");}
+-__attribute__((noreturn)) void ov112_021EF03C(void){Missing("ov112_021EF03C");}
+-__attribute__((noreturn)) void ov112_021EF100(void){Missing("ov112_021EF100");}
+-__attribute__((noreturn)) void ov112_021EF568(void){Missing("ov112_021EF568");}
+-__attribute__((noreturn)) void ov112_021EF5AC(void){Missing("ov112_021EF5AC");}
+-__attribute__((noreturn)) void ov112_021EF62C(void){Missing("ov112_021EF62C");}
+-__attribute__((noreturn)) void ov112_021EF640(void){Missing("ov112_021EF640");}
+-__attribute__((noreturn)) void ov112_021EF644(void){Missing("ov112_021EF644");}
+-__attribute__((noreturn)) void ov112_021EF660(void){Missing("ov112_021EF660");}
+-__attribute__((noreturn)) void ov112_021EF664(void){Missing("ov112_021EF664");}
+-__attribute__((noreturn)) void ov112_021EF67C(void){Missing("ov112_021EF67C");}
+-__attribute__((noreturn)) void ov112_021EF6A0(void){Missing("ov112_021EF6A0");}
+-__attribute__((noreturn)) void ov112_021EF700(void){Missing("ov112_021EF700");}
+-__attribute__((noreturn)) void ov112_021EF758(void){Missing("ov112_021EF758");}
+-__attribute__((noreturn)) void ov112_021EF8C0(void){Missing("ov112_021EF8C0");}
+-__attribute__((noreturn)) void ov112_021EF8D4(void){Missing("ov112_021EF8D4");}
+-__attribute__((noreturn)) void ov112_021EF958(void){Missing("ov112_021EF958");}
+-__attribute__((noreturn)) void ov112_021EF994(void){Missing("ov112_021EF994");}
+-__attribute__((noreturn)) void ov112_021EF9D4(void){Missing("ov112_021EF9D4");}
+-__attribute__((noreturn)) void ov112_021EFA1C(void){Missing("ov112_021EFA1C");}
+-__attribute__((noreturn)) void ov112_021EFA44(void){Missing("ov112_021EFA44");}
+-__attribute__((noreturn)) void ov112_021EFA74(void){Missing("ov112_021EFA74");}
+-__attribute__((noreturn)) void ov112_021EFA9C(void){Missing("ov112_021EFA9C");}
+-__attribute__((noreturn)) void ov112_021EFAC0(void){Missing("ov112_021EFAC0");}
+-__attribute__((noreturn)) void ov112_021EFB14(void){Missing("ov112_021EFB14");}
+-__attribute__((noreturn)) void ov112_021EFC9C(void){Missing("ov112_021EFC9C");}
+-__attribute__((noreturn)) void ov112_021EFCB0(void){Missing("ov112_021EFCB0");}
+-__attribute__((noreturn)) void ov112_021EFCD8(void){Missing("ov112_021EFCD8");}
+-__attribute__((noreturn)) void ov112_021EFCFC(void){Missing("ov112_021EFCFC");}
+-__attribute__((noreturn)) void ov112_021EFDA8(void){Missing("ov112_021EFDA8");}
+-__attribute__((noreturn)) void ov112_021EFED8(void){Missing("ov112_021EFED8");}
+-__attribute__((noreturn)) void ov112_021EFEEC(void){Missing("ov112_021EFEEC");}
+-__attribute__((noreturn)) void ov112_021EFF14(void){Missing("ov112_021EFF14");}
+-__attribute__((noreturn)) void ov112_021EFF38(void){Missing("ov112_021EFF38");}
+-__attribute__((noreturn)) void ov112_021EFF4C(void){Missing("ov112_021EFF4C");}
+-__attribute__((noreturn)) void ov112_021EFF70(void){Missing("ov112_021EFF70");}
+-__attribute__((noreturn)) void ov112_021EFF84(void){Missing("ov112_021EFF84");}
+-__attribute__((noreturn)) void ov112_021F00CC(void){Missing("ov112_021F00CC");}
+-__attribute__((noreturn)) void ov112_021F00E0(void){Missing("ov112_021F00E0");}
+-__attribute__((noreturn)) void ov112_021F0114(void){Missing("ov112_021F0114");}
+-__attribute__((noreturn)) void ov112_021F015C(void){Missing("ov112_021F015C");}
+-__attribute__((noreturn)) void ov112_021F0180(void){Missing("ov112_021F0180");}
+-__attribute__((noreturn)) void ov112_021F0194(void){Missing("ov112_021F0194");}
+-__attribute__((noreturn)) void ov112_021F01B8(void){Missing("ov112_021F01B8");}
+-__attribute__((noreturn)) void ov112_021F01CC(void){Missing("ov112_021F01CC");}
+-__attribute__((noreturn)) void ov112_021F0314(void){Missing("ov112_021F0314");}
+-__attribute__((noreturn)) void ov112_021F0328(void){Missing("ov112_021F0328");}
+-__attribute__((noreturn)) void ov112_021F0368(void){Missing("ov112_021F0368");}
+-__attribute__((noreturn)) void ov112_021F0394(void){Missing("ov112_021F0394");}
+-__attribute__((noreturn)) void ov112_021F2EF4(void){Missing("ov112_021F2EF4");}
+-__attribute__((noreturn)) void ov112_021F2FAC(void){Missing("ov112_021F2FAC");}
+-__attribute__((noreturn)) void ov112_021F3018(void){Missing("ov112_021F3018");}
+ __attribute__((noreturn)) void ov13_0222B430(void){Missing("ov13_0222B430");}
+ __attribute__((noreturn)) void ov37_021E5900(void){Missing("ov37_021E5900");}
+ __attribute__((noreturn)) void ov37_021E5A84(void){Missing("ov37_021E5A84");}
+diff --git a/port/soulsilver-native-play/maploader/arg-overrides.json b/port/soulsilver-native-play/maploader/arg-overrides.json
+index 6723160..ae3a150 100644
+--- a/port/soulsilver-native-play/maploader/arg-overrides.json
++++ b/port/soulsilver-native-play/maploader/arg-overrides.json
+@@ -17,5 +17,17 @@
+  "SS3DS_BattleMonOBJ_NewAll": 2,
+  "SS3DS_RunHeld": 2,
+  "SS3DS_SummaryRelease": 2,
+- "SS3DS_SummaryTick": 1
++ "SS3DS_SummaryTick": 1,
++ "SS3DS_Pwalker_SpiWaitInit": 0,
++ "SS3DS_Pwalker_SetSpiWriteWaitCycles": 1,
++ "SS3DS_Pwalker_SetSpiReadWaitCycles": 1,
++ "SS3DS_Pwalker_SpiWaitReadRange": 1,
++ "SS3DS_Pwalker_SpiWaitWriteRange": 2,
++ "SS3DS_Pwalker_WorkerSleep": 1,
++ "SS3DS_Pwalker_SpiWaitGetStatus": 0,
++ "OS_CreateThreadReal": 6,
++ "SS3DS_Pwalker_RequestStop": 1,
++ "SS3DS_Pwalker_UnlockAndJoin": 1,
++ "SS3DS_Pwalker_Idle": 0,
++ "RTC_ConvertSecondToDateTime": 4
+ }
+diff --git a/port/soulsilver-native-play/maploader/call-retargets.json b/port/soulsilver-native-play/maploader/call-retargets.json
+index 25ad265..f2a33c0 100644
+--- a/port/soulsilver-native-play/maploader/call-retargets.json
++++ b/port/soulsilver-native-play/maploader/call-retargets.json
+@@ -25,5 +25,39 @@
+  },
+  "ov12_02260CDC": {
+   "ov07_0221FB90": "SS3DS_BattleMonOBJ_One"
++ },
++ "ov112_021E5964": {
++  "CARD_SpiWaitInit": "SS3DS_Pwalker_SpiWaitInit",
++  "CARD_SetSpiWriteWaitCycles": "SS3DS_Pwalker_SetSpiWriteWaitCycles",
++  "CARD_SetSpiReadWaitCycles": "SS3DS_Pwalker_SetSpiReadWaitCycles",
++  "CARD_SpiWaitReadRange": "SS3DS_Pwalker_SpiWaitReadRange"
++ },
++ "ov112_021E59B4": {
++  "CARD_SpiWaitWriteRange": "SS3DS_Pwalker_SpiWaitWriteRange"
++ },
++ "ov112_021E5B98": {
++  "CARD_SpiWaitReadRange": "SS3DS_Pwalker_SpiWaitReadRange"
++ },
++ "ov112_021E7398": {
++  "OS_Sleep": "SS3DS_Pwalker_WorkerSleep"
++ },
++ "ov112_021E73C8": {
++  "CARD_SpiWaitGetStatus": "SS3DS_Pwalker_SpiWaitGetStatus",
++  "CARD_SetSpiWriteWaitCycles": "SS3DS_Pwalker_SetSpiWriteWaitCycles",
++  "CARD_SetSpiReadWaitCycles": "SS3DS_Pwalker_SetSpiReadWaitCycles",
++  "OS_CreateThread": "OS_CreateThreadReal"
++ },
++ "ov112_021E7464": {
++  "OS_KillThread": "SS3DS_Pwalker_RequestStop",
++  "OS_UnlockMutex": "SS3DS_Pwalker_UnlockAndJoin"
++ },
++ "ov112_021E5D68": {
++  "OS_Halt": "SS3DS_Pwalker_Idle"
++ },
++ "ov112_021E5EEC": {
++  "OS_Halt": "SS3DS_Pwalker_Idle"
++ },
++ "ov112_021E6164": {
++  "OS_Halt": "SS3DS_Pwalker_Idle"
+  }
+ }
+diff --git a/port/soulsilver-native-play/maploader/native-provided.json b/port/soulsilver-native-play/maploader/native-provided.json
+index 2eec34e..d08f94a 100644
+--- a/port/soulsilver-native-play/maploader/native-provided.json
++++ b/port/soulsilver-native-play/maploader/native-provided.json
+@@ -904,5 +904,6 @@
+ "sub_02087A84",
+ "sub_02087E1C",
+ "thunk_ClearMainOAM",
+-"thunk_ClearSubOAM"
++"thunk_ClearSubOAM",
++ "sub_0202D660"
+ ]
+diff --git a/port/soulsilver-native-play/maploader/port.py b/port/soulsilver-native-play/maploader/port.py
+index de4f132..6bc3bf2 100644
+--- a/port/soulsilver-native-play/maploader/port.py
++++ b/port/soulsilver-native-play/maploader/port.py
+@@ -29,12 +29,16 @@ OVERRIDE = json.loads((HERE / 'arg-overrides.json').read_text())
+ # ARM runtime division helpers: quotient in r0, remainder in r1.
+ DIV = {'_s32_div_f': 's', '_u32_div_f': 'u'}
+ # ARM runtime 64-bit multiply: (r1:r0) * (r3:r2) -> (r1:r0).
+-RUNTIME64 = {'_ll_mul': 'ssllmul(&r0,&r1,r2,r3);',
++RUNTIME64 = {'OS_GetTick': 'ss_get_tick(&r0,&r1);',
++             'OS_GetOwnerRtcOffset': 'ss_get_rtc_offset(&r0,&r1);',
++             'RTC_ConvertDateTimeToSecond': 'ss_rtc_to_seconds(&r0,&r1);',
++             '_ll_mul': 'ssllmul(&r0,&r1,r2,r3);',
+              # MWCC unsigned 64-bit divide/modulo: (r1:r0) op (r3:r2) -> (r1:r0); divisor 0 returns the dividend.
+              '_ll_udiv': 'ssulldiv(&r0,&r1,r2,r3,0);', '_ull_div': 'ssulldiv(&r0,&r1,r2,r3,0);',
+              '_ull_mod': 'ssulldiv(&r0,&r1,r2,r3,1);'}
+ # ARM soft-float runtime helpers (IEEE-754 single in integer registers).
+ SOFTFLOAT = {
++    '_f_ulltof': ('r0=ssf_word((float)(((uint64_t)r1<<32)|r0));', 2),
+     '_fflt': ('r0=ssf_flt((int32_t)r0);', 1),
+     '_ffix': ('r0=(uint32_t)ssf_fix(r0);', 1),
+     '_fadd': ('r0=ssf_add(r0,r1);', 2),
+@@ -127,6 +131,12 @@ for fn, table in RETARGETS.items():
+             raise SystemExit(f'call-retargets: {fn} has no bl {old}')
+         bodies[fn] = re.sub(r'\bbl\s+' + re.escape(old) + r'\b', 'bl ' + new, bodies[fn])
+ 
++# This Thumb BL lands on the shared epilogue in the same function.
++# Model it as a local branch so the translator retains the current frame.
++if 'ov112_021E6164' in bodies:
++    bodies['ov112_021E6164'] = re.sub(r'\bbl\s+_021E6A50\b', 'b _021E6A50',
++                                      bodies['ov112_021E6164'])
++
+ # ------------------------------------------------------------------ closure
+ missing_seeds = [s for s in SEEDS if s not in bodies]
+ if missing_seeds:
+@@ -281,7 +291,7 @@ for name in extern:
+ for name, kind in DIV.items():
+     t.CALLS[name] = (f'ssdiv_{kind}(&r0,&r1);', 2)
+ for name, stmt in RUNTIME64.items():
+-    t.CALLS[name] = (stmt, 4)
++    t.CALLS[name] = (stmt, {'OS_GetTick': 0, 'OS_GetOwnerRtcOffset': 0, 'RTC_ConvertDateTimeToSecond': 2}.get(name, 4))
+ for name, (stmt, count) in SOFTFLOAT.items():
+     t.CALLS[name] = (stmt, count)
+ 
+@@ -325,6 +335,25 @@ for name in closure:
+     exports.append(f'uint32_t {name}({params}){{return native_{name}({call});}}')
+ 
+ helpers = r'''
++extern uint64_t OS_GetTick(void);
++extern int64_t OS_GetOwnerRtcOffset(void);
++extern int64_t RTC_ConvertDateTimeToSecond(const void *, const void *);
++static void ss_get_rtc_offset(uint32_t *low, uint32_t *high) {
++    uint64_t value = (uint64_t)OS_GetOwnerRtcOffset();
++    *low = (uint32_t)value;
++    *high = (uint32_t)(value >> 32);
++}
++static void ss_rtc_to_seconds(uint32_t *low, uint32_t *high) {
++    uint64_t value = (uint64_t)RTC_ConvertDateTimeToSecond(
++        (const void *)(uintptr_t)*low, (const void *)(uintptr_t)*high);
++    *low = (uint32_t)value;
++    *high = (uint32_t)(value >> 32);
++}
++static void ss_get_tick(uint32_t *low, uint32_t *high) {
++    uint64_t tick = OS_GetTick();
++    *low = (uint32_t)tick;
++    *high = (uint32_t)(tick >> 32);
++}
+ extern uint32_t GF_AssertFail(void);
+ #include <stdio.h>
+ /* The original assertion handler, named. It still aborts: the translated
+diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
+index 4f798f3..d977ae0 100644
+--- a/port/soulsilver-native-play/maploader/seed-files.json
++++ b/port/soulsilver-native-play/maploader/seed-files.json
+@@ -1,84 +1,85 @@
+ [
+-"unk_0206979C.s",
+-"overlay_01_021F1348.s",
+-"overlay_01_021EFB38.s",
+-"overlay_01_021F4704.s",
+-"overlay_01_021F72DC.s",
+-"overlay_01_021F8D80.s",
+-"overlay_01_021FEEEC.s",
+-"overlay_07.s",
+-"overlay_08.s",
+-"overlay_120.s",
+-"overlay_12_022378C0.s",
+-"overlay_12_02265E28.s",
+-"overlay_12_0226B8FC.s",
+-"overlay_12_0226BBC4.s",
+-"overlay_12_0226BEC4.s",
+-"overlay_12_battle_controller.s",
+-"overlay_12_battle_controller_opponent.s",
+-"overlay_trainer_card_main.s",
+-"render_window.s",
+-"unk_02004A44.s",
+-"unk_02016EDC.s",
+-"unk_02061284.s",
+-"unk_020632B0.s",
+-"overlay_10_trainer_ai.s",
+-"unk_020658D4.s",
+-"overlay_02_02248728.s",
+-"overlay_119.s",
+-"overlay_04.s",
+-"unk_02056680.s",
+-"overlay_01_021FDA14.s",
+-"overlay_114.s",
+-"overlay_115.s",
+-"overlay_116.s",
+-"unk_020755E8.s",
+-"unk_02088288.s",
+-"overlay_95.s",
+-"overlay_15.s",
+-"overlay_01_021EDAFC.s",
+-"overlay_27.s",
+-"overlay_14_021E5900.s",
+-"overlay_14_021EAF08.s",
+-"overlay_14_021EE26C.s",
+-"overlay_14_021EEF34.s",
+-"overlay_14_021EFDE4.s",
+-"overlay_14_021F0A80.s",
+-"overlay_14_021F1808.s",
+-"overlay_14_021F2490.s",
+-"overlay_14_021F4B90.s",
+-"overlay_14_021F58B8.s",
+-"overlay_14_021F6628.s",
+-"overlay_102.s",
+-"unk_02091880.s",
+-"overlay_71.s",
+-"overlay_111.s",
+-"overlay_31.s",
+-"overlay_18_021EE35C.s",
+-"overlay_18_021F0918.s",
+-"overlay_18_021F6AB0.s",
+-"overlay_18_021F7ED4.s",
+-"overlay_18_021F8AB8.s",
+-"overlay_40.s",
+-"overlay_43.s",
+-"overlay_59.s",
+-"overlay_01_021FC66C.s",
+-"overlay_01_022053EC.s",
+-"overlay_01_021F1AFC.s",
+-"overlay_02_02245B80.s",
+-"overlay_01_021EB1E8.s",
+-"overlay_01_022031C0.s",
+-"overlay_113.s",
+-"overlay_69.s",
+-"overlay_trainer_card_signature.s",
+-"overlay_99.s",
+-"overlay_65.s",
+-"overlay_68.s",
+-"overlay_28.s",
+-"overlay_34.s",
+-"overlay_56.s",
+-"overlay_64.s",
+-"overlay_103.s",
+-"overlay_70.s",
+-"overlay_74_thumb.s"
++ "unk_0206979C.s",
++ "overlay_01_021F1348.s",
++ "overlay_01_021EFB38.s",
++ "overlay_01_021F4704.s",
++ "overlay_01_021F72DC.s",
++ "overlay_01_021F8D80.s",
++ "overlay_01_021FEEEC.s",
++ "overlay_07.s",
++ "overlay_08.s",
++ "overlay_120.s",
++ "overlay_12_022378C0.s",
++ "overlay_12_02265E28.s",
++ "overlay_12_0226B8FC.s",
++ "overlay_12_0226BBC4.s",
++ "overlay_12_0226BEC4.s",
++ "overlay_12_battle_controller.s",
++ "overlay_12_battle_controller_opponent.s",
++ "overlay_trainer_card_main.s",
++ "render_window.s",
++ "unk_02004A44.s",
++ "unk_02016EDC.s",
++ "unk_02061284.s",
++ "unk_020632B0.s",
++ "overlay_10_trainer_ai.s",
++ "unk_020658D4.s",
++ "overlay_02_02248728.s",
++ "overlay_119.s",
++ "overlay_04.s",
++ "unk_02056680.s",
++ "overlay_01_021FDA14.s",
++ "overlay_114.s",
++ "overlay_115.s",
++ "overlay_116.s",
++ "unk_020755E8.s",
++ "unk_02088288.s",
++ "overlay_95.s",
++ "overlay_15.s",
++ "overlay_01_021EDAFC.s",
++ "overlay_27.s",
++ "overlay_14_021E5900.s",
++ "overlay_14_021EAF08.s",
++ "overlay_14_021EE26C.s",
++ "overlay_14_021EEF34.s",
++ "overlay_14_021EFDE4.s",
++ "overlay_14_021F0A80.s",
++ "overlay_14_021F1808.s",
++ "overlay_14_021F2490.s",
++ "overlay_14_021F4B90.s",
++ "overlay_14_021F58B8.s",
++ "overlay_14_021F6628.s",
++ "overlay_102.s",
++ "unk_02091880.s",
++ "overlay_71.s",
++ "overlay_111.s",
++ "overlay_31.s",
++ "overlay_18_021EE35C.s",
++ "overlay_18_021F0918.s",
++ "overlay_18_021F6AB0.s",
++ "overlay_18_021F7ED4.s",
++ "overlay_18_021F8AB8.s",
++ "overlay_40.s",
++ "overlay_43.s",
++ "overlay_59.s",
++ "overlay_01_021FC66C.s",
++ "overlay_01_022053EC.s",
++ "overlay_01_021F1AFC.s",
++ "overlay_02_02245B80.s",
++ "overlay_01_021EB1E8.s",
++ "overlay_01_022031C0.s",
++ "overlay_113.s",
++ "overlay_69.s",
++ "overlay_trainer_card_signature.s",
++ "overlay_99.s",
++ "overlay_65.s",
++ "overlay_68.s",
++ "overlay_28.s",
++ "overlay_34.s",
++ "overlay_56.s",
++ "overlay_64.s",
++ "overlay_103.s",
++ "overlay_70.s",
++ "overlay_74_thumb.s",
++ "overlay_112.s"
+ ]
+diff --git a/scripts/ss3ds_hooks.d/0251_pokewalker.py b/scripts/ss3ds_hooks.d/0251_pokewalker.py
+new file mode 100644
+index 0000000..845439e
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0251_pokewalker.py
+@@ -0,0 +1,16 @@
++from pathlib import Path
++
++path = Path("src/application/main_menu/main_menu.c")
++source = path.read_text()
++marker = "/* SS3DS 0251 */"
++if marker not in source:
++    anchor = "        if (P3DS_MenuGreyUnsupportedCfg() && MainMenu_IsUnsupportedOn3DS(sel0197)) {"
++    if source.count(anchor) != 1:
++        raise SystemExit("0251 Pokewalker menu anchor not found exactly once")
++    source = source.replace(anchor, """        extern int SS3DS_PwalkerCanLaunch(void); /* SS3DS 0251 */
++        if (sel0197 == APPOPTION_POKEWALKER && !SS3DS_PwalkerCanLaunch()) {
++            PlaySE(SEQ_SE_DP_BOX03);
++            return FALSE;
++        }
++""" + anchor)
++    path.write_text(source)
+diff --git a/scripts/ss3ds_hooks.d/0251_pokewalker.sh b/scripts/ss3ds_hooks.d/0251_pokewalker.sh
+new file mode 100755
+index 0000000..8e6a303
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0251_pokewalker.sh
+@@ -0,0 +1,6 @@
++#!/usr/bin/env bash
++# The original app is enabled explicitly and only with an accessible IR chip.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0251_pokewalker.py" &&
++    bash rebuild_game_object.sh src/application/main_menu/main_menu.c application__main_menu__main_menu.o 74); then
++    log "ss3ds 0251 Pokewalker menu NOT applied"
++fi
+-- 
+2.53.0
+

@@ -1,3 +1,7 @@
+# Pokéwalker infrared bring-up
+
+Probe v2 in `tools/pokewalker_probe` received a valid session reply from a physical Pokéwalker on the owner’s New 3DS via the Homebrew Launcher. The probe stops before registration and never opens a save. Patch 0251 translates the original overlay 112 and replaces only the cartridge SPI transport and native worker lifecycle. Setup > Pokewalker defaults OFF. The app only launches when enabled and the IR register page is mapped. The CIA requests that page. The overlay translation and ARM C syntax checks passed. The game has not been linked or tested on hardware. First device test: use a copy of the save and verify the original menu opens and exits, then send and return a spare Pokemon. Log tag `[PWALKER]`.
+
 # Town Pokémon greeting cries (0250)
 
 Pressing A next to a town resident now plays its species cry with Visible Wild Cries enabled. The existing audio cooldown and cry-busy check keep repeat presses from cutting off a cry. The greeting still turns the resident toward the player without starting a battle. The generated sources passed devkitARM syntax and hook idempotence checks. A host check covered the A press, mute setting, cooldown and busy audio. Device listening is pending.
