@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Pokewalker IR IPC now runs on one dedicated worker. The original game only exchanges packets with bounded queues, and closing the screen does not join the IPC worker. This isolates a blocked system request from gameplay. Build and hardware transfer tests are pending.
+
 Run 722 froze at the connection prompt before logging IR ready. The watchdog fired after 10 seconds. The follow-up uses a nonblocking I2C service lookup and records the last initialization step or register in the watchdog log. This covers service acquisition waits. Device validation is pending.
 
 Run 721 passed the picker and reached the connection prompt, then stopped after `[PWALKER] IR ready`. Luma recorded a GPIO system error. The next build uses `i2c::IR` for register and FIFO access instead of driving the shared I2C controller directly. The ARM syntax check passed. Hardware timing, the full connection and transfer remain untested with this backend.

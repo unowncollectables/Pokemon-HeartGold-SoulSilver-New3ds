@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-bool SS3DS_PwalkerIrAvailable(void);
 bool SS3DS_PwalkerIrOpen(void);
 void SS3DS_PwalkerIrClose(void);
 bool SS3DS_PwalkerIrListen(void);

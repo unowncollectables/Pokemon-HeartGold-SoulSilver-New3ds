@@ -106,15 +106,6 @@ static Result openIrService(Handle *handle)
     return rc;
 }
 
-bool SS3DS_PwalkerIrAvailable(void)
-{
-    Handle probe;
-    if (R_FAILED(openIrService(&probe)))
-        return false;
-    svcCloseHandle(probe);
-    return true;
-}
-
 bool SS3DS_PwalkerIrOpen(void)
 {
     SS3DS_PwalkerIrClose();
