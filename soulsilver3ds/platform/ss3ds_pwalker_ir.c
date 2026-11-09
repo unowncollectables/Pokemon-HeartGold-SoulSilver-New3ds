@@ -140,33 +140,70 @@ int SS3DS_PwalkerIrRead(uint8_t *data, size_t capacity)
     return (int)count;
 }
 
+static bool writeFifo(const u8 *data, size_t count)
+{
+    u8 chunk[64];
+    memcpy(chunk, data, count);
+    return transfer(FIFO, chunk, count, false);
+}
+
 bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
 {
-    if (!writeReg(FCR, 5) || !writeReg(EFCR, 2))
-        return false;
+    const char *stage = "setup";
+    const size_t total = length;
+    bool complete = false;
+    if (!writeReg(EFCR, 6) || !writeReg(FCR, 5))
+        goto finish;
+
+    // Give long packets a full FIFO head start before the UART drains it.
+    if (length > 64) {
+        stage = "preload";
+        if (!writeFifo(data, 64))
+            goto finish;
+        data += 64;
+        length -= 64;
+    }
+
+    stage = "enable";
+    if (!writeReg(EFCR, 2))
+        goto finish;
 
     const u64 start = svcGetSystemTick();
+    stage = "timeout";
     while (svcGetSystemTick() - start < SYSCLOCK_ARM11 / 20) {
         u8 status;
-        if (!transfer(length ? TXLVL : LSR, &status, 1, true))
+        if (!transfer(length ? TXLVL : LSR, &status, 1, true)) {
+            stage = length ? "FIFO status" : "line status";
             break;
+        }
         if (length) {
+            if (status > 64) {
+                stage = "invalid FIFO level";
+                break;
+            }
             size_t count = status < length ? status : length;
             if (!count)
                 continue;
-            uint8_t chunk[64];
-            if (count > sizeof chunk)
-                count = sizeof chunk;
-            memcpy(chunk, data, count);
-            if (!transfer(FIFO, chunk, count, false))
+            if (!writeFifo(data, count)) {
+                stage = "FIFO write";
                 break;
+            }
             data += count;
             length -= count;
         } else if (status & BIT(6)) {
-            return writeReg(EFCR, 6) && writeReg(FCR, 0);
+            complete = true;
+            break;
         }
     }
-    writeReg(EFCR, 6);
-    writeReg(FCR, 0);
-    return false;
+
+finish:
+    bool disabled = writeReg(EFCR, 6);
+    bool cleared = writeReg(FCR, 0);
+    if (!complete || !disabled || !cleared) {
+        extern void PSPNativeMemLog(const char *fmt, ...);
+        PSPNativeMemLog("[PWALKER] TX %s: queued %u/%u bytes",
+                        complete ? "cleanup" : stage,
+                        (unsigned)(total - length), (unsigned)total);
+    }
+    return complete && disabled && cleared;
 }
