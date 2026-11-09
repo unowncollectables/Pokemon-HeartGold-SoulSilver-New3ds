@@ -1,0 +1,208 @@
+From 19a0e8adce3458d03a805325568a4d24d1857605 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:16:37 -0500
+Subject: [PATCH] ss3ds: schedule the Goldenrod Flower Shop resident
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 77 +++++++++++++++++++++------
+ 1 file changed, 62 insertions(+), 15 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 94a674c..5896a3c 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,11 +13,14 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v12 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v13 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+ #define SS3DS_WILD_MAX 6
++#define WILD_MORNING 16
++#define WILD_DAY 32
++#define WILD_EVENING 64
+ enum { WILD_UNAWARE, WILD_WATCHING, WILD_STARTLED, WILD_IN_COVER };
+ /* 0218: sleep (night nap, Zz), leader (slot+1 of the one it travels with), fight (squabble frames left), big (rare huge one), splash;
+    0223: spare = 1 for an ambient town Pokemon (town resident, never battles) */
+@@ -372,7 +375,8 @@ int SS3DS_WildEnv(FieldSystem *fieldSystem) {
+     int weather = LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
+     TIMEOFDAY tod = GF_RTC_GetTimeOfDay();
+     return ((tod == RTC_TIMEOFDAY_NITE || tod == RTC_TIMEOFDAY_LATE) ? 1 : 0) | ((weather >= WEATHER_RAIN && weather <= WEATHER_UNKNOWN_4) ? 2 : 0) | ((weather == WEATHER_SNOW || weather == WEATHER_BLIZZARD) ? 4 : 0)
+-        | (weather == WEATHER_FLASH ? 8 : 0); // 8: dark cave, Flash not used yet (Flash switches it to WEATHER_FLASH_2)
++        | (weather == WEATHER_FLASH ? 8 : 0) // dark cave before Flash
++        | (tod == RTC_TIMEOFDAY_MORN ? WILD_MORNING : tod == RTC_TIMEOFDAY_DAY ? WILD_DAY : tod == RTC_TIMEOFDAY_EVE ? WILD_EVENING : 0);
+ }
+ 
+ // Ambient flyer for this area, time of day and weather (decoration). 0 = none here (indoors, caves). *legend = 1 for a rare legendary.
+@@ -422,6 +426,7 @@ static BOOL SS3DS_WildReplaces(FieldSystem *fieldSystem) {
+ '''
+ 
+ FIELD_BLOCK = COMMON + r'''
++#include "constants/maps.h"
+ extern int SS3DS_WildTileKind(FieldSystem *fieldSystem, int x, int z);
+ extern int SS3DS_WildBlockedMap(FieldSystem *fieldSystem);
+ extern int SS3DS_WildPick(FieldSystem *fieldSystem, int surf, int *species, int *level);
+@@ -447,6 +452,21 @@ static int SS3DS_Tile(FieldSystem *fieldSystem, int x, int z) {
+ 
+ BOOL sub_020548C0(FieldSystem *fieldSystem, int x, int z);
+ 
++// Goldenrod flower shop door (371,332) and shopkeeper (3,5), from the map events.
++static int SS3DS_FlowerShopSpot(int map, int env, int *x, int *z) {
++    if (map == MAP_GOLDENROD_FLOWER_SHOP && (env & WILD_DAY)) {
++        *x = 4;
++        *z = 5;
++        return 1;
++    }
++    if (map == MAP_GOLDENROD && (env & (WILD_MORNING | WILD_EVENING))) {
++        *x = env & WILD_MORNING ? 371 : 374;
++        *z = 335;
++        return 1;
++    }
++    return 0;
++}
++
+ // Returns the direction of a scenery feature next to a safe standing tile.
+ static int SS3DS_TownScenery(FieldSystem *fieldSystem, int x, int z, int rain) {
+     for (int d = 0; d < 4; d++) {
+@@ -885,7 +905,12 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     SS3DS_BirdTick(fieldSystem, S, px, pz); // 0217: flyers also cross towns (maps with no wild table)
+     // Menus, the bike, scripts: they stay where they are and stay drawn, they just wait
+     // 0223 lively towns: outdoor maps with no wild table get ambient Pokemon (Alive wild Pokemon = ON + TOWNS)
+-    int town = P3DS_WildVisCfg(5) >= 2 && SS3DS_TownMap(fieldSystem);
++    int alive = P3DS_WildVisCfg(5);
++    int env = alive ? SS3DS_WildEnv(fieldSystem) : 0;
++    int shop = map == MAP_GOLDENROD_FLOWER_SHOP;
++    int ax = 0, az = 0;
++    int appointment = alive >= 2 && SS3DS_FlowerShopSpot(map, env, &ax, &az);
++    int town = alive >= 2 && (SS3DS_TownMap(fieldSystem) || (shop && appointment));
+     if (town != sSS3DS_TownMode) {
+         PSPNativeMemLog("[WILD] town life %s on map %d", town ? "on" : "off", map);
+     }
+@@ -912,16 +937,16 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         S->lpx = px;
+         S->lpz = pz;
+     }
+-    int alive = P3DS_WildVisCfg(5), moving = (int)S->anim - S->lastStep < 30;
++    int moving = (int)S->anim - S->lastStep < 30;
+     int loud = alive && moving && (P3DS_RunLast || PlayerAvatar_GetState(fieldSystem->playerAvatar) == 1 /* PLAYER_STATE_CYCLING */);
+-    int env = alive ? SS3DS_WildEnv(fieldSystem) : 0;
+     S->rng ^= (u32)(px * 31 + pz * 17);
+-    int n = 0, mx = P3DS_WildVisCfg(1) + 1;
++    int n = 0, named = 0, mx = P3DS_WildVisCfg(1) + 1;
+     if (env & 2) {
+         mx = (mx + 1) / 2; // 0218: in the rain most of them shelter; the rest stay in tall grass or the water
+     }
+     for (i = 0; i < SS3DS_WILD_MAX; i++) {
+         n += S->m[i].on != 0;
++        named |= S->m[i].on && S->m[i].spare == 2;
+     }
+     if (S->spawnT > 0) {
+         S->spawnT--;
+@@ -931,15 +956,27 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     } else if (S->spawnT == 0) {
+         mx = SS3DS_WildAutoMax(fieldSystem, px, pz, mx);
+     }
++    int nearX = px - ax, nearZ = pz - az;
++    int near = appointment && nearX >= -9 && nearX <= 9 && nearZ >= -8 && nearZ <= 8;
+     if (S->spawnT == 0 && n < mx) {
+         S->spawnT = town ? 150 + (int)SS3DS_WildRand(S, 150) : 90 + (int)SS3DS_WildRand(S, 60);
+         int scenic = town && !(env & 2) && SS3DS_WildRand(S, 2) == 0;
+         for (int tries = 0; tries < 8; tries++) {
+-            int dx = (int)SS3DS_WildRand(S, 17) - 8, dz = (int)SS3DS_WildRand(S, 13) - 6;
+-            if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) < 4) {
++            int regular = !(near && !named && tries < 5);
++            if (regular && shop) {
++                break;
++            }
++            static const int spotX[5] = {0, 1, -1, 0, 0}, spotZ[5] = {0, 0, 0, 1, -1};
++            int tx = regular ? px + (int)SS3DS_WildRand(S, 17) - 8 : ax + spotX[tries];
++            int tz = regular ? pz + (int)SS3DS_WildRand(S, 13) - 6 : az + spotZ[tries];
++            int dx = tx - px, dz = tz - pz;
++            if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) < (shop ? 2 : 4)) {
++                continue;
++            }
++            int kind = SS3DS_Tile(fieldSystem, tx, tz);
++            if (!regular && (kind & 3) != 1) {
+                 continue;
+             }
+-            int tx = px + dx, tz = pz + dz, kind = SS3DS_Tile(fieldSystem, tx, tz);
+             if (!(kind & 3) || SS3DS_WildCrowded(S, -1, tx, tz)) {
+                 continue;
+             }
+@@ -947,7 +984,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 if ((env & 2) && !(kind & 4) && (!town || SS3DS_TownScenery(fieldSystem, tx, tz, 1) < 0)) {
+                     continue;
+                 }
+-                if (scenic && tries < 4 && !(kind & 4) && SS3DS_TownScenery(fieldSystem, tx, tz, 0) < 0) {
++                if (regular && scenic && tries < 4 && !(kind & 4) && SS3DS_TownScenery(fieldSystem, tx, tz, 0) < 0) {
+                     continue;
+                 }
+             }
+@@ -960,7 +997,10 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                     }
+                 }
+             }
+-            if (town) {
++            if (!regular) {
++                sp = SPECIES_BELLOSSOM;
++                lv = 5;
++            } else if (town) {
+                 lv = 5;
+                 for (int rr = 0; rr < 4; rr++) {
+                     sp = SS3DS_TownPick(fieldSystem, (kind & 3) == 2, env & 1, SS3DS_WildRand(S, 65536));
+@@ -997,7 +1037,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 break;
+             }
+             SS3DSWildMon *m = &S->m[k];
+-            int shiny = ro < 0 && P3DS_WildVisCfg(2) && SS3DS_WildRand(S, 8192) == 0;
++            int shiny = regular && ro < 0 && P3DS_WildVisCfg(2) && SS3DS_WildRand(S, 8192) == 0;
+             int spr = P3DS_FollowerSprite(sp, 0, 0);
+             int w = spr >= 0 ? P3DS_WildLoad(k + 1, spr, shiny) : 0;
+             if (!w) {
+@@ -1029,7 +1069,10 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->sleep = m->leader = m->fight = m->big = m->splash = m->spare = 0;
+             m->playWith = m->playT = m->rustle = m->wet = m->tracks = 0;
+             int napHabit = alive && ro < 0 && m->kind == 1 ? SS3DS_WildNapHabit(sp, town, env & 1) : 0;
+-            m->spare = town;
++            m->spare = !regular ? 2 : town;
++            if (!regular) {
++                PSPNativeMemLog("[WILD] Flower Shop Bellossom on map %d at %d,%d", map, tx, tz);
++            }
+             if (alive && !town && ro < 0) {
+                 if (SS3DS_WildRand(S, 1024) == 0) { // 0218: a rare huge one (Alpha style): bigger, stronger, bold
+                     m->big = 1;
+@@ -1052,7 +1095,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 P3DS_AchSky(2);
+             }
+             // 0218: sometimes a second one of its kind travels with it (a pair, a pack)
+-            if (alive && n + 1 < mx && ro < 0 && !m->big && SS3DS_WildRand(S, 5) == 0) {
++            if (regular && alive && n + 1 < mx && ro < 0 && !m->big && SS3DS_WildRand(S, 5) == 0) {
+                 int k2, gx = tx, gz = tz, ok = 0;
+                 for (k2 = 0; k2 < SS3DS_WILD_MAX && S->m[k2].on; k2++) {
+                 }
+@@ -1115,6 +1158,10 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->bang--;
+         }
+         int ddx = m->x - px, ddz = m->z - pz, adx = ddx < 0 ? -ddx : ddx, adz = ddz < 0 ? -ddz : ddz, dist = adx + adz;
++        if (m->spare == 2 && !appointment && dist > 6) {
++            SS3DS_WildKill(S, i, "flower shop routine changed");
++            continue;
++        }
+         if (ddx * ddx + ddz * ddz > 144) {
+             SS3DS_WildKill(S, i, "far");
+             continue;
+@@ -1384,7 +1431,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             int napHabit = m->kind == 1 ? SS3DS_WildNapHabit(m->sp, m->spare, env & 1) : 0;
+             int hx = m->homeX - m->x, hz = m->homeZ - m->z;
+             int ax = hx < 0 ? -hx : hx, az = hz < 0 ? -hz : hz;
+-            if ((m->spare || napHabit) && ax + az >= 3) {
++            if ((m->spare || napHabit) && ax + az >= (m->spare == 2 ? 1 : 3)) {
+                 d = ax > az ? (hx > 0 ? 3 : 2) : (hz > 0 ? 1 : 0);
+             } else if (!m->noticed && napHabit && ax + az == 0 && dist > 2 && SS3DS_WildRand(S, 12) < napHabit) {
+                 m->sleep = 180 + (int)SS3DS_WildRand(S, 300);
+-- 
+2.53.0
+

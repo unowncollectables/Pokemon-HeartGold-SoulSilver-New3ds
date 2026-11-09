@@ -1,0 +1,141 @@
+From ac153605d99224d0514f013b06b3ada28db8b7a6 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:38:09 -0500
+Subject: [PATCH] ss3ds: validate terrain ledges for flyover landings
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 82 ++++++++++++++++++++++-----
+ 1 file changed, 67 insertions(+), 15 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 5d6f319..7edd036 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v16 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v17 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -862,6 +862,41 @@ static int SS3DS_BirdLaneOpen(FieldSystem *fieldSystem, int px, int z) {
+     return 1;
+ }
+ 
++BOOL sub_02061248(FieldSystem *fieldSystem, VecFx32 *pos, int allowPlate);
++
++static int SS3DS_BirdSurface(FieldSystem *fieldSystem, int x, int z, fx32 hint, fx32 *height) {
++    VecFx32 pos = {x * FX32_ONE, hint, z * FX32_ONE};
++    if (fieldSystem->unk60 == NULL || !sub_02061248(fieldSystem, &pos, 1)) {
++        return 0;
++    }
++    *height = pos.y;
++    return 1;
++}
++
++// Validate a flat landing footprint. A genuine ledge has lower terrain
++// immediately to one side. Collision-only walls are handled separately.
++static int SS3DS_BirdPerchKind(FieldSystem *fieldSystem, int tileX, int tileZ, fx32 hint) {
++    int x = tileX * 16 + 8, z = tileZ * 16 + 8;
++    fx32 center, sample;
++    if (!SS3DS_BirdSurface(fieldSystem, x, z, hint, &center)) {
++        return 0;
++    }
++    static const int dx[4] = {4, -4, 0, 0}, dz[4] = {0, 0, 4, -4};
++    for (int i = 0; i < 4; i++) {
++        if (!SS3DS_BirdSurface(fieldSystem, x + dx[i], z + dz[i], center, &sample)
++            || sample < center - FX32_ONE || sample > center + FX32_ONE) {
++            return 0;
++        }
++    }
++    for (int side = -1; side <= 1; side += 2) {
++        if (SS3DS_BirdSurface(fieldSystem, x, z + side * 16, center, &sample)
++            && sample <= center - 8 * FX32_ONE) {
++            return 2;
++        }
++    }
++    return 1;
++}
++
+ #define SS3DS_BIRD_MID (SS3DS_BIRD_FRAMES / 2)
+ #define SS3DS_BIRD_REST 60
+ #define SS3DS_BIRD_GLIDE 26
+@@ -929,6 +964,12 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+             }
+         }
+         SS3DS_BirdSound(S, px, pz);
++        if (S->birdPerch && S->birdT == SS3DS_BIRD_MID + SS3DS_BIRD_REST + 1) {
++            int dx = px - (S->birdX + (S->birdDir == 3 ? 18 : -18)), dz = pz - S->birdZ;
++            if (dx >= -6 && dx <= 6 && dz >= -6 && dz <= 6) {
++                SS3DS_WildCue(S, 0, SEQ_SE_DP_BASABASA);
++            }
++        }
+         int duration = SS3DS_BIRD_FRAMES + (S->birdPerch ? SS3DS_BIRD_REST : 0);
+         if (S->birdT >= duration) {
+             SS3DS_BirdKill(S, "flew off");
+@@ -965,27 +1006,39 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     S->birdLow = S->birdPerch = 0;
+     if (!legend && S->flock == 1 && fieldSystem->unk60 != NULL) {
+         static const int offsets[] = {0, -3, 3};
++        int firstLane = S->birdZ;
++        int lookForPerch = !shiny && SS3DS_WildRand(S, 3) == 0;
++        int rain = lookForPerch && (SS3DS_WildEnv(fieldSystem) & 2);
+         for (int i = 0; i < 3; i++) {
+-            int lane = S->birdZ + offsets[i];
+-            if (SS3DS_BirdLaneOpen(fieldSystem, px, lane)) {
++            int lane = firstLane + offsets[i];
++            if (!SS3DS_BirdLaneOpen(fieldSystem, px, lane)) {
++                continue;
++            }
++            if (!S->birdLow) {
+                 S->birdZ = lane;
+                 S->birdLow = 1;
++            }
++            if (!lookForPerch) {
++                break;
++            }
++            int dz = lane - pz;
++            if ((dz >= -2 && dz <= 2) || SS3DS_TownTile(fieldSystem, px, lane) != 1
++                || SS3DS_WildCrowded(S, -1, px, lane)) {
++                continue;
++            }
++            int wallSide = rain && (SS3DS_TownScenery(fieldSystem, px, lane - 1, 1) == 0
++                || SS3DS_TownScenery(fieldSystem, px, lane + 1, 1) == 1);
++            fx32 hint = PlayerAvatar_GetPositionVector(fieldSystem->playerAvatar)->y;
++            int perch = SS3DS_BirdPerchKind(fieldSystem, px, lane, hint);
++            if (perch == 2 || (perch == 1 && (wallSide || (!rain && SS3DS_TownScenery(fieldSystem, px, lane, 0) >= 0)))) {
++                S->birdZ = lane;
++                S->birdPerch = perch;
+                 break;
+             }
+-        }
+-    }
+-    if (S->birdLow && !shiny && SS3DS_WildRand(S, 3) == 0) {
+-        // A landing needs a clear lane and a legal open landing tile near scenery.
+-        int rain = (SS3DS_WildEnv(fieldSystem) & 2) != 0;
+-        int ledge = rain && (SS3DS_TownScenery(fieldSystem, px, S->birdZ - 1, 1) == 0
+-            || SS3DS_TownScenery(fieldSystem, px, S->birdZ + 1, 1) == 1);
+-        if (SS3DS_TownTile(fieldSystem, px, S->birdZ) == 1 && !SS3DS_WildCrowded(S, -1, px, S->birdZ)
+-            && (ledge || (!rain && SS3DS_TownScenery(fieldSystem, px, S->birdZ, 0) >= 0))) {
+-            S->birdPerch = 1;
+         }
+     }
+     PSPNativeMemLog("[WILD] flyer species %d x%d%s%s heading %s at z %d (%s pass)", sp, S->flock,
+-        shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ, S->birdPerch ? "landing" : S->birdLow ? "low" : "high");
++        shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ, S->birdPerch == 2 ? "ledge landing" : S->birdPerch ? "landing" : S->birdLow ? "low" : "high");
+     if (legend) {
+         P3DS_Toast("A LEGENDARY POKEMON FLEW OVERHEAD!");
+         P3DS_AchSky(1);
+@@ -1796,7 +1849,6 @@ static void SS3DS_WildSplash(fx16 hw, int left) {
+ // pos->y on the way in only chooses a bridge over the ground under it; the result is the
+ // surface at pos->x/z, including stairs and slopes. allowPlate 1 keeps that bridge.
+ // Player y is the hint and the fallback when that spot has no surface (unk60 is the collision object).
+-BOOL sub_02061248(FieldSystem *fieldSystem, VecFx32 *pos, int allowPlate);
+ static fx32 SS3DS_WildGroundY(FieldSystem *fieldSystem, fx32 x, fx32 z, fx32 hint) {
+     VecFx32 pos;
+     fx32 d;
+-- 
+2.53.0
+

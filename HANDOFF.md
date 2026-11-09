@@ -1,3 +1,109 @@
+# Flower Shop clerk and landmark expansion (0247)
+
+When the morning Bellossom is present and Goldenrod's Flower Shop daytime routine starts in dry weather, a temporary outdoor clerk can walk to the real door using the game's native NPC movement. Bellossom follows the moving clerk and finishes its doorway animation. The clerk is removed at the door or if the scene times out. The original shopkeeper stays inside and retains her dialogue and scripts. The outdoor clerk is excluded from map-object saves and field interaction by its map, sprite and reserved object ID. Its last step onto the warp tile requires the matching doorway and an unoccupied tile.
+
+Named schedules also cover Sentret at the Cherrygrove Guide Gent's house, Marill at Olivine Café, Machop at the Cianwood Pharmacy, and Eevee at the Celadon Department Store. Azalea's Pokémon Center has a measured flat roof perch from model 40 in land block 33.
+
+Generated encounter, field, map-object and input sources passed devkitARM syntax and staged-hook idempotence checks. The native movement and creation symbols exist in the current game ELF. A host harness covered the temporary object, blocked approach, following, door entry and cleanup. Device checks are still needed for sprite loading, native held movement, actual door timing and landmark visibility. There are eleven named resident locations, three measured rooftops and two Violet overhangs. Other towns use their local profiles and shared behaviors.
+
+# Johto and Kanto town identities (0246)
+
+Alive wild Pokémon ON + TOWNS now includes city maps that have encounter tables. When a spawn candidate is on an encounter tile it uses the wild table and keeps its normal battle behavior. Open town tiles can support local residents on the same map. City showers use the transient renderer effect introduced for Violet, with different intervals and durations and no save writes. Native nonclear weather takes precedence.
+
+Town profiles set scenery preferences, play frequency, and nap tendencies. Ports lean toward water, wooded towns toward greenery, and rocky towns toward cliffs and walls. Goldenrod and Cianwood are more playful, while Lavender and Ecruteak residents are less inclined to nap at night. Kanto gets named schedules for Persian at Vermilion's Fan Club, Shuppet at Lavender's Radio Station, and Geodude at Pewter's Museum. Three additional areas have species mixes, and unlisted towns use a shared fallback profile.
+
+Generated C passed devkitARM syntax and staged-hook idempotence checks. Host tests covered encounter-bearing town classification, town profile differences, and the Kanto landmark schedules. Device checks still need to cover how often the behaviors occur, encounter/resident coexistence in towns with surf tables, and transient rain on city maps other than Violet. Authored roof perches and overhangs still apply only to the landmarks with measured geometry.
+
+# Violet overhangs and passing showers (0245)
+
+Violet has covered outdoor tiles under the Pokémon School and Gym models. The covered tiles were sampled against the US map prop meshes and terrain flags. Nearby residents can look for an open spot under the cover, route toward it, and stay dry there. The existing live checks keep doorways and occupied tiles clear.
+
+When Alive wild Pokémon is set to ON + TOWNS and Violet's native weather is clear, short local showers use the game's weather renderer. They pause during field tasks. The timer survives a visit to the Pokémon School, so the rain can still be going when the player comes back out. No native weather or save values are written, and existing nonclear weather takes precedence. Patch 0246 extends these showers to other city and town maps.
+
+Generated C passed devkitARM syntax and staged-hook idempotence checks. Host tests covered overhang tiles, shower timing and enable/disable behavior. The native weather helpers are present in the current linked ELF. Rain appearance and outdoor routing still need a device playtest. Logs include [WILD] Violet shower starts / clears and seeks an overhang.
+
+# Goldenrod and Violet roof perches (0244)
+
+A solo flier can descend onto a flat patch of the Goldenrod Flower Shop roof or Violet Pokémon Center roof. Both points were measured against the US SoulSilver prop mesh and placement. The flower shop is model 77 in land block 39, and the center is model 62 in block 24. The flier pauses directly over the roof while descending and climbing. The landing and shadow use the measured roof height. The cruise height exceeds the sampled model bounds along the approach lanes.
+
+The generated C passed devkitARM syntax and staged-hook idempotence checks. A host harness covered roof lookup, descent, rest, ascent and ordinary terrain-landing timing. The actual sprite contact and visibility still need a device playtest. Roof landings log [WILD] ... (roof landing pass).
+
+# Terrain ledges for fliers (0243)
+
+A solo flier looking for a landing now checks the map height at the landing point and around its feet. Flat terrain above a nearby drop can serve as a ledge, including during rain. A steep or missing surface is skipped. The flier can consider another clear lane if the first offers nowhere to land, and nearby players can hear wingbeats again on takeoff. The height check samples field terrain. Building model roofs still need their own landing data.
+
+The generated C passed devkitARM syntax and staged-hook idempotence checks. Host tests covered flat ground, a ledge, a steep slope, and missing terrain. The next device check should verify actual landing frequency and visible ground contact. Ledge candidates that become flights log [WILD] ... (ledge landing pass).
+
+# Resident detours and landmark rain shelter (0242)
+
+Named residents use a bounded search for door and home routes. They can go around an obstruction, wait if no path is available, and retry when the way clears. A resident scheduled outside can switch to the linked building during rain. The matching indoor resident is available if the player enters that building, and the outdoor schedule resumes when that map is dry. The shelter association is transient and follows the current map visit.
+
+Generated sources passed devkitARM syntax and idempotence checks. Host checks covered routes around walls, occupied paths, blocked goals, search limits, and the rain shelter transfer and reset. Actual routing and timing still need a device playtest.
+
+# Scheduled resident doorway walks (0241)
+
+A named resident already on screen can now walk toward its landmark doorway when the schedule changes to a matching location on the other side. It follows legal ground tiles and fades toward the entrance before the warp tile. Indoors, a resident can appear near the entrance and walk to its usual spot when there is room. The map transition itself is inferred from the schedule. NPC scripts and player warps are untouched.
+
+Doorway direction and schedule checks passed in a host harness, including a blocked approach, a legal step and the fade at the staging tile. The generated C passed devkitARM syntax checks and the hook was idempotent on staged copies. The device build still needs a look at actual doorway routing and fade visibility.
+
+# Named resident schedules in Johto (0240)
+
+The schedule table adds Mareep near Violet's Pokémon School, Aipom near Kurt's house in Azalea, and Vulpix near Ecruteak's Dance Theater. Mareep and Aipom have daytime indoor spots and morning/evening outdoor spots. Vulpix spends the morning and day outdoors and visits the theater in the evening. Bellossom keeps its Goldenrod routine. When an outdoor routine changes to a different spot on the same map, an undisturbed resident can walk toward the new spot using the existing tile and crowd checks.
+
+The door and NPC anchors were checked against the map event data. The generated C passed devkitARM syntax checks, and host checks covered all four resident schedules and the indoor/outdoor phase rules. The standing tiles and frequency still need a device playtest. Transitions between maps are still clock-based.
+
+# Goldenrod Flower Shop resident (0239)
+
+The first authored schedule uses the Goldenrod Flower Shop map events. A Bellossom can spawn near the entrance in the morning, near the shopkeeper during the day, and a few tiles to the east in the evening. The spawn still requires a legal open tile and respects the town count. The indoor map only participates in this named schedule. The shopkeeper keeps their existing scripts, and the resident's appearance is derived from the clock and current map.
+
+The RTC/map combinations passed host checks, and the generated sources passed devkitARM syntax checks. The exact in-game standing tiles and frequency still need a playtest. A continuous shopkeeper escort, further authored locations and roof ledges remain open.
+
+# Weather, tracks, berry play and landings (0238)
+
+Exposed land Pokémon can shake off water when rain ends. Mud and damp grass can retain short-lived prints at the previous tile. Weather-appropriate species now take precedence over the local species list for regular flyovers in rain or snow. Some low solo fliers can land and rest along a clear route beside scenery, or near a terrain edge in rain. A close player, NPC or nearby resident can shorten the stop. Rain edges are inferred from terrain collision and are not authored roof ledges.
+
+A rare town play event rolls a small decorative berry across an open tile. Residents can follow it and pause to sniff. The prop uses field coordinates and is cleared with the play state, so it does not create a bag item or save entry.
+
+Generated C passed devkitARM syntax and staged-hook idempotence checks. Host checks covered weather recovery, ripple separation, berry route and cleanup, and the glide/rest/climb timing. Build both the game hook and platform together. The transient buffer grew to 576 bytes and uses P3DS_WildMemV2 so mismatched builds fail at link time. Needs New 3DS verification for effect visibility, ground contact, route frequency and audio.
+
+Named shopkeeper and terrain routines can build on the Goldenrod Flower Shop example above.
+
+# Overworld sound cues (0237)
+
+With Alive wild Pokémon and Visible wild cries enabled, nearby fliers can play a wing cue as they approach and a species cry as they pass. Nearby Pokémon sometimes call back during their play animation. A startled wild Pokémon uses the game's grass rustle sound when it tucks into nearby cover. New cues share a short cooldown, and ambient calls skip a cry channel that is already in use. Legendary flyovers retain their midpoint call.
+
+Generated C passed devkitARM syntax checks, and the existing game ELF exports the cry-status helper. A host harness verified the flyover sound windows in both directions, proximity and mute rules, cue deduplication, and shared cooldown. The designated build and a listening test on New 3DS are pending.
+
+# Wild Pokémon peek out of grass (0236)
+
+With Alive wild Pokémon on, ordinary startled wild Pokémon can stop once they reach tall grass. They tuck down with a short rustle, track the player, and gradually peek back up after a quiet interval. Close footsteps can send them fleeing again. The cover state changes the sprite and movement decisions while the existing collision and encounter hooks stay in effect.
+
+The staged hook was idempotent and the generated C passed devkitARM syntax checks. A host harness verified the response to nearby noise, a quiet approach, getting too close and leaving the area. Peek visibility and how the timing feels need a New 3DS check. The transition into cover logs [WILD] ... ducks into grass.
+
+# Town scenery routines (0235)
+
+With Alive wild Pokémon set to ON + TOWNS, some land residents look for safe spots by water or vegetation when spawning. When undisturbed near home, a resident can face the scenery and linger. In rain, residents can pause beside a wall or in grass and favor grass when choosing a nearby tile. Wall-side spots are inferred from terrain collision, which also includes fences. There is no roof, awning or shop-opening metadata in this behavior.
+
+The devkitARM syntax checks and staged-hook idempotence check passed. A host harness covered pond detection, open ground, rain-side terrain and the existing doorway and movement safeguards. The designated build and a New 3DS playtest are pending. Rain transitions log [WILD] ... seeks a rain spot.
+
+# Overworld grass and water cues (0234)
+
+With Alive wild Pokémon enabled, moving into tall grass or being startled while in it briefly draws bending leaves at the Pokémon's feet. The leaves are a small sprite effect. A water Pokémon's jump now ends in an expanding ripple at the surface, and the Pokémon stays on its landing tile until the ripple fades. The effects use the existing field camera, ground height and cave visibility checks.
+
+The staged hook was idempotent and the generated sources passed the devkitARM syntax checks. An isolated timing test covered the splash-to-ripple transition, ripple expiry, and the rustle lingering after a step. The designated build and a device look at the effect size, water-surface alignment and stereo are pending.
+
+# Overworld routines, play and rain (0233)
+
+The Alive wild Pokémon setting also enables species-weighted temperaments and timed naps. Each spawn keeps its own roll. Some land Pokémon return toward their spawn to nap, and nocturnal species are more likely to nap by day. Nearby Pokémon sometimes stop to face each other and take turns hopping or splashing. Pairs end the exchange when approached or when either participant leaves. Wild strangers can still squabble. During rain, ordinary land Pokémon can seek adjacent tall grass and stay there. Those without nearby cover can leave when the player is far away. The behavior uses existing spawn tiles and terrain, with no authored shop or awning anchors.
+
+The generated C passed devkitARM syntax checks and the hook was idempotent on staged copies. A host harness checked species biases, alternating hops and splashes, interruption by the player, and natural play expiry. Needs the designated build and a New 3DS walk through a town, grass route and rainy route. Look for [WILD] slots ... play and [WILD] ... steps into cover.
+
+# Overworld Pokémon behavior (0232)
+
+Under Settings > Battle > Alive wild Pokémon, ON enables the wild and flight changes and ON + TOWNS also enables town residents. Land residents use the existing tile collision hook on roomy tiles, leave warp approaches clear, and turn toward the player on A. Their spawn tile acts as a home for idle wandering and naps. Shy wild Pokémon watch a quiet approach, while a sprint or bike can trigger retreat into available tall grass. Solo fliers sample three possible low lanes against terrain collision. A flier without a clear lane, a flock, or a legendary uses a higher pass.
+
+The hook was applied twice to copies of staged sources to verify idempotence. The changed C files passed the devkitARM syntax check. A host harness checked narrow corridors, warp approaches, solid town interaction, the wild battle path, and blocked flight lanes. Needs the designated build and a device walk through Goldenrod and Route 34 to check where residents spawn, roof clearance and high-pass visibility. Flight clearance uses terrain tiles and a fixed higher altitude, so roof clearance still needs a visual check. No save data is written.
+
 # Mystery Gift menu
 
 Mystery Gift (0231): draw the selection arrow inside the original overlay 74 list windows. With Grey unsupported menu on, the receive list disables local methods unless Wireless is LOCAL and Nintendo WFC unless Wireless is ONLINE. The port logs blocked selections as [SS-MG]. Needs a game rebuild and device checks on the receive list and Wonder Card menus. Local gift delivery still needs a compatible sender and hardware verification.

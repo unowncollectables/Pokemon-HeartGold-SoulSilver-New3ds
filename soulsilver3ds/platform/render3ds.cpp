@@ -1250,7 +1250,7 @@ static const MItem mItems[]={
  {"DIRECT SCREEN","gc_direct",2,{"OFF","ON"}},
  /* 128 (2026-11-05, hook 0217): wild_vis_alive, default OFF until tested: visible wild Pokemon are solid (the player cannot walk through one),
     A facing one or walking into one starts its battle, and some chase you (Scarlet/Violet style). Needs wild_vis. Battle tab; remove once tested.
-    2026-11-06 (hook 0110 block v5): third value ON + TOWNS also fills towns and cities with ambient Pokemon (no battles, not solid) */
+    2026-11-06 (hook 0110 block v5): third value ON + TOWNS also fills towns and cities with ambient Pokemon (solid on land, no battles) */
  {"ALIVE WILD POKEMON","wild_vis_alive",3,{"OFF","ON","ON + TOWNS"}},
  /* 129 (2026-11-06, hook 0225): event_any_mon, default OFF until tested: the Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus event scenes
     start with any Pichu/Pikachu/Raichu, Celebi or Arceus in the lead (no event metadata, no shiny needed). Play tab; remove once tested */
@@ -1509,7 +1509,7 @@ static const SAppTab kTabs[7]={
       {98,"Visible at once","How many visible wild Pokemon can be around you at once."},
       {99,"Visible shiny sparkle","A visible Pokemon can be shiny: it sparkles and a chime plays."},
       {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."},
-      {101,"Visible wild cries","A Pokemon that notices you cries out."},
+      {101,"Visible wild cries","Pokemon cries and sounds from nearby activity."},
       {128,"Alive wild Pokemon","ON: visible Pokemon are solid, some chase you, A starts the battle. ON + TOWNS: towns get harmless Pokemon too."}}},
  {14,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
       {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},

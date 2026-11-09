@@ -1,0 +1,196 @@
+From fe3e06c748c08cf7c84aa18b5356aa3d7163bbae Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:05:08 -0500
+Subject: [PATCH] ss3ds: let startled wild Pokemon peek from cover
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 74 +++++++++++++++++++++------
+ 1 file changed, 59 insertions(+), 15 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 53f742f..d5321d9 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,11 +13,12 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v9 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v10 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMem, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+ #define SS3DS_WILD_MAX 6
++enum { WILD_UNAWARE, WILD_WATCHING, WILD_STARTLED, WILD_IN_COVER };
+ /* 0218: sleep (night nap, Zz), leader (slot+1 of the one it travels with), fight (squabble frames left), big (rare huge one), splash;
+    0223: spare = 1 for an ambient town Pokemon (town resident, never battles) */
+ typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle; } SS3DSWildMon;
+@@ -347,7 +348,7 @@ int SS3DS_WildTalk(FieldSystem *fieldSystem, int interact) {
+         if (interact && m->t >= 16) {
+             m->dir = PlayerAvatar_GetFacingDirection(fieldSystem->playerAvatar) ^ 1;
+             m->sleep = 0;
+-            m->noticed = 1;
++            m->noticed = WILD_WATCHING;
+             m->hop = 8;
+             m->timer = 40;
+         }
+@@ -536,6 +537,26 @@ static int SS3DS_WildPlayTick(SS3DSWildState *S, int i, int px, int pz, int dist
+     return 1;
+ }
+ 
++// Return true while the Pokémon is waiting in cover. A player right next to
++// it can make it bolt again, but noise from farther away makes it stay down.
++static int SS3DS_WildCoverTick(SS3DSWildMon *m, int loud, int dist, int toward) {
++    if (dist <= 1) {
++        m->noticed = WILD_STARTLED;
++        m->timer = 1;
++        return 0;
++    }
++    m->dir = toward;
++    if (loud && dist <= 4) {
++        if (m->timer < 24) {
++            m->timer = 24;
++        }
++    } else if (--m->timer <= 0) {
++        m->noticed = dist <= 4 ? WILD_WATCHING : WILD_UNAWARE;
++        m->timer = 35;
++    }
++    return 1;
++}
++
+ static void SS3DS_WildKill(SS3DSWildState *S, int i, const char *why) {
+     if (S->m[i].on) {
+         SS3DS_WildEndPlay(S, i);
+@@ -835,7 +856,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             if (ro < 0 && !town && P3DS_WildVisCfg(5) && m->kind == 1 && r >= 8 && SS3DS_WildRand(S, 2) == 0) {
+                 m->mood = 3; // 0217 alive: some are bold and charge at the player (Scarlet/Violet style)
+             }
+-            m->noticed = 0;
++            m->noticed = WILD_UNAWARE;
+             m->hop = 0;
+             m->roamer = ro;
+             m->battle = m->skip = m->bang = 0;
+@@ -912,7 +933,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             if ((P3DS_WildBattleResult == 5 || P3DS_WildBattleResult == 6) && m->roamer < 0) { // BATTLE_OUTCOME_PLAYER_FLED / FOE_FLED
+                 m->battle = 0;
+                 m->skip = 1;
+-                m->noticed = 1;
++                m->noticed = WILD_WATCHING;
+                 m->mood = 2; // it keeps away from the player now
+                 m->timer = 30;
+                 PSPNativeMemLog("[WILD] slot %d species %d: battle ended by running (outcome %d), it stays", i + 1, m->sp, P3DS_WildBattleResult);
+@@ -958,12 +979,12 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                     m->timer = 25 + (int)SS3DS_WildRand(S, 55);
+                 } else if (dist <= 1 || (loud && dist <= 3)) {
+                     m->sleep = 0;
+-                    m->noticed = 1;
++                    m->noticed = WILD_WATCHING;
+                     m->hop = 12;
+                     m->bang = m->spare ? 0 : 45;
+                     m->timer = 6;
+                     if (loud && m->mood != 3 && !m->spare) {
+-                        m->noticed = 2; // startled until the player leaves
++                        m->noticed = WILD_STARTLED; // startled until the player leaves
+                     }
+                     m->dir = adx > adz ? (ddx > 0 ? 2 : 3) : (ddz > 0 ? 0 : 1);
+                     if (P3DS_WildVisCfg(4) && !m->spare) {
+@@ -984,7 +1005,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 }
+                 if (m->fight == 0 && SS3DS_WildRand(S, 2) == 0) {
+                     m->mood = 2;
+-                    m->noticed = 1; // the loser keeps away
++                    m->noticed = WILD_WATCHING; // the loser keeps away
+                     m->timer = 4;
+                 }
+                 continue;
+@@ -1037,19 +1058,28 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 }
+             }
+         }
++        int toward = adx > adz ? (ddx > 0 ? 2 : 3) : (ddz > 0 ? 0 : 1);
++        if (m->noticed == WILD_IN_COVER) {
++            if (alive && SS3DS_WildCoverTick(m, loud, dist, toward)) {
++                continue;
++            }
++            if (!alive) {
++                m->noticed = WILD_WATCHING;
++            }
++        }
+         int seeR = m->mood == 3 ? 5 : 3;
+         if (alive) {
+             seeR += loud ? 2 : !moving ? -1 : 0; // 0218: running gets noticed from further away, standing still from closer
+         }
+-        if (loud && !m->spare && m->mood != 3 && dist <= 3 && m->noticed != 2) {
+-            m->noticed = 2;
++        if (loud && !m->spare && m->mood != 3 && dist <= 3 && m->noticed != WILD_STARTLED) {
++            m->noticed = WILD_STARTLED;
+             m->timer = 1;
+             if (m->grass) {
+                 m->rustle = 20;
+             }
+             PSPNativeMemLog("[WILD] slot %d species %d startled by fast approach", i + 1, m->sp);
+         } else if (!m->noticed && dist <= seeR) {
+-            m->noticed = 1;
++            m->noticed = WILD_WATCHING;
+             m->hop = 12;
+             m->bang = m->spare ? 0 : 45;
+             m->timer = 8;
+@@ -1059,15 +1089,23 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             }
+             PSPNativeMemLog("[WILD] slot %d species %d noticed the player (mood %d)", i + 1, m->sp, m->mood);
+         } else if (m->noticed && dist > 6) {
+-            m->noticed = 0;
++            m->noticed = WILD_UNAWARE;
+         }
+         if (--m->timer > 0 || (alive && m->kind == 2 && (m->hop > 0 || m->splash < 0))) {
+             continue;
+         }
+         m->timer = 40 + (int)SS3DS_WildRand(S, 51);
+         int d = (int)SS3DS_WildRand(S, 4); // 0 up (z-1), 1 down (z+1), 2 left (x-1), 3 right (x+1)
+-        int toward = adx > adz ? (ddx > 0 ? 2 : 3) : (ddz > 0 ? 0 : 1);
+-        if (alive && m->noticed == 2) {
++        if (alive && m->noticed == WILD_STARTLED) {
++            if (m->grass && dist > 1 && m->roamer < 0 && !m->big) {
++                m->noticed = WILD_IN_COVER;
++                m->rustle = 12;
++                m->dir = toward;
++                m->hop = m->bang = 0;
++                m->timer = 35 + (int)SS3DS_WildRand(S, 35);
++                PSPNativeMemLog("[WILD] slot %d species %d ducks into grass", i + 1, m->sp);
++                continue;
++            }
+             // Try both directions away from the player. Favor tall grass when available.
+             int best = -1, preferred = d;
+             for (int tryDir = 0; tryDir < 4; tryDir++) {
+@@ -1372,6 +1410,12 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     // in tall grass the lower 30% is not drawn, so it stands in the grass instead of on top of it
+     fx16 by = m->grass && !moving ? (fx16)(-hw + hw * 3 / 5) : (fx16)-hw;
+     fx32 bt = m->grass && !moving ? sz * FX32_ONE * 7 / 10 : sz * FX32_ONE;
++    fx16 top = hw;
++    if (effects && m->noticed == WILD_IN_COVER) {
++        int tuck = m->timer < 12 ? m->timer : 12;
++        top -= hw * tuck / 18;
++        bt -= sz * FX32_ONE * tuck / 36;
++    }
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+     G3_PushMtx();
+     G3_Identity();
+@@ -1385,13 +1429,13 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     G3_Color(GX_RGB(31, 31, 31));
+     G3_Begin(GX_BEGIN_QUADS);
+     G3_TexCoord(0, 0);
+-    G3_Vtx(-hw, hw, 0);
++    G3_Vtx(-hw, top, 0);
+     G3_TexCoord(0, bt);
+     G3_Vtx(-hw, by, 0);
+     G3_TexCoord(sz * FX32_ONE, bt);
+     G3_Vtx(hw, by, 0);
+     G3_TexCoord(sz * FX32_ONE, 0);
+-    G3_Vtx(hw, hw, 0);
++    G3_Vtx(hw, top, 0);
+     G3_End();
+     if (m->grass && m->rustle > 0 && effects) {
+         SS3DS_WildRustle(by, m->rustle);
+-- 
+2.53.0
+

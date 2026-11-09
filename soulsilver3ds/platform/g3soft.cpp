@@ -154,7 +154,7 @@ static int folLoadSlot(int sl,int spr,int shiny){
 extern "C" int P3DS_FollowerLoad(int spr,int shiny){return folLoadSlot(0,spr,shiny);}
 extern "C" int P3DS_WildLoad(int sl,int spr,int shiny){return sl>=1&&sl<=7?folLoadSlot(sl,spr,shiny):0;}
 /* ss3ds 0110: visible wild Pokemon state, owned by the game hook (layout in fieldmap.c); here so it outlives the field overlay */
-extern "C" void *P3DS_WildMem(void){static u32 m[128];return m;}
+extern "C" void *P3DS_WildMemV2(void){static u32 m[144];return m;}
 /* winFlag of the last battle, set by the game hook in encounter.c (sub_02050724); a visible one the player ran from stays */
 extern "C" {volatile int P3DS_WildBattleResult=-1;}
 extern "C" void P3DS_WildFree(int sl){if(sl<1||sl>7)return;for(int k=0;k<8;k++){Tex&t=folTex[sl*8+k];G3G_TexFree(t.gt);t.gt=nullptr;free(t.px);t.px=nullptr;}folCurS[sl]=-1;}

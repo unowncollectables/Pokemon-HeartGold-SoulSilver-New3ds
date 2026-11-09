@@ -1,0 +1,311 @@
+From 3876771cbcc40ee27005f8ee8e105e2d4f1fda38 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 08:15:16 -0500
+Subject: [PATCH] ss3ds: add Flower Shop clerk escort and more landmark
+ routines
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 173 +++++++++++++++++++++++++-
+ scripts/ss3ds_hooks.d/0110_wildvis.sh |   2 +-
+ 2 files changed, 169 insertions(+), 6 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 36751a9..f8ab7b2 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v20 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v21 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -21,14 +21,15 @@ COMMON = r'''
+ #define WILD_MORNING 16
+ #define WILD_DAY 32
+ #define WILD_EVENING 64
++#define SS3DS_CLERK_ID 0xF0
+ enum { WILD_UNAWARE, WILD_WATCHING, WILD_STARTLED, WILD_IN_COVER };
+ /* 0218: sleep (night nap, Zz), leader (slot+1 of the one it travels with), fight (squabble frames left), big (rare huge one), splash;
+    0223: spare = 1 for an ambient town Pokemon (town resident, never battles) */
+ typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle, wet, tracks; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+-typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch, shelterMap, birdRoofY, townShowerT; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C3Bu /* 'WIL;': transient Violet showers */
++typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch, shelterMap, birdRoofY, townShowerT, clerkT; } SS3DSWildState;
++#define SS3DS_WILD_MAGIC 0x57494C3Cu /* 'WIL<': transient clerk scene */
+ typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 576 ? 1 : -1]; /* P3DS_WildMemV2 is 144 words */
+ extern void *P3DS_WildMemV2(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+@@ -433,6 +434,11 @@ static BOOL SS3DS_WildReplaces(FieldSystem *fieldSystem) {
+ FIELD_BLOCK = COMMON + r'''
+ #include "constants/maps.h"
+ #include "constants/weather.h"
++#include "constants/sprites.h"
++#include "map_events_internal.h"
++#include "map_events.h"
++#include "map_object.h"
++#include "unk_02062108.h"
+ #include "map_header.h"
+ extern int SS3DS_WildTileKind(FieldSystem *fieldSystem, int x, int z);
+ extern int SS3DS_WildBlockedMap(FieldSystem *fieldSystem);
+@@ -488,6 +494,14 @@ static const SS3DSTownRoutine *SS3DS_TownRoutineForMap(int map, int env, int *in
+         {MAP_LAVENDER_RADIO_STATION, SPECIES_SHUPPET, 8, 10, WILD_DAY, 1},
+         {MAP_PEWTER, SPECIES_GEODUDE, 1048, 81, WILD_MORNING | WILD_EVENING, 0},
+         {MAP_PEWTER_MUSEUM_OF_SCIENCE, SPECIES_GEODUDE, 7, 6, WILD_DAY, 1},
++        {MAP_CHERRYGROVE, SPECIES_SENTRET, 558, 404, WILD_MORNING | WILD_EVENING, 0},
++        {MAP_CHERRYGROVE_GUIDE_GENT_HOUSE, SPECIES_SENTRET, 5, 5, WILD_DAY, 1},
++        {MAP_OLIVINE, SPECIES_MARILL, 265, 260, WILD_MORNING | WILD_DAY, 0},
++        {MAP_OLIVINE_CAFE, SPECIES_MARILL, 7, 6, WILD_EVENING, 1},
++        {MAP_CIANWOOD, SPECIES_MACHOP, 179, 373, WILD_MORNING | WILD_EVENING, 0},
++        {MAP_CIANWOOD_PHARMACY, SPECIES_MACHOP, 6, 6, WILD_DAY, 1},
++        {MAP_CELADON, SPECIES_EEVEE, 1201, 240, WILD_MORNING | WILD_EVENING, 0},
++        {MAP_CELADON_DEPARTMENT_STORE_1F, SPECIES_EEVEE, 16, 8, WILD_DAY, 1},
+     };
+     *indoors = 0;
+     for (u32 i = 0; i < sizeof(routines) / sizeof(routines[0]); i++) {
+@@ -516,6 +530,10 @@ static const SS3DSTownLink *SS3DS_TownRoutineLink(int map) {
+         {MAP_VERMILION, MAP_VERMILION_POKEMON_FAN_CLUB, 1293, 309, 7, 12},
+         {MAP_LAVENDER, MAP_LAVENDER_RADIO_STATION, 1429, 234, 3, 12},
+         {MAP_PEWTER, MAP_PEWTER_MUSEUM_OF_SCIENCE, 1048, 78, 10, 19},
++        {MAP_CHERRYGROVE, MAP_CHERRYGROVE_GUIDE_GENT_HOUSE, 558, 401, 4, 8},
++        {MAP_OLIVINE, MAP_OLIVINE_CAFE, 265, 257, 5, 10},
++        {MAP_CIANWOOD, MAP_CIANWOOD_PHARMACY, 179, 370, 5, 9},
++        {MAP_CELADON, MAP_CELADON_DEPARTMENT_STORE_1F, 1201, 237, 12, 12},
+     };
+     for (u32 i = 0; i < sizeof(links) / sizeof(links[0]); i++) {
+         if (map == links[i].outside || map == links[i].inside) {
+@@ -904,6 +922,106 @@ static void SS3DS_TownDepart(FieldSystem *fieldSystem, SS3DSWildState *S, int i,
+     m->tracks = 0;
+ }
+ 
++// The outdoor clerk is a temporary native sprite. The original indoor
++// shopkeeper remains in the shop with her story and dialogue.
++static LocalMapObject *SS3DS_TownClerk(FieldSystem *fieldSystem) {
++    if (!fieldSystem->mapObjectManager) {
++        return NULL;
++    }
++    LocalMapObject *clerk = MapObjectManager_GetFirstActiveObjectByID(fieldSystem->mapObjectManager, SS3DS_CLERK_ID);
++    return clerk && MapObject_GetMapID(clerk) == MAP_GOLDENROD && MapObject_GetSpriteID(clerk) == SPRITE_GSWOMAN1
++        ? clerk : NULL;
++}
++
++static void SS3DS_TownClerkRemove(FieldSystem *fieldSystem, SS3DSWildState *S) {
++    if (S->clerkT > 0) {
++        LocalMapObject *clerk = SS3DS_TownClerk(fieldSystem);
++        if (clerk) {
++            MapObject_Remove(clerk);
++        }
++    }
++    S->clerkT = -1;
++}
++
++static int SS3DS_TownClerkFollow(FieldSystem *fieldSystem, SS3DSWildState *S, int i, int doorX, int doorZ) {
++    SS3DSWildMon *m = &S->m[i];
++    if (S->clerkT < 0 || !fieldSystem->mapObjectManager) {
++        return 0;
++    }
++    int px = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar);
++    int pz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
++    int stageZ = doorZ + 2;
++    LocalMapObject *clerk = SS3DS_TownClerk(fieldSystem);
++    if (!clerk && S->clerkT == 0) {
++        // Start at the same door approach as the resident, but two tiles ahead.
++        int x = m->x, z = m->z - (m->z > stageZ + 2 ? 2 : 1);
++        if (z < stageZ || z - stageZ > 5 || x < doorX - 3 || x > doorX + 3
++            || (SS3DS_TownTile(fieldSystem, x, z) & 3) != 1 || SS3DS_WildCrowded(S, i, x, z)) {
++            return 0;
++        }
++        ObjectEvent event = {0};
++        event.id = SS3DS_CLERK_ID;
++        event.spriteId = SPRITE_GSWOMAN1;
++        event.movement = MOVEMENT_FACE_UP;
++        event.x = x;
++        event.z = z;
++        clerk = MapObject_CreateFromObjectEventWithId(fieldSystem->mapObjectManager, SS3DS_CLERK_ID, 1, MAP_GOLDENROD, &event);
++        if (!clerk) {
++            return 0;
++        }
++        S->clerkT = 1;
++        PSPNativeMemLog("[WILD] Bellossom follows the Flower Shop clerk");
++    }
++    if (!clerk || ++S->clerkT > 220) {
++        SS3DS_TownClerkRemove(fieldSystem, S);
++        return 0;
++    }
++    if (!MapObject_ClearHeldMovementIfActive(clerk)) {
++        return 1;
++    }
++    int x = MapObject_GetXCoord(clerk), z = MapObject_GetZCoord(clerk);
++    if (x == doorX && z <= stageZ) {
++        if (z <= doorZ) {
++            SS3DS_TownClerkRemove(fieldSystem, S);
++            return 0;
++        }
++        int front = z - 1;
++        u8 behavior = GetMetatileBehavior(fieldSystem, x, front);
++        int doorway = front == doorZ && Field_GetWarpEventAtXYPos(fieldSystem, x, front) >= 0;
++        if ((doorway || (behavior == 0 && !sub_020548C0(fieldSystem, x, front)))
++            && !MapObjectManager_GetFirstObjectWithXAndZ(fieldSystem->mapObjectManager, x, front, TRUE)) {
++            MapObject_SetHeldMovement(clerk, MOVEMENT_STEP_UP);
++        } else {
++            SS3DS_TownClerkRemove(fieldSystem, S);
++            return 0;
++        }
++    } else {
++        int d = x == doorX ? 0 : x < doorX ? 3 : 2;
++        int nx = x + (d == 2 ? -1 : d == 3 ? 1 : 0), nz = z - (d == 0);
++        if ((SS3DS_TownTile(fieldSystem, nx, nz) & 3) == 1 && !SS3DS_WildCrowded(S, -1, nx, nz)) {
++            MapObject_SetHeldMovement(clerk, MOVEMENT_STEP_UP + d);
++        }
++    }
++    int dx = m->x - x, dz = m->z - z;
++    if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) > 1 && m->t >= 16 && --m->timer <= 0) {
++        int d = SS3DS_TownRouteStep(fieldSystem, S, i, x, z);
++        m->timer = 6;
++        if (d >= 0) {
++            int nx = m->x + (d == 2 ? -1 : d == 3 ? 1 : 0), nz = m->z + (d == 0 ? -1 : d == 1 ? 1 : 0);
++            if (nx != px || nz != pz) {
++                m->dir = d;
++                m->fx = m->x;
++                m->fz = m->z;
++                m->x = nx;
++                m->z = nz;
++                m->t = 0;
++                m->grass = 0;
++            }
++        }
++    }
++    return 1;
++}
++
+ static void SS3DS_WildKill(SS3DSWildState *S, int i, const char *why) {
+     if (S->m[i].on) {
+         SS3DS_WildEndPlay(S, i);
+@@ -1008,11 +1126,13 @@ static int SS3DS_BirdPerchKind(FieldSystem *fieldSystem, int tileX, int tileZ, f
+ #define SS3DS_BIRD_ROOF 3
+ 
+ // Flat roof patches sampled from US SoulSilver map props: ko_flower (77) in
+-// land block 39 and kk_pc (62) in block 24. Heights are absolute world units.
++// block 39, kk_pc (62) in block 24, and pc (40) in block 33.
++// Heights are absolute world units.
+ static int SS3DS_BirdRoof(int map, int px, int pz, int *x, int *z, int *height) {
+     static const int roofs[][4] = {
+         {MAP_GOLDENROD, 371, 331, 63422},
+         {MAP_VIOLET, 497, 269, 108000},
++        {MAP_AZALEA, 410, 458, 76000},
+     };
+     for (u32 i = 0; i < sizeof(roofs) / sizeof(roofs[0]); i++) {
+         int dx = px - roofs[i][1], dz = pz - roofs[i][2];
+@@ -1260,6 +1380,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         }
+         SS3DS_BirdKill(S, "off");
+         SS3DS_TownShower(fieldSystem, S, 0, 0);
++        SS3DS_TownClerkRemove(fieldSystem, S);
+         S->talk = 0;
+         return;
+     }
+@@ -1273,6 +1394,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     int map = fieldSystem->location->mapId;
+     int entered = map != S->map;
+     if (entered) {
++        SS3DS_TownClerkRemove(fieldSystem, S);
++        S->clerkT = 0;
+         S->lpx = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar);
+         S->lpz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
+         S->lastStep = (int)S->anim - 30;
+@@ -1322,6 +1445,11 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     int town = alive >= 2 && (SS3DS_TownMap(fieldSystem) || (indoors && (routine || leaving)));
+     const SS3DSTownHabits *habits = SS3DS_TownHabits(indoors && link ? link->outside : map);
+     int wildAvailable = !SS3DS_WildBlockedMap(fieldSystem);
++    int clerkScene = leaving && map == MAP_GOLDENROD && (env & WILD_DAY) && !(env & 2);
++    if (!clerkScene && S->clerkT != 0) {
++        SS3DS_TownClerkRemove(fieldSystem, S);
++        S->clerkT = 0;
++    }
+     if (town != sSS3DS_TownMode) {
+         PSPNativeMemLog("[WILD] town life %s on map %d", town ? "on" : "off", map);
+     }
+@@ -1359,6 +1487,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         n += S->m[i].on != 0;
+         named |= S->m[i].on && S->m[i].spare == 2;
+     }
++    if (S->clerkT > 0 && !named) {
++        SS3DS_TownClerkRemove(fieldSystem, S);
++    }
+     if (S->spawnT > 0) {
+         S->spawnT--;
+     }
+@@ -1646,6 +1777,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         if (leaving && m->spare == 2 && dist > 1) {
+             SS3DS_WildEndPlay(S, i);
+             m->sleep = 0;
++            if (clerkScene && SS3DS_TownClerkFollow(fieldSystem, S, i, doorX, doorZ)) {
++                continue;
++            }
+             if (--m->timer <= 0) {
+                 m->timer = 8;
+                 SS3DS_TownDepart(fieldSystem, S, i, doorX, doorZ, doorSide);
+@@ -2124,7 +2258,7 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     c.x = ((m->fx * 16 + 8) * FX32_ONE) + FX_Mul((m->x - m->fx) * 16 * FX32_ONE, tt);
+     c.z = ((m->fz * 16 + 8) * FX32_ONE) + FX_Mul((m->z - m->fz) * 16 * FX32_ONE, tt);
+     if (m->pad < 0) {
+-        c.z += (m->dir == 0 ? -1 : 1) * (16 + m->pad) * FX32_ONE / 2;
++        c.z += (m->dir == 0 ? -1 : 1) * (16 + m->pad) * (3 * FX32_ONE / 2);
+     }
+     py = SS3DS_WildGroundY(fieldSystem, c.x, c.z, py);
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+@@ -2448,6 +2582,35 @@ if which in ('all', 'field'):
+             sys.exit('0110_wildvis: FieldMap_Main not found exactly once in fieldmap.c')
+         open(p, 'w').write(s.replace(main, proto + '\n' + main))
+         print('0110_wildvis: fieldmap.c prototypes added (0112)')
++if which in ('all', 'clerk'):
++    p = 'src/map_object.c'
++    s = open(p).read()
++    tag = 'SS3DS 0247 temporary clerk'
++    if tag not in s:
++        anchor = '        SavedMapObject_InitFromLocalMapObject(fieldSystem, object, savedObjects);'
++        if s.count(anchor) != 1:
++            sys.exit('0110_wildvis: clerk save anchor not found exactly once')
++        s = '#include "constants/maps.h"\n#include "constants/sprites.h"\n' + s.replace(anchor,
++            '        // ' + tag + ' is never serialized.\n'
++            '        if (MapObject_GetID(object) == 0xF0 && MapObject_GetMapID(object) == MAP_GOLDENROD\n'
++            '            && MapObject_GetSpriteID(object) == SPRITE_GSWOMAN1) {\n'
++            '            continue;\n'
++            '        }\n' + anchor)
++        open(p, 'w').write(s)
++        print('0110_wildvis: clerk save exclusion applied')
++    p = 'src/field/field_control.c'
++    s = open(p).read()
++    if tag not in s:
++        start = s.index('int FieldInput_Process(')
++        anchor = '        if (sub_0203DC64(fieldSystem, &mapObject) == TRUE) {'
++        a = s.index(anchor, start)
++        s = s[:a] + s[a:].replace(anchor,
++            '        if (sub_0203DC64(fieldSystem, &mapObject) == TRUE\n'
++            '            && !(MapObject_GetID(mapObject) == 0xF0 && MapObject_GetMapID(mapObject) == MAP_GOLDENROD\n'
++            '                && MapObject_GetSpriteID(mapObject) == SPRITE_GSWOMAN1)) { // ' + tag, 1)
++        s = '#include "constants/maps.h"\n#include "constants/sprites.h"\n' + s
++        open(p, 'w').write(s)
++        print('0110_wildvis: clerk interaction exclusion applied')
+ if which in ('all', 'battle'):
+     # the outcome of every battle, so a visible one the player ran from can stay (read by fieldmap.c)
+     p = 'src/encounter.c'
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.sh b/scripts/ss3ds_hooks.d/0110_wildvis.sh
+index 8a5a4fc..7006a21 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.sh
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.sh
+@@ -4,6 +4,6 @@
+ # Not fatal: without it the Play rows do nothing.
+ # 0114: the field part goes into pspoke's own fieldmap_native.c ($P), which is what the link uses; src/field/fieldmap.c is dead.
+ export SS3DS_FIELDMAP_NATIVE="$P/fieldmap_native.c"
+-if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0110_wildvis.py" && bash rebuild_game_object.sh src/field/encounter_check.c field__encounter_check.o 2 && make -C "$P" fieldmap_native.o && bash rebuild_game_object.sh src/encounter.c encounter.o none); then
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0110_wildvis.py" && bash rebuild_game_object.sh src/field/encounter_check.c field__encounter_check.o 2 && make -C "$P" fieldmap_native.o && bash rebuild_game_object.sh src/encounter.c encounter.o none && bash rebuild_game_object.sh src/map_object.c map_object.o none && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
+   log "ss3ds 0110 wildvis hook NOT applied (see message above); visible wild Pokemon stay off"
+ fi
+-- 
+2.53.0
+

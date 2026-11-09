@@ -1,0 +1,305 @@
+From 606a85abd913477809c7e887d7e026d281017dce Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:50:02 -0500
+Subject: [PATCH] ss3ds: shelter town Pokemon under Violet overhangs
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 146 ++++++++++++++++++++++----
+ 1 file changed, 127 insertions(+), 19 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index f4c21aa..f1dba01 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v18 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v19 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -27,8 +27,8 @@ enum { WILD_UNAWARE, WILD_WATCHING, WILD_STARTLED, WILD_IN_COVER };
+ typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle, wet, tracks; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+-typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch, shelterMap, birdRoofY; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C3Au /* 'WIL:': authored roof perch height */
++typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch, shelterMap, birdRoofY, townShowerT; } SS3DSWildState;
++#define SS3DS_WILD_MAGIC 0x57494C3Bu /* 'WIL;': transient Violet showers */
+ typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 576 ? 1 : -1]; /* P3DS_WildMemV2 is 144 words */
+ extern void *P3DS_WildMemV2(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+@@ -380,7 +380,7 @@ int SS3DS_WildEnv(FieldSystem *fieldSystem) {
+ }
+ 
+ // Ambient flyer for this area, time of day and weather (decoration). 0 = none here (indoors, caves). *legend = 1 for a rare legendary.
+-int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend) {
++int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend, int shower) {
+     static const u16 kFly[] = { 16, 17, 18, 21, 22, 41, 42, 163, 164, 169, 198, 225, 227, 276, 277, 278, 279, 333, 334, 396, 397, 398 };
+     static const u16 kDay[] = { 16, 16, 17, 21, 21, 22, 276, 18 };
+     static const u16 kNight[] = { 163, 163, 164, 198, 198, 42 };
+@@ -388,7 +388,7 @@ int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend) {
+     if (!MapHeader_IsOutdoors(fieldSystem->location->mapId)) {
+         return 0;
+     }
+-    int weather = LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
++    int weather = shower ? WEATHER_RAIN : LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
+     TIMEOFDAY tod = GF_RTC_GetTimeOfDay();
+     int night = tod == RTC_TIMEOFDAY_NITE || tod == RTC_TIMEOFDAY_LATE;
+     if (weather <= WEATHER_THUNDERSTORM && LCRandRange(4096) == 0) { // as rare as a shiny flyover-wise
+@@ -427,11 +427,12 @@ static BOOL SS3DS_WildReplaces(FieldSystem *fieldSystem) {
+ 
+ FIELD_BLOCK = COMMON + r'''
+ #include "constants/maps.h"
++#include "constants/weather.h"
+ extern int SS3DS_WildTileKind(FieldSystem *fieldSystem, int x, int z);
+ extern int SS3DS_WildBlockedMap(FieldSystem *fieldSystem);
+ extern int SS3DS_WildPick(FieldSystem *fieldSystem, int surf, int *species, int *level);
+ extern int SS3DS_WildRoamer(FieldSystem *fieldSystem, int *species, int *level);
+-extern int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend);
++extern int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend, int shower);
+ extern void P3DS_AchSky(int legend);
+ extern int SS3DS_WildEnv(FieldSystem *fieldSystem);
+ extern int SS3DS_TownMap(FieldSystem *fieldSystem);
+@@ -775,6 +776,52 @@ static int SS3DS_TownRouteStep(FieldSystem *fieldSystem, SS3DSWildState *S, int
+     return step;
+ }
+ 
++// Open tiles beneath the Violet School and Gym overhang meshes (props 58
++// and 44). The live tile checks still apply when residents use these spots.
++typedef struct {
++    u16 map, z, firstX, lastX;
++} SS3DSCoveredRow;
++
++static const SS3DSCoveredRow kSS3DSTownCover[] = {
++    {MAP_VIOLET, 254, 492, 495},
++    {MAP_VIOLET, 255, 492, 495},
++    {MAP_VIOLET, 254, 477, 477},
++    {MAP_VIOLET, 255, 476, 479},
++};
++
++static int SS3DS_TownCovered(int map, int x, int z) {
++    for (u32 i = 0; i < sizeof(kSS3DSTownCover) / sizeof(kSS3DSTownCover[0]); i++) {
++        const SS3DSCoveredRow *row = &kSS3DSTownCover[i];
++        if (map == row->map && z == row->z && x >= row->firstX && x <= row->lastX) {
++            return 1;
++        }
++    }
++    return 0;
++}
++
++static int SS3DS_TownCoverStep(FieldSystem *fieldSystem, SS3DSWildState *S, int slot, int map) {
++    SS3DSWildMon *m = &S->m[slot];
++    int best = 7, x = 0, z = 0;
++    for (u32 i = 0; i < sizeof(kSS3DSTownCover) / sizeof(kSS3DSTownCover[0]); i++) {
++        const SS3DSCoveredRow *row = &kSS3DSTownCover[i];
++        if (map != row->map) {
++            continue;
++        }
++        int dz = row->z - m->z;
++        for (int tx = row->firstX; tx <= row->lastX; tx++) {
++            int dx = tx - m->x;
++            int dist = (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz);
++            if (dist < best && (SS3DS_TownTile(fieldSystem, tx, row->z) & 3) == 1
++                && !SS3DS_WildCrowded(S, slot, tx, row->z)) {
++                x = tx;
++                z = row->z;
++                best = dist;
++            }
++        }
++    }
++    return best < 7 ? SS3DS_TownRouteStep(fieldSystem, S, slot, x, z) : -1;
++}
++
+ // Walk to a legal tile in front of the warp, then fade toward the door.
+ static void SS3DS_TownDepart(FieldSystem *fieldSystem, SS3DSWildState *S, int i, int doorX, int doorZ, int side) {
+     SS3DSWildMon *m = &S->m[i];
+@@ -988,7 +1035,7 @@ static void SS3DS_BirdSound(SS3DSWildState *S, int px, int pz) {
+     }
+ }
+ 
+-static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz) {
++static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz, int env) {
+     if (!P3DS_WildVisCfg(5)) {
+         SS3DS_BirdKill(S, "off");
+         return;
+@@ -1025,7 +1072,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+         return;
+     }
+     S->birdNext = 900 + (int)SS3DS_WildRand(S, 1200);
+-    int legend = 0, sp = SS3DS_WildBirdPick(fieldSystem, &legend);
++    int legend = 0, sp = SS3DS_WildBirdPick(fieldSystem, &legend, fieldSystem->location->mapId == MAP_VIOLET && S->townShowerT < 0);
+     if (sp <= 0) {
+         return;
+     }
+@@ -1049,7 +1096,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     S->birdZ = pz - 5 + (int)SS3DS_WildRand(S, 8);
+     S->birdLow = S->birdPerch = 0;
+     int roofX, roofZ, roofY;
+-    if (!legend && !shiny && S->flock == 1 && !(SS3DS_WildEnv(fieldSystem) & 6)
++    if (!legend && !shiny && S->flock == 1 && !(env & 6)
+         && SS3DS_BirdRoof(fieldSystem->location->mapId, px, pz, &roofX, &roofZ, &roofY)
+         && SS3DS_WildRand(S, 4) == 0) {
+         S->birdX = roofX + (S->birdDir == 3 ? -18 : 18);
+@@ -1060,7 +1107,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+         static const int offsets[] = {0, -3, 3};
+         int firstLane = S->birdZ;
+         int lookForPerch = !shiny && SS3DS_WildRand(S, 3) == 0;
+-        int rain = lookForPerch && (SS3DS_WildEnv(fieldSystem) & 2);
++        int rain = lookForPerch && (env & 2);
+         for (int i = 0; i < 3; i++) {
+             int lane = firstLane + offsets[i];
+             if (!SS3DS_BirdLaneOpen(fieldSystem, px, lane)) {
+@@ -1102,6 +1149,49 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     }
+ }
+ 
++// The native manager owns the effect. Keep the shower timer in transient
++// field state and never update LocalFieldData, which is part of the save.
++extern int ov01_021EB31C(void *weatherManager);
++
++static int SS3DS_TownShower(FieldSystem *fieldSystem, SS3DSWildState *S, int enabled, int entered) {
++    if (fieldSystem->location == NULL || fieldSystem->location->mapId != MAP_VIOLET
++        || fieldSystem->unk4 == NULL || fieldSystem->unk4->weatherManager == NULL) {
++        return 0;
++    }
++    int weather = LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
++    void *manager = fieldSystem->unk4->weatherManager;
++    if (FieldSystem_TaskIsRunning(fieldSystem)) {
++        return enabled && weather == WEATHER_SUNNY && S->townShowerT < 0;
++    }
++    if (!enabled || weather != WEATHER_SUNNY) {
++        if (S->townShowerT < 0) {
++            WeatherManager_ChangeWeather(manager, weather);
++        }
++        S->townShowerT = 0;
++        return 0;
++    }
++    int before = S->townShowerT;
++    if (before > 1) {
++        S->townShowerT--;
++    } else if (before == 1) {
++        S->townShowerT = -540;
++        PSPNativeMemLog("[WILD] Violet shower starts");
++    } else if (before < -1) {
++        S->townShowerT++;
++    } else {
++        S->townShowerT = 900 + (int)SS3DS_WildRand(S, 600);
++        if (before == -1) {
++            PSPNativeMemLog("[WILD] Violet shower clears");
++        }
++    }
++    int rain = S->townShowerT < 0;
++    if (before == 1 || before == -1 || entered
++        || (S->anim % 60 == 0 && ov01_021EB31C(manager) != (rain ? WEATHER_RAIN : WEATHER_SUNNY))) {
++        WeatherManager_ChangeWeather(manager, rain ? WEATHER_RAIN : WEATHER_SUNNY);
++    }
++    return rain;
++}
++
+ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     SS3DSWildState *S = SS3DS_WildGet();
+     int i;
+@@ -1110,6 +1200,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             SS3DS_WildKill(S, i, "off");
+         }
+         SS3DS_BirdKill(S, "off");
++        SS3DS_TownShower(fieldSystem, S, 0, 0);
+         S->talk = 0;
+         return;
+     }
+@@ -1121,7 +1212,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         S->soundT--;
+     }
+     int map = fieldSystem->location->mapId;
+-    if (map != S->map) {
++    int entered = map != S->map;
++    if (entered) {
+         S->lpx = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar);
+         S->lpz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
+         S->lastStep = (int)S->anim - 30;
+@@ -1129,7 +1221,12 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             SS3DS_WildKill(S, i, "map change");
+         }
+         SS3DS_BirdKill(S, "map change");
++        int oldMap = S->map;
+         S->map = map;
++        if (!((oldMap == MAP_VIOLET && map == MAP_VIOLET_POKEMON_SCHOOL)
++            || (oldMap == MAP_VIOLET_POKEMON_SCHOOL && map == MAP_VIOLET))) {
++            S->townShowerT = 0;
++        }
+         if (S->shelterMap != map) {
+             S->shelterMap = 0;
+         }
+@@ -1142,11 +1239,13 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         PSPNativeMemLog("[WILD] map %d", map);
+     }
+     int px = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), pz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
+-    SS3DS_BirdTick(fieldSystem, S, px, pz); // 0217: flyers also cross towns (maps with no wild table)
+     // Menus, the bike, scripts: they stay where they are and stay drawn, they just wait
+-    // 0223 lively towns: outdoor maps with no wild table get ambient Pokemon (Alive wild Pokemon = ON + TOWNS)
+     int alive = P3DS_WildVisCfg(5);
+     int env = alive ? SS3DS_WildEnv(fieldSystem) : 0;
++    if (SS3DS_TownShower(fieldSystem, S, alive >= 2, entered)) {
++        env |= 2;
++    }
++    SS3DS_BirdTick(fieldSystem, S, px, pz, env);
+     int indoors = 0;
+     const SS3DSTownLink *link = alive >= 2 ? SS3DS_TownRoutineLink(map) : NULL;
+     const SS3DSTownRoutine *routine = link ? SS3DS_TownRoutineForMap(map, env, &indoors) : NULL;
+@@ -1230,7 +1329,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 continue;
+             }
+             if ((kind & 3) == 1) {
+-                if ((env & 2) && !(kind & 4) && (!town || SS3DS_TownScenery(fieldSystem, tx, tz, 1) < 0)) {
++                if ((env & 2) && !(kind & 4) && (!town || (!SS3DS_TownCovered(map, tx, tz)
++                    && SS3DS_TownScenery(fieldSystem, tx, tz, 1) < 0))) {
+                     continue;
+                 }
+                 if (regular && scenic && tries < 4 && !(kind & 4) && SS3DS_TownScenery(fieldSystem, tx, tz, 0) < 0) {
+@@ -1466,7 +1566,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         if (m->tracks > 0) {
+             m->tracks--;
+         }
+-        if (alive && (env & 2) && m->kind == 1) {
++        int covered = town && m->spare && (env & 2) && SS3DS_TownCovered(map, m->x, m->z);
++        if (alive && (env & 2) && m->kind == 1 && !covered) {
+             m->wet = 1;
+         }
+         if (m->leader && (!S->m[m->leader - 1].on || S->m[m->leader - 1].battle)) {
+@@ -1691,11 +1792,18 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             d = adx > adz ? (ddx > 0 ? 3 : 2) : (ddz > 0 ? 1 : 0);
+             m->timer = 10 + (int)SS3DS_WildRand(S, 8);
+         } else if (alive && (env & 2) && m->kind == 1 && !m->big && m->roamer < 0) {
+-            if (m->grass || (m->spare && SS3DS_TownScenery(fieldSystem, m->x, m->z, 1) >= 0)) {
++            if (covered) {
++                continue;
++            }
++            int shelter = m->spare ? SS3DS_TownCoverStep(fieldSystem, S, i, map) : -1;
++            if (shelter >= 0) {
++                d = shelter;
++                m->timer = 8;
++            } else if (m->grass || (m->spare && SS3DS_TownScenery(fieldSystem, m->x, m->z, 1) >= 0)) {
+                 continue; // pause in grass or beside a wall
+             }
+-            int shelter = -1;
+-            for (int turn = 0; turn < 4; turn++) {
++            int routed = shelter >= 0;
++            for (int turn = 0; !routed && turn < 4; turn++) {
+                 int tryDir = (d + turn) % 4;
+                 int x = m->x + (tryDir == 2 ? -1 : tryDir == 3 ? 1 : 0);
+                 int z = m->z + (tryDir == 0 ? -1 : tryDir == 1 ? 1 : 0);
+@@ -1710,7 +1818,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             }
+             if (shelter >= 0) {
+                 d = shelter;
+-                PSPNativeMemLog("[WILD] slot %d species %d seeks a rain spot", i + 1, m->sp);
++                PSPNativeMemLog("[WILD] slot %d species %d seeks %s", i + 1, m->sp, routed ? "an overhang" : "a rain spot");
+             } else if (dist > 8 && SS3DS_WildRand(S, 4) == 0) {
+                 SS3DS_WildKill(S, i, "sheltering from the rain");
+                 continue;
+-- 
+2.53.0
+

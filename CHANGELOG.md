@@ -4,6 +4,20 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Overworld Pokémon behavior
+- Town residents on land have collision, face the player on A, and tend to stay near their spawn. Shy wild Pokémon pause for quiet approaches and can retreat into tall grass when startled.
+- Fliers look for a clear low route or take a higher pass. Enabled through the existing Alive wild Pokémon setting.
+- Species have different temperament and nap tendencies, with variation per spawn. Nearby Pokémon can trade hops or splashes, and land Pokémon seek adjacent tall grass in the rain.
+- Moving or startled Pokémon can rustle tall grass, and water Pokémon leave a fading ripple when a jump lands.
+- Town residents sometimes stop to face water or greenery and gather by walls or in grass during rain.
+- Startled wild Pokémon can duck into tall grass and peek out again after it gets quiet.
+- Nearby fliers can be heard approaching, startled Pokémon rustle the grass, and playing Pokémon can call back to each other.
+- Land Pokémon can shake dry after rain and leave short-lived tracks in mud or damp grass. Some fliers land briefly beside scenery, and town residents sometimes chase a rolling berry. Solo fliers can use flat terrain ledges and make a wing sound on takeoff. They can also perch on the Goldenrod Flower Shop and Violet Pokémon Center roofs.
+- Violet gets short showers with ON + TOWNS. Nearby residents can seek cover under the School and Gym overhangs.
+- Johto and Kanto towns have local habits and shower patterns. Cities with encounter tables can host both residents and wild Pokémon. Vermilion, Lavender, and Pewter gain named landmark routines.
+- Bellossom can follow a moving Flower Shop clerk to the doorway. Cherrygrove, Olivine, Cianwood, and Celadon get named schedules, and fliers can perch on Azalea’s Pokémon Center roof.
+- Goldenrod’s Flower Shop has a Bellossom with morning, daytime and evening spots. Violet’s Pokémon School, Kurt’s house, and Ecruteak’s Dance Theater also have residents with daily routines. Scheduled residents can walk to the doorway when their indoor or outdoor visit begins. They can detour around blocked tiles and head indoors when it rains.
+
 ### Johto bottom map: steadier player head, 2X zoom, roamer icons
 - The player head on the scaled bottom map was placed with `mark * 5 / 4`, which does not match the 2x-then-linear scale. On some towns the head slipped a screen pixel against the map while the view moved, then sat off. It now uses the screen pixel that samples that same map pixel. Standing still was already still. Location changes still move it.
 - Settings > Input "Map zoom" (`map_zoom`, default 1X). 2X is a closer view. `-` and `+` on the map change the same setting. Taps, Fly, finder pins and roamer marks stay on the place you see. The side buttons and captions stay put.

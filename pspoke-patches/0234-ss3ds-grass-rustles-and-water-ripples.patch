@@ -1,0 +1,240 @@
+From 451b08e5461da8ec5e036cfe61ad4c6c4ee9c441 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 02:55:35 -0500
+Subject: [PATCH] ss3ds: show grass rustles and landing ripples
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 89 +++++++++++++++++++++------
+ 1 file changed, 69 insertions(+), 20 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 73480be..4f81651 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,18 +13,18 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v8 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v9 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMem, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+ #define SS3DS_WILD_MAX 6
+ /* 0218: sleep (night nap, Zz), leader (slot+1 of the one it travels with), fight (squabble frames left), big (rare huge one), splash;
+    0223: spare = 1 for an ambient town Pokemon (town resident, never battles) */
+-typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT; } SS3DSWildMon;
++typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+ typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, hideT, birdLow; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C35u /* 'WIL5': resident habits and play */
++#define SS3DS_WILD_MAGIC 0x57494C36u /* 'WIL6': grass rustle */
+ typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 512 ? 1 : -1]; /* P3DS_WildMem is 128 words */
+ extern void *P3DS_WildMem(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+@@ -509,7 +509,7 @@ static int SS3DS_WildPlayTick(SS3DSWildState *S, int i, int px, int pz, int dist
+             SS3DSWildMon *next = m->playT % 48 == 0 ? m : o;
+             next->hop = 10;
+             if (next->kind == 2) {
+-                next->splash = 12;
++                next->splash = 16;
+             }
+         }
+     }
+@@ -820,7 +820,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->battle = m->skip = m->bang = 0;
+             m->pad = 0; // fade-in counter
+             m->sleep = m->leader = m->fight = m->big = m->splash = m->spare = 0;
+-            m->playWith = m->playT = 0;
++            m->playWith = m->playT = m->rustle = 0;
+             int napHabit = alive && ro < 0 && m->kind == 1 ? SS3DS_WildNapHabit(sp, town, env & 1) : 0;
+             m->spare = town;
+             if (alive && !town && ro < 0) {
+@@ -912,11 +912,16 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             SS3DS_WildKill(S, i, "far");
+             continue;
+         }
+-        if (m->hop > 0) {
+-            m->hop--;
+-        }
+         if (m->splash > 0) {
+             m->splash--;
++        } else if (m->splash < 0) {
++            m->splash++;
++        }
++        if (m->hop > 0 && --m->hop == 0 && alive && m->splash > 0) {
++            m->splash = -24; // droplets become a ripple on landing
++        }
++        if (m->rustle > 0) {
++            m->rustle--;
+         }
+         if (m->leader && (!S->m[m->leader - 1].on || S->m[m->leader - 1].battle)) {
+             m->leader = 0; // its partner is gone: on its own now
+@@ -991,7 +996,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                         S->m[i < j ? i : j].playT = 72 + (int)SS3DS_WildRand(S, 48);
+                         m->hop = 10;
+                         if (m->kind == 2) {
+-                            m->splash = 12;
++                            m->splash = 16;
+                         }
+                         PSPNativeMemLog("[WILD] slots %d and %d play", i + 1, j + 1);
+                     }
+@@ -1003,7 +1008,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             }
+             // 0218: idle life: water ones jump and splash now and then (Magikarp a lot), land ones hop
+             if (m->t >= 16 && m->hop == 0 && !m->noticed) {
+-                if (m->kind == 2 && SS3DS_WildRand(S, m->sp == 129 ? 90 : 300) == 0) {
++                if (m->kind == 2 && m->splash == 0 && SS3DS_WildRand(S, m->sp == 129 ? 90 : 300) == 0) {
+                     m->hop = 12;
+                     m->splash = 16;
+                 } else if (m->kind == 1 && SS3DS_WildRand(S, 600) == 0) {
+@@ -1018,6 +1023,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         if (loud && !m->spare && m->mood != 3 && dist <= 3 && m->noticed != 2) {
+             m->noticed = 2;
+             m->timer = 1;
++            if (m->grass) {
++                m->rustle = 20;
++            }
+             PSPNativeMemLog("[WILD] slot %d species %d startled by fast approach", i + 1, m->sp);
+         } else if (!m->noticed && dist <= seeR) {
+             m->noticed = 1;
+@@ -1032,7 +1040,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         } else if (m->noticed && dist > 6) {
+             m->noticed = 0;
+         }
+-        if (--m->timer > 0) {
++        if (--m->timer > 0 || (alive && m->kind == 2 && (m->hop > 0 || m->splash < 0))) {
+             continue;
+         }
+         m->timer = 40 + (int)SS3DS_WildRand(S, 51);
+@@ -1136,6 +1144,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->z = nz;
+             m->t = 0;
+             m->grass = (kind & 4) != 0;
++            if (alive && m->grass) {
++                m->rustle = 26;
++            }
+         }
+     }
+ }
+@@ -1148,12 +1159,11 @@ static VecFx32 SS3DS_WildCam(const MtxFx43 *cm, const VecFx32 *c) {
+     return v;
+ }
+ 
+-// soft round shadow on the ground (land only): 8 translucent triangles, rim points turned into camera space
+-static void SS3DS_WildShadow(const MtxFx43 *cm, const VecFx32 *ground, int sz) {
++// Ground-aligned shadow or ripple. Transform the rim into the same camera space as the sprites.
++static void SS3DS_WildGroundEffect(const MtxFx43 *cm, const VecFx32 *ground, fx32 r, int alpha, GXRgb color, int ring) {
+     static const fx32 kCos[9] = { 4096, 2896, 0, -2896, -4096, -2896, 0, 2896, 4096 };
+     static const fx32 kSin[9] = { 0, 2896, 4096, 2896, 0, -2896, -4096, -2896, 0 };
+     VecFx32 c = SS3DS_WildCam(cm, ground);
+-    fx32 r = sz * FX32_ONE * 3 / 16;
+     fx16 px[9], py[9], pz[9];
+     for (int k = 0; k < 9; k++) {
+         fx32 dx = FX_Mul(r, kCos[k]), dz = FX_Mul(r, kSin[k]) * 2 / 3;
+@@ -1165,19 +1175,48 @@ static void SS3DS_WildShadow(const MtxFx43 *cm, const VecFx32 *ground, int sz) {
+     G3_Identity();
+     G3_Translate(c.x, c.y, c.z);
+     G3_Scale(16 * FX32_ONE, 16 * FX32_ONE, 16 * FX32_ONE);
+-    G3_PolygonAttr(GX_LIGHTMASK_NONE, GX_POLYGONMODE_MODULATE, GX_CULL_NONE, 2, 12, 0);
++    G3_PolygonAttr(GX_LIGHTMASK_NONE, GX_POLYGONMODE_MODULATE, GX_CULL_NONE, ring ? 5 : 2, alpha, ring ? GX_POLYGON_ATTR_MISC_FOG : 0);
+     G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
+-    G3_Color(GX_RGB(0, 0, 0));
+-    G3_Begin(GX_BEGIN_TRIANGLES);
++    G3_Color(color);
++    G3_Begin(ring ? GX_BEGIN_QUADS : GX_BEGIN_TRIANGLES);
+     for (int k = 0; k < 8; k++) {
+-        G3_Vtx(0, 0, 0);
++        if (ring) {
++            G3_Vtx(px[k] * 3 / 4, py[k] * 3 / 4, pz[k] * 3 / 4);
++        } else {
++            G3_Vtx(0, 0, 0);
++        }
+         G3_Vtx(px[k], py[k], pz[k]);
+         G3_Vtx(px[k + 1], py[k + 1], pz[k + 1]);
++        if (ring) {
++            G3_Vtx(px[k + 1] * 3 / 4, py[k + 1] * 3 / 4, pz[k + 1] * 3 / 4);
++        }
+     }
+     G3_End();
+     G3_PopMtx(1);
+ }
+ 
++static void SS3DS_WildShadow(const MtxFx43 *cm, const VecFx32 *ground, int sz) {
++    SS3DS_WildGroundEffect(cm, ground, sz * FX32_ONE * 3 / 16, 12, GX_RGB(0, 0, 0), 0);
++}
++
++// Short-lived bending leaves at the sprite's feet.
++static void SS3DS_WildRustle(fx16 base, int left) {
++    const fx16 u = FX16_ONE / 16;
++    G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++    G3_Color(GX_RGB(12, 23, 8));
++    G3_Begin(GX_BEGIN_TRIANGLES);
++    for (int blade = -1; blade <= 1; blade++) {
++        fx16 x = blade * 4 * u;
++        fx16 tip = x + (blade + ((left / 3) & 1 ? -1 : 1)) * u;
++        fx16 height = u * (2 + left / 7);
++        G3_Vtx(x - u, base, u * 2);
++        G3_Vtx(x + u, base, u * 2);
++        G3_Vtx(tip, base + height, u * 2);
++    }
++    G3_End();
++    G3_Color(GX_RGB(31, 31, 31));
++}
++
+ // white "!" with a dark edge above the head (hw = half the sprite in local units)
+ static void SS3DS_WildBang(fx16 hw) {
+     const fx16 u = FX16_ONE / 16, y0 = hw + u * 2;
+@@ -1273,7 +1312,7 @@ static fx32 SS3DS_WildGroundY(FieldSystem *fieldSystem, fx32 x, fx32 z, fx32 hin
+     return pos.y;
+ }
+ 
+-static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slot, fx32 py, u32 anim) {
++static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slot, fx32 py, u32 anim, int effects) {
+     const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
+     VecFx32 c, v;
+     fx32 tt = m->t >= 16 ? FX32_ONE : m->t * FX32_ONE / 16;
+@@ -1286,6 +1325,12 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+         c.y = py + FX32_ONE / 2;
+         SS3DS_WildShadow(cm, &c, m->big ? sz * 3 / 2 : sz);
+     }
++    if (m->splash < 0 && effects) {
++        int age = 24 + m->splash;
++        c.y = py + FX32_ONE / 2;
++        SS3DS_WildGroundEffect(cm, &c, 3 * FX32_ONE + age * FX32_ONE / 5,
++            2 - m->splash / 2, GX_RGB(22, 29, 31), 1);
++    }
+     c.y = py + hs * FX32_ONE + (m->hop * (12 - m->hop)) * FX32_ONE / 6;
+     v = SS3DS_WildCam(cm, &c);
+     v.y += 3 * FX32_ONE;
+@@ -1315,6 +1360,9 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     G3_TexCoord(sz * FX32_ONE, 0);
+     G3_Vtx(hw, hw, 0);
+     G3_End();
++    if (m->grass && m->rustle > 0 && effects) {
++        SS3DS_WildRustle(by, m->rustle);
++    }
+     if (m->bang > 0) {
+         SS3DS_WildBang(hw);
+     }
+@@ -1424,6 +1472,7 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+     // 0220: in a dark cave (before Flash) only the ones inside the player's small light circle show; the 3D cave darkness does not cover them
+     int dark = (SS3DS_WildEnv(fieldSystem) & 8) != 0;
+     int dpx = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), dpz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
++    int effects = P3DS_WildVisCfg(5);
+     NNS_G3dGeFlushBuffer();
+     for (i = 0; i < SS3DS_WILD_MAX; i++) {
+         int ddx = S->m[i].x - dpx, ddz = S->m[i].z - dpz;
+@@ -1431,7 +1480,7 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+             continue;
+         }
+         if (S->m[i].on && !S->m[i].battle) {
+-            SS3DS_WildDrawOne(fieldSystem, &S->m[i], i + 1, py, S->anim + i * 7);
++            SS3DS_WildDrawOne(fieldSystem, &S->m[i], i + 1, py, S->anim + i * 7, effects);
+         }
+     }
+     if (S->birdOn) {
+-- 
+2.53.0
+
