@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 734 completed the handshake, got the valid general-data reply (22) and the reply to 52 (54), then reported a locally completed 136-byte opcode 02 send without a valid response in the log. The next build refills the TX FIFO in bursts of at least 16 bytes (or all remaining bytes) and logs any empty-FIFO fallback. Whether the walker receives the full write remains unverified.
+
 Run 733 showed valid F8 replies and recovered from several invalid RX levels, with no logged transmit timeout. It did not record successful data packets, so the result of the later transfer exchange is unknown. The follow-up logs the first 32 TX completions and RX packet results per session to identify the last completed command.
 
 Run 732 still timed out with TXLVL=00 and LSR=00, including after fully queuing 30- and 64-byte packets. This is broader than refilling long packets. The follow-up wakes the UART before each send, checks EFCR after enabling TX, and records mode and sleep registers on timeout. The hardware cause remains unconfirmed.

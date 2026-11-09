@@ -174,7 +174,9 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
 {
     const char *stage = "setup";
     const size_t total = length;
+    const unsigned opcode = length ? data[0] ^ 0xaa : 0;
     bool complete = false;
+    bool usedEmptyFlag = false;
     u8 fifoLevel = 0;
     u8 lineStatus = 0;
     // The system IR module can touch the same UART. Re-select the normal
@@ -221,15 +223,20 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
                     stage = "refill line status";
                     break;
                 }
-                if (lineStatus & BIT(5))
+                if (lineStatus & BIT(5)) {
                     status = 64;
+                    usedEmptyFlag = true;
+                }
             }
             if (status > 64) {
                 stage = "invalid FIFO level";
                 break;
             }
             size_t count = status < length ? status : length;
-            if (!count)
+            // Tiny refills spend more time addressing the I2C device than
+            // filling the UART. Let up to 16 slots open before a burst.
+            const size_t burst = length < 16 ? length : 16;
+            if (count < burst)
                 continue;
             if (!writeFifo(data, count)) {
                 stage = "FIFO write";
@@ -264,5 +271,8 @@ finish:
                         (unsigned)(total - length), (unsigned)total,
                         (unsigned)fifoLevel, (unsigned)lineStatus);
     }
+    if (usedEmptyFlag)
+        PSPNativeMemLog("[PWALKER] TX opcode %02x used empty-FIFO fallback",
+                        opcode);
     return complete && disabled && cleared;
 }
