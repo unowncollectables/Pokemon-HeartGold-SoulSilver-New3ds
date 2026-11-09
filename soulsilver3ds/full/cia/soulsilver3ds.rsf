@@ -65,7 +65,6 @@ AccessControlInfo:
   CanAccessCore2                : true
 
   IORegisterMapping:
-   - 1ec48000           # I2C bus for the built-in IR transceiver
    - 1ff00000-1ff7ffff   # DSP memory
   MemoryMapping:
    - 1f000000-1f5fffff:r # VRAM
@@ -202,6 +201,7 @@ AccessControlInfo:
    - ir:rst
    - ir:u
    - ir:USER
+   - i2c::IR
    - mcu::HWC
    - mic:u
    - ndm:u

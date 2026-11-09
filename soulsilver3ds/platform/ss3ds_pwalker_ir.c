@@ -1,79 +1,65 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // IR register sequence and handshake based on francesco265/pwalkerHax (GPL-3.0).
-// The I2C transaction sequence follows pwalkerHax and profi200/libn3ds.
+// Register I/O uses the 3DS i2c::IR service to share the bus with the system.
 #include "ss3ds_pwalker_ir.h"
 #include <3ds.h>
 #include <string.h>
 
-#define I2C_BASE (OS_MMIO_VADDR + 0x48000)
-#define IR_ADDRESS 0x9a
-
-enum {
-    I2C_STOP = BIT(0), I2C_START = BIT(1), I2C_ERROR = BIT(2),
-    I2C_ACK = BIT(4), I2C_READ = BIT(5), I2C_IRQ = BIT(6), I2C_BUSY = BIT(7)
-};
+#define IR_DEVICE_ID 13
 
 enum {
     FIFO = 0x00, IER = 0x08, FCR = 0x10, LCR = 0x18, LSR = 0x28,
     TXLVL = 0x40, RXLVL = 0x48, IOSTATE = 0x58, EFCR = 0x78
 };
 
-static vu8 *const bus = (vu8 *)I2C_BASE;
+static Handle irBus;
+extern void PSPNativeMemLog(const char *fmt, ...);
 
-static bool waitIdle(void)
+static Result sendCommand(u32 *command)
 {
-    const u64 start = svcGetSystemTick();
-    while (bus[1] & I2C_BUSY) {
-        if (svcGetSystemTick() - start >= SYSCLOCK_ARM11 / 100)
-            return false;
-    }
-    return true;
+    Result rc = svcSendSyncRequest(irBus);
+    return R_FAILED(rc) ? rc : (Result)command[1];
 }
 
-static bool sendByte(u8 byte, u8 flags)
+static bool readReg(u8 reg, u8 *value)
 {
-    bus[0] = byte;
-    bus[1] = I2C_BUSY | I2C_IRQ | flags;
-    if (!waitIdle())
+    u32 *command = getThreadCommandBuffer();
+    command[0] = IPC_MakeHeader(9, 2, 0);
+    command[1] = IR_DEVICE_ID;
+    command[2] = reg;
+    if (R_FAILED(sendCommand(command)))
         return false;
-    if (bus[1] & I2C_ACK)
-        return true;
-    bus[1] = I2C_BUSY | I2C_IRQ | I2C_ERROR | I2C_STOP;
-    return false;
-}
-
-static bool transfer(u8 reg, u8 *data, size_t length, bool read)
-{
-    if (!waitIdle() || !sendByte(IR_ADDRESS, I2C_START) || !sendByte(reg, 0))
-        return false;
-    if (read && !sendByte(IR_ADDRESS | 1, I2C_START))
-        return false;
-
-    for (size_t i = 0; i < length; i++) {
-        const bool last = i + 1 == length;
-        if (read) {
-            bus[1] = I2C_BUSY | I2C_IRQ | I2C_READ | (last ? I2C_STOP : I2C_ACK);
-            if (!waitIdle())
-                return false;
-            data[i] = bus[0];
-        } else if (!sendByte(data[i], last ? I2C_STOP : 0)) {
-            return false;
-        }
-    }
+    *value = (u8)command[2];
     return true;
 }
 
 static bool writeReg(u8 reg, u8 value)
 {
-    return transfer(reg, &value, 1, false);
+    u32 *command = getThreadCommandBuffer();
+    command[0] = IPC_MakeHeader(5, 3, 0);
+    command[1] = IR_DEVICE_ID;
+    command[2] = reg;
+    command[3] = value;
+    return R_SUCCEEDED(sendCommand(command));
 }
 
-bool SS3DS_PwalkerIrOpen(void)
+static bool writeFifo(const u8 *data, size_t count)
 {
-    if (!SS3DS_PwalkerIrAvailable() || !waitIdle())
-        return false;
-    *(vu16 *)(bus + 2) = BIT(1); // Clock stretching.
-    *(vu16 *)(bus + 4) = 5u << 8;
+    // The UART consumes every byte after the FIFO register in one transfer.
+    // The sequential-register service command has different semantics.
+    u8 packet[65] = {FIFO};
+    memcpy(packet + 1, data, count);
+    u32 *command = getThreadCommandBuffer();
+    command[0] = IPC_MakeHeader(0x14, 2, 2);
+    command[1] = IR_DEVICE_ID;
+    command[2] = count + 1;
+    command[3] = IPC_Desc_StaticBuffer(count + 1, 1);
+    command[4] = (u32)(uintptr_t)packet;
+    return R_SUCCEEDED(sendCommand(command));
+}
+
+static bool configureIr(void)
+{
     if (!writeReg(EFCR, 6) || !writeReg(FCR, 6))
         return false;
     svcSleepThread(2000000);
@@ -91,19 +77,38 @@ bool SS3DS_PwalkerIrOpen(void)
 
 bool SS3DS_PwalkerIrAvailable(void)
 {
-    MemInfo memory;
-    PageInfo page;
-    return R_SUCCEEDED(svcQueryMemory(&memory, &page, I2C_BASE)) &&
-           memory.state == MEMSTATE_IO &&
-           (memory.perm & MEMPERM_READWRITE) == MEMPERM_READWRITE;
+    Handle probe;
+    if (R_FAILED(srvGetServiceHandle(&probe, "i2c::IR")))
+        return false;
+    svcCloseHandle(probe);
+    return true;
+}
+
+bool SS3DS_PwalkerIrOpen(void)
+{
+    SS3DS_PwalkerIrClose();
+    Result rc = srvGetServiceHandle(&irBus, "i2c::IR");
+    if (R_FAILED(rc)) {
+        irBus = 0;
+        PSPNativeMemLog("[PWALKER] i2c::IR unavailable: %08lx", (unsigned long)(u32)rc);
+        return false;
+    }
+    if (configureIr())
+        return true;
+    SS3DS_PwalkerIrClose();
+    return false;
 }
 
 void SS3DS_PwalkerIrClose(void)
 {
+    if (!irBus)
+        return;
     writeReg(EFCR, 6);
     writeReg(FCR, 0);
     writeReg(IER, BIT(4));
     writeReg(IOSTATE, BIT(0));
+    svcCloseHandle(irBus);
+    irBus = 0;
 }
 
 bool SS3DS_PwalkerIrListen(void)
@@ -114,11 +119,13 @@ bool SS3DS_PwalkerIrListen(void)
 int SS3DS_PwalkerIrRead(uint8_t *data, size_t capacity)
 {
     u8 available;
-    if (!transfer(RXLVL, &available, 1, true))
+    if (!readReg(RXLVL, &available))
         return -1;
     size_t count = available < capacity ? available : capacity;
-    if (count && !transfer(FIFO, data, count, true))
-        return -1;
+    for (size_t i = 0; i < count; i++) {
+        if (!readReg(FIFO, &data[i]))
+            return -1;
+    }
     return (int)count;
 }
 
@@ -130,17 +137,15 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
     const u64 start = svcGetSystemTick();
     while (svcGetSystemTick() - start < SYSCLOCK_ARM11 / 20) {
         u8 status;
-        if (!transfer(length ? TXLVL : LSR, &status, 1, true))
+        if (!readReg(length ? TXLVL : LSR, &status))
             break;
         if (length) {
             size_t count = status < length ? status : length;
             if (!count)
                 continue;
-            uint8_t chunk[64];
-            if (count > sizeof chunk)
-                count = sizeof chunk;
-            memcpy(chunk, data, count);
-            if (!transfer(FIFO, chunk, count, false))
+            if (count > 64)
+                count = 64;
+            if (!writeFifo(data, count))
                 break;
             data += count;
             length -= count;

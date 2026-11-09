@@ -22,8 +22,10 @@ uint32_t SS3DS_Pwalker_SpiWaitInit(void)
     listening = SS3DS_PwalkerIrOpen() && SS3DS_PwalkerIrListen();
     if (listening)
         PSPNativeMemLog("[PWALKER] IR ready");
-    else
+    else {
+        SS3DS_PwalkerIrClose();
         reportFailure("initialization");
+    }
     return 0;
 }
 
@@ -104,8 +106,7 @@ static void *stoppingThread;
 
 uint32_t SS3DS_Pwalker_RequestStop(void *thread)
 {
-    if (SS3DS_PwalkerIrAvailable())
-        SS3DS_PwalkerIrClose();
+    SS3DS_PwalkerIrClose();
     listening = false;
     stoppingThread = thread;
     atomic_store(&stopping, true);
