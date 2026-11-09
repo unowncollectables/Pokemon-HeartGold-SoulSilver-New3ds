@@ -71,19 +71,21 @@ It builds on [pspoke](https://github.com/IbrahimIrfan/pspoke) (retargeted from P
 | **Stereoscopic 3D** | Depth from the 3D slider in the overworld, battles, and title. **SHARP 3D** / **FAST 3D** options for crisp mono or supersampled edges (see Settings). |
 | **Johto map on the touch screen** | Bottom screen becomes the Johto map + icon column (Pokédex, Pokémon, Bag, Pokégear, Trainer, Save, Options). Steps aside for the game’s own touch UI (YES/NO, starter Poké Balls, Pokégear). **X** opens a highlight cursor over the tiles. |
 | **Running Shoes button** | A dedicated **RUN** square on the bottom-screen column toggles running shoes (Sprint Button art read from *your* ROM once the shoes are unlocked). ZL run-toggle and Auto run are also available. |
-| **Bottom-screen panel** | A tab row on the Johto map: **MAP / PHONE / RADIO / PARTY / BAG** (plus **EGGS**, see below). Real Pokégear map, tap a contact to call, tap a radio station, and read-only PARTY and BAG viewers that stay live while you walk. |
+| **Bottom-screen panel** | A tab row on the Johto map: **MAP / PHONE / RADIO / PARTY / BAG** (plus **EGGS**, see below). On the scaled bottom screen those tabs are drawn at native resolution, with the same button chrome and green pixel icons as the side menu. Real Pokégear map, tap a contact to call, tap a radio station, and read-only PARTY and BAG viewers that stay live while you walk. |
 | **Pokédex finder** *(opt-in)* | Tap a place on the Johto map, tap its card, tap a Pokémon: the map pins every place it lives, with ANY / MORN / DAY / NITE time filters. |
 | **Breeding tab** *(opt-in)* | EGGS tab: Day-Care Pokémon and levels gained, egg chance or EGG READY, Masuda, steps left on party eggs. Read-only. |
+| **Contest helper** *(opt-in)* | During a Bug-Catching Contest, the bottom panel shows minutes left, Sport Balls left, and the Pokémon you are holding. Read-only. |
+| **Tap to Fly** *(opt-in)* | On the Johto map, tap a town you can Fly to. The card’s FLY chip starts the game’s own flight when Fly works there. |
 | **Hunt stats** *(opt-in)* | Press **ZR** in the overworld for read-only pages from `hunt.txt`: encounters, shinies, time, most met, timeline and best streaks. |
 | **Damage check** *(opt-in)* | The **Y** foe screen gets a last page: rough damage range and % of the foe’s HP for each of your moves, plus who moves first. Singles only. |
-| **Achievements** | Optional Xbox-style toasts and a progress list, including trade and counter achievements. Never writes to your save. |
+| **Achievements** | Optional Xbox-style toasts and a progress list, including trade and counter achievements. **UP** and **DN** chips on the score band page the list. Never writes to your save. |
 | **In-game Settings app** | Press **L+R+Y** (or hold the top-left of the touch screen) for Display, 3D, Input, Battle, Play, and Setup tabs — toggles apply on close and persist in `config.txt`. |
 | **Battle QoL** | Optional SUPER EFFECTIVE / NOT VERY / NO EFFECT badges on move buttons; faster battles; catch info; encounter counter; shiny-hunt suite (opt-in). |
 | **Local wireless trading** | Full Pokémon trade between two New 3DS consoles via the game’s Union Room over 3DS UDS — confirmed on hardware. |
-| **Online GTS** | The game’s own Global Terminal over community revival servers (Wiimmfi / Poké Classic Network), plus Mystery Gift download. Confirmed on hardware. |
+| **Online GTS** | The game’s own Global Terminal over community revival servers (Wiimmfi / Poké Classic Network), plus Mystery Gift download. Both paths are confirmed on hardware. A revival GTS host was reported down on 8 Nov 2026 (server-side); Mystery Gift is a separate service. |
 | **Visible & alive wild Pokémon** | Optional: wilds from the map’s encounter tables walk the field; walk into one to battle. **Alive wild Pokémon** (opt-in, untested on hardware) makes them solid and adds ambient flyers, naps, pairs and other small touches. |
-| **Smoother and cleaner** | Work toward a steady 30 fps (off-screen skipping, faster wide battles), and audio fixes: notes start on time and music no longer dips under loud sound effects. |
-| **GPU rendering** | 3D scenes and 2D compositing on the 3DS GPU. |
+| **Smoother and cleaner** | Work toward a steady 30 fps (off-screen skipping, faster wide battles, the 3D shortcuts below). One hardware sample with those shortcuts on sat mostly around 29–30 fps in the field and in battles; that is one run, and steady 30 fps everywhere is still the goal. Audio fixes: notes start on time and music no longer dips under loud sound effects. |
+| **GPU rendering** | 3D scenes and 2D compositing on the 3DS GPU, including optional shortcuts for command packets, bounds, the second screen, rotating sprites, and fades (Settings → 3D). |
 | **Safe saves & durable logs** | Rolling `.sav` backups; each save is **fsync’d** to the SD card. `log.txt` is fsync’d in batches (and on HOME / sleep / crash) so the last lines **survive reboots and forced closes**; unclean exits are kept as `log_crash.txt`. |
 | **HOME Menu ready** | `.cia` with a 3D banner, or `.3dsx` from the Homebrew Launcher. |
 
@@ -94,13 +96,15 @@ It builds on [pspoke](https://github.com/IbrahimIrfan/pspoke) (retargeted from P
 | ✅ Confirmed on hardware | 🧪 Built / wired, still baking | 🛠️ Later / wishlist |
 | :--- | :--- | :--- |
 | Boot, title, overworld, battles, menus, saving; online **GTS** (Global Terminal) | Alive wild Pokémon | Steady 30 fps everywhere; 60 fps later |
-| 3D depth, whole game wide, GPU 3D + 2D compose, FAST / SHARP 3D | Achievements (new toast and list) | Wi-Fi Club / Plaza with a real DS |
-| Johto map, X tile cursor, YES/NO & starter balls on touch | Pokégear RADIO tap-to-tune (needs Radio Card) | Pokéathlon & Bug-Catching helpers |
-| Pokégear MAP / PHONE / PARTY / BAG tabs; battle move badges | Roamer tracker | Tap-to-Fly on the Johto map |
+| 3D depth, whole game wide, GPU 3D + 2D compose, FAST / SHARP 3D; the five 3D shortcuts on through field and battles, stereo included | Achievements (toast, list, UP/DN paging) | Wi-Fi Club / Plaza with a real DS |
+| Johto map, X tile cursor, YES/NO & starter balls on touch | Pokégear RADIO tap-to-tune (needs Radio Card); native-style bottom tabs | Pokéathlon |
+| Pokégear MAP / PHONE / PARTY / BAG tabs; battle move badges | Roamer tracker; Contest helper; Tap to Fly | |
 | Hunt stats, damage check, breeding tab, Pokédex finder | Union Room Battle, Records, Draw, Greet, Spin | |
-| Retail `.sav` round-trip; automatic backups; durable `log.txt`; online **Mystery Gift** (WFC download) | Speed tweaks / FAST AUTO 3D | |
+| Retail `.sav` round-trip; automatic backups; durable `log.txt`; online **Mystery Gift** (WFC download) | Speed tweaks / FAST AUTO 3D; wide title on the title screen | |
 | HMs without the Pokémon, shortcuts, visible wilds, shiny suite | | |
 | **Local wireless trade between two 3DS consoles** | | |
+
+On a New 3DS run of `1fcccb2` (run 702) the five 3D shortcuts were on for field and battles, including with the 3D slider up. Samples in that run were mostly 29–30 fps, the exit was clean, and the log had no crash. Play of that build found those options working well. That pass does not cover every scene, and it is not a measured frames-per-second comparison with the previous build. Title sides were switched to **WIDE** later in the same run; the title screen was not opened again, so a hardware look at the wide title is still ahead. Fades and battle speed can still dip.
 
 Details: [`docs/ROADMAP.md`](docs/ROADMAP.md) · history: [`CHANGELOG.md`](CHANGELOG.md) · live notes: [`HANDOFF.md`](HANDOFF.md).
 
@@ -114,7 +118,7 @@ Details: [`docs/ROADMAP.md`](docs/ROADMAP.md) · history: [`CHANGELOG.md`](CHANG
 - Untested: Union Room Battle / Records / Draw / Greet / Spin.
 - A real DS cannot join locally — native 3DS mode cannot speak DS MP radio.
 
-**Online.** An ONLINE wireless mode drives the game’s own NitroDWC / NitroWiFi stack over 3DS sockets toward community revival servers (Wiimmfi / Poké Classic Network). On hardware, **GTS / Global Terminal** and **Mystery Gift** (Receive → Get via Nintendo WFC) both work. Local wireless Mystery Gift parent search still cannot find a DS parent. Online mode is refused while any `cheat_*` option is on. Back up saves before linking. See [`docs/WIRELESS.md`](docs/WIRELESS.md).
+**Online.** An ONLINE wireless mode drives the game’s own NitroDWC / NitroWiFi stack over 3DS sockets toward community revival servers (Wiimmfi / Poké Classic Network). On hardware, **GTS / Global Terminal** and **Mystery Gift** (Receive → Get via Nintendo WFC) both work. On 8 Nov 2026 the revival server used for GTS was reported down; that report is about the server, and this port’s GTS support is unchanged. Mystery Gift is a separate download and was still working. Local wireless Mystery Gift parent search still cannot find a DS parent. Online mode is refused while any `cheat_*` option is on. Back up saves before linking. See [`docs/WIRELESS.md`](docs/WIRELESS.md).
 
 ---
 
@@ -174,16 +178,16 @@ Press **L+R+Y** (or hold the top-left of the touch screen ~0.3 s). L/R or tap sw
 
 | Tab | Highlights |
 |---|---|
-| **Display** | Wide view, Camera zoom, Bottom menu HD (the screen is always the 1.25× wide picture; there is no scale option) |
+| **Display** | Wide view, Camera zoom, Bottom menu HD, Title sides (`title_clean_sides`: LEGACY / CLASSIC / WIDE). The screen is always the 1.25× wide picture; there is no scale option. The intended title-sides baseline is **WIDE**. |
 | **Wide** | Wide battles / party / Pokédex / PC / menus, Wide FX (slow — keep off), haze, weather strips, edge fill |
-| **3D** | 3D strength, battle depth, Split top, Smooth title 3D, SHARP / FAST 3D modes |
-| **Input** | Bottom menu, Pokégear tabs, Pokédex finder, Auto run, Bottom layout (Johto map or 4×2 tiles), Kanto gate, Menu button, Circle Pad / C-Stick as D-pad, ZR = Y, **ZL run toggle**, IV/EV on summary (Y) |
+| **3D** | 3D strength, battle depth, Split top, Smooth title 3D, SHARP / FAST 3D, plus command packets (`g3_packets`), fast bounds (`g3_fast_bounds`), second-screen compose (`gpu_compose_b`: OFF / ON / CHECK), rotating sprites (`gpu_obj_affine`), and GPU fades (`gpu_b_fades`). The intended baseline is all five on, with `gpu_compose_b` at **ON** (CHECK is the pixel-compare mode). |
+| **Input** | Bottom menu, Pokégear tabs, Pokédex finder, Contest helper, Tap to Fly, Auto run, Bottom layout (Johto map or 4×2 tiles), Kanto gate, Menu button, Circle Pad / C-Stick as D-pad, ZR = Y, **ZL run toggle**, IV/EV on summary (Y) |
 | **Battle** | Faster battles, Catch info, Encounter counter, Hunt stats (ZR), Damage check, Alive wild Pokémon, SELECT = soft reset, Skip intro on reset |
 | **Setup** | Volume, Menu music, Save backups, Export save, Log size / detail, Fast text, Hold B skips text, Auto-advance, FPS counter, Breeding tab |
 | **Play** | Reusable TMs, Field moves w/o HM, Repel prompt, No wild battles, Visible wild Pokémon, Pokémon menu X/Y shortcuts, Roamer + breeding tracker, **Local / Online wireless** |
-| **Debug** (SELECT) | GPU compose / 3D direct, audio limiter / stall fade, Speed tweaks — testing only |
+| **Debug** (SELECT) | Audio limiter / stall fade, Speed tweaks — testing only |
 
-`soulsilver3ds/full/README_settings.txt` lists every `config.txt` key. Newer features (Pokédex finder, Breeding tab, Hunt stats, Damage check, Alive wild Pokémon) default to OFF until they have had more testing. Experimental toggles: try them on a **copy** of your save. Hidden `cheat_*` keys exist only in `config.txt`, default off, and are not shown in the menu (online mode refuses them).
+`soulsilver3ds/full/README_settings.txt` lists the `config.txt` keys it was written to cover. It does not yet name every key the menu can write, including `g3_packets`, `g3_fast_bounds`, `gpu_compose_b`, `gpu_obj_affine`, `gpu_b_fades`, and `title_clean_sides`. The baseline to play with is those five 3D shortcuts on (`gpu_compose_b` = ON) and title sides at WIDE. Each stays in the menu so it can be turned back. Putting that baseline into the built-in defaults is a separate change still to come; this page does not change what a new `config.txt` starts as, so set the rows (or the file) yourself until that change lands. Newer features (Pokédex finder, Breeding tab, Hunt stats, Damage check, Alive wild Pokémon, Contest helper, Tap to Fly) still start OFF until they have had more testing. Experimental toggles: try them on a **copy** of your save. Hidden `cheat_*` keys exist only in `config.txt`, default off, and are not shown in the menu (online mode refuses them).
 
 ---
 
@@ -191,7 +195,8 @@ Press **L+R+Y** (or hold the top-left of the touch screen ~0.3 s). L/R or tap sw
 
 - Poké Ball opening can double-image with the 3D slider up.
 - Wide FX is very slow — leave it off.
-- Steady ~30 fps (the game’s own rate) is the goal and still being tuned; 60 fps is a later experiment ([`docs/FPS60.md`](docs/FPS60.md)).
+- Steady ~30 fps (the game’s own rate) is the goal and still being tuned; 60 fps is a later experiment ([`docs/FPS60.md`](docs/FPS60.md)). With the 3D shortcuts on, fades and some battles can still dip.
+- Wide title sides (**WIDE**) still need a hardware look at the title screen. The 8 Nov 2026 run switched the option on later and did not return to the title.
 - Local wireless: trading works; discovery can be slow; other Union Room modes untested.
 - First visit to a map can hitch while data loads from the SD card.
 - Local wireless Mystery Gift (friend / distribution) still searches forever without a real DS parent; use **Get via Nintendo WFC** with Wireless = ONLINE instead.
@@ -212,7 +217,7 @@ pret/pokeheartgold → pspoke @ upstream.lock → + pspoke-patches/ → + soulsi
 - `soulsilver3ds/` is the platform layer: GPU renderer / compose, audio, input, Settings app, bottom menu, logging.
 - Experimental features get a Settings toggle, removed once proven.
 
-Start here: [`AGENTS.md`](AGENTS.md) · [`docs/HANDOFF.md`](docs/HANDOFF.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md)
+Start here: [`AGENTS.md`](AGENTS.md) · [`HANDOFF.md`](HANDOFF.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 <details>
 <summary><strong>Doc map</strong></summary>
