@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Built-in defaults for the 3D shortcuts and wide title
+- When `config.txt` has no line for them, `g3_packets`, `g3_fast_bounds`, `gpu_obj_affine`, and `gpu_b_fades` start at 1, `gpu_compose_b` starts at 1 (ON; CHECK is still 2), and `title_clean_sides` starts at 2 (WIDE).
+- A value already in `config.txt` is kept, including OFF and LEGACY. Settings still saves a row only when that row changes. The save file is untouched.
+- Wide title on the title screen is still waiting on a hardware look.
+
 ### Rendering performance and wide title
 - Add optional command and bounds shortcuts for 3D scenes, plus GPU composition for compatible second-screen frames and rotating sprites.
 - Add a Wide title layout that fills the top display with the animated background and keeps the logo and text proportional. Exact brightness and supported alpha endpoints can run on the GPU. Other effects fall back to the CPU.

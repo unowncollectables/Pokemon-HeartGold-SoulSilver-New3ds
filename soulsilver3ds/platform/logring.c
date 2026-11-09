@@ -166,7 +166,7 @@ const char *P3DS_LogTailLine(unsigned idx) { const unsigned n = P3DS_LogTailCoun
 typedef struct { const char *key; int def; const char *dead; } CfgEnt; /* def == INT_MIN: no single default / read elsewhere */
 #define NODEF (-2147483647 - 1)
 static const CfgEnt cfgTab[] = {
-    { "g3_packets", 0, 0 }, { "g3_fast_bounds", 0, 0 }, { "gpu_compose_b", 0, 0 }, { "gpu_obj_affine", 0, 0 }, { "gpu_b_fades", 0, 0 }, { "title_clean_sides", 0, 0 },
+    { "g3_packets", 1, 0 }, { "g3_fast_bounds", 1, 0 }, { "gpu_compose_b", 1, 0 }, { "gpu_obj_affine", 1, 0 }, { "gpu_b_fades", 1, 0 }, { "title_clean_sides", 2, 0 },
     { "battle_monobj_hide", 1, 0 }, { "fps_tweaks", 7, 0 }, { "dc_flush_skip", 1, 0 }, { "fog_hole", 1, 0 }, { "bottom_hd", 1, 0 }, { "pg_extras", 1, 0 }, { "wide_pokedex", 1, 0 }, { "wide_pc", 1, 0 },  { "bottom_menu", 1, 0 }, { "bottom_vramgen", 1, 0 }, { "cam_zoom", 0, 0 }, { "catch_overlay", 1, 0 },
     { "cheat_no_encounters", 0, 0 }, { "cheat_time", 0, 0 }, { "cpad_dpad", 1, 0 }, { "credits_splash", 1, 0 }, { "cstick_mode", 2, 0 },
     { "display_capture", 1, 0 }, { "fast_text", 2, 0 }, { "follower", 0, 0 }, { "follower_slot", 0, 0 }, { "follower_talk", 0, 0 },

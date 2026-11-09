@@ -32,7 +32,7 @@ extern void PSPNativeMemLog(const char *, ...);
 extern int P3DS_CfgInt(const char *, int);
 #include "g3_affine_sample.h"
 static int fadeV=-1,gcTileFx;
-int P3DS_GcBFadesCfg(void){if(fadeV<0)fadeV=P3DS_CfgInt("gpu_b_fades",0)!=0;return fadeV;}
+int P3DS_GcBFadesCfg(void){if(fadeV<0)fadeV=P3DS_CfgInt("gpu_b_fades",1)!=0;return fadeV;}
 void P3DS_GcBFadesSet(int v){fadeV=v!=0;PSPNativeMemLog("[GCBFADE] gpu_b_fades=%d",fadeV);}
 static u32 exactBrightness(u32 c,unsigned eff,unsigned f){
  u32 out=0xFF;for(int sh=8;sh<=24;sh+=8){unsigned v=(c>>sh)&255;v>>=2;
@@ -40,7 +40,7 @@ static u32 exactBrightness(u32 c,unsigned eff,unsigned f){
   out|=((v<<2)|(v>>4))<<sh;}return out;
 }
 static int affineV=-1;
-int P3DS_GcAffineCfg(void){if(affineV<0)affineV=P3DS_CfgInt("gpu_obj_affine",0)!=0;return affineV;}
+int P3DS_GcAffineCfg(void){if(affineV<0)affineV=P3DS_CfgInt("gpu_obj_affine",1)!=0;return affineV;}
 void P3DS_GcAffineSet(int v){affineV=v!=0;PSPNativeMemLog("[GCAFF] gpu_obj_affine=%d",affineV);}
 
 extern void P3DS_Crumb(const char *tag, void *caller);  /* watchdog crumbs (only on gpu_compose>=2 frames) */
