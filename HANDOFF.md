@@ -1,3 +1,7 @@
+# Running shoes toggle (0249)
+
+The JOHTO RUN tile, ZL, Auto run settings and original running-shoes control share the runtime toggle. The field no longer injects B from the saved DS lock. The port starts from `auto_run` and keeps runtime changes in memory. Rebuilds `field__field_control.o` and `player_avatar.o`. Pending New 3DS testing.
+
 # CIA startup splash
 
 The HOME Menu CIA omits the Homebrew Menu startup logo. The next installed CIA needs a cold launch on New 3DS to verify the splash is gone. Boot timing has not been measured.

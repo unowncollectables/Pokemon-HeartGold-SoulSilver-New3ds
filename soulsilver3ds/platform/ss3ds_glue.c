@@ -319,7 +319,6 @@ u64 __wrap_sub_020254FC(void) { return __wrap_sub_02025488(); }
 extern volatile int P3DS_RunToggle;
 extern int P3DS_CtlZl;
 volatile int P3DS_RunLast; /* 0218: the last run answer (1 = running), read by the alive wild Pokemon to tell sneaking from running */
-volatile int P3DS_RunShown = -1; /* what the player does with no button held (the game's own answer, inverted by Auto run); the RUN tile text reads it */
 unsigned int SS3DS_RunHeld(unsigned int avatar, unsigned int keys)
 {
     extern void PSPNativeMemLog(const char *, ...);
@@ -327,7 +326,6 @@ unsigned int SS3DS_RunHeld(unsigned int avatar, unsigned int keys)
     (void)avatar;
     unsigned int held = (keys & 2u) ? 1u : 0u; /* B bit (sub_0205DE88 is not a linkable symbol: run 53 link error) */
     unsigned int out = P3DS_RunToggle ? !held : held; /* run 10: the JOHTO layout's RUN button sets it too, so no zl_run gate here (ZL itself still needs zl_run=1) */
-    P3DS_RunShown = P3DS_RunToggle ? 1 : 0;
     P3DS_RunLast = (int)out;
     calls++;
     /* [INPUT] first 12 calls, then every change of toggle or B: setting, raw keys and the run answer (run 52: "run stuck on while it says off") */

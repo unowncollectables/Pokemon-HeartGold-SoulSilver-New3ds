@@ -1,0 +1,55 @@
+Subject: [PATCH] ss3ds: share one running shoes toggle
+
+diff --git a/scripts/ss3ds_hooks.d/0249_run_toggle.py b/scripts/ss3ds_hooks.d/0249_run_toggle.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0249_run_toggle.py
+@@ -0,0 +1,36 @@
++#!/usr/bin/env python3
++from pathlib import Path
++
++# Leave B as physical input. The movement hook applies auto-run once.
++field = Path("src/field/field_control.c")
++avatar = Path("src/player_avatar.c")
++changes = (
++    (field,
++     "    if (PlayerAvatar_CheckRunningShoesLock(FieldSystem_GetPlayerAvatar(fieldSystem))) {\n"
++     "        heldKeys |= PAD_BUTTON_B;\n"
++     "    }",
++     "    /* SS3DS 0249: SS3DS_RunHeld combines B with the run toggle. */"),
++    (avatar,
++     "    return avatar->playerSaveData->runningShoesLock;",
++     "    extern volatile int P3DS_RunToggle; /* SS3DS 0249 */\n"
++     "    (void)avatar;\n"
++     "    return P3DS_RunToggle != 0;"),
++    (avatar,
++     "    avatar->playerSaveData->runningShoesLock = lock;",
++     "    extern volatile int P3DS_RunToggle;\n"
++     "    (void)avatar;\n"
++     "    P3DS_RunToggle = lock != 0;"),
++)
++
++updated = {}
++for path, old, new in changes:
++    source = updated.get(path, path.read_text())
++    if source.count(new) == 1 and old not in source:
++        continue
++    if source.count(old) != 1:
++        raise SystemExit(f"0249_run_toggle: anchor not found exactly once in {path}")
++    updated[path] = source.replace(old, new)
++
++for path, source in updated.items():
++    path.write_text(source)
++print("0249_run_toggle: field input and running shoes lock hooked")
+diff --git a/scripts/ss3ds_hooks.d/0249_run_toggle.sh b/scripts/ss3ds_hooks.d/0249_run_toggle.sh
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0249_run_toggle.sh
+@@ -0,0 +1,7 @@
++# Share the port's runtime run toggle with the original running-shoes control.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0249_run_toggle.py" &&
++    bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1 &&
++    bash rebuild_game_object.sh src/player_avatar.c player_avatar.o none); then
++  log "ss3ds 0249 run toggle rebuild FAILED"
++  return 1
++fi

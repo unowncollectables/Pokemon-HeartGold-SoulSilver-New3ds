@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Fixed the RUN indicator and movement getting out of sync when the original running-shoes lock was active.
+
 ### Overworld Pokémon behavior
 - Town residents on land have collision, face the player on A, and tend to stay near their spawn. Shy wild Pokémon pause for quiet approaches and can retreat into tall grass when startled.
 - Fliers look for a clear low route or take a higher pass. Enabled through the existing Alive wild Pokémon setting.
