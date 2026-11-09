@@ -120,7 +120,7 @@ bool SS3DS_PwalkerIrListen(void)
 int SS3DS_PwalkerIrRead(uint8_t *data, size_t capacity)
 {
     u8 available;
-    if (!transfer(RXLVL, &available, 1, true))
+    if (!transfer(RXLVL, &available, 1, true) || available > 64)
         return -1;
     size_t count = available < capacity ? available : capacity;
     if (count && !transfer(FIFO, data, count, true))

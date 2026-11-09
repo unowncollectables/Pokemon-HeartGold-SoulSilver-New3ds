@@ -29,10 +29,17 @@ static unsigned txCount;
 
 static int receivePacket(Packet *packet)
 {
-    int count = SS3DS_PwalkerIrRead(packet->bytes, sizeof packet->bytes);
+    int count = SS3DS_PwalkerIrRead(packet->bytes, 1);
     if (count <= 0)
         return count;
-    size_t length = (size_t)count;
+    // The one-byte discovery signal has no header. The DS code accepts
+    // it only when it is delivered alone, even if the UART has more bytes.
+    if (packet->bytes[0] == 0x56) {
+        packet->bytes[0] = 0xfc;
+        packet->length = 1;
+        return 1;
+    }
+    size_t length = 1;
     u64 lastByte = svcGetSystemTick();
     while (length < sizeof packet->bytes &&
            svcGetSystemTick() - lastByte < SYSCLOCK_ARM11 / 500) {
@@ -49,6 +56,22 @@ static int receivePacket(Packet *packet)
         packet->bytes[i] ^= 0xaa; // Cartridge receive decoded the wire bytes.
     packet->length = length;
     return (int)length;
+}
+
+static bool validPacket(const Packet *packet)
+{
+    if (packet->length < 8)
+        return false;
+    u32 sum = 2;
+    for (size_t i = 0; i < packet->length; i += 2) {
+        if (i == 2)
+            continue;
+        sum += (u32)packet->bytes[i] << 8;
+        if (i + 1 < packet->length)
+            sum += packet->bytes[i + 1];
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
+    return sum == (packet->bytes[2] | (u32)packet->bytes[3] << 8);
 }
 
 static void busWorker(void *unused)
@@ -103,9 +126,9 @@ static void busWorker(void *unused)
                 if (active && generation == session)
                     incoming = packet;
                 LightLock_Unlock(&busLock);
-                if (packet.length >= 8 && firstReply) {
+                if (firstReply && validPacket(&packet)) {
                     firstReply = false;
-                    PSPNativeMemLog("[PWALKER] first response: %u bytes, opcode %02x",
+                    PSPNativeMemLog("[PWALKER] first valid response: %u bytes, opcode %02x",
                                     (unsigned)packet.length, (unsigned)packet.bytes[0]);
                 }
             } else if (count < 0) {
