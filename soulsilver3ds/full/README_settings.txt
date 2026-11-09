@@ -471,7 +471,7 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   Town Pokemon occasionally chase a rolling berry. The berry is scenery and does not affect the bag.
   A Bellossom near the Goldenrod Flower Shop has different outdoor and indoor spots depending on time of day.
   Violet School, Kurt's house, and Ecruteak Dance Theater also have named resident schedules.
-  A resident can head to the door when its schedule changes to the other side.
+  A resident can head to the door when its schedule changes to the other side. Named residents also use their buildings as rain shelter.
   Log: [WILD] town life on/off ... / spawn ... TOWN / startled by fast approach / low pass / high pass / slots ... play / seeks a rain spot.
 pg_find=0               (2026-11-03, default 0; Settings > Input > Pokedex finder) Pokedex encounter finder on the JOHTO map: tap a place, tap its card (wild list), tap a Pokemon name and the map pins every place that species lives. Chips ANY / MORN / DAY / NITE filter by time of day (MORN 4-10h, DAY 10-20h, NITE 20-4h; surf, fishing and Rock Smash count at any time); X clears. Times come from hook 0209 (without it only ANY works). Read-only, never touches the save. Log [FIND].
 pg_flytap=0             (2026-11-07, default 0, hook 0228; Settings > Input > Tap to Fly) Tap-to-Fly on the JOHTO map: tap a town you can Fly to (the game's own unlocked Fly points), then the FLY chip on its info card (green = Fly works here now, grey = the tap says why not: wrong place, no Storm Badge, follower/costume, no Pokemon with Fly; HM free counts). Starts the game's own Fly flight, nothing is written to the save by the port. Log [FLY].

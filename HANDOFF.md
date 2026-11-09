@@ -1,3 +1,9 @@
+# Resident detours and landmark rain shelter (0242)
+
+Named residents use a bounded search for door and home routes. They can go around an obstruction, wait if no path is available, and retry when the way clears. A resident scheduled outside can switch to the linked building during rain. The matching indoor resident is available if the player enters that building, and the outdoor schedule resumes when that map is dry. The shelter association is transient and follows the current map visit.
+
+Generated sources passed devkitARM syntax and idempotence checks. Host checks covered routes around walls, occupied paths, blocked goals, search limits, and the rain shelter transfer and reset. Actual routing and timing still need a device playtest.
+
 # Scheduled resident doorway walks (0241)
 
 A named resident already on screen can now walk toward its landmark doorway when the schedule changes to a matching location on the other side. It follows legal ground tiles and fades toward the entrance before the warp tile. Indoors, a resident can appear near the entrance and walk to its usual spot when there is room. The map transition itself is inferred from the schedule. NPC scripts and player warps are untouched.

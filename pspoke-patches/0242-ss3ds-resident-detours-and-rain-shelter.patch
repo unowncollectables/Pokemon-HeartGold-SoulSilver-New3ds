@@ -1,0 +1,248 @@
+From 13fe484aec0475fe641d64fa091915fdc7540ab8 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:35:42 -0500
+Subject: [PATCH] ss3ds: route named residents around obstructions and into
+ rain shelter
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 158 ++++++++++++++++++--------
+ 1 file changed, 109 insertions(+), 49 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 1b34c88..5d6f319 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v15 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v16 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -27,8 +27,8 @@ enum { WILD_UNAWARE, WILD_WATCHING, WILD_STARTLED, WILD_IN_COVER };
+ typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle, wet, tracks; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+-typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C38u /* 'WIL8': weather effects and berry play */
++typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch, shelterMap; } SS3DSWildState;
++#define SS3DS_WILD_MAGIC 0x57494C39u /* 'WIL9': landmark rain shelter */
+ typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 576 ? 1 : -1]; /* P3DS_WildMemV2 is 144 words */
+ extern void *P3DS_WildMemV2(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+@@ -490,28 +490,39 @@ static const SS3DSTownRoutine *SS3DS_TownRoutineForMap(int map, int env, int *in
+ }
+ 
+ // Entrance and exit warp tiles from the matching map event files.
+-static int SS3DS_TownRoutineDoor(int map, int env, int *x, int *z, int *side) {
+-    static const u16 doors[][6] = {
++typedef struct {
++    u16 outside, inside, outsideX, outsideZ, insideX, insideZ;
++} SS3DSTownLink;
++
++static const SS3DSTownLink *SS3DS_TownRoutineLink(int map) {
++    static const SS3DSTownLink links[] = {
+         {MAP_GOLDENROD, MAP_GOLDENROD_FLOWER_SHOP, 371, 332, 5, 9},
+         {MAP_VIOLET, MAP_VIOLET_POKEMON_SCHOOL, 495, 257, 6, 11},
+         {MAP_AZALEA, MAP_AZALEA_KURT_HOUSE, 399, 454, 4, 9},
+         {MAP_ECRUTEAK, MAP_ECRUTEAK_DANCE_THEATER, 397, 173, 7, 17},
+     };
+-    for (u32 i = 0; i < sizeof(doors) / sizeof(doors[0]); i++) {
+-        int indoors = map == doors[i][1];
+-        if (indoors || map == doors[i][0]) {
+-            int next = indoors ? doors[i][0] : doors[i][1];
+-            int nextIndoors;
+-            if (env && !SS3DS_TownRoutineForMap(next, env, &nextIndoors)) {
+-                return 0;
+-            }
+-            *x = doors[i][indoors ? 4 : 2];
+-            *z = doors[i][indoors ? 5 : 3];
+-            *side = indoors ? -1 : 1;
+-            return 1;
++    for (u32 i = 0; i < sizeof(links) / sizeof(links[0]); i++) {
++        if (map == links[i].outside || map == links[i].inside) {
++            return &links[i];
+         }
+     }
+-    return 0;
++    return NULL;
++}
++
++static int SS3DS_TownRoutineDoor(const SS3DSTownLink *link, int map, int env, int *x, int *z, int *side) {
++    if (!link) {
++        return 0;
++    }
++    int indoors = map == link->inside;
++    int next = indoors ? link->outside : link->inside;
++    int nextIndoors;
++    if (env >= 0 && !SS3DS_TownRoutineForMap(next, env, &nextIndoors)) {
++        return 0;
++    }
++    *x = indoors ? link->insideX : link->outsideX;
++    *z = indoors ? link->insideZ : link->outsideZ;
++    *side = indoors ? -1 : 1;
++    return 1;
+ }
+ 
+ // Returns the direction of a scenery feature next to a safe standing tile.
+@@ -716,6 +727,54 @@ static int SS3DS_WildCoverTick(SS3DSWildMon *m, int loud, int dist, int toward)
+     return 1;
+ }
+ 
++// Search a small grid around the resident. If the destination is outside the
++// grid or occupied, take the first step toward the closest reachable tile.
++static int SS3DS_TownRouteStep(FieldSystem *fieldSystem, SS3DSWildState *S, int slot, int goalX, int goalZ) {
++    enum { RADIUS = 5, SIDE = RADIUS * 2 + 1, CELLS = SIDE * SIDE };
++    static const int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
++    SS3DSWildMon *m = &S->m[slot];
++    u8 visited[CELLS] = {0}, queue[CELLS];
++    int start = RADIUS * SIDE + RADIUS;
++    int baseX = m->x - RADIUS, baseZ = m->z - RADIUS;
++    int dx = goalX - m->x, dz = goalZ - m->z;
++    int best = (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz), step = -1;
++    int head = 0, tail = 0;
++    visited[start] = 6;
++    queue[tail++] = start;
++    while (head < tail) {
++        int at = queue[head++];
++        for (int dir = 0; dir < 4; dir++) {
++            int x = at % SIDE + kDx[dir], z = at / SIDE + kDz[dir];
++            if (x < 0 || x >= SIDE || z < 0 || z >= SIDE) {
++                continue;
++            }
++            int index = z * SIDE + x;
++            if (visited[index]) {
++                continue;
++            }
++            int tx = baseX + x, tz = baseZ + z;
++            if ((SS3DS_TownTile(fieldSystem, tx, tz) & 3) != 1 || SS3DS_WildCrowded(S, slot, tx, tz)) {
++                visited[index] = 5;
++                continue;
++            }
++            int first = at == start ? dir : visited[at] - 1;
++            visited[index] = first + 1;
++            queue[tail++] = index;
++            dx = goalX - tx;
++            dz = goalZ - tz;
++            int dist = (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz);
++            if (dist == 0) {
++                return first;
++            }
++            if (dist < best) {
++                best = dist;
++                step = first;
++            }
++        }
++    }
++    return step;
++}
++
+ // Walk to a legal tile in front of the warp, then fade toward the door.
+ static void SS3DS_TownDepart(FieldSystem *fieldSystem, SS3DSWildState *S, int i, int doorX, int doorZ, int side) {
+     SS3DSWildMon *m = &S->m[i];
+@@ -727,30 +786,18 @@ static void SS3DS_TownDepart(FieldSystem *fieldSystem, SS3DSWildState *S, int i,
+         PSPNativeMemLog("[WILD] resident species %d leaves at door %d,%d", m->sp, doorX, doorZ);
+         return;
+     }
+-    int dx = doorX - m->x, dz = stageZ - m->z;
+-    int ax = dx < 0 ? -dx : dx, az = dz < 0 ? -dz : dz;
+-    int horizontal = dx > 0 ? 3 : 2, vertical = dz > 0 ? 1 : 0;
+-    int directions[2] = {ax >= az ? horizontal : vertical, ax >= az ? vertical : horizontal};
+-    for (int n = 0; n < 2; n++) {
+-        int d = directions[n];
+-        if (d < 2 ? !az : !ax) {
+-            continue;
+-        }
+-        int x = m->x + (d == 2 ? -1 : d == 3 ? 1 : 0);
+-        int z = m->z + (d == 0 ? -1 : d == 1 ? 1 : 0);
+-        int tile = SS3DS_TownTile(fieldSystem, x, z);
+-        if ((tile & 3) == 1 && !SS3DS_WildCrowded(S, i, x, z)) {
+-            m->dir = d;
+-            m->fx = m->x;
+-            m->fz = m->z;
+-            m->x = x;
+-            m->z = z;
+-            m->t = 0;
+-            m->grass = (tile & 4) != 0;
+-            m->tracks = 0;
+-            return;
+-        }
++    int d = SS3DS_TownRouteStep(fieldSystem, S, i, doorX, stageZ);
++    if (d < 0) {
++        return;
+     }
++    m->dir = d;
++    m->fx = m->x;
++    m->fz = m->z;
++    m->x += d == 2 ? -1 : d == 3 ? 1 : 0;
++    m->z += d == 0 ? -1 : d == 1 ? 1 : 0;
++    m->t = 0;
++    m->grass = (SS3DS_TownTile(fieldSystem, m->x, m->z) & 4) != 0;
++    m->tracks = 0;
+ }
+ 
+ static void SS3DS_WildKill(SS3DSWildState *S, int i, const char *why) {
+@@ -977,6 +1024,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         }
+         SS3DS_BirdKill(S, "map change");
+         S->map = map;
++        if (S->shelterMap != map) {
++            S->shelterMap = 0;
++        }
+         S->spawnT = 60;
+         S->talk = 0;
+         S->soundT = 0;
+@@ -992,9 +1042,19 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     int alive = P3DS_WildVisCfg(5);
+     int env = alive ? SS3DS_WildEnv(fieldSystem) : 0;
+     int indoors = 0;
+-    const SS3DSTownRoutine *routine = alive >= 2 ? SS3DS_TownRoutineForMap(map, env, &indoors) : NULL;
++    const SS3DSTownLink *link = alive >= 2 ? SS3DS_TownRoutineLink(map) : NULL;
++    const SS3DSTownRoutine *routine = link ? SS3DS_TownRoutineForMap(map, env, &indoors) : NULL;
++    int rainShelter = link && !indoors && (env & 2) && routine;
++    if (rainShelter) {
++        S->shelterMap = link->inside;
++        routine = NULL;
++    } else if (link && indoors && S->shelterMap == map) {
++        routine = SS3DS_TownRoutineForMap(map, WILD_MORNING | WILD_DAY | WILD_EVENING, &indoors);
++    } else {
++        S->shelterMap = 0;
++    }
+     int doorX = 0, doorZ = 0, doorSide = 0;
+-    int leaving = alive >= 2 && !routine && SS3DS_TownRoutineDoor(map, env, &doorX, &doorZ, &doorSide);
++    int leaving = !routine && SS3DS_TownRoutineDoor(link, map, rainShelter ? -1 : env, &doorX, &doorZ, &doorSide);
+     int town = alive >= 2 && (SS3DS_TownMap(fieldSystem) || (indoors && (routine || leaving)));
+     if (town != sSS3DS_TownMode) {
+         PSPNativeMemLog("[WILD] town life %s on map %d", town ? "on" : "off", map);
+@@ -1135,7 +1195,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->homeZ = tz;
+             if (!regular && indoors) {
+                 int entryX, entryZ, entrySide;
+-                if (SS3DS_TownRoutineDoor(map, 0, &entryX, &entryZ, &entrySide)) {
++                if (SS3DS_TownRoutineDoor(link, map, -1, &entryX, &entryZ, &entrySide)) {
+                     entryZ += 2 * entrySide;
+                     int dx = entryX - px, dz = entryZ - pz;
+                     int entryTile = SS3DS_TownTile(fieldSystem, entryX, entryZ);
+@@ -1562,12 +1622,12 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             int ax = hx < 0 ? -hx : hx, az = hz < 0 ? -hz : hz;
+             if ((m->spare || napHabit) && ax + az >= (m->spare == 2 ? 1 : 3)) {
+                 d = ax > az ? (hx > 0 ? 3 : 2) : (hz > 0 ? 1 : 0);
+-                if (m->spare == 2 && ax && az) {
+-                    int x = m->x + (d == 2 ? -1 : d == 3 ? 1 : 0);
+-                    int z = m->z + (d == 0 ? -1 : d == 1 ? 1 : 0);
+-                    if ((SS3DS_TownTile(fieldSystem, x, z) & 3) != 1 || SS3DS_WildCrowded(S, i, x, z)) {
+-                        d = ax > az ? (hz > 0 ? 1 : 0) : (hx > 0 ? 3 : 2);
++                if (m->spare == 2) {
++                    d = SS3DS_TownRouteStep(fieldSystem, S, i, m->homeX, m->homeZ);
++                    if (d < 0) {
++                        continue;
+                     }
++                    m->timer = 8;
+                 }
+             } else if (!m->noticed && napHabit && ax + az == 0 && dist > 2 && SS3DS_WildRand(S, 12) < napHabit) {
+                 m->sleep = 180 + (int)SS3DS_WildRand(S, 300);
+-- 
+2.53.0
+
