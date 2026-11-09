@@ -1,3 +1,11 @@
+# Flower Shop clerk and landmark expansion (0247)
+
+When the morning Bellossom is present and Goldenrod's Flower Shop daytime routine starts in dry weather, a temporary outdoor clerk can walk to the real door using the game's native NPC movement. Bellossom follows the moving clerk and finishes its doorway animation. The clerk is removed at the door or if the scene times out. The original shopkeeper stays inside and retains her dialogue and scripts. The outdoor clerk is excluded from map-object saves and field interaction by its map, sprite and reserved object ID. Its last step onto the warp tile requires the matching doorway and an unoccupied tile.
+
+Named schedules also cover Sentret at the Cherrygrove Guide Gent's house, Marill at Olivine Café, Machop at the Cianwood Pharmacy, and Eevee at the Celadon Department Store. Azalea's Pokémon Center has a measured flat roof perch from model 40 in land block 33.
+
+Generated encounter, field, map-object and input sources passed devkitARM syntax and staged-hook idempotence checks. The native movement and creation symbols exist in the current game ELF. A host harness covered the temporary object, blocked approach, following, door entry and cleanup. Device checks are still needed for sprite loading, native held movement, actual door timing and landmark visibility. There are eleven named resident locations, three measured rooftops and two Violet overhangs. Other towns use their local profiles and shared behaviors.
+
 # Johto and Kanto town identities (0246)
 
 Alive wild Pokémon ON + TOWNS now includes city maps that have encounter tables. When a spawn candidate is on an encounter tile it uses the wild table and keeps its normal battle behavior. Open town tiles can support local residents on the same map. City showers use the transient renderer effect introduced for Violet, with different intervals and durations and no save writes. Native nonclear weather takes precedence.
