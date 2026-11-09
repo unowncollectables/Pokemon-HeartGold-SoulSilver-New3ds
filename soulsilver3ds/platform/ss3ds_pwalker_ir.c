@@ -175,6 +175,8 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
     const char *stage = "setup";
     const size_t total = length;
     bool complete = false;
+    u8 fifoLevel = 0;
+    u8 lineStatus = 0;
     if (!writeReg(EFCR, 6) || !writeReg(FCR, 5))
         goto finish;
 
@@ -200,6 +202,16 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
             break;
         }
         if (length) {
+            fifoLevel = status;
+            if (!status) {
+                // THR empty independently confirms the FIFO can be refilled.
+                if (!transfer(LSR, &lineStatus, 1, true)) {
+                    stage = "refill line status";
+                    break;
+                }
+                if (lineStatus & BIT(5))
+                    status = 64;
+            }
             if (status > 64) {
                 stage = "invalid FIFO level";
                 break;
@@ -213,9 +225,12 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
             }
             data += count;
             length -= count;
-        } else if (status & BIT(6)) {
-            complete = true;
-            break;
+        } else {
+            lineStatus = status;
+            if (status & BIT(6)) {
+                complete = true;
+                break;
+            }
         }
     }
 
@@ -223,9 +238,10 @@ finish:
     bool disabled = writeReg(EFCR, 6);
     bool cleared = writeReg(FCR, 0);
     if (!complete || !disabled || !cleared) {
-        PSPNativeMemLog("[PWALKER] TX %s: queued %u/%u bytes",
+        PSPNativeMemLog("[PWALKER] TX %s: queued %u/%u bytes, TXLVL=%02x LSR=%02x",
                         complete ? "cleanup" : stage,
-                        (unsigned)(total - length), (unsigned)total);
+                        (unsigned)(total - length), (unsigned)total,
+                        (unsigned)fifoLevel, (unsigned)lineStatus);
     }
     return complete && disabled && cleared;
 }
