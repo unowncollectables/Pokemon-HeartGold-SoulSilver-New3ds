@@ -1,6 +1,14 @@
+# README baseline note (2026-11-09)
+
+README describes the intended 3D baseline: `g3_packets`, `g3_fast_bounds`, `gpu_obj_affine`, and `gpu_b_fades` on, `gpu_compose_b` = ON (CHECK stays the pixel-compare mode), and Display title sides WIDE (`title_clean_sides`). The toggles stay in the menu. This note does not change runtime defaults; writing that baseline into the built-in defaults is a separate change.
+
+Hardware run 702 of `1fcccb2`: those five options were active in the field and in battles, including stereo. Samples were mostly 29–30 fps, the exit was clean, and the log had no crash. Play of that build found the options working well. That pass does not cover every scene and is not a measured fps comparison. Title sides were set to WIDE later in the run and the title was not opened again, so the wide title is still unconfirmed on hardware. Occasional fades and battle speed dips may remain.
+
+GTS support on hardware is unchanged. A revival-server outage reported on 8 Nov 2026 is server-side. Mystery Gift is a separate path and was still working.
+
 # Rendering performance hardware trial (2026-11-08)
 
-Platform rebuild/link against main after PR #401. The field command and bounds shortcuts were checked against paired stereo frames. The user confirmed smoother battle send-outs and approved the GPU wide title appearance in Azahar. A steady 300-frame title sample averaged 38.79 ms. GPU title verification compared the centre and side panels against the exact CPU layout and reported zero differing pixels across 240 checks. These measurements are from the local experiment. Device performance and GPU parity still need testing.
+Platform rebuild/link against main after PR #401. The field command and bounds shortcuts were checked against paired stereo frames. The user confirmed smoother battle send-outs and approved the GPU wide title appearance in Azahar. A steady 300-frame title sample averaged 38.79 ms. GPU title verification compared the centre and side panels against the exact CPU layout and reported zero differing pixels across 240 checks. These measurements are from the local experiment. The hardware pass above covers the five shortcuts in field and battles; wide-title hardware and full scene coverage are still open.
 
 See Release Notes for the settings to reproduce the trial. Second screen GPU CHECK presents the CPU result and logs pixel differences. Use ON for timing. Unsupported composition falls back to the CPU. Keep the ROM, 512 KiB save, and build artifacts outside Git.
 
