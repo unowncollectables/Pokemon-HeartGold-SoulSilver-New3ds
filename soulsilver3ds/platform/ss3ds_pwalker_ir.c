@@ -21,6 +21,7 @@ enum {
 // Poll for completion without raising the system I2C interrupt.
 static vu8 *const bus = (vu8 *)I2C_BASE;
 static bool opened;
+extern void PSPNativeMemLog(const char *fmt, ...);
 
 static bool waitIdle(void)
 {
@@ -132,11 +133,20 @@ bool SS3DS_PwalkerIrListen(void)
 int SS3DS_PwalkerIrRead(uint8_t *data, size_t capacity)
 {
     u8 available;
-    if (!transfer(RXLVL, &available, 1, true) || available > 64)
+    if (!transfer(RXLVL, &available, 1, true)) {
+        PSPNativeMemLog("[PWALKER] RX FIFO level read failed");
         return -1;
+    }
+    if (available > 64) {
+        PSPNativeMemLog("[PWALKER] RX invalid FIFO level: %u", (unsigned)available);
+        return -1;
+    }
     size_t count = available < capacity ? available : capacity;
-    if (count && !transfer(FIFO, data, count, true))
+    if (count && !transfer(FIFO, data, count, true)) {
+        PSPNativeMemLog("[PWALKER] RX FIFO read failed: requested %u, level %u",
+                        (unsigned)count, (unsigned)available);
         return -1;
+    }
     return (int)count;
 }
 
@@ -200,7 +210,6 @@ finish:
     bool disabled = writeReg(EFCR, 6);
     bool cleared = writeReg(FCR, 0);
     if (!complete || !disabled || !cleared) {
-        extern void PSPNativeMemLog(const char *fmt, ...);
         PSPNativeMemLog("[PWALKER] TX %s: queued %u/%u bytes",
                         complete ? "cleanup" : stage,
                         (unsigned)(total - length), (unsigned)total);

@@ -80,6 +80,7 @@ static void busWorker(void *unused)
     u32 session = 0;
     bool listening = false;
     bool firstReply = true;
+    unsigned receiveErrors = 0;
     for (;;) {
         Packet packet;
         bool send = false;
@@ -103,6 +104,7 @@ static void busWorker(void *unused)
         if (wanted && session != requested) {
             session = requested;
             firstReply = true;
+            receiveErrors = 0;
             listening = SS3DS_PwalkerIrOpen() && SS3DS_PwalkerIrListen();
             if (!listening)
                 SS3DS_PwalkerIrClose();
@@ -123,6 +125,8 @@ static void busWorker(void *unused)
                                 (unsigned)packet.length, sent, listening);
         } else if (listening && wanted && canReceive) {
             int count = receivePacket(&packet);
+            if (count >= 0)
+                receiveErrors = 0;
             if (count > 0) {
                 LightLock_Lock(&busLock);
                 if (active && generation == session)
@@ -134,9 +138,16 @@ static void busWorker(void *unused)
                                     (unsigned)packet.length, (unsigned)packet.bytes[0]);
                 }
             } else if (count < 0) {
-                PSPNativeMemLog("[PWALKER] IR receive failed");
-                SS3DS_PwalkerIrClose();
-                listening = false;
+                // A failed FIFO read can consume part of a packet. Discard
+                // it and re-arm RX rather than replaying the read.
+                if (++receiveErrors < 3 && SS3DS_PwalkerIrListen()) {
+                    PSPNativeMemLog("[PWALKER] IR receive re-armed (%u/2)",
+                                    receiveErrors);
+                } else {
+                    PSPNativeMemLog("[PWALKER] IR receive failed; closing session");
+                    SS3DS_PwalkerIrClose();
+                    listening = false;
+                }
             }
         }
         if (!listening) {

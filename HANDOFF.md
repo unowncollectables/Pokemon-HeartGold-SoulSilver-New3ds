@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+The owner confirmed a complete Pokewalker send, return and gift on run 727. Subsequent attempts disconnect, including after reboot. RX now distinguishes status read failure, invalid FIFO count and payload read failure. The worker discards incomplete packets and re-arms RX after isolated failures, closing after three consecutive failures or a failed re-arm. The cause of repeated-session failures and the separate power-off symptom remain unverified.
+
 After one reported transfer, the next attempts still got valid F8 replies but failed to transmit 112-byte opcode 52 and 93-byte opcode 00 packets. Commit 93999e1 fills the 64-byte TX FIFO before enabling the transmitter for long packets and logs the failing stage and queued byte count. ARM syntax check passed. Repeated send and return on hardware remain unverified.
 
 Run 726 verified several checksum-valid 8-byte F8 handshakes and the owner confirmed the accessory reset. A transfer attempt subsequently logged an IR transmit failure followed by a receive failure. The follow-up retries only I2C address selection and records the failed transmit opcode and length. Send and return remain unverified.
