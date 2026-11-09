@@ -1,3 +1,9 @@
+# Wild Pokémon peek out of grass (0236)
+
+With Alive wild Pokémon on, ordinary startled wild Pokémon can stop once they reach tall grass. They tuck down with a short rustle, track the player, and gradually peek back up after a quiet interval. Close footsteps can send them fleeing again. The cover state changes the sprite and movement decisions while the existing collision and encounter hooks stay in effect.
+
+The staged hook was idempotent and the generated C passed devkitARM syntax checks. A host harness verified the response to nearby noise, a quiet approach, getting too close and leaving the area. Peek visibility and how the timing feels need a New 3DS check. The transition into cover logs [WILD] ... ducks into grass.
+
 # Town scenery routines (0235)
 
 With Alive wild Pokémon set to ON + TOWNS, some land residents look for safe spots by water or vegetation when spawning. When undisturbed near home, a resident can face the scenery and linger. In rain, residents can pause beside a wall or in grass and favor grass when choosing a nearby tile. Wall-side spots are inferred from terrain collision, which also includes fences. There is no roof, awning or shop-opening metadata in this behavior.
