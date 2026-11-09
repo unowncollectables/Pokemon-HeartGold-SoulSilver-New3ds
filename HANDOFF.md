@@ -1,3 +1,7 @@
+# CIA startup splash
+
+The HOME Menu CIA omits the Homebrew Menu startup logo. The next installed CIA needs a cold launch on New 3DS to verify the splash is gone. Boot timing has not been measured.
+
 # Seasonal ambient weather (0248)
 
 Settings > Display > Ambient weather defaults to OFF. Seasons rotate every seven calendar days using the console clock, for a 28-day cycle. ON replaces the short town showers with regional conditions shared across eligible clear towns and routes for each three-hour clock window. Spring is wetter, summer is mostly clear, autumn brings some rain and morning or evening mist, and winter brings snow most often around Mahogany and Blackthorn. The same winter front can bring rain to the lowlands and snow to the highlands. Native weather and field tasks take precedence. Connected outdoor maps pass the destination forecast to the existing renderer transition, so a shared shower does not first request clear weather. The native weather manager draws the ambient effects, and Alive wild Pokémon uses its existing rain shelter and weather-dependent flyover behavior once the weather manager reports the effect. The forecast stays in RAM and does not update the native weather field used by saves, encounters, or battles.

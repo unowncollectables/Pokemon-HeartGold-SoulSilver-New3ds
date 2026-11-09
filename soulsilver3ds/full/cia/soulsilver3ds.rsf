@@ -12,7 +12,7 @@
 BasicInfo:
   Title                   : "SoulSilver 3DS"
   ProductCode             : "CTR-H-SS3D"
-  Logo                    : Homebrew
+  Logo                    : None
 
 TitleInfo:
   Category                : Application
