@@ -44,11 +44,23 @@ static bool sendByte(u8 byte, u8 flags)
     return false;
 }
 
+static bool beginTransfer(u8 reg, bool read)
+{
+    // Retry only address selection. Once FIFO bytes have moved, retrying the
+    // whole transaction could duplicate or drop part of an IR packet.
+    for (unsigned attempt = 0; attempt < 3; attempt++) {
+        if (!waitIdle())
+            return false;
+        if (sendByte(IR_ADDRESS, I2C_START) && sendByte(reg, 0) &&
+            (!read || sendByte(IR_ADDRESS | 1, I2C_START)))
+            return true;
+    }
+    return false;
+}
+
 static bool transfer(u8 reg, u8 *data, size_t length, bool read)
 {
-    if (!waitIdle() || !sendByte(IR_ADDRESS, I2C_START) || !sendByte(reg, 0))
-        return false;
-    if (read && !sendByte(IR_ADDRESS | 1, I2C_START))
+    if (!beginTransfer(reg, read))
         return false;
 
     for (size_t i = 0; i < length; i++) {

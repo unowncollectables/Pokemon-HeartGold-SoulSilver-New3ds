@@ -118,7 +118,9 @@ static void busWorker(void *unused)
                 listening = false;
             }
             if (!sent || !listening)
-                PSPNativeMemLog("[PWALKER] IR transmit failed");
+                PSPNativeMemLog("[PWALKER] IR transmit failed: opcode %02x, %u bytes, sent=%d rx-ready=%d",
+                                (unsigned)(packet.bytes[0] ^ 0xaa),
+                                (unsigned)packet.length, sent, listening);
         } else if (listening && wanted && canReceive) {
             int count = receivePacket(&packet);
             if (count > 0) {
