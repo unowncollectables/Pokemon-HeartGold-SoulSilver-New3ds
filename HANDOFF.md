@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 733 showed valid F8 replies and recovered from several invalid RX levels, with no logged transmit timeout. It did not record successful data packets, so the result of the later transfer exchange is unknown. The follow-up logs the first 32 TX completions and RX packet results per session to identify the last completed command.
+
 Run 732 still timed out with TXLVL=00 and LSR=00, including after fully queuing 30- and 64-byte packets. This is broader than refilling long packets. The follow-up wakes the UART before each send, checks EFCR after enabling TX, and records mode and sleep registers on timeout. The hardware cause remains unconfirmed.
 
 Run 731 loaded the first 64 bytes but timed out refilling three packets (136, 77 and 112 bytes). The follow-up checks the UART transmitter-empty flag when TXLVL reads zero and logs both registers on failure. Hardware refill and repeated transfers remain unverified.

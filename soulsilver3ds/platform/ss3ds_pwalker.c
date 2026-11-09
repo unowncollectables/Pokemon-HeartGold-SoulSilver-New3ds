@@ -79,7 +79,8 @@ static void busWorker(void *unused)
     (void)unused;
     u32 session = 0;
     bool listening = false;
-    bool firstReply = true;
+    unsigned txLogged = 0;
+    unsigned rxLogged = 0;
     unsigned receiveErrors = 0;
     for (;;) {
         Packet packet;
@@ -103,7 +104,7 @@ static void busWorker(void *unused)
         }
         if (wanted && session != requested) {
             session = requested;
-            firstReply = true;
+            txLogged = rxLogged = 0;
             receiveErrors = 0;
             listening = SS3DS_PwalkerIrOpen() && SS3DS_PwalkerIrListen();
             if (!listening)
@@ -119,6 +120,12 @@ static void busWorker(void *unused)
                 SS3DS_PwalkerIrClose();
                 listening = false;
             }
+            if (sent && listening && txLogged < 32) {
+                txLogged++;
+                PSPNativeMemLog("[PWALKER] TX complete: opcode %02x, %u bytes",
+                                (unsigned)(packet.bytes[0] ^ 0xaa),
+                                (unsigned)packet.length);
+            }
             if (!sent || !listening)
                 PSPNativeMemLog("[PWALKER] IR transmit failed: opcode %02x, %u bytes, sent=%d rx-ready=%d",
                                 (unsigned)(packet.bytes[0] ^ 0xaa),
@@ -132,10 +139,11 @@ static void busWorker(void *unused)
                 if (active && generation == session)
                     incoming = packet;
                 LightLock_Unlock(&busLock);
-                if (firstReply && validPacket(&packet)) {
-                    firstReply = false;
-                    PSPNativeMemLog("[PWALKER] first valid response: %u bytes, opcode %02x",
-                                    (unsigned)packet.length, (unsigned)packet.bytes[0]);
+                if (packet.length > 1 && rxLogged < 32) {
+                    rxLogged++;
+                    PSPNativeMemLog("[PWALKER] RX %s: opcode %02x, %u bytes",
+                                    validPacket(&packet) ? "valid" : "invalid",
+                                    (unsigned)packet.bytes[0], (unsigned)packet.length);
                 }
             } else if (count < 0) {
                 // A failed FIFO read can consume part of a packet. Discard
