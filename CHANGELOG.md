@@ -9,6 +9,7 @@ All notable changes to this project will be documented here.
 - Fliers look for a clear low route or take a higher pass. Enabled through the existing Alive wild Pokémon setting.
 - Species have different temperament and nap tendencies, with variation per spawn. Nearby Pokémon can trade hops or splashes, and land Pokémon seek adjacent tall grass in the rain.
 - Moving or startled Pokémon can rustle tall grass, and water Pokémon leave a fading ripple when a jump lands.
+- Town residents sometimes stop to face water or greenery and gather by walls or in grass during rain.
 
 ### Johto bottom map: steadier player head, 2X zoom, roamer icons
 - The player head on the scaled bottom map was placed with `mark * 5 / 4`, which does not match the 2x-then-linear scale. On some towns the head slipped a screen pixel against the map while the view moved, then sat off. It now uses the screen pixel that samples that same map pixel. Standing still was already still. Location changes still move it.

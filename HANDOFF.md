@@ -1,3 +1,9 @@
+# Town scenery routines (0235)
+
+With Alive wild Pokémon set to ON + TOWNS, some land residents look for safe spots by water or vegetation when spawning. When undisturbed near home, a resident can face the scenery and linger. In rain, residents can pause beside a wall or in grass and favor grass when choosing a nearby tile. Wall-side spots are inferred from terrain collision, which also includes fences. There is no roof, awning or shop-opening metadata in this behavior.
+
+The devkitARM syntax checks and staged-hook idempotence check passed. A host harness covered pond detection, open ground, rain-side terrain and the existing doorway and movement safeguards. The designated build and a New 3DS playtest are pending. Rain transitions log [WILD] ... seeks a rain spot.
+
 # Overworld grass and water cues (0234)
 
 With Alive wild Pokémon enabled, moving into tall grass or being startled while in it briefly draws bending leaves at the Pokémon's feet. The leaves are a small sprite effect. A water Pokémon's jump now ends in an expanding ripple at the surface, and the Pokémon stays on its landing tile until the ripple fades. The effects use the existing field camera, ground height and cave visibility checks.
