@@ -1,6 +1,6 @@
-# README baseline note (2026-11-09)
+# Built-in 3D defaults (2026-11-09)
 
-README describes the intended 3D baseline: `g3_packets`, `g3_fast_bounds`, `gpu_obj_affine`, and `gpu_b_fades` on, `gpu_compose_b` = ON (CHECK stays the pixel-compare mode), and Display title sides WIDE (`title_clean_sides`). The toggles stay in the menu. This note does not change runtime defaults; writing that baseline into the built-in defaults is a separate change.
+Built-in defaults when the key is absent from `config.txt`: `g3_packets=1`, `g3_fast_bounds=1`, `gpu_obj_affine=1`, `gpu_b_fades=1`, `gpu_compose_b=1` (ON; CHECK stays 2), `title_clean_sides=2` (WIDE). A saved line wins, including OFF and LEGACY. The menu still writes a key only when that row changes. Wide title on the title screen is still unconfirmed on hardware.
 
 Hardware run 702 of `1fcccb2`: those five options were active in the field and in battles, including stereo. Samples were mostly 29–30 fps, the exit was clean, and the log had no crash. Play of that build found the options working well. That pass does not cover every scene and is not a measured fps comparison. Title sides were set to WIDE later in the run and the title was not opened again, so the wide title is still unconfirmed on hardware. Occasional fades and battle speed dips may remain.
 

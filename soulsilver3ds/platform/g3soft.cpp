@@ -422,7 +422,7 @@ static unsigned BoxOutOrig(const float*B,float qwK,bool zp){
 
 #include "g3_boxplanes.h"
 static FastBoxPlanes fastPlanes;static bool fastBatchOn;static int fastBoundsV=-1;
-extern "C" int P3DS_FastBoundsCfg(void){if(fastBoundsV<0){fastBoundsV=P3DS_CfgInt("g3_fast_bounds",0)!=0;PSPNativeMemLog("[G3BOUNDS] g3_fast_bounds=%d (support planes, original calculation near boundaries)",fastBoundsV);}return fastBoundsV;}
+extern "C" int P3DS_FastBoundsCfg(void){if(fastBoundsV<0){fastBoundsV=P3DS_CfgInt("g3_fast_bounds",1)!=0;PSPNativeMemLog("[G3BOUNDS] g3_fast_bounds=%d (support planes, original calculation near boundaries)",fastBoundsV);}return fastBoundsV;}
 extern "C" void P3DS_SetFastBounds(int v){fastBoundsV=v!=0;PSPNativeMemLog("[G3BOUNDS] g3_fast_bounds=%d from settings",fastBoundsV);}
 static unsigned fastBox(const float*B,float qwK,bool zp){unsigned m=fastPlanes.test(B);return (m&0x80000000u)?BoxOutOrig(B,qwK,zp):m;}
 static unsigned BoxOut(const float*B,float qwK,bool zp){

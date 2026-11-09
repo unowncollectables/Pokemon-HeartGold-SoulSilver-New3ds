@@ -14,7 +14,7 @@ extern int P3DS_PacketDecodeCheck(u32,const u32 *,u32,const draw_msg_t *,unsigne
 
 static int enabled=-1;
 int P3DS_G3PacketCfg(void){
- if(enabled<0){enabled=P3DS_CfgInt("g3_packets",0)!=0;PSPNativeMemLog("[G3PACK] g3_packets=%d (bounded synchronous setup-command shortcut)",enabled);}
+ if(enabled<0){enabled=P3DS_CfgInt("g3_packets",1)!=0;PSPNativeMemLog("[G3PACK] g3_packets=%d (bounded synchronous setup-command shortcut)",enabled);}
  return enabled;
 }
 void P3DS_SetG3Packets(int v){enabled=v!=0;PSPNativeMemLog("[G3PACK] g3_packets=%d from settings",enabled);}
