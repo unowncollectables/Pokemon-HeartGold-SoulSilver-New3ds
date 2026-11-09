@@ -4,6 +4,9 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Visible wild Pokemon keep their own ground height
+- Patch 0230: sprites were drawn at the player's height, so they rose and sank with stairs and slopes. Each one now uses the map height at its own position (the same query map objects use). Hop, shadow, and flyer altitude stay on top of that height. Visible-wild off is unchanged. Wide view and stereo are unchanged. Not compiled here. Log `[WILD] own ground y`.
+
 ### Built-in defaults for the 3D shortcuts and wide title
 - When `config.txt` has no line for them, `g3_packets`, `g3_fast_bounds`, `gpu_obj_affine`, and `gpu_b_fades` start at 1, `gpu_compose_b` starts at 1 (ON; CHECK is still 2), and `title_clean_sides` starts at 2 (WIDE).
 - A value already in `config.txt` is kept, including OFF and LEGACY. Settings still saves a row only when that row changes. The save file is untouched.

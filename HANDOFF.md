@@ -1,3 +1,9 @@
+# Visible wild ground height (2026-11-09)
+
+Visible wild sprites were drawn at the player's height (`PlayerAvatar_GetPositionVector()->y` shared by every sprite in `SS3DS_WildDraw`). Walking up stairs lifted them; walking down pushed them into the ground. Patch 0230 samples the map mesh at each sprite's own world x/z through `sub_02061248` (the query map objects already use). Hop, the land shadow, and the flyer altitude (28 or 40 plus bob) stay added on top of that height. The player's height is only the hint when a bridge sits over ground, and the fallback when that spot has no surface (`unk60` null or the query returns false). `wild_vis` off still returns before any of this. Wide view and stereo are unchanged: the quads stay in world space.
+
+Needs a game rebuild so hook 0110 refreshes `fieldmap_native.c` (`fieldmap_native.o`). No platform rebuild is required for this patch alone. Not compiled here. Save file is untouched. First four mismatches log `[WILD] own ground y A, player y B`. A missing surface logs `[WILD] ground height missing, keep player y N` up to four times.
+
 # Built-in 3D defaults (2026-11-09)
 
 Built-in defaults when the key is absent from `config.txt`: `g3_packets=1`, `g3_fast_bounds=1`, `gpu_obj_affine=1`, `gpu_b_fades=1`, `gpu_compose_b=1` (ON; CHECK stays 2), `title_clean_sides=2` (WIDE). A saved line wins, including OFF and LEGACY. The menu still writes a key only when that row changes. Wide title on the title screen is still unconfirmed on hardware.
