@@ -1,0 +1,257 @@
+From a6bf21d4e3a8a1ee45b84b9b72adab7e5096279a Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 09:24:53 -0500
+Subject: [PATCH] Add opt-in seasonal ambient weather
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 175 ++++++++++++++++++++++++--
+ 1 file changed, 167 insertions(+), 8 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index f8ab7b2..00120cf 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -386,7 +386,7 @@ int SS3DS_WildEnv(FieldSystem *fieldSystem) {
+ }
+ 
+ // Ambient flyer for this area, time of day and weather (decoration). 0 = none here (indoors, caves). *legend = 1 for a rare legendary.
+-int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend, int shower) {
++int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend, int ambientWeather) {
+     static const u16 kFly[] = { 16, 17, 18, 21, 22, 41, 42, 163, 164, 169, 198, 225, 227, 276, 277, 278, 279, 333, 334, 396, 397, 398 };
+     static const u16 kDay[] = { 16, 16, 17, 21, 21, 22, 276, 18 };
+     static const u16 kNight[] = { 163, 163, 164, 198, 198, 42 };
+@@ -394,7 +394,7 @@ int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend, int shower) {
+     if (!MapHeader_IsOutdoors(fieldSystem->location->mapId)) {
+         return 0;
+     }
+-    int weather = shower ? WEATHER_RAIN : LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
++    int weather = ambientWeather ? ambientWeather : LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
+     TIMEOFDAY tod = GF_RTC_GetTimeOfDay();
+     int night = tod == RTC_TIMEOFDAY_NITE || tod == RTC_TIMEOFDAY_LATE;
+     if (weather <= WEATHER_THUNDERSTORM && LCRandRange(4096) == 0) { // as rare as a shiny flyover-wise
+@@ -444,7 +444,7 @@ extern int SS3DS_WildTileKind(FieldSystem *fieldSystem, int x, int z);
+ extern int SS3DS_WildBlockedMap(FieldSystem *fieldSystem);
+ extern int SS3DS_WildPick(FieldSystem *fieldSystem, int surf, int *species, int *level);
+ extern int SS3DS_WildRoamer(FieldSystem *fieldSystem, int *species, int *level);
+-extern int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend, int shower);
++extern int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend, int ambientWeather);
+ extern void P3DS_AchSky(int legend);
+ extern int SS3DS_WildEnv(FieldSystem *fieldSystem);
+ extern int SS3DS_TownMap(FieldSystem *fieldSystem);
+@@ -1212,7 +1212,7 @@ static void SS3DS_BirdSound(SS3DSWildState *S, int px, int pz) {
+     }
+ }
+ 
+-static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz, int env) {
++static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz, int env, int ambientWeather) {
+     if (!P3DS_WildVisCfg(5)) {
+         SS3DS_BirdKill(S, "off");
+         return;
+@@ -1249,7 +1249,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+         return;
+     }
+     S->birdNext = 900 + (int)SS3DS_WildRand(S, 1200);
+-    int legend = 0, sp = SS3DS_WildBirdPick(fieldSystem, &legend, (env & 2) && S->townShowerT < 0);
++    int legend = 0, sp = SS3DS_WildBirdPick(fieldSystem, &legend, ambientWeather);
+     if (sp <= 0) {
+         return;
+     }
+@@ -1371,15 +1371,161 @@ static int SS3DS_TownShower(FieldSystem *fieldSystem, SS3DSWildState *S, int ena
+     return rain;
+ }
+ 
++static BOOL SS3DS_SeasonHighland(int map) {
++    switch (map) {
++    case MAP_MAHOGANY:
++    case MAP_LAKE_OF_RAGE:
++    case MAP_BLACKTHORN:
++    case MAP_ROUTE_42:
++    case MAP_ROUTE_43:
++    case MAP_ROUTE_44:
++    case MAP_ROUTE_45:
++        return TRUE;
++    default:
++        return FALSE;
++    }
++}
++
++enum { SEASON_SPRING, SEASON_SUMMER, SEASON_AUTUMN, SEASON_WINTER };
++
++static int SS3DS_SeasonForDay(u32 day) {
++    return (day / 7) % 4;
++}
++
++// One roll per region and three-hour window. Elevation can change the form
++// of precipitation while the surrounding lowlands share the same front.
++static int SS3DS_SeasonWeather(u32 region, BOOL highland, u32 day, int hour) {
++    u32 window = day * 8u + hour / 3;
++    u32 roll = window ^ (region * 0x9e3779b9u);
++    roll ^= roll >> 16;
++    roll *= 0x7feb352du;
++    roll ^= roll >> 15;
++    roll *= 0x846ca68bu;
++    roll ^= roll >> 16;
++    roll %= 100;
++    switch (SS3DS_SeasonForDay(day)) {
++    case SEASON_SPRING:
++        return roll < 25 ? WEATHER_RAIN : WEATHER_SUNNY;
++    case SEASON_SUMMER:
++        return roll < 12 ? WEATHER_RAIN : WEATHER_SUNNY;
++    case SEASON_AUTUMN:
++        if (roll < 12 && (hour < 9 || hour >= 18)) {
++            return WEATHER_UNKNOWN_9; // Native mist
++        }
++        return roll >= 12 && roll < 20 ? WEATHER_RAIN : WEATHER_SUNNY;
++    default:
++        if (roll < (highland ? 26 : 8)) {
++            return WEATHER_SNOW;
++        }
++        return roll < 18 ? WEATHER_RAIN : WEATHER_SUNNY;
++    }
++}
++
++extern int P3DS_AmbientWeatherCfg(void);
++
++static int SS3DS_AmbientForecast(int map) {
++    MapType type = MapHeader_GetMapType(map);
++    if ((type != MAP_TYPE_CITY_TOWN && type != MAP_TYPE_ROUTE) || !MapHeader_IsOutdoors(map)) {
++        return WEATHER_SUNNY;
++    }
++    RTCDate date;
++    RTCTime time;
++    GF_RTC_CopyDateTime(&date, &time);
++    s32 day = RTC_ConvertDateToDay(&date);
++    if (day < 0 || time.hour >= 24) {
++        return WEATHER_SUNNY;
++    }
++    static int lastSeason = -1;
++    static const char *const names[] = { "spring", "summer", "autumn", "winter" };
++    int season = SS3DS_SeasonForDay((u32)day);
++    if (season != lastSeason) {
++        PSPNativeMemLog("[WEATHER] season %s", names[season]);
++        lastSeason = season;
++    }
++    return SS3DS_SeasonWeather(MapHeader_GetRegionNo(map), SS3DS_SeasonHighland(map), (u32)day, time.hour);
++}
++
++// Map connections reuse the manager. Pass the destination forecast into the
++// original transition call so shared weather does not briefly clear.
++static int SS3DS_ConnectedRenderWeather(FieldSystem *fieldSystem, int map, int native) {
++    if (native != WEATHER_SUNNY || !P3DS_AmbientWeatherCfg() || FieldSystem_TaskIsRunning(fieldSystem)) {
++        return native;
++    }
++    return SS3DS_AmbientForecast(map);
++}
++
++static int SS3DS_SeasonWeatherTick(FieldSystem *fieldSystem, int enabled, int townShower) {
++    static int refresh, lastMap = -1, wasEnabled, forecast, requested, restoring;
++    static void *lastManager;
++    if (fieldSystem->location == NULL || fieldSystem->unk4 == NULL || fieldSystem->unk4->weatherManager == NULL) {
++        return 0;
++    }
++    if (FieldSystem_TaskIsRunning(fieldSystem)) {
++        return 0;
++    }
++    int map = fieldSystem->location->mapId;
++    void *manager = fieldSystem->unk4->weatherManager;
++    int entered = manager != lastManager || map != lastMap;
++    if (entered) {
++        requested = WEATHER_SUNNY;
++        restoring = 0;
++    }
++    int sample = entered || refresh == 0 || enabled != wasEnabled;
++    if (sample) {
++        forecast = enabled ? SS3DS_AmbientForecast(map) : WEATHER_SUNNY;
++        refresh = 60;
++    }
++    refresh--;
++    wasEnabled = enabled;
++    lastMap = map;
++    lastManager = manager;
++    if (!enabled && !requested && !restoring) {
++        return 0;
++    }
++    int native = LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
++    if (native != WEATHER_SUNNY) {
++        requested = WEATHER_SUNNY;
++        restoring = 0;
++        return 0;
++    }
++    int desired = forecast;
++    int current = ov01_021EB31C(manager);
++    if (desired != requested || (enabled && townShower && !entered)) {
++        WeatherManager_ChangeWeather(manager, desired);
++        restoring = desired == WEATHER_SUNNY;
++        requested = desired;
++        PSPNativeMemLog("[WEATHER] map %d ambient %d", map, desired);
++    } else if ((desired || restoring) && sample) {
++        if (current != desired) {
++            WeatherManager_ChangeWeather(manager, desired);
++        } else {
++            restoring = 0;
++        }
++    }
++    // The weather transition is asynchronous. Let residents react once the
++    // native manager reports the visible condition.
++    if ((requested || restoring) && (current == WEATHER_RAIN || current == WEATHER_SNOW || current == WEATHER_UNKNOWN_9)) {
++        return current;
++    }
++    return WEATHER_SUNNY;
++}
++
+ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     SS3DSWildState *S = SS3DS_WildGet();
++    int seasonal = P3DS_AmbientWeatherCfg();
++    int ambientWeather = SS3DS_SeasonWeatherTick(fieldSystem, seasonal, S->townShowerT < 0);
++    if (seasonal && !FieldSystem_TaskIsRunning(fieldSystem)) {
++        S->townShowerT = 0;
++    }
+     int i;
+     if (!P3DS_WildVisCfg(0) || fieldSystem->playerAvatar == NULL || fieldSystem->location == NULL || !P3DS_FollowerOpen()) {
+         for (i = 0; i < SS3DS_WILD_MAX; i++) {
+             SS3DS_WildKill(S, i, "off");
+         }
+         SS3DS_BirdKill(S, "off");
+-        SS3DS_TownShower(fieldSystem, S, 0, 0);
++        if (!seasonal) {
++            SS3DS_TownShower(fieldSystem, S, 0, 0);
++        }
+         SS3DS_TownClerkRemove(fieldSystem, S);
+         S->talk = 0;
+         return;
+@@ -1424,10 +1570,15 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     // Menus, the bike, scripts: they stay where they are and stay drawn, they just wait
+     int alive = P3DS_WildVisCfg(5);
+     int env = alive ? SS3DS_WildEnv(fieldSystem) : 0;
+-    if (SS3DS_TownShower(fieldSystem, S, alive >= 2, entered)) {
++    if (!seasonal && SS3DS_TownShower(fieldSystem, S, alive >= 2, entered)) {
++        ambientWeather = WEATHER_RAIN;
++    }
++    if (ambientWeather == WEATHER_RAIN) {
+         env |= 2;
++    } else if (ambientWeather == WEATHER_SNOW) {
++        env |= 4;
+     }
+-    SS3DS_BirdTick(fieldSystem, S, px, pz, env);
++    SS3DS_BirdTick(fieldSystem, S, px, pz, env, ambientWeather);
+     int indoors = 0;
+     const SS3DSTownLink *link = alive >= 2 ? SS3DS_TownRoutineLink(map) : NULL;
+     const SS3DSTownRoutine *routine = link ? SS3DS_TownRoutineForMap(map, env, &indoors) : NULL;
+@@ -2577,6 +2728,14 @@ if which in ('all', 'field'):
+     s = open(p).read()
+     proto = 'static void SS3DS_WildTick(FieldSystem *fieldSystem); // SS3DS 0112: defined in the 0110 block below\nstatic void SS3DS_WildDraw(FieldSystem *fieldSystem);\n'
+     main = 'BOOL FieldMap_Main(OverlayManager *man, int *state) {\n'
++    weather_call = '    WeatherManager_ChangeWeather(fieldSystem->unk4->weatherManager, LocalFieldData_GetWeatherType(localFieldData));'
++    connected_weather = '    WeatherManager_ChangeWeather(fieldSystem->unk4->weatherManager, SS3DS_ConnectedRenderWeather(fieldSystem, newMapID, LocalFieldData_GetWeatherType(localFieldData)));'
++    weather_proto = 'static int SS3DS_ConnectedRenderWeather(FieldSystem *fieldSystem, int map, int native);\n'
++    if connected_weather not in s:
++        if s.count(weather_call) != 1 or s.count(main) != 1:
++            sys.exit('0110_wildvis: connected weather anchor not found exactly once')
++        s = s.replace(weather_call, connected_weather).replace(main, weather_proto + main)
++        open(p, 'w').write(s)
+     if proto not in s:
+         if s.count(main) != 1:
+             sys.exit('0110_wildvis: FieldMap_Main not found exactly once in fieldmap.c')
+-- 
+2.53.0
+
