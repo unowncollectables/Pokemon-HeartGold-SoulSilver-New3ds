@@ -197,11 +197,16 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
     stage = "enable";
     if (!writeReg(EFCR, 2))
         goto finish;
-    u8 mode;
+    u8 mode = 0xff;
     stage = "enable readback";
-    if (!transfer(EFCR, &mode, 1, true))
-        goto finish;
-    if ((mode & 6) != 2) {
+    bool enabled = false;
+    for (unsigned attempt = 0; attempt < 3; attempt++) {
+        if (transfer(EFCR, &mode, 1, true) && (mode & 6) == 2) {
+            enabled = true;
+            break;
+        }
+    }
+    if (!enabled) {
         PSPNativeMemLog("[PWALKER] TX mode changed after enable: EFCR=%02x",
                         (unsigned)mode);
         goto finish;

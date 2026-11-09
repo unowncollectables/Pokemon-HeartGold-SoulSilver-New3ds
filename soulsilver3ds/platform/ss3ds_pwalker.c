@@ -135,14 +135,17 @@ static void busWorker(void *unused)
             if (count >= 0)
                 receiveErrors = 0;
             if (count > 0) {
-                LightLock_Lock(&busLock);
-                if (active && generation == session)
-                    incoming = packet;
-                LightLock_Unlock(&busLock);
+                const bool valid = packet.length == 1 || validPacket(&packet);
+                if (valid) {
+                    LightLock_Lock(&busLock);
+                    if (active && generation == session)
+                        incoming = packet;
+                    LightLock_Unlock(&busLock);
+                }
                 if (packet.length > 1 && rxLogged < 32) {
                     rxLogged++;
                     PSPNativeMemLog("[PWALKER] RX %s: opcode %02x, %u bytes",
-                                    validPacket(&packet) ? "valid" : "invalid",
+                                    valid ? "valid" : "invalid",
                                     (unsigned)packet.bytes[0], (unsigned)packet.length);
                 }
             } else if (count < 0) {
