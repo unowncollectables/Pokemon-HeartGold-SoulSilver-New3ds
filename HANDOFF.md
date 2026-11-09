@@ -1,8 +1,16 @@
+# Johto and Kanto town identities (0246)
+
+Alive wild Pokémon ON + TOWNS now includes city maps that have encounter tables. When a spawn candidate is on an encounter tile it uses the wild table and keeps its normal battle behavior. Open town tiles can support local residents on the same map. City showers use the transient renderer effect introduced for Violet, with different intervals and durations and no save writes. Native nonclear weather takes precedence.
+
+Town profiles set scenery preferences, play frequency, and nap tendencies. Ports lean toward water, wooded towns toward greenery, and rocky towns toward cliffs and walls. Goldenrod and Cianwood are more playful, while Lavender and Ecruteak residents are less inclined to nap at night. Kanto gets named schedules for Persian at Vermilion's Fan Club, Shuppet at Lavender's Radio Station, and Geodude at Pewter's Museum. Three additional areas have species mixes, and unlisted towns use a shared fallback profile.
+
+Generated C passed devkitARM syntax and staged-hook idempotence checks. Host tests covered encounter-bearing town classification, town profile differences, and the Kanto landmark schedules. Device checks still need to cover how often the behaviors occur, encounter/resident coexistence in towns with surf tables, and transient rain on city maps other than Violet. Authored roof perches and overhangs still apply only to the landmarks with measured geometry.
+
 # Violet overhangs and passing showers (0245)
 
 Violet has covered outdoor tiles under the Pokémon School and Gym models. The covered tiles were sampled against the US map prop meshes and terrain flags. Nearby residents can look for an open spot under the cover, route toward it, and stay dry there. The existing live checks keep doorways and occupied tiles clear.
 
-When Alive wild Pokémon is set to ON + TOWNS and Violet's native weather is clear, short local showers use the game's weather renderer. They pause during field tasks. The timer survives a visit to the Pokémon School, so the rain can still be going when the player comes back out. No native weather or save values are written, and existing nonclear weather takes precedence. This experiment is scoped to Violet.
+When Alive wild Pokémon is set to ON + TOWNS and Violet's native weather is clear, short local showers use the game's weather renderer. They pause during field tasks. The timer survives a visit to the Pokémon School, so the rain can still be going when the player comes back out. No native weather or save values are written, and existing nonclear weather takes precedence. Patch 0246 extends these showers to other city and town maps.
 
 Generated C passed devkitARM syntax and staged-hook idempotence checks. Host tests covered overhang tiles, shower timing and enable/disable behavior. The native weather helpers are present in the current linked ELF. Rain appearance and outdoor routing still need a device playtest. Logs include [WILD] Violet shower starts / clears and seeks an overhang.
 

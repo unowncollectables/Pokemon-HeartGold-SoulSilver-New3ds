@@ -455,7 +455,7 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   (1/1024: 1.5x size, 5-10 levels higher, bold; achievement "Something Big"), and flyers sometimes come as a flock of 2-4.
   Log: [WILD] ... asleep / woke up / travels with / squabble / sheltering from the rain / HUGE.
   Lively towns (2026-11-06, patch 0223, 0110 block v5): set wild_vis_alive=2 (Settings > Battle > Alive wild Pokemon > ON + TOWNS).
-  Outdoor maps with no wild table (towns and cities) get up to 4 ambient Pokemon at a time: they wander, doze in the sun, hop, come
+  Towns and cities can have residents alongside any wild encounters, with up to 4 visible Pokemon at a time: they wander, doze in the sun, hop, come
   up to you (curious) or keep away (shy), sometimes as a pair, water ones splash. Each Johto and Kanto town has its own mix (patch 0224, table kSS3DSTown in the
   0110 block: e.g. Azalea bugs, Lavender ghosts, Vermilion Voltorb, Cerulean pond Pokemon); towns not listed use a default mix. Land residents are solid and look up when you press A. They use open
   ground with room to pass, stay clear of door approaches, and tend to stay near where they spawned. They never start battles.
@@ -469,7 +469,8 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   Visible wild cries also enables nearby grass rustles, calls during play, and flyover sounds when Alive wild Pokemon is on.
   Land Pokemon can shake dry after rain and leave prints in mud or wet grass. Solo fliers sometimes land on clear ground or flat terrain ledges near scenery.
   In clear weather, some solo fliers can also stop on the Goldenrod Flower Shop or Violet Pokemon Center roof.
-  Violet can get a short local shower with ON + TOWNS. Residents may wait under the School and Gym overhangs.
+  Towns can get short local showers with ON + TOWNS. The timing varies by town. In Violet, residents may wait under the School and Gym overhangs.
+  Local profiles also vary scenery preferences, play and naps. Vermilion, Lavender, and Pewter have named landmark residents.
   Town Pokemon occasionally chase a rolling berry. The berry is scenery and does not affect the bag.
   A Bellossom near the Goldenrod Flower Shop has different outdoor and indoor spots depending on time of day.
   Violet School, Kurt's house, and Ecruteak Dance Theater also have named resident schedules.

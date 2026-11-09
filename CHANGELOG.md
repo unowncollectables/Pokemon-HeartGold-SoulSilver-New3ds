@@ -14,6 +14,7 @@ All notable changes to this project will be documented here.
 - Nearby fliers can be heard approaching, startled Pokémon rustle the grass, and playing Pokémon can call back to each other.
 - Land Pokémon can shake dry after rain and leave short-lived tracks in mud or damp grass. Some fliers land briefly beside scenery, and town residents sometimes chase a rolling berry. Solo fliers can use flat terrain ledges and make a wing sound on takeoff. They can also perch on the Goldenrod Flower Shop and Violet Pokémon Center roofs.
 - Violet gets short showers with ON + TOWNS. Nearby residents can seek cover under the School and Gym overhangs.
+- Johto and Kanto towns have local habits and shower patterns. Cities with encounter tables can host both residents and wild Pokémon. Vermilion, Lavender, and Pewter gain named landmark routines.
 - Goldenrod’s Flower Shop has a Bellossom with morning, daytime and evening spots. Violet’s Pokémon School, Kurt’s house, and Ecruteak’s Dance Theater also have residents with daily routines. Scheduled residents can walk to the doorway when their indoor or outdoor visit begins. They can detour around blocked tiles and head indoors when it rains.
 
 ### Johto bottom map: steadier player head, 2X zoom, roamer icons
