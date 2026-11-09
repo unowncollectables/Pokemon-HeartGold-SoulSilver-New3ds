@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+After one reported transfer, the next attempts still got valid F8 replies but failed to transmit 112-byte opcode 52 and 93-byte opcode 00 packets. Commit 93999e1 fills the 64-byte TX FIFO before enabling the transmitter for long packets and logs the failing stage and queued byte count. ARM syntax check passed. Repeated send and return on hardware remain unverified.
+
 Run 726 verified several checksum-valid 8-byte F8 handshakes and the owner confirmed the accessory reset. A transfer attempt subsequently logged an IR transmit failure followed by a receive failure. The follow-up retries only I2C address selection and records the failed transmit opcode and length. Send and return remain unverified.
 
 Run 725 reached the Pokewalker connection prompt, received IR bytes on several attempts, reported a pairing rejection and exited cleanly. Successful pairing and transfer are still unverified. The follow-up delivers the one-byte discovery signal separately, rejects impossible FIFO counts and logs the first checksum-valid packet. The original reset chord is Down + X + L on the Pokewalker menu. Reset erases data on the accessory.
