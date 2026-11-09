@@ -1535,7 +1535,7 @@ static const SAppTab kTabs[7]={
      {8,"Log detail","SHORT is normal. FULL writes much more and can slow the game."},
      {71,"3D frame reuse","Reuses the last 3D picture when nothing changed, to save time."},
      {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS), very early test."},
-     {119,"Grey unsupported menu","Title menu: greys Connect to Wii / Nintendo WFC Settings / Wii Message Settings / Ranger / Migrate AGB (dead on 3DS). A/touch buzzes. Continue, New Game, Mystery Gift, Pokewalker stay normal. OFF = original."}}},
+     {119,"Grey unsupported menu","Title menu: greys Connect to Wii / Nintendo WFC Settings / Wii Message Settings / Ranger / Migrate AGB (dead on 3DS). A/touch buzzes. Mystery Gift greys receive methods unavailable in the current Wireless mode. OFF = original."}}},
  /* hidden unless SELECT is pressed inside the app. Fast upload, Fast 3D convert, GPU compose and GPU compose 3D were removed once proven
     (defaults ON/2; config.txt keys gpu_swizzle, fast_conv, gpu_compose, gpu_compose_stereo still work, mItems 11/12/15/19 unchanged). */
  {7,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},

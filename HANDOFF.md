@@ -1,8 +1,13 @@
+# Mystery Gift menu
+
+Mystery Gift (0231): draw the selection arrow inside the original overlay 74 list windows. With Grey unsupported menu on, the receive list disables local methods unless Wireless is LOCAL and Nintendo WFC unless Wireless is ONLINE. The port logs blocked selections as [SS-MG]. Needs a game rebuild and device checks on the receive list and Wonder Card menus. Local gift delivery still needs a compatible sender and hardware verification.
+
 # Bag pocket palette and JOHTO panel
 
 Rapidly alternating Items and Medicine in Azahar reproduced missing Bag graphics from both entry points. Native Bag state still changed pockets, and software and GPU composition reproduced the same pixel loss. The background palette bytes retained by the native Bag changed during the repro. The platform now snapshots the Bag's background and object palette sources on entry and uses those copies for the matching pocket uploads. The underlying palette overwrite is still unexplained.
 
 Azahar's rapid-click trace kept roughly 49,000 visible pixels after this change, compared with a drop to roughly 6,500 before it. The JOHTO panel also avoids temporary text stand-ins and skips rendering the hidden top screen where possible. Roamer icons use their species palettes. Full-size opening, remaining open latency, visual roamer verification, and hardware testing are pending.
+
 
 # Visible wild ground height (2026-11-09)
 

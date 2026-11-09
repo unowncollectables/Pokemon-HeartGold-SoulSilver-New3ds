@@ -1,0 +1,141 @@
+From 7061dd5d1a8673f762cda3e3ba580a68df08a9f5 Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Sun, 8 Nov 2026 22:15:38 -0500
+Subject: [PATCH] ss3ds: repair Mystery Gift list cursor and receive options
+
+---
+ .../nitromain-perf/missing.c                  | 70 ++++++++++++++++++-
+ .../maploader/arg-overrides.json              |  2 +
+ .../maploader/call-retargets.json             | 12 ++++
+ 3 files changed, 82 insertions(+), 2 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index 562e05a..5d28255 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -1,5 +1,8 @@
+ #include <stdio.h>
+ #include <stdlib.h>
++#include "constants/sndseq.h"
++#include "font.h"
++#include "list_menu.h"
+ extern void PSPNativeMemLog(const char *,...);__attribute__((noreturn)) static void Missing(const char *name){PSPNativeMemLog("[SS-MISSING] %s",name);fflush(stdout);abort();}
+ __attribute__((noreturn)) void AccessoryPortrait_Exit(void){Missing("AccessoryPortrait_Exit");}
+ __attribute__((noreturn)) void AccessoryPortrait_Init(void){Missing("AccessoryPortrait_Init");}
+@@ -713,7 +716,7 @@ void CRYPTO_RC4Encrypt(void *ctx,const void *in,unsigned len,void *out){unsigned
+ void CRYPTO_SetAllocator(void *a,void *f){(void)a;(void)f;}
+ int CRYPTO_VerifySignature(const void *d,int len,const void *sig,const void *key){(void)d;(void)len;(void)sig;(void)key;return 1;}
+ /* NDS BIOS CRC16 (poly 0xA001, reflected). */
+-unsigned short SVC_GetCRC16(unsigned v,const void *d,unsigned n){const unsigned char *p=d;while(n--){v^=*p++;for(int k=0;k<8;k++)v=(v&1)?(v>>1)^0xA001:v>>1;}return (unsigned short)v;}
++u16 SVC_GetCRC16(u32 v,const void *d,u32 n){const unsigned char *p=d;while(n--){v^=*p++;for(int k=0;k<8;k++)v=(v&1)?(v>>1)^0xA001:v>>1;}return (unsigned short)v;}
+ /* NitroSDK CRYPTO_RC4Init: i@0, j@1, S[256]@4. */
+ void CRYPTO_RC4Init(void *ctx,const void *key,unsigned klen){unsigned char *c=ctx,*s=c+4;const unsigned char *k=key;for(int i=0;i<256;i++)s[i]=i;unsigned j=0;for(int i=0;i<256;i++){unsigned char t=s[i];j=(j+t+k[i%klen])&0xff;s[i]=s[j];s[j]=t;}c[0]=0;c[1]=0;}
+ /* ss3ds 0193: ov00_021ED388/ED308/ED428/EC938/ED3F4/ED3AC/ED444/ED1F0/ED354/ECEC0
+@@ -723,9 +726,72 @@ void CRYPTO_RC4Init(void *ctx,const void *key,unsigned klen){unsigned char *c=ct
+ /* SS3DS run 105/117: Mystery Gift moveCursorFunc. PlaySE on move; gSS_MG_CursorDiag kept (0192). */
+ int gSS_MG_CursorDiag;
+ extern void PlaySE(unsigned short);
+-void ov74_02235FF8(void *list, int index, unsigned onInit) {
++void ov74_02235FF8(struct ListMenu *list, s32 index, u8 onInit) {
+   (void)list;
+   (void)index;
+   gSS_MG_CursorDiag = 1;
+   if (!onInit) PlaySE(1500); /* SEQ_SE_DP_SELECT */
+ }
++
++/* Overlay 74's receive-method actions, as stored in its ListMenu items. */
++extern u32 ov74_0222A2E0(void *manager); /* Get from a friend */
++extern u32 ov74_0222A3CC(void *manager); /* Get via wireless */
++extern u32 ov74_0222A35C(void *manager); /* Get via Nintendo WFC */
++extern int P3DS_CfgInt(const char *key, int def);
++extern int P3DS_MenuGreyUnsupportedCfg(void);
++
++static BOOL MysteryGiftMethodUnavailable(s32 value) {
++    if (value == (s32)ov74_0222A35C) {
++        return P3DS_CfgInt("wireless", 1) != 2;
++    }
++    if (value == (s32)ov74_0222A2E0 || value == (s32)ov74_0222A3CC) {
++        return P3DS_CfgInt("wireless", 1) != 1;
++    }
++    return FALSE;
++}
++
++static void MysteryGiftColorRow(struct ListMenu *list, s32 value, u8 y) {
++    const struct ListMenuTemplate *menu = &list->template;
++    const BOOL muted = P3DS_MenuGreyUnsupportedCfg() && MysteryGiftMethodUnavailable(value);
++    (void)y;
++    ListMenuOverrideSetColors(list, muted ? 2 : menu->cursorPal, menu->fillValue, menu->cursorShadowPal);
++}
++
++static void MysteryGiftDrawCursor(struct ListMenu *list, s32 value, u8 onInit) {
++    const struct ListMenuTemplate *menu = &list->template;
++    const u16 x = menu->cursor_X;
++    const u16 y = menu->upText_Y + list->itemsAbove
++        * (GetFontAttribute(menu->fontId, 1) + menu->itemVerticalPadding);
++
++    ov74_02235FF8(list, value, onInit);
++    /* The font's cursor can be invisible on the port. Draw in the original
++     * 7x16 cursor cell so ListMenu erases it during scrolling and movement. */
++    FillWindowPixelRect(menu->window, menu->fillValue, x, y, 7, 16);
++    for (u16 column = 0; column < 5; column++) {
++        FillWindowPixelRect(menu->window, menu->cursorPal,
++            x + column, y + 3 + column, 1, 9 - 2 * column);
++    }
++}
++
++struct ListMenu *SS3DS_MysteryGiftListInit(const struct ListMenuTemplate *template,
++                                        u16 scroll, u16 row, enum HeapID heapID) {
++    struct ListMenuTemplate menu = *template;
++    if (menu.moveCursorFunc == ov74_02235FF8 && menu.cursorKind == 0) {
++        menu.moveCursorFunc = MysteryGiftDrawCursor;
++    }
++    if (menu.itemPrintFunc == NULL) {
++        menu.itemPrintFunc = MysteryGiftColorRow;
++    }
++    return ListMenuInit(&menu, scroll, row, heapID);
++}
++
++s32 SS3DS_MysteryGiftListInput(struct ListMenu *list) {
++    const s32 value = ListMenu_ProcessInput(list);
++    if (P3DS_MenuGreyUnsupportedCfg() && MysteryGiftMethodUnavailable(value)) {
++        PSPNativeMemLog("[SS-MG] receive method unavailable in wireless=%d",
++            P3DS_CfgInt("wireless", 1));
++        PlaySE(SEQ_SE_DP_BOX03);
++        return LIST_NOTHING_CHOSEN;
++    }
++    return value;
++}
+diff --git a/port/soulsilver-native-play/maploader/arg-overrides.json b/port/soulsilver-native-play/maploader/arg-overrides.json
+index 6723160..d25dbf7 100644
+--- a/port/soulsilver-native-play/maploader/arg-overrides.json
++++ b/port/soulsilver-native-play/maploader/arg-overrides.json
+@@ -1,4 +1,6 @@
+ {
++ "SS3DS_MysteryGiftListInit": 4,
++ "SS3DS_MysteryGiftListInput": 1,
+  "ov01_021FBA00": 1,
+  "sub_02054E20": 1,
+  "NNS_G3dRenderObjInit": 2,
+diff --git a/port/soulsilver-native-play/maploader/call-retargets.json b/port/soulsilver-native-play/maploader/call-retargets.json
+index 0c817db..a163ebc 100644
+--- a/port/soulsilver-native-play/maploader/call-retargets.json
++++ b/port/soulsilver-native-play/maploader/call-retargets.json
+@@ -24,6 +24,18 @@
+   "sub_0205DE88": "SS3DS_RunHeld",
+   "ListMenu_ProcessInput": "SS3DS_ListMenuProcessInput"
+  },
++ "ov74_0222A89C": {
++  "ListMenuInit": "SS3DS_MysteryGiftListInit"
++ },
++ "ov74_0222D11C": {
++  "ListMenuInit": "SS3DS_MysteryGiftListInit"
++ },
++ "ov74_0222ED04": {
++  "ListMenuInit": "SS3DS_MysteryGiftListInit"
++ },
++ "ov74_0222AB0C": {
++  "SS3DS_ListMenuProcessInput": "SS3DS_MysteryGiftListInput"
++ },
+  "ov12_02260CDC": {
+   "ov07_0221FB90": "SS3DS_BattleMonOBJ_One"
+  }

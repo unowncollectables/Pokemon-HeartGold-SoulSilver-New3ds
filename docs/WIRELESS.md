@@ -270,7 +270,7 @@ Build follow-ups: 0165 binds variadic sprintf in the translator; 0168 fixes the 
 
 **Run 107 stall:** device log after Receive never reached `ov74_02236AE0` / `DWC_Nd*`. It called `WM_Initialize` and sat on the WM stand-in ("no other DS in range") with wireless-icon redraws — that is **GET VIA WIRELESS** (`ov74_0222CEE0`), not WFC download. Receive submenu order is Friend, Wireless, WFC, Cancel; `itemsAbove=1` + `cursorPos=0` is Wireless. No `[SS-MG]`, no ConnectInet, no DWC_Init.
 
-**Run 108 fix:** with `wireless=2`, confirming GET VIA WIRELESS redirects to the WFC download entry (local parent search cannot work in ONLINE mode). Choosing GET VIA NINTENDO WFC is unchanged. Logs: `[SS-MG] path=WFC-download` / `path=local-wireless` / `DWC_Init (sub_02039FD8)` / existing Nd and ConnectInet lines.
+**Receive options:** with Grey unsupported menu enabled, ONLINE enables GET VIA NINTENDO WFC, LOCAL enables the two local receive options, and OFF greys all receive methods. Selecting a grey row plays the unavailable sound and stays in the list. With Grey unsupported menu disabled, the original run 108 redirect from GET VIA WIRELESS to WFC in ONLINE mode applies. Choosing GET VIA NINTENDO WFC is unchanged. Logs: `[SS-MG] path=WFC-download` / `path=local-wireless` / `DWC_Init (sub_02039FD8)` / existing Nd and ConnectInet lines.
 
 ## Mystery Gift over Nintendo WFC (run 106)
 
