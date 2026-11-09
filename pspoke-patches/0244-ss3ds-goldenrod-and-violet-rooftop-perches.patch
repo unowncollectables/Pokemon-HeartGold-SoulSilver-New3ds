@@ -1,0 +1,178 @@
+From 898e2a077c625e0d0154b21a4a8fd4e83cb531fe Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:43:25 -0500
+Subject: [PATCH] ss3ds: add two measured rooftop perches
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 94 +++++++++++++++++++++++----
+ 1 file changed, 80 insertions(+), 14 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 7edd036..f4c21aa 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v17 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v18 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -27,8 +27,8 @@ enum { WILD_UNAWARE, WILD_WATCHING, WILD_STARTLED, WILD_IN_COVER };
+ typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle, wet, tracks; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+-typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch, shelterMap; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C39u /* 'WIL9': landmark rain shelter */
++typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue, berryA, berryB, berryX, berryZ, berryDir, berryT, birdPerch, shelterMap, birdRoofY; } SS3DSWildState;
++#define SS3DS_WILD_MAGIC 0x57494C3Au /* 'WIL:': authored roof perch height */
+ typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 576 ? 1 : -1]; /* P3DS_WildMemV2 is 144 words */
+ extern void *P3DS_WildMemV2(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+@@ -900,11 +900,54 @@ static int SS3DS_BirdPerchKind(FieldSystem *fieldSystem, int tileX, int tileZ, f
+ #define SS3DS_BIRD_MID (SS3DS_BIRD_FRAMES / 2)
+ #define SS3DS_BIRD_REST 60
+ #define SS3DS_BIRD_GLIDE 26
++#define SS3DS_BIRD_ROOF_GLIDE 24
++#define SS3DS_BIRD_ROOF 3
++
++// Flat roof patches sampled from US SoulSilver map props: ko_flower (77) in
++// land block 39 and kk_pc (62) in block 24. Heights are absolute world units.
++static int SS3DS_BirdRoof(int map, int px, int pz, int *x, int *z, int *height) {
++    static const int roofs[][4] = {
++        {MAP_GOLDENROD, 371, 331, 63422},
++        {MAP_VIOLET, 497, 269, 108000},
++    };
++    for (u32 i = 0; i < sizeof(roofs) / sizeof(roofs[0]); i++) {
++        int dx = px - roofs[i][1], dz = pz - roofs[i][2];
++        if (map == roofs[i][0] && dx >= -7 && dx <= 7 && dz >= -6 && dz <= 6) {
++            *x = roofs[i][1];
++            *z = roofs[i][2];
++            *height = roofs[i][3] * FX32_ONE / 1000;
++            return 1;
++        }
++    }
++    return 0;
++}
++
++static int SS3DS_BirdPause(SS3DSWildState *S) {
++    if (!S->birdPerch) {
++        return 0;
++    }
++    return SS3DS_BIRD_REST + (S->birdPerch == SS3DS_BIRD_ROOF ? 2 * SS3DS_BIRD_ROOF_GLIDE : 0);
++}
++
++static int SS3DS_BirdRoofProgress(int t) {
++    int pause = t - SS3DS_BIRD_MID;
++    if (pause <= 0 || pause >= SS3DS_BIRD_REST + 2 * SS3DS_BIRD_ROOF_GLIDE) {
++        return 0;
++    }
++    if (pause < SS3DS_BIRD_ROOF_GLIDE) {
++        return pause;
++    }
++    if (pause < SS3DS_BIRD_REST + SS3DS_BIRD_ROOF_GLIDE) {
++        return SS3DS_BIRD_ROOF_GLIDE;
++    }
++    return SS3DS_BIRD_REST + 2 * SS3DS_BIRD_ROOF_GLIDE - pause;
++}
+ 
+ static int SS3DS_BirdAirTime(SS3DSWildState *S) {
+     int t = S->birdT;
+-    if (S->birdPerch && t > SS3DS_BIRD_MID) {
+-        t = t > SS3DS_BIRD_MID + SS3DS_BIRD_REST ? t - SS3DS_BIRD_REST : SS3DS_BIRD_MID;
++    if (t > SS3DS_BIRD_MID) {
++        int pause = SS3DS_BirdPause(S);
++        t = t > SS3DS_BIRD_MID + pause ? t - pause : SS3DS_BIRD_MID;
+     }
+     return t;
+ }
+@@ -955,7 +998,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     }
+     if (S->birdOn) {
+         S->birdT++;
+-        if (S->birdPerch && S->birdT >= SS3DS_BIRD_MID && S->birdT < SS3DS_BIRD_MID + SS3DS_BIRD_REST) {
++        if (S->birdPerch && S->birdPerch != SS3DS_BIRD_ROOF && S->birdT >= SS3DS_BIRD_MID && S->birdT < SS3DS_BIRD_MID + SS3DS_BIRD_REST) {
+             int x = S->birdX + (S->birdDir == 3 ? 18 : -18);
+             int dx = px - x, dz = pz - S->birdZ;
+             if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) <= 2 || SS3DS_TownTile(fieldSystem, x, S->birdZ) != 1
+@@ -964,13 +1007,14 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+             }
+         }
+         SS3DS_BirdSound(S, px, pz);
+-        if (S->birdPerch && S->birdT == SS3DS_BIRD_MID + SS3DS_BIRD_REST + 1) {
++        int lift = SS3DS_BIRD_MID + SS3DS_BIRD_REST + (S->birdPerch == SS3DS_BIRD_ROOF ? SS3DS_BIRD_ROOF_GLIDE : 0);
++        if (S->birdPerch && S->birdT == lift + 1) {
+             int dx = px - (S->birdX + (S->birdDir == 3 ? 18 : -18)), dz = pz - S->birdZ;
+             if (dx >= -6 && dx <= 6 && dz >= -6 && dz <= 6) {
+                 SS3DS_WildCue(S, 0, SEQ_SE_DP_BASABASA);
+             }
+         }
+-        int duration = SS3DS_BIRD_FRAMES + (S->birdPerch ? SS3DS_BIRD_REST : 0);
++        int duration = SS3DS_BIRD_FRAMES + SS3DS_BirdPause(S);
+         if (S->birdT >= duration) {
+             SS3DS_BirdKill(S, "flew off");
+         }
+@@ -1004,7 +1048,15 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     S->birdX = px + (S->birdDir == 3 ? -18 : 18);
+     S->birdZ = pz - 5 + (int)SS3DS_WildRand(S, 8);
+     S->birdLow = S->birdPerch = 0;
+-    if (!legend && S->flock == 1 && fieldSystem->unk60 != NULL) {
++    int roofX, roofZ, roofY;
++    if (!legend && !shiny && S->flock == 1 && !(SS3DS_WildEnv(fieldSystem) & 6)
++        && SS3DS_BirdRoof(fieldSystem->location->mapId, px, pz, &roofX, &roofZ, &roofY)
++        && SS3DS_WildRand(S, 4) == 0) {
++        S->birdX = roofX + (S->birdDir == 3 ? -18 : 18);
++        S->birdZ = roofZ;
++        S->birdRoofY = roofY;
++        S->birdPerch = SS3DS_BIRD_ROOF;
++    } else if (!legend && S->flock == 1 && fieldSystem->unk60 != NULL) {
+         static const int offsets[] = {0, -3, 3};
+         int firstLane = S->birdZ;
+         int lookForPerch = !shiny && SS3DS_WildRand(S, 3) == 0;
+@@ -1038,7 +1090,8 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+         }
+     }
+     PSPNativeMemLog("[WILD] flyer species %d x%d%s%s heading %s at z %d (%s pass)", sp, S->flock,
+-        shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ, S->birdPerch == 2 ? "ledge landing" : S->birdPerch ? "landing" : S->birdLow ? "low" : "high");
++        shiny ? " SHINY" : "", legend ? " LEGENDARY" : "", S->birdDir == 3 ? "east" : "west", S->birdZ, S->birdPerch == SS3DS_BIRD_ROOF ? "roof landing" :
++        S->birdPerch == 2 ? "ledge landing" : S->birdPerch ? "landing" : S->birdLow ? "low" : "high");
+     if (legend) {
+         P3DS_Toast("A LEGENDARY POKEMON FLEW OVERHEAD!");
+         P3DS_AchSky(1);
+@@ -2011,14 +2064,27 @@ static void SS3DS_BirdDrawOne(FieldSystem *fieldSystem, SS3DSWildState *S, fx32
+     }
+     py = SS3DS_WildGroundY(fieldSystem, c.x, c.z, py); // 0230: altitude stays above the ground under the flyer
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+-    c.y = py + FX32_ONE / 2;
++    int roof = S->birdPerch == SS3DS_BIRD_ROOF;
++    int descent = roof ? SS3DS_BirdRoofProgress(S->birdT) : 0;
++    c.y = (roof && t == SS3DS_BIRD_MID ? S->birdRoofY : py) + FX32_ONE / 2;
+     SS3DS_WildShadow(cm, &c, S->birdBig ? sz : sz / 2);
+     int bob = (int)((anim >> 2) & 7);
+     bob = bob < 4 ? bob : 8 - bob;
+-    int height = SS3DS_BirdAltitude(S, t, bob);
+-    c.y = py + (sz / 2 + height) * FX32_ONE;
++    int airborne;
++    if (roof) {
++        fx32 cruise = S->birdRoofY + 96 * FX32_ONE;
++        if (py + 72 * FX32_ONE > cruise) {
++            cruise = py + 72 * FX32_ONE;
++        }
++        c.y = cruise - (cruise - S->birdRoofY) * descent / SS3DS_BIRD_ROOF_GLIDE + (sz / 2) * FX32_ONE;
++        airborne = descent < SS3DS_BIRD_ROOF_GLIDE;
++    } else {
++        int height = SS3DS_BirdAltitude(S, t, bob);
++        c.y = py + (sz / 2 + height) * FX32_ONE;
++        airborne = height > 0;
++    }
+     v = SS3DS_WildCam(cm, &c);
+-    int fr = S->birdDir * 2 + (height > 0 && ((anim >> 2) & 1));
++    int fr = S->birdDir * 2 + (airborne && ((anim >> 2) & 1));
+     fx16 hw = (fx16)((sz / 2) * FX16_ONE / 16);
+     int edge = t < SS3DS_BIRD_FRAMES - t ? t : SS3DS_BIRD_FRAMES - t;
+     int fade = edge >= 20 ? 31 : 3 + edge * 28 / 20;
+-- 
+2.53.0
+

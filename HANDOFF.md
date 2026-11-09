@@ -1,3 +1,9 @@
+# Goldenrod and Violet roof perches (0244)
+
+A solo flier can descend onto a flat patch of the Goldenrod Flower Shop roof or Violet Pokémon Center roof. Both points were measured against the US SoulSilver prop mesh and placement. The flower shop is model 77 in land block 39, and the center is model 62 in block 24. The flier pauses directly over the roof while descending and climbing. The landing and shadow use the measured roof height. The cruise height exceeds the sampled model bounds along the approach lanes.
+
+The generated C passed devkitARM syntax and staged-hook idempotence checks. A host harness covered roof lookup, descent, rest, ascent and ordinary terrain-landing timing. The actual sprite contact and visibility still need a device playtest. Roof landings log [WILD] ... (roof landing pass).
+
 # Terrain ledges for fliers (0243)
 
 A solo flier looking for a landing now checks the map height at the landing point and around its feet. Flat terrain above a nearby drop can serve as a ledge, including during rain. A steep or missing surface is skipped. The flier can consider another clear lane if the first offers nowhere to land, and nearby players can hear wingbeats again on takeoff. The height check samples field terrain. Building model roofs still need their own landing data.

@@ -468,6 +468,7 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   Startled wild Pokemon may tuck down in tall grass and peek out once it gets quiet.
   Visible wild cries also enables nearby grass rustles, calls during play, and flyover sounds when Alive wild Pokemon is on.
   Land Pokemon can shake dry after rain and leave prints in mud or wet grass. Solo fliers sometimes land on clear ground or flat terrain ledges near scenery.
+  In clear weather, some solo fliers can also stop on the Goldenrod Flower Shop or Violet Pokemon Center roof.
   Town Pokemon occasionally chase a rolling berry. The berry is scenery and does not affect the bag.
   A Bellossom near the Goldenrod Flower Shop has different outdoor and indoor spots depending on time of day.
   Violet School, Kurt's house, and Ecruteak Dance Theater also have named resident schedules.

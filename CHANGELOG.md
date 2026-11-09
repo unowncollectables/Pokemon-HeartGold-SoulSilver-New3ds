@@ -12,7 +12,7 @@ All notable changes to this project will be documented here.
 - Town residents sometimes stop to face water or greenery and gather by walls or in grass during rain.
 - Startled wild Pokémon can duck into tall grass and peek out again after it gets quiet.
 - Nearby fliers can be heard approaching, startled Pokémon rustle the grass, and playing Pokémon can call back to each other.
-- Land Pokémon can shake dry after rain and leave short-lived tracks in mud or damp grass. Some fliers land briefly beside scenery, and town residents sometimes chase a rolling berry. Solo fliers can use flat terrain ledges and make a wing sound on takeoff.
+- Land Pokémon can shake dry after rain and leave short-lived tracks in mud or damp grass. Some fliers land briefly beside scenery, and town residents sometimes chase a rolling berry. Solo fliers can use flat terrain ledges and make a wing sound on takeoff. They can also perch on the Goldenrod Flower Shop and Violet Pokémon Center roofs.
 - Goldenrod’s Flower Shop has a Bellossom with morning, daytime and evening spots. Violet’s Pokémon School, Kurt’s house, and Ecruteak’s Dance Theater also have residents with daily routines. Scheduled residents can walk to the doorway when their indoor or outdoor visit begins. They can detour around blocked tiles and head indoors when it rains.
 
 ### Johto bottom map: steadier player head, 2X zoom, roamer icons
