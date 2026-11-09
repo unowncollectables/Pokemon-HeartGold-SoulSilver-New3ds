@@ -4,6 +4,12 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+### Johto bottom map: steadier player head, 2X zoom, roamer icons
+- The player head on the scaled bottom map was placed with `mark * 5 / 4`, which does not match the 2x-then-linear scale. On some towns the head slipped a screen pixel against the map while the view moved, then sat off. It now uses the screen pixel that samples that same map pixel. Standing still was already still. Location changes still move it.
+- Settings > Input "Map zoom" (`map_zoom`, default 1X). 2X is a closer view. `-` and `+` on the map change the same setting. Taps, Fly, finder pins and roamer marks stay on the place you see. The side buttons and captions stay put.
+- Settings > Input "Roamer sprites" (`roamer_sprites`, default OFF). ON draws the ROM menu icon instead of the R/E/L letter. OFF is the letter. A missing icon keeps the letter. Roamer data is unchanged.
+- Platform rebuild only. Not compiled in this session, not run in an emulator, not checked on hardware.
+
 ### Visible wild Pokemon keep their own ground height
 - Patch 0230: sprites were drawn at the player's height, so they rose and sank with stairs and slopes. Each one now uses the map height at its own position (the same query map objects use). Hop, shadow, and flyer altitude stay on top of that height. Visible-wild off is unchanged. Wide view and stereo are unchanged. Not compiled here. Log `[WILD] own ground y`.
 

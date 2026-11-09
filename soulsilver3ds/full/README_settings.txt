@@ -310,6 +310,11 @@ tracker=1              (default 0; Settings > Play) Roamer + breeding tracker on
                        the roaming Pokemon's location (Raikou, Entei, Latias, Latios), and the progress overview (menu-dots button)
                        lists them plus the Day-Care (egg chance per 256 steps, steps to the next roll, Masuda yes/no with the
                        egg's shiny odds). Read-only; data from pspoke hook 0120. Suicune does not roam in HeartGold/SoulSilver.
+roamer_sprites=0        (default 0; Settings > Input) When the tracker is on, roaming Pokemon are drawn with their menu icon
+                        read from your ROM (same tinted icon as the Pokedex finder). OFF keeps the coloured letter. A missing
+                        icon falls back to the letter. Does not change where they are, or the save.
+map_zoom=0              (default 0 = 1X; Settings > Input, or the - / + chips on the Johto map) 1 = 2X, a closer view of the
+                        same map. 1X is unchanged. Taps, Fly, finder pins and roamer marks use the zoomed place.
 ribbon_check=1          (default 1; Settings > Battle) On the Pokemon summary screen press X for a read-only ribbon
                         checklist: Earned in this game (n/14), Still available, From earlier games. X turns the page,
                         the last page closes it. Never writes to the Pokemon or the save. Y (IV/EV) is unchanged.
