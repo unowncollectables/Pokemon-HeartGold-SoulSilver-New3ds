@@ -12,6 +12,18 @@ Hardware run 702 of `1fcccb2`: those five options were active in the field and i
 
 GTS support on hardware is unchanged. A revival-server outage reported on 8 Nov 2026 is server-side. Mystery Gift is a separate path and was still working.
 
+# Johto bottom map: player head, zoom, roamer icons (2026-11-09)
+
+Platform only. No pspoke patch, no save write, no gameplay or roamer-position change. Not compiled here and not run in Azahar or on a 3DS.
+
+The player head is a 32x32 overlay. The map under it is doubled nearest, then sampled linearly onto the 320x240 bottom screen. `mark * 5 / 4` matches that scale when the DS pixel mod 4 is 0 or 1. When it is 2, the sample sits on the texel edge. When it is 3, it lands a full screen pixel into the previous pixel. The head then crawls against the town while the view recentres and sits off. Standing still does not move it. The head now uses the screen pixel whose sample falls on that same DS pixel (`pgDsToNative`). Real location changes still move it. The old 2px upward bias (`-18` instead of `-16`) is kept.
+
+Settings > Input "Map zoom" (`map_zoom`, default 0 = 1X). 1 = 2X. The `-` and `+` chips at the bottom-left of the map write the same key. 1X uses the previous horizontal view. 2X repeats each map pixel as a 2x2 block, keeps the place you were centred on, and centres vertically on you while the view follows you (or on a place opened from the phone list or the progress list). Taps, the outline, finder pins, phone pins, Fly, and roamer marks go through that same map-to-screen step. Captions and the side column are not moved.
+
+Settings > Input "Roamer sprites" (`roamer_sprites`, default 0). OFF keeps the coloured R/E/L letter. ON draws that species' menu icon from the ROM (`a/0/2/0`, the finder card's reader), 16x16, with a coloured corner. The per-species palette index is not in that file, so it is the same silver/navy tint as the finder. A missing icon keeps the letter. Who is shown, and where, is still the tracker. Kanto stays hidden until the gate says so.
+
+Log: `[PGMAP] zoom 1x -> 2x`, `[TRACK] roamer sprite slot N species S ok|missing, letter kept`. Rebuild: `soulsilver3ds/full` `make` only. No clean game rebuild.
+
 # Rendering performance hardware trial (2026-11-08)
 
 Platform rebuild/link against main after PR #401. The field command and bounds shortcuts were checked against paired stereo frames. The user confirmed smoother battle send-outs and approved the GPU wide title appearance in Azahar. A steady 300-frame title sample averaged 38.79 ms. GPU title verification compared the centre and side panels against the exact CPU layout and reported zero differing pixels across 240 checks. These measurements are from the local experiment. The hardware pass above covers the five shortcuts in field and battles; wide-title hardware and full scene coverage are still open.

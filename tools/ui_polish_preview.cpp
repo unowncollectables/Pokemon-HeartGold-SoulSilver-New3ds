@@ -24,6 +24,8 @@ static bool brCfg() { return false; }
 static bool panelLiveCfg() { return false; }
 static bool pgFindCfg() { return false; }
 static bool pgFlyCfg() { return false; }
+static int pgMapZoom() { return 1; }
+static bool pgRoamSpr() { return false; }
 extern "C" {
 volatile int P3DS_PanelPartyWant;
 volatile int P3DS_PanelPartyOn;

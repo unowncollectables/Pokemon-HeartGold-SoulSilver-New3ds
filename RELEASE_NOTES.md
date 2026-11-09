@@ -1,5 +1,8 @@
 # Release notes
 
+## Johto map head, zoom, and roamer icons
+The player head on the bottom map stays on the town it is marking while the map recentres. Map zoom in Settings > Input defaults to 1X; 2X (or the - and + on the map) is a closer view of the same map. Roamer sprites default off, so the coloured letters stay until you turn them on. Needs a platform rebuild. Not checked on a 3DS yet.
+
 ## Rendering performance hardware trial
 Use L+R+Y to open settings. Under 3D, enable Command shortcut, Bounds shortcut, Second screen GPU (ON), Affine object GPU, and Second screen fades. Under Display, set Title layout to WIDE. These settings default to the existing renderer and layout. Start with the title reveal, Goldenrod, and a battle send-out, then repeat gameplay with the 3D slider down. The wide title averaged about 26 FPS in the local Azahar trial. Fades and some battle effects can still dip. New 3DS testing is pending.
 

@@ -47,6 +47,8 @@ struct SPg {
   uint32_t img[kPgW * kPgH]; uint8_t lit[47 * 20]; bool decoded, failed;
   uint8_t visited[16]; uint32_t tid; bool tidKnown, dirty;
   int sel = -1; int viewX = -1; int lastLoc = -2;
+  int zoom = 1; int viewY = -1; int panAcc = 0; /* zoom 1 = the normal map; viewY is the map row at the top when zoom is 2 */
+  int zmX0 = 0, zmY0 = 0, zmX1 = 0, zmY1 = 0, zpX0 = 0, zpY0 = 0, zpX1 = 0, zpY1 = 0; /* minus / plus, DS px; x1==x0 means hidden */
   int markX, markY; bool markOk, gameMarker; /* run 11: marker position (DS px) for the native overlay, and whether the game's head is used */
   bool ov; int ovScroll; int ovRows[kPgN]; int ovN, ovListY0, ovListY1; /* run 13: progress overview (menu-dots button) */
   struct { short x, y; uint8_t k; } ico[48]; int nIco; bool gameIco; /* small stat icons drawn by the native overlay */
@@ -62,6 +64,36 @@ struct SPg {
 static inline bool pgVis(const SPg &p, int i) { return i >= 0 && i < kPgN && (p.visited[i >> 3] >> (i & 7)) & 1; }
 static inline void pgSpecRect(int i, int *x, int *y, int *w, int *h) {
   const SS3DS_PgSpec &l = sLocationSpecs[i]; *x = l.x; *y = l.y; *w = l.bits & 15; *h = (l.bits >> 4) & 15; if (*w < 1) *w = 1; if (*h < 1) *h = 1; }
+/* Screen pixel whose centre samples DS pixel ds. The bottom picture is nearest-doubled into a 512-wide image
+   (DS pixel ds fills texels [2*ds, 2*ds+2)) and then drawn linearly across 320 px. Truncating ds*5/4 matches
+   that when ds%4 is 0 or 1. When ds%4 is 2 the sample sits on the texel edge, and when it is 3 the sample lands
+   a full screen pixel into the previous pixel, so the head crawls against the town while the view recentres.
+   n = round((2*ds+1)*5/8 - 1/2) = (2*ds+1)*5/8. */
+static int pgDsToNative(int ds) { int n = (2 * ds + 1) * 5 / 8; return n < 0 ? 0 : n; }
+static int pgMapZoom(); /* 1 or 2 */
+static bool pgRoamSpr();
+static int pgMapLimit(const SPg &p, int visW) { return !p.kantoOpen && p.kantoX > 0 && p.kantoX * 8 > visW ? p.kantoX * 8 : kPgW; }
+static int pgClampLeft(const SPg &p, int left, int visW) { const int lim = pgMapLimit(p, visW); if (left > lim - visW) left = lim - visW; if (left < 0) left = 0; return left; }
+/* panel interior pgDraw actually paints (the old tap math was 1 or 2 px off this, and the sign flipped with the name strip) */
+static void pgInner(int *X0, int *Y0, int *X1, int *Y1) {
+  const int nh = blNameH(); *X0 = kBlPanX0 + 2; *Y0 = kBlPanY0 + 15 + nh + 2; *X1 = kBlPanX1 - 2; *Y1 = kBlPanY1 - 2; }
+static void pgTouchMap(const SPg &p, int tx, int ty, int *mx, int *my) {
+  int X0, Y0, X1, Y1; pgInner(&X0, &Y0, &X1, &Y1); const int z = p.zoom < 2 ? 1 : 2; const int ah = Y1 - Y0;
+  if (z <= 1) { const int oy = Y0 + (ah - kPgH) / 2; *mx = tx - X0 + p.viewX; *my = ty - oy; }
+  else { *mx = p.viewX + (tx - X0) / z; *my = p.viewY + (ty - Y0) / z; } }
+/* point marker: at 2x the +z/2 lands on the centre of that map pixel's block. At 1x it is the old DS pixel. */
+static void pgToDs(const SPg &p, int X0, int Y0, int oy, int mx, int my, int *sx, int *sy) {
+  const int z = p.zoom < 2 ? 1 : 2;
+  if (z <= 1) { *sx = X0 + mx - p.viewX; *sy = oy + my; }
+  else { *sx = X0 + (mx - p.viewX) * z + z / 2; *sy = Y0 + (my - p.viewY) * z + z / 2; } }
+static void pgToDsCorner(const SPg &p, int X0, int Y0, int oy, int mx, int my, int *sx, int *sy) {
+  const int z = p.zoom < 2 ? 1 : 2;
+  if (z <= 1) { *sx = X0 + mx - p.viewX; *sy = oy + my; }
+  else { *sx = X0 + (mx - p.viewX) * z; *sy = Y0 + (my - p.viewY) * z; } }
+static void pgCenterOn(SPg &p, int mapCx, int mapCy, int aw, int ah) {
+  p.zoom = pgMapZoom(); const int z = p.zoom < 2 ? 1 : 2; int visW = aw / z; if (visW < 1) visW = 1;
+  p.viewX = pgClampLeft(p, mapCx - visW / 2, visW); p.glide = false;
+  if (z > 1) { int visH = ah / z; if (visH < 1) visH = 1; int top = mapCy - visH / 2; if (top > kPgH - visH) top = kPgH - visH; if (top < 0) top = 0; p.viewY = top; } }
 
 /* find a Nitro section by its 4-byte magic (stored reversed in the file) */
 static const uint8_t *pgSect(const uint8_t *d, uint32_t n, const char *m) {
@@ -280,25 +312,41 @@ static int pgFindHit(const SPg &p, int Y0, int x, int y) {
   if (x >= X1 - 17 && x < X1 && y >= Y0 && y < Y0 + 16) return 1;
   if (y >= Y0 + 26 && y < Y0 + 39) { const int i = (x - tx) / cw; if (x >= tx && i >= 0 && i < 4) return 2 + i; }
   return 0; }
-static void pgFindPins(uint32_t *b, const SPg &p, int X0, int X1, int oy) {
+static void pgFindPins(uint32_t *b, const SPg &p, int X0, int Y0, int X1, int oy) {
   const bool ok = pgTmHave();
   for (int l = 0; l < 100 && l < kPgN; l++) { if (!pgFindAt(l, p.find, p.findTm, ok)) continue; int x, y, w, h; pgSpecRect(l, &x, &y, &w, &h);
-    if (pgHiddenAt(p, x * 8 + w * 4, y * 8 + h * 4)) continue; const int px = X0 + x * 8 + w * 4 - p.viewX, py = oy + y * 8 + h * 4; if (px < X0 + 4 || px >= X1 - 4) continue;
+    const int mx = x * 8 + w * 4, my = y * 8 + h * 4; if (pgHiddenAt(p, mx, my)) continue; int px, py; pgToDs(p, X0, Y0, oy, mx, my, &px, &py); if (px < X0 + 4 || px >= X1 - 4) continue;
     for (int yy = -4; yy <= 4; yy++) for (int xx = -4; xx <= 4; xx++) { const int d = abs(xx) + abs(yy); if (d <= 4) suiPx(b, px + xx, py + yy, d == 4 ? SUI_RGB(255, 255, 255) : d == 3 ? SUI_RGB(120, 16, 16) : SUI_RGB(236, 56, 48)); } } }
 /* run 148: the finder card shows the species' menu icon (HGSS a/0/2/0: member 0 = palettes, member 7 + species = 32x32 4bpp).
    The per-species palette index lives in ARM9 and is not read, so the icon is drawn as a silver/navy tint of palette 0's brightness. */
 extern "C" int P3DS_RomNarcMember(const char *path, int member, unsigned char *dst, unsigned cap);
-static uint32_t pgFindIco[32 * 32]; static int pgFindIcoSp = -1; static bool pgFindIcoOk;
-static void pgFindIconLoad(int sp) {
-  if (pgFindIcoSp == sp) return; pgFindIcoSp = sp; pgFindIcoOk = false; memset(pgFindIco, 0, sizeof pgFindIco);
+/* menu icon from the ROM (a/0/2/0). The per-species palette index is not in this file, so this is palette 0's brightness
+   as a silver/navy tint, the same picture the finder card uses. Returns false when the member is missing or short. */
+static bool pgMonIcon(int sp, uint32_t *dst) {
+  memset(dst, 0, 32 * 32 * 4); if (sp <= 0 || sp > 493) return false;
   static uint8_t g[2048], pl[2048]; const int gn = P3DS_RomNarcMember("a/0/2/0", 7 + sp, g, sizeof g), pn = P3DS_RomNarcMember("a/0/2/0", 0, pl, sizeof pl);
-  const uint8_t *c = gn > 0 ? pgSect(g, (uint32_t)gn, "RAHC") : 0, *t = pn > 0 ? pgSect(pl, (uint32_t)pn, "TTLP") : 0;
+  const uint8_t *c = gn > 0 ? pgSect(g, (uint32_t)gn, "RAHC") : 0, *t = pn > 0 ? pgSect(pl, (uint32_t)pn, "TTLP") : 0; bool ok = false;
   if (c && t) { const uint8_t *C = c + 8 + pgU32(c + 28), *P = t + 8 + pgU32(t + 20);
     if (pgU32(c + 24) >= 16 * 32 && C + 16 * 32 <= g + gn && P + 32 <= pl + pn) { int lum[16]; for (int i = 0; i < 16; i++) { const uint16_t k = pgU16(P + 2 * i); lum[i] = ((k & 31) * 30 + (k >> 5 & 31) * 59 + (k >> 10 & 31) * 11) / 100; }
       for (int tl = 0; tl < 16; tl++) for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) { const int v = C[tl * 32 + y * 4 + x / 2] >> (4 * (x & 1)) & 15;
-        if (v) { const int l = lum[v] > 31 ? 31 : lum[v]; pgFindIco[((tl / 4) * 8 + y) * 32 + (tl % 4) * 8 + x] = suiMix(SUI_RGB(0, 70, 54), SUI_RGB(250, 250, 255), l, 31) | 0xFF000000u; } }
-      pgFindIcoOk = true; } }
-  PSPNativeMemLog("[FIND] icon sp=%d file %d bytes pal %d bytes -> %s", sp, gn, pn, pgFindIcoOk ? "ok" : "missing (card has no sprite)"); }
+        if (v) { const int l = lum[v] > 31 ? 31 : lum[v]; dst[((tl / 4) * 8 + y) * 32 + (tl % 4) * 8 + x] = suiMix(SUI_RGB(0, 70, 54), SUI_RGB(250, 250, 255), l, 31) | 0xFF000000u; } }
+      ok = true; } }
+  return ok; }
+static uint32_t pgFindIco[32 * 32]; static int pgFindIcoSp = -1; static bool pgFindIcoOk;
+static void pgFindIconLoad(int sp) {
+  if (pgFindIcoSp == sp) return; pgFindIcoSp = sp; pgFindIcoOk = pgMonIcon(sp, pgFindIco);
+  PSPNativeMemLog("[FIND] icon sp=%d -> %s", sp, pgFindIcoOk ? "ok" : "missing (card has no sprite)"); }
+/* one 16x16 roamer icon, cached per slot. False = caller draws the letter. Loaded only when the species changes. */
+static uint32_t pgRoamPx[4][16 * 16]; static int pgRoamSp[4] = { -1, -1, -1, -1 }; static int pgRoamOk[4];
+static bool pgRoamBlit(uint32_t *b, int slot, int sp, int cx, int cy, int X0, int Y0, int X1, int Y1) {
+  if (slot < 0 || slot > 3 || sp <= 0 || sp > 493) return false;
+  if (pgRoamSp[slot] != sp) { pgRoamSp[slot] = sp; uint32_t big[32 * 32]; pgRoamOk[slot] = pgMonIcon(sp, big); memset(pgRoamPx[slot], 0, sizeof pgRoamPx[slot]);
+    if (pgRoamOk[slot]) for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) pgRoamPx[slot][y * 16 + x] = big[(y * 2) * 32 + x * 2];
+    PSPNativeMemLog("[TRACK] roamer sprite slot %d species %d %s", slot, sp, pgRoamOk[slot] ? "ok" : "missing, letter kept"); }
+  if (!pgRoamOk[slot]) return false;
+  for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) { const uint32_t c = pgRoamPx[slot][y * 16 + x]; if (!(c >> 24)) continue;
+    const int px = cx - 8 + x, py = cy - 8 + y; if (px < X0 || py < Y0 || px >= X1 || py >= Y1) continue; suiPx(b, px, py, c & 0xFFFFFF); }
+  return true; }
 /* card: sprite box left, name + count, X top right, time chips below (hit: pgFindHit) */
 enum { kPgFindH = 40 };
 static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, int Y0, int X1) {
@@ -320,7 +368,7 @@ static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, in
     if (i == now) for (int x = x0 + 2; x < x0 + cw - 4; x++) suiPx(b, x, Y0 + 37, SUI_RGB(120, 230, 140)); } }
 
 /* draw the map into the panel interior (X0,Y0)-(X1,Y1); the view follows the player's location unless panned */
-static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int viewX); /* ss3ds_pgextra.h: phone contact pins */
+static void pxMapPins(uint32_t *b, const SPg &p, int X0, int Y0, int X1, int oy); /* ss3ds_pgextra.h: phone contact pins */
 static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW);
 /* achievements list. The trophy and the dots buttons sit on the title row (pgDots, drawn after this), so the point total
    has its own band under them. Each entry is name + points, then a wrapped description, then the earned date on a smaller line.
@@ -414,39 +462,53 @@ static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
   p.achMax = maxS; p.achPage = view > 24 ? view - 8 : 48;
   if (p.achScroll > maxS) p.achScroll = maxS; if (p.achScroll < 0) p.achScroll = 0; }
 
+static void pgZoomChip(uint32_t *b, int x0, int y0, bool plus) {
+  const int s = 12;
+  for (int y = 0; y < s; y++) for (int x = 0; x < s; x++) { const bool edge = !x || !y || x == s - 1 || y == s - 1; suiPx(b, x0 + x, y0 + y, edge ? SUI_RGB(7, 33, 54) : SUI_RGB(232, 244, 226)); }
+  for (int x = 3; x <= 8; x++) suiPx(b, x0 + x, y0 + 6, SUI_RGB(7, 33, 54));
+  if (plus) for (int y = 3; y <= 9; y++) suiPx(b, x0 + 5, y0 + y, SUI_RGB(7, 33, 54)); }
 static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1, bool blink) {
-  const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0;
+  const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0; p.zmX1 = p.zpX1 = 0; p.zoom = pgMapZoom();
   if (p.achOpen) { p.markOk = false; pgAchPanel(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
   if (p.ov) { p.markOk = false; pgOverview(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
-  int cx = kPgW / 2; if (P3DS_PgLoc >= 0) { int x, y, w, h; pgSpecRect(P3DS_PgLoc, &x, &y, &w, &h); cx = x * 8 + w * 4; }
-  const int vw = !p.kantoOpen && p.kantoX > 0 && p.kantoX * 8 > aw ? p.kantoX * 8 : kPgW; /* Kanto hidden: do not scroll into the empty east */
-  int goal = cx - aw / 2; if (goal > vw - aw) goal = vw - aw; if (goal < 0) goal = 0;
+  const int z = p.zoom < 2 ? 1 : 2; int visW = aw / z; if (visW < 1) visW = 1;
+  int cx = kPgW / 2, cy = kPgH / 2; if (P3DS_PgLoc >= 0) { int x, y, w, h; pgSpecRect(P3DS_PgLoc, &x, &y, &w, &h); cx = x * 8 + w * 4; cy = y * 8 + h * 4; }
+  { static int prevZ = 1; if (z != prevZ && p.viewX >= 0) { const int oldW = aw / prevZ < 1 ? 1 : aw / prevZ; p.viewX = pgClampLeft(p, p.viewX + oldW / 2 - visW / 2, visW); if (z > 1) p.viewY = -1; p.glide = false; prevZ = z; } else prevZ = z; }
+  const int mapW = pgMapLimit(p, visW); /* Kanto hidden: do not scroll into the empty east */
+  int goal = cx - visW / 2; if (goal > mapW - visW) goal = mapW - visW; if (goal < 0) goal = 0;
   if (p.viewX < 0) { p.viewX = goal; p.glide = false; }
   else if (p.glide) { const int d = goal - p.viewX; if (d >= -1 && d <= 1) { p.viewX = goal; p.glide = false; } else { const int q = P3DS_FpsTweaks() >= 5 ? 2 : 4; /* level 5: half the repaints, double the step */ p.viewX += d / q ? d / q : (d > 0 ? 1 : -1); } }
   p.moving = p.glide;
-  if (p.viewX > vw - aw) p.viewX = vw - aw; if (p.viewX < 0) p.viewX = 0;
+  if (p.viewX > mapW - visW) p.viewX = mapW - visW; if (p.viewX < 0) p.viewX = 0;
+  if (z <= 1) p.panAcc = 0;
   const int oy = Y0 + (ah - kPgH) / 2;
+  if (z > 1 && (p.glide || p.viewY < 0)) { int visH = ah / z; if (visH < 1) visH = 1; int top = cy - visH / 2; if (top > kPgH - visH) top = kPgH - visH; if (top < 0) top = 0; p.viewY = top; }
   const uint32_t dimTo = SUI_RGB(0, 44, 34);
-  for (int y = Y0; y < Y1; y++) { const int my = y - oy;
-    for (int x = X0; x < X1; x++) { const int mx = x - X0 + p.viewX;
+  for (int y = Y0; y < Y1; y++) {
+    for (int x = X0; x < X1; x++) {
+      int mx, my; if (z <= 1) { mx = x - X0 + p.viewX; my = y - oy; }
+      else { mx = p.viewX + (x - X0) / z; my = p.viewY + (y - Y0) / z; if (mx >= kPgW) mx = kPgW - 1; if (my >= kPgH) my = kPgH - 1; if (mx < 0) mx = 0; if (my < 0) my = 0; }
       if (my < 0 || my >= kPgH || mx < 0 || mx >= kPgW) { suiPx(b, x, y, SUI_RGB(0, 60, 46)); continue; }
       if (p.hide[(my / 8) * 47 + mx / 8]) { suiPx(b, x, y, SUI_RGB(0, 60, 46)); continue; }
       const uint32_t c = p.img[my * kPgW + mx]; suiPx(b, x, y, p.lit[(my / 8) * 47 + mx / 8] ? c : suiMix(c, dimTo, 5, 8)); } }
-  pxMapPins(b, p, X0, X1, oy, p.viewX);
-  if (p.find > 0 && pgFindCfg()) pgFindPins(b, p, X0, X1, oy);
+  pxMapPins(b, p, X0, Y0, X1, oy);
+  if (p.find > 0 && pgFindCfg()) pgFindPins(b, p, X0, Y0, X1, oy);
   /* selected location outline, then the player marker */
-  if (p.sel >= 0) { int x, y, w, h; pgSpecRect(p.sel, &x, &y, &w, &h); const int sx = X0 + x * 8 - p.viewX, sy = oy + y * 8;
-    for (int k = 0; k < 2; k++) for (int xx = sx - k; xx < sx + w * 8 + k; xx++) { if (xx >= X0 && xx < X1) { suiPx(b, xx, sy - 1 - k, SUI_RGB(255, 224, 64)); suiPx(b, xx, sy + h * 8 + k, SUI_RGB(255, 224, 64)); } }
-    for (int k = 0; k < 2; k++) for (int yy = sy - k; yy < sy + h * 8 + k; yy++) { if (sx - 1 - k >= X0) suiPx(b, sx - 1 - k, yy, SUI_RGB(255, 224, 64)); if (sx + w * 8 + k < X1) suiPx(b, sx + w * 8 + k, yy, SUI_RGB(255, 224, 64)); } }
-  if (P3DS_PgLoc >= 0) { int x, y, w, h; pgSpecRect(P3DS_PgLoc, &x, &y, &w, &h); const int px = X0 + x * 8 + w * 4 - p.viewX, py = oy + y * 8 + h * 4;
+  if (p.sel >= 0) { int x, y, w, h; pgSpecRect(p.sel, &x, &y, &w, &h); int sx, sy, ex, ey; pgToDsCorner(p, X0, Y0, oy, x * 8, y * 8, &sx, &sy); pgToDsCorner(p, X0, Y0, oy, x * 8 + w * 8, y * 8 + h * 8, &ex, &ey);
+    for (int k = 0; k < 2; k++) for (int xx = sx - k; xx < ex + k; xx++) { if (xx >= X0 && xx < X1) { suiPx(b, xx, sy - 1 - k, SUI_RGB(255, 224, 64)); suiPx(b, xx, ey + k, SUI_RGB(255, 224, 64)); } }
+    for (int k = 0; k < 2; k++) for (int yy = sy - k; yy < ey + k; yy++) { if (sx - 1 - k >= X0) suiPx(b, sx - 1 - k, yy, SUI_RGB(255, 224, 64)); if (ex + k < X1) suiPx(b, ex + k, yy, SUI_RGB(255, 224, 64)); } }
+  if (P3DS_PgLoc >= 0) { int x, y, w, h; pgSpecRect(P3DS_PgLoc, &x, &y, &w, &h); int px, py; pgToDs(p, X0, Y0, oy, x * 8 + w * 4, y * 8 + h * 4, &px, &py);
     p.markX = px; p.markY = py; p.markOk = px >= X0 + 3 && px < X1 - 3 && (p.sel < 0 || py < Y1 - pgCardH(p) - 6);
     if (px >= X0 + 3 && px < X1 - 3 && !p.gameMarker) mmPlayer(b, px, py, blink); } else p.markOk = false;
-  /* run 45: roamer marks (tracker): a coloured square on the roamer's location, R / E / L / L */
+  /* roamers: letter square, or the species icon from the ROM when roamer_sprites is on. Same place, same hide rules. */
   if (P3DS_TrkOn() && P3DS_TrkReady) for (int i = 0; i < 4; i++) { const P3DS_TrkRoamer &r = P3DS_TrkRoam[i]; if (!r.active || r.loc < 0 || r.loc >= kPgN) continue;
-    int x, y, w, h; pgSpecRect(r.loc, &x, &y, &w, &h); const int rx = X0 + x * 8 + w * 4 - p.viewX, ry = oy + y * 8 + h * 4;
-    if (pgHiddenAt(p, x * 8 + w * 4, y * 8 + h * 4) || rx < X0 + 5 || rx >= X1 - 5 || ry < Y0 + 5 || ry >= Y1 - 5) continue;
-    for (int yy = -4; yy <= 4; yy++) for (int xx = -4; xx <= 4; xx++) suiPx(b, rx + xx, ry + yy, xx == -4 || xx == 4 || yy == -4 || yy == 4 ? SUI_RGB(7, 33, 54) : kTrkCol[i]);
-    static const char *const kIni[4] = { "R", "E", "L", "L" }; const char *ini = kIni[i]; T.draw(b, rx - T.width(ini) / 2, ry - 4, ini, SUI_RGB(30, 30, 40), kTrkCol[i]); }
+    int x, y, w, h; pgSpecRect(r.loc, &x, &y, &w, &h); const int mx = x * 8 + w * 4, my = y * 8 + h * 4; if (pgHiddenAt(p, mx, my)) continue;
+    int rx, ry; pgToDs(p, X0, Y0, oy, mx, my, &rx, &ry); const int inset = pgRoamSpr() ? 9 : 5;
+    if (rx < X0 + inset || rx >= X1 - inset || ry < Y0 + inset || ry >= Y1 - inset) continue;
+    if (!(pgRoamSpr() && pgRoamBlit(b, i, r.species, rx, ry, X0, Y0, X1, Y1))) {
+      for (int yy = -4; yy <= 4; yy++) for (int xx = -4; xx <= 4; xx++) suiPx(b, rx + xx, ry + yy, xx == -4 || xx == 4 || yy == -4 || yy == 4 ? SUI_RGB(7, 33, 54) : kTrkCol[i]);
+      static const char *const kIni[4] = { "R", "E", "L", "L" }; const char *ini = kIni[i]; T.draw(b, rx - T.width(ini) / 2, ry - 4, ini, SUI_RGB(30, 30, 40), kTrkCol[i]); }
+    else { for (int k = 0; k < 3; k++) { suiPx(b, rx - 8 + k, ry - 8, kTrkCol[i]); suiPx(b, rx - 8, ry - 8 + k, kTrkCol[i]); } } }
   /* info card for the tapped location */
   p.flyX0 = p.flyY0 = p.flyX1 = p.flyY1 = 0;
   if (p.sel >= 0) { const int ch = pgCardH(p), cy0 = Y1 - ch; char ln[4][64];
@@ -480,7 +542,15 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
     if (hasWild) { const char *h = "Tap card: wild Pokemon"; T.draw(b, X1 - 4 - T.width(h), Y1 - 11, h, SUI_RGB(24, 153, 115), sh); }
     if (hasPc) T.draw(b, X0 + 4, Y1 - 11, pcl, SUI_RGB(7, 33, 54), sh); } }
   if (p.find > 0 && pgFindCfg()) pgFindBanner(b, T, p, X0, Y0, X1);
+  { int by = Y1 - 14; if (p.sel >= 0) { const int top = Y1 - pgCardH(p); if (by + 12 > top - 1) by = top - 14; }
+    const int fy = (p.find > 0 && pgFindCfg()) ? Y0 + kPgFindH : Y0; if (by >= fy + 1 && by + 12 < Y1) {
+      pgZoomChip(b, X0 + 2, by, false); pgZoomChip(b, X0 + 16, by, true);
+      p.zmX0 = X0 + 2; p.zmY0 = by; p.zmX1 = X0 + 14; p.zmY1 = by + 12; p.zpX0 = X0 + 16; p.zpY0 = by; p.zpX1 = X0 + 28; p.zpY1 = by + 12; } }
   pgDots(b, p, X1, Y0); }
+static int pgZoomHit(const SPg &p, int x, int y) {
+  if (p.zmX1 > p.zmX0 && x >= p.zmX0 - 1 && x < p.zmX1 && y >= p.zmY0 - 2 && y < p.zmY1 + 2) return 1;
+  if (p.zpX1 > p.zpX0 && x >= p.zpX0 && x < p.zpX1 + 1 && y >= p.zpY0 - 2 && y < p.zpY1 + 2) return 2;
+  return 0; }
 
 /* ---- run 11: the game's own icons, decoded from the members above (nothing is written anywhere) ---- */
 /* LZ10 (BIOS LZ77, first byte 0x10) into a malloc'd buffer; returns 0 if the data is not LZ10 or broken */

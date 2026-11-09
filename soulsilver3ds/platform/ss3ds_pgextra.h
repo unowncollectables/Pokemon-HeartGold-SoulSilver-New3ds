@@ -145,12 +145,12 @@ static int pxChipHit(const SUiText &T, int X1, int Y0, int x) {
   for (int i = 0; i < pxNTab(); i++) if (x >= cx0[i] - 1 && x < cx1[i] + 1) return i; return -1; }
 
 /* ---- map extras (called from pgDraw) ---- */
-static void pxMapPins(uint32_t *b, const SPg &p, int X0, int X1, int oy, int viewX) {
+static void pxMapPins(uint32_t *b, const SPg &p, int X0, int Y0, int X1, int oy) {
   if (!pxOn() || !P3DS_PhReady) return;
   if (!gPx.built || gPx.tick != P3DS_PhTick) pxBuild();
   for (int l = 0; l < 100; l++) if (gPx.locN[l]) { int x, y, w, h; pgSpecRect(l, &x, &y, &w, &h);
-    if (pgHiddenAt(p, x * 8 + w * 4, y * 8 + h * 4)) continue;
-    const int px = X0 + x * 8 + w * 8 - viewX - 2, py = oy + y * 8 + 2; if (px < X0 + 3 || px >= X1 - 3) continue;
+    const int mx = x * 8 + w * 8 - 2, my = y * 8 + 2; if (pgHiddenAt(p, x * 8 + w * 4, y * 8 + h * 4)) continue;
+    int px, py; pgToDs(p, X0, Y0, oy, mx, my, &px, &py); if (px < X0 + 3 || px >= X1 - 3) continue;
     const bool re = gPx.locRe[l]; const uint32_t fill = re ? SUI_RGB(255, 200, 40) : SUI_RGB(46, 208, 155);
     for (int yy = -3; yy <= 3; yy++) for (int xx = -3; xx <= 3; xx++) { const int d = abs(xx) + abs(yy); if (d <= 3) suiPx(b, px + xx, py + yy, d == 3 ? kBlNavy : fill); } } }
 /* "Phone: Joey, Wade" for the info card of location `loc` into out (empty if none); true if there is something to show */
