@@ -1,3 +1,9 @@
+# Overworld sound cues (0237)
+
+With Alive wild Pokémon and Visible wild cries enabled, nearby fliers can play a wing cue as they approach and a species cry as they pass. Nearby Pokémon sometimes call back during their play animation. A startled wild Pokémon uses the game's grass rustle sound when it tucks into nearby cover. New cues share a short cooldown, and ambient calls skip a cry channel that is already in use. Legendary flyovers retain their midpoint call.
+
+Generated C passed devkitARM syntax checks, and the existing game ELF exports the cry-status helper. A host harness verified the flyover sound windows in both directions, proximity and mute rules, cue deduplication, and shared cooldown. The designated build and a listening test on New 3DS are pending.
+
 # Wild Pokémon peek out of grass (0236)
 
 With Alive wild Pokémon on, ordinary startled wild Pokémon can stop once they reach tall grass. They tuck down with a short rustle, track the player, and gradually peek back up after a quiet interval. Close footsteps can send them fleeing again. The cover state changes the sprite and movement decisions while the existing collision and encounter hooks stay in effect.

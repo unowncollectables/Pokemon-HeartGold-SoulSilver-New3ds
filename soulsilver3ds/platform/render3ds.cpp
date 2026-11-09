@@ -1509,7 +1509,7 @@ static const SAppTab kTabs[7]={
       {98,"Visible at once","How many visible wild Pokemon can be around you at once."},
       {99,"Visible shiny sparkle","A visible Pokemon can be shiny: it sparkles and a chime plays."},
       {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."},
-      {101,"Visible wild cries","A Pokemon that notices you cries out."},
+      {101,"Visible wild cries","Pokemon cries and sounds from nearby activity."},
       {128,"Alive wild Pokemon","ON: visible Pokemon are solid, some chase you, A starts the battle. ON + TOWNS: towns get harmless Pokemon too."}}},
  {14,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
       {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},

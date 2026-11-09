@@ -1,0 +1,156 @@
+From 6d20a50fbde3e3e7ee6d0226cda9842681c0e9af Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:07:43 -0500
+Subject: [PATCH] ss3ds: add nearby overworld Pokemon sound cues
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 63 ++++++++++++++++++++++++---
+ 1 file changed, 57 insertions(+), 6 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index d5321d9..0d6510e 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v10 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v11 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMem, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -24,8 +24,8 @@ enum { WILD_UNAWARE, WILD_WATCHING, WILD_STARTLED, WILD_IN_COVER };
+ typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT, rustle; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+-typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, hideT, birdLow; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C36u /* 'WIL6': grass rustle */
++typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, soundT, birdLow, birdCue; } SS3DSWildState;
++#define SS3DS_WILD_MAGIC 0x57494C37u /* 'WIL7': ambient sound cues */
+ typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 512 ? 1 : -1]; /* P3DS_WildMem is 128 words */
+ extern void *P3DS_WildMem(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+@@ -436,6 +436,7 @@ extern int P3DS_FollowerSprite(int species, int form, int female);
+ extern int P3DS_WildLoad(int slot, int spr, int shiny);
+ extern void P3DS_Toast(const char *text);
+ extern void PlayCry(u16 species, u8 form);
++extern BOOL IsCryFinished(void);
+ extern void PlaySE(u16 sndseq);
+ 
+ static int sSS3DS_TownMode; // 0223: this frame's tick runs the lively-towns rules (set in SS3DS_WildTick)
+@@ -502,6 +503,21 @@ static int SS3DS_WildNapHabit(int sp, int town, int night) {
+     }
+ }
+ 
++// Ambient cues share a cooldown. The retail WaitCry script treats a
++// nonzero IsCryFinished result as a cry that is still playing.
++static int SS3DS_WildCue(SS3DSWildState *S, int cry, int effect) {
++    if (!P3DS_WildVisCfg(4) || S->soundT || (cry && IsCryFinished())) {
++        return 0;
++    }
++    if (cry) {
++        PlayCry(cry, 0);
++    } else {
++        PlaySE(effect);
++    }
++    S->soundT = 18;
++    return 1;
++}
++
+ static void SS3DS_WildEndPlay(SS3DSWildState *S, int i) {
+     SS3DSWildMon *m = &S->m[i];
+     if (m->playWith) {
+@@ -529,6 +545,9 @@ static int SS3DS_WildPlayTick(SS3DSWildState *S, int i, int px, int pz, int dist
+         } else if (m->playT % 24 == 0) {
+             SS3DSWildMon *next = m->playT % 48 == 0 ? m : o;
+             next->hop = 10;
++            if ((m->playT == 48 && dist <= 7) || (m->playT == 24 && otherDist <= 7)) {
++                SS3DS_WildCue(S, next->sp, 0);
++            }
+             if (next->kind == 2) {
+                 next->splash = 16;
+             }
+@@ -619,6 +638,32 @@ static int SS3DS_BirdLaneOpen(FieldSystem *fieldSystem, int px, int z) {
+     return 1;
+ }
+ 
++enum { BIRD_WING_CUE = 1, BIRD_CRY_CUE = 2 };
++
++static void SS3DS_BirdSound(SS3DSWildState *S, int px, int pz) {
++    if (S->birdBig) {
++        if (S->birdT == SS3DS_BIRD_FRAMES / 2) {
++            PlayCry(S->birdSp, 0);
++        }
++        return;
++    }
++    int dz = pz - S->birdZ;
++    if (dz < -6 || dz > 6) {
++        return;
++    }
++    // Distance ahead of the flier, in tile units scaled by the flight duration.
++    int sign = S->birdDir == 3 ? 1 : -1;
++    int ahead = sign * (px - S->birdX) * SS3DS_BIRD_FRAMES - 36 * S->birdT;
++    if (!(S->birdCue & BIRD_WING_CUE) && ahead >= 4 * SS3DS_BIRD_FRAMES && ahead <= 8 * SS3DS_BIRD_FRAMES
++        && SS3DS_WildCue(S, 0, SEQ_SE_DP_BASABASA)) {
++        S->birdCue |= BIRD_WING_CUE;
++    }
++    if (!(S->birdCue & BIRD_CRY_CUE) && ahead >= -2 * SS3DS_BIRD_FRAMES && ahead <= SS3DS_BIRD_FRAMES
++        && SS3DS_WildCue(S, S->birdSp, 0)) {
++        S->birdCue |= BIRD_CRY_CUE;
++    }
++}
++
+ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz) {
+     if (!P3DS_WildVisCfg(5)) {
+         SS3DS_BirdKill(S, "off");
+@@ -629,9 +674,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     }
+     if (S->birdOn) {
+         S->birdT++;
+-        if (S->birdT == SS3DS_BIRD_FRAMES / 2 && (S->birdBig || P3DS_WildVisCfg(4))) {
+-            PlayCry(S->birdSp, 0);
+-        }
++        SS3DS_BirdSound(S, px, pz);
+         if (S->birdT >= SS3DS_BIRD_FRAMES) {
+             SS3DS_BirdKill(S, "flew off");
+         }
+@@ -657,6 +700,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+     S->birdSp = sp;
+     S->birdW = w;
+     S->birdT = 0;
++    S->birdCue = 0;
+     S->birdShiny = shiny;
+     S->birdBig = legend;
+     S->birdDir = SS3DS_WildRand(S, 2) ? 3 : 2;
+@@ -702,6 +746,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         PSPNativeMemLog("[WILD] tick running: wild_vis on, follower sprites %s", P3DS_FollowerOpen() ? "ok" : "MISSING");
+     }
+     S->anim++;
++    if (S->soundT > 0) {
++        S->soundT--;
++    }
+     int map = fieldSystem->location->mapId;
+     if (map != S->map) {
+         S->lpx = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar);
+@@ -714,6 +761,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         S->map = map;
+         S->spawnT = 60;
+         S->talk = 0;
++        S->soundT = 0;
+         if (S->birdNext < 300) {
+             S->birdNext = 300 + (int)SS3DS_WildRand(S, 300);
+         }
+@@ -1100,6 +1148,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             if (m->grass && dist > 1 && m->roamer < 0 && !m->big) {
+                 m->noticed = WILD_IN_COVER;
+                 m->rustle = 12;
++                if (dist <= 5) {
++                    SS3DS_WildCue(S, 0, SEQ_SE_GS_KUSA2);
++                }
+                 m->dir = toward;
+                 m->hop = m->bang = 0;
+                 m->timer = 35 + (int)SS3DS_WildRand(S, 35);
+-- 
+2.53.0
+
