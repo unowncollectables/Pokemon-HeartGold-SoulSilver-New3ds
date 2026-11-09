@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Town Pokémon play their species cry when greeted with A and Visible Wild Cries enabled.
+
 - Fixed the RUN indicator and movement getting out of sync when the original running-shoes lock was active.
 
 ### Overworld Pokémon behavior

@@ -467,6 +467,7 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   Moving or startled Pokemon can rustle tall grass. Water jumps leave a fading ripple where the Pokemon lands.
   Startled wild Pokemon may tuck down in tall grass and peek out once it gets quiet.
   Visible wild cries also enables nearby grass rustles, calls during play, and flyover sounds when Alive wild Pokemon is on.
+  Press A while facing a town resident to hear its cry when this setting is enabled.
   Land Pokemon can shake dry after rain and leave prints in mud or wet grass. Solo fliers sometimes land on clear ground or flat terrain ledges near scenery.
   In clear weather, some solo fliers can also stop on the Goldenrod Flower Shop, Violet Pokemon Center, or Azalea Pokemon Center roof.
   Towns can get short local showers with ON + TOWNS. The timing varies by town. In Violet, residents may wait under the School and Gym overhangs.
