@@ -461,7 +461,9 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   ground with room to pass, stay clear of door approaches, and tend to stay near where they spawned. They never start battles.
   Shy wild Pokemon watch a quiet approach, and a sprint or bike can send them looking for tall grass. Solo fliers look for an open
   low lane before a pass. Flocks, legendary fliers, and fliers without a clear lane pass higher. Nothing is saved.
-  Log: [WILD] town life on/off ... / spawn ... TOWN / startled by fast approach / low pass / high pass.
+  Species influence temperament and nap timing, with variation across spawns. Nearby Pokemon sometimes trade hops or splashes.
+  In the rain, ordinary land Pokemon look for adjacent tall grass and wait in it when undisturbed.
+  Log: [WILD] town life on/off ... / spawn ... TOWN / startled by fast approach / low pass / high pass / slots ... play / steps into cover.
 pg_find=0               (2026-11-03, default 0; Settings > Input > Pokedex finder) Pokedex encounter finder on the JOHTO map: tap a place, tap its card (wild list), tap a Pokemon name and the map pins every place that species lives. Chips ANY / MORN / DAY / NITE filter by time of day (MORN 4-10h, DAY 10-20h, NITE 20-4h; surf, fishing and Rock Smash count at any time); X clears. Times come from hook 0209 (without it only ANY works). Read-only, never touches the save. Log [FIND].
 pg_flytap=0             (2026-11-07, default 0, hook 0228; Settings > Input > Tap to Fly) Tap-to-Fly on the JOHTO map: tap a town you can Fly to (the game's own unlocked Fly points), then the FLY chip on its info card (green = Fly works here now, grey = the tap says why not: wrong place, no Storm Badge, follower/costume, no Pokemon with Fly; HM free counts). Starts the game's own Fly flight, nothing is written to the save by the port. Log [FLY].
 breed_tab=0             (2026-11-03, default 0; Settings > Setup > Breeding tab) adds an EGGS tab (6th) to the JOHTO panel: Day-Care Pokemon, levels gained, egg chance / EGG READY, Masuda, steps left on party eggs. Read-only (hook 0210). Remove the toggle once tested.

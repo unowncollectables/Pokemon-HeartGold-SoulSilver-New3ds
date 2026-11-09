@@ -1,0 +1,286 @@
+From 8d815bea99184a7941ec5b2982632c245b600ccf Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 02:49:06 -0500
+Subject: [PATCH] ss3ds: add overworld habits, play, and shelter
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 158 +++++++++++++++++++++-----
+ 1 file changed, 130 insertions(+), 28 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 33ef44e..73480be 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,18 +13,18 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v7 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v8 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMem, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+ #define SS3DS_WILD_MAX 6
+ /* 0218: sleep (night nap, Zz), leader (slot+1 of the one it travels with), fight (squabble frames left), big (rare huge one), splash;
+    0223: spare = 1 for an ambient town Pokemon (town resident, never battles) */
+-typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ; } SS3DSWildMon;
++typedef struct { s16 on, sp, lv, x, z, fx, fz, t, timer, dir, w, shiny, kind, mood, noticed, hop, roamer, grass, battle, skip, bang, pad, sleep, leader, fight, big, splash, spare, homeX, homeZ, playWith, playT; } SS3DSWildMon;
+ /* 0217 alive wild: talk = slot+1 of a visible one that asked for its battle (A / bump / chase), cool = frames before the next ask;
+    bird* = the ambient flyer (decoration only, texture slot 7): species, sprite width, frame, start tile, direction (2 west, 3 east), shiny, big (legend) */
+ typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WILD_MAX]; int talk, cool, birdOn, birdSp, birdW, birdT, birdX, birdZ, birdDir, birdShiny, birdNext, birdBig, lastStep, lpx, lpz, flock, hideT, birdLow; } SS3DSWildState;
+-#define SS3DS_WILD_MAGIC 0x57494C34u /* 'WIL4': home tiles and flight lane */
++#define SS3DS_WILD_MAGIC 0x57494C35u /* 'WIL5': resident habits and play */
+ typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 512 ? 1 : -1]; /* P3DS_WildMem is 128 words */
+ extern void *P3DS_WildMem(void);
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+@@ -458,8 +458,67 @@ static u32 SS3DS_WildRand(SS3DSWildState *S, u32 n) {
+     return n ? (S->rng >> 8) % n : 0;
+ }
+ 
++// Give a few familiar species a bias while keeping each spawn's roll.
++static int SS3DS_WildTemperament(int sp, int roll) {
++    switch (sp) {
++    case 19: case 41: case 43: case 187: // Rattata, Zubat, Oddish, Hoppip
++        return roll < 3 ? 0 : roll < 5 ? 1 : 2;
++    case 52: case 54: case 133: case 161: // Meowth, Psyduck, Eevee, Sentret
++        return roll < 2 ? 0 : roll < 8 ? 1 : 2;
++    default:
++        return roll < 5 ? 0 : roll < 8 ? 1 : 2;
++    }
++}
++
++static int SS3DS_WildNapHabit(int sp, int town, int night) {
++    switch (sp) {
++    case 143: case 179: case 183: // Snorlax, Mareep, Marill
++        return night ? 3 : 2;
++    case 163: case 198: // Hoothoot, Murkrow
++        return night ? 0 : 2;
++    default:
++        return night ? 2 : town;
++    }
++}
++
++static void SS3DS_WildEndPlay(SS3DSWildState *S, int i) {
++    SS3DSWildMon *m = &S->m[i];
++    if (m->playWith) {
++        SS3DSWildMon *o = &S->m[m->playWith - 1];
++        o->playWith = o->playT = 0;
++        m->playWith = m->playT = 0;
++    }
++}
++
++static int SS3DS_WildPlayTick(SS3DSWildState *S, int i, int px, int pz, int dist) {
++    SS3DSWildMon *m = &S->m[i];
++    int j = m->playWith - 1;
++    SS3DSWildMon *o = &S->m[j];
++    int dx = o->x - px, dz = o->z - pz;
++    int otherDist = (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz);
++    if (m->noticed || o->noticed || dist <= 3 || otherDist <= 3 || o->battle) {
++        SS3DS_WildEndPlay(S, i);
++        return 0;
++    }
++    if (i < j) { // the lower slot owns the pair's countdown
++        if (--m->playT == 0) {
++            m->timer = 25 + (int)SS3DS_WildRand(S, 35);
++            o->timer = 25 + (int)SS3DS_WildRand(S, 35);
++            SS3DS_WildEndPlay(S, i);
++        } else if (m->playT % 24 == 0) {
++            SS3DSWildMon *next = m->playT % 48 == 0 ? m : o;
++            next->hop = 10;
++            if (next->kind == 2) {
++                next->splash = 12;
++            }
++        }
++    }
++    return 1;
++}
++
+ static void SS3DS_WildKill(SS3DSWildState *S, int i, const char *why) {
+     if (S->m[i].on) {
++        SS3DS_WildEndPlay(S, i);
+         P3DS_WildFree(i + 1);
+         PSPNativeMemLog("[WILD] slot %d species %d removed (%s)", i + 1, S->m[i].sp, why);
+     }
+@@ -751,7 +810,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->shiny = shiny;
+             m->kind = kind & 3;
+             m->grass = (kind & 4) != 0;
+-            m->mood = ro >= 0 ? 2 : r < 5 ? 0 : r < 8 ? 1 : 2; // wander / curious / shy; roamers always flee
++            m->mood = ro >= 0 ? 2 : alive ? SS3DS_WildTemperament(sp, r) : r < 5 ? 0 : r < 8 ? 1 : 2; // wander / curious / shy; roamers always flee
+             if (ro < 0 && !town && P3DS_WildVisCfg(5) && m->kind == 1 && r >= 8 && SS3DS_WildRand(S, 2) == 0) {
+                 m->mood = 3; // 0217 alive: some are bold and charge at the player (Scarlet/Violet style)
+             }
+@@ -761,22 +820,20 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->battle = m->skip = m->bang = 0;
+             m->pad = 0; // fade-in counter
+             m->sleep = m->leader = m->fight = m->big = m->splash = m->spare = 0;
+-            if (town) {
+-                m->spare = 1;
+-                if (m->kind == 1 && SS3DS_WildRand(S, 4) == 0) {
+-                    m->sleep = 1; // dozing in the sun (or the moonlight)
+-                    m->mood = 0;
+-                }
+-            } else if (alive && ro < 0) {
++            m->playWith = m->playT = 0;
++            int napHabit = alive && ro < 0 && m->kind == 1 ? SS3DS_WildNapHabit(sp, town, env & 1) : 0;
++            m->spare = town;
++            if (alive && !town && ro < 0) {
+                 if (SS3DS_WildRand(S, 1024) == 0) { // 0218: a rare huge one (Alpha style): bigger, stronger, bold
+                     m->big = 1;
+                     int blv = lv + 5 + (int)SS3DS_WildRand(S, 6);
+                     m->lv = blv > 100 ? 100 : blv;
+                     m->mood = m->kind == 1 ? 3 : 0;
+-                } else if ((env & 1) && m->kind == 1 && m->mood != 3 && SS3DS_WildRand(S, 3) == 0) {
+-                    m->sleep = 1; // 0218: napping at night
+                 }
+             }
++            if (napHabit && !m->big && m->mood != 3 && SS3DS_WildRand(S, 9) < napHabit) {
++                m->sleep = 180 + (int)SS3DS_WildRand(S, 300);
++            }
+             PSPNativeMemLog("[WILD] spawn slot %d species %d lv %d at %d,%d %s%s%s mood %d%s%s%s", k + 1, sp, m->lv, tx, tz, m->kind == 2 ? "water" : "land", shiny ? " SHINY" : "", ro >= 0 ? " ROAMER" : "", m->mood, m->big ? " HUGE" : "", m->sleep ? " asleep" : "", m->spare ? " TOWN" : "");
+             if (shiny) {
+                 PlaySE(SEQ_SE_DP_KIRAKIRA);
+@@ -808,6 +865,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                     g2->shiny = 0;
+                     g2->lv = lv > 2 ? lv - 1 - (int)SS3DS_WildRand(S, 2) : lv;
+                     g2->leader = k + 1;
++                    g2->sleep = g2->sleep && SS3DS_WildRand(S, 2) ? 180 + (int)SS3DS_WildRand(S, 300) : 0;
+                     g2->timer = 20 + (int)SS3DS_WildRand(S, 40);
+                     g2->kind = m->kind;
+                     g2->grass = (SS3DS_Tile(fieldSystem, gx, gz) & 4) != 0;
+@@ -826,6 +884,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->pad++;
+         }
+         if (m->battle) {
++            SS3DS_WildEndPlay(S, i);
+             if (P3DS_WildBattleResult < 0) {
+                 continue;
+             }
+@@ -867,14 +926,11 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             continue;
+         }
+         if (alive) {
+-            // 0218: rain: land ones away from tall grass go to shelter (and come back with the next spawns once it stops)
+-            if ((env & 2) && m->kind == 1 && !m->grass && !m->noticed && !m->big && SS3DS_WildRand(S, 240) == 0) {
+-                SS3DS_WildKill(S, i, "sheltering from the rain");
+-                continue;
+-            }
+             // 0218: napping: only a loud player close by, or one right next to it, wakes it (startled ones run)
+             if (m->sleep) {
+-                if (dist <= 1 || (loud && dist <= 3) || (!(env & 1) && !m->spare)) {
++                if (--m->sleep == 0) {
++                    m->timer = 25 + (int)SS3DS_WildRand(S, 55);
++                } else if (dist <= 1 || (loud && dist <= 3)) {
+                     m->sleep = 0;
+                     m->noticed = 1;
+                     m->hop = 12;
+@@ -891,6 +947,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 }
+                 continue;
+             }
++            if (m->playWith && SS3DS_WildPlayTick(S, i, px, pz, dist)) {
++                continue;
++            }
+             // 0218: two nearby ones sometimes squabble (face off, hop, then one runs off)
+             if (m->fight > 0) {
+                 m->fight--;
+@@ -904,23 +963,44 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 }
+                 continue;
+             }
+-            if (!m->noticed && SS3DS_WildRand(S, 1500) == 0) {
++            if (!m->noticed && m->roamer < 0 && !m->big && dist > 3
++                && SS3DS_WildRand(S, m->spare || m->leader ? 450 : 900) == 0) {
+                 for (int j = 0; j < SS3DS_WILD_MAX; j++) {
+                     SS3DSWildMon *o = &S->m[j];
+                     int ox = o->x - m->x, oz = o->z - m->z;
+-                    if (j != i && o->on && !o->battle && !o->sleep && !o->fight && !o->noticed && o->kind == m->kind && o->leader != i + 1 && m->leader != j + 1 && (ox < 0 ? -ox : ox) + (oz < 0 ? -oz : oz) <= 2) {
++                    int apart = (ox < 0 ? -ox : ox) + (oz < 0 ? -oz : oz);
++                    int dx = o->x - px, dz = o->z - pz;
++                    if (j == i || !o->on || o->t < 16 || o->battle || o->sleep || o->fight || o->noticed
++                        || o->playWith || o->big || o->roamer >= 0 || o->kind != m->kind || apart == 0 || apart > 3
++                        || (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) <= 3) {
++                        continue;
++                    }
++                    m->dir = (ox < 0 ? -ox : ox) > (oz < 0 ? -oz : oz) ? (ox > 0 ? 3 : 2) : (oz > 0 ? 1 : 0);
++                    o->dir = m->dir ^ 1;
++                    int partners = o->leader == i + 1 || m->leader == j + 1;
++                    if (!m->spare && !partners && SS3DS_WildRand(S, 5) == 0) {
+                         m->fight = o->fight = 96;
+                         m->bang = o->bang = 30;
+-                        m->dir = (ox < 0 ? -ox : ox) > (oz < 0 ? -oz : oz) ? (ox > 0 ? 3 : 2) : (oz > 0 ? 1 : 0);
+-                        o->dir = m->dir ^ 1;
+                         if (P3DS_WildVisCfg(4)) {
+                             PlayCry(m->sp, 0);
+                         }
+                         PSPNativeMemLog("[WILD] slots %d and %d squabble", i + 1, j + 1);
+-                        break;
++                    } else {
++                        m->playWith = j + 1;
++                        o->playWith = i + 1;
++                        S->m[i < j ? i : j].playT = 72 + (int)SS3DS_WildRand(S, 48);
++                        m->hop = 10;
++                        if (m->kind == 2) {
++                            m->splash = 12;
++                        }
++                        PSPNativeMemLog("[WILD] slots %d and %d play", i + 1, j + 1);
+                     }
++                    break;
+                 }
+             }
++            if (m->playWith || m->fight) {
++                continue;
++            }
+             // 0218: idle life: water ones jump and splash now and then (Magikarp a lot), land ones hop
+             if (m->t >= 16 && m->hop == 0 && !m->noticed) {
+                 if (m->kind == 2 && SS3DS_WildRand(S, m->sp == 129 ? 90 : 300) == 0) {
+@@ -1007,6 +1087,27 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         } else if (m->noticed && m->mood == 2) { // shy: runs away
+             d = adx > adz ? (ddx > 0 ? 3 : 2) : (ddz > 0 ? 1 : 0);
+             m->timer = 10 + (int)SS3DS_WildRand(S, 8);
++        } else if (alive && (env & 2) && m->kind == 1 && !m->big && m->roamer < 0) {
++            if (m->grass) {
++                continue; // wait out the rain in cover
++            }
++            int shelter = -1;
++            for (int turn = 0; turn < 4; turn++) {
++                int tryDir = (d + turn) % 4;
++                int x = m->x + (tryDir == 2 ? -1 : tryDir == 3 ? 1 : 0);
++                int z = m->z + (tryDir == 0 ? -1 : tryDir == 1 ? 1 : 0);
++                if ((SS3DS_Tile(fieldSystem, x, z) & 7) == 5 && !SS3DS_WildCrowded(S, i, x, z)) {
++                    shelter = tryDir;
++                    break;
++                }
++            }
++            if (shelter >= 0) {
++                d = shelter;
++                PSPNativeMemLog("[WILD] slot %d species %d steps into cover", i + 1, m->sp);
++            } else if (dist > 8 && SS3DS_WildRand(S, 4) == 0) {
++                SS3DS_WildKill(S, i, "sheltering from the rain");
++                continue;
++            }
+         } else if (m->leader) { // 0218: keeps near its partner
+             SS3DSWildMon *L = &S->m[m->leader - 1];
+             int lx = L->x - m->x, lz = L->z - m->z, alx = lx < 0 ? -lx : lx, alz = lz < 0 ? -lz : lz;
+@@ -1014,13 +1115,14 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 d = alx > alz ? (lx > 0 ? 3 : 2) : (lz > 0 ? 1 : 0);
+                 m->timer = 12 + (int)SS3DS_WildRand(S, 12);
+             }
+-        } else if (m->spare) {
++        } else if (alive && m->roamer < 0 && !m->big && m->mood != 3) {
++            int napHabit = m->kind == 1 ? SS3DS_WildNapHabit(m->sp, m->spare, env & 1) : 0;
+             int hx = m->homeX - m->x, hz = m->homeZ - m->z;
+             int ax = hx < 0 ? -hx : hx, az = hz < 0 ? -hz : hz;
+-            if (ax + az >= 3) {
++            if ((m->spare || napHabit) && ax + az >= 3) {
+                 d = ax > az ? (hx > 0 ? 3 : 2) : (hz > 0 ? 1 : 0);
+-            } else if (!m->noticed && ax + az == 0 && m->kind == 1 && m->mood == 0 && SS3DS_WildRand(S, 5) == 0) {
+-                m->sleep = 1;
++            } else if (!m->noticed && napHabit && ax + az == 0 && dist > 2 && SS3DS_WildRand(S, 12) < napHabit) {
++                m->sleep = 180 + (int)SS3DS_WildRand(S, 300);
+                 continue;
+             }
+         }
+-- 
+2.53.0
+

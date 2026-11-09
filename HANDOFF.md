@@ -1,3 +1,9 @@
+# Overworld routines, play and rain (0233)
+
+The Alive wild Pokémon setting also enables species-weighted temperaments and timed naps. Each spawn keeps its own roll. Some land Pokémon return toward their spawn to nap, and nocturnal species are more likely to nap by day. Nearby Pokémon sometimes stop to face each other and take turns hopping or splashing. Pairs end the exchange when approached or when either participant leaves. Wild strangers can still squabble. During rain, ordinary land Pokémon can seek adjacent tall grass and stay there. Those without nearby cover can leave when the player is far away. The behavior uses existing spawn tiles and terrain, with no authored shop or awning anchors.
+
+The generated C passed devkitARM syntax checks and the hook was idempotent on staged copies. A host harness checked species biases, alternating hops and splashes, interruption by the player, and natural play expiry. Needs the designated build and a New 3DS walk through a town, grass route and rainy route. Look for [WILD] slots ... play and [WILD] ... steps into cover.
+
 # Overworld Pokémon behavior (0232)
 
 Under Settings > Battle > Alive wild Pokémon, ON enables the wild and flight changes and ON + TOWNS also enables town residents. Land residents use the existing tile collision hook on roomy tiles, leave warp approaches clear, and turn toward the player on A. Their spawn tile acts as a home for idle wandering and naps. Shy wild Pokémon watch a quiet approach, while a sprint or bike can trigger retreat into available tall grass. Solo fliers sample three possible low lanes against terrain collision. A flier without a clear lane, a flock, or a legendary uses a higher pass.
