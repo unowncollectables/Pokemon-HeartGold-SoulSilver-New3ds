@@ -137,7 +137,7 @@ soulsilver3ds.cia: soulsilver3ds.elf $(ROOT)/tools/home_menu_art.py cia/soulsilv
 	@if [ -f build/cia/banner3d.bnr ]; then cp build/cia/banner3d.bnr build/cia/banner.bnr; echo "[BANNER] RESULT: 3D ($(BANNER)) banner.bnr $$(stat -c %s build/cia/banner.bnr) bytes. UNTESTED on a real HOME Menu: if HOME freezes on the icon, delete the title with FBI and rebuild with BANNER=flat."; \
 	else $(BT) makebanner -i build/cia/banner.png -a build/cia/banner.wav -o build/cia/banner.bnr; echo "[BANNER] RESULT: FLAT banner.bnr $$(stat -c %s build/cia/banner.bnr) bytes (the known-good PR #17 banner)"; fi
 	$(BT) makesmdh -s "SoulSilver 3DS" -l "Pokemon SoulSilver native New 3DS port" -p "$(SSVER)" -i build/cia/icon.png -o build/cia/icon.icn
-	$(MAKEROM) -f cia -o $@ -elf soulsilver3ds.elf -rsf cia/soulsilver3ds.rsf -icon build/cia/icon.icn -banner build/cia/banner.bnr -target t -major $(CIA_MAJOR) -minor $(CIA_MINOR) -micro 0
+	$(MAKEROM) -f cia -o $@ -elf soulsilver3ds.elf -rsf cia/soulsilver3ds.rsf -icon build/cia/icon.icn -banner build/cia/banner.bnr -exefslogo -target t -major $(CIA_MAJOR) -minor $(CIA_MINOR) -micro 0
 .PHONY: cia
 
 # the version string is compiled into these two; rebuild them when it changes
