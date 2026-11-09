@@ -1,3 +1,9 @@
+# Scheduled resident doorway walks (0241)
+
+A named resident already on screen can now walk toward its landmark doorway when the schedule changes to a matching location on the other side. It follows legal ground tiles and fades toward the entrance before the warp tile. Indoors, a resident can appear near the entrance and walk to its usual spot when there is room. The map transition itself is inferred from the schedule. NPC scripts and player warps are untouched.
+
+Doorway direction and schedule checks passed in a host harness, including a blocked approach, a legal step and the fade at the staging tile. The generated C passed devkitARM syntax checks and the hook was idempotent on staged copies. The device build still needs a look at actual doorway routing and fade visibility.
+
 # Named resident schedules in Johto (0240)
 
 The schedule table adds Mareep near Violet's Pokémon School, Aipom near Kurt's house in Azalea, and Vulpix near Ecruteak's Dance Theater. Mareep and Aipom have daytime indoor spots and morning/evening outdoor spots. Vulpix spends the morning and day outdoors and visits the theater in the evening. Bellossom keeps its Goldenrod routine. When an outdoor routine changes to a different spot on the same map, an undisturbed resident can walk toward the new spot using the existing tile and crowd checks.
