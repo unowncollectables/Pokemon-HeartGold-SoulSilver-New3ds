@@ -1,3 +1,11 @@
+# Violet overhangs and passing showers (0245)
+
+Violet has covered outdoor tiles under the Pokémon School and Gym models. The covered tiles were sampled against the US map prop meshes and terrain flags. Nearby residents can look for an open spot under the cover, route toward it, and stay dry there. The existing live checks keep doorways and occupied tiles clear.
+
+When Alive wild Pokémon is set to ON + TOWNS and Violet's native weather is clear, short local showers use the game's weather renderer. They pause during field tasks. The timer survives a visit to the Pokémon School, so the rain can still be going when the player comes back out. No native weather or save values are written, and existing nonclear weather takes precedence. This experiment is scoped to Violet.
+
+Generated C passed devkitARM syntax and staged-hook idempotence checks. Host tests covered overhang tiles, shower timing and enable/disable behavior. The native weather helpers are present in the current linked ELF. Rain appearance and outdoor routing still need a device playtest. Logs include [WILD] Violet shower starts / clears and seeks an overhang.
+
 # Goldenrod and Violet roof perches (0244)
 
 A solo flier can descend onto a flat patch of the Goldenrod Flower Shop roof or Violet Pokémon Center roof. Both points were measured against the US SoulSilver prop mesh and placement. The flower shop is model 77 in land block 39, and the center is model 62 in block 24. The flier pauses directly over the roof while descending and climbing. The landing and shadow use the measured roof height. The cruise height exceeds the sampled model bounds along the approach lanes.
