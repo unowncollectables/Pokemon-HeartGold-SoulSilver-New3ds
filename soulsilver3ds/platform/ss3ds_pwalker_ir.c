@@ -177,7 +177,10 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
     bool complete = false;
     u8 fifoLevel = 0;
     u8 lineStatus = 0;
-    if (!writeReg(EFCR, 6) || !writeReg(FCR, 5))
+    // The system IR module can touch the same UART. Re-select the normal
+    // register bank and wake the transceiver before arming each send.
+    if (!writeReg(LCR, 3) || !writeReg(IER, 0) || !writeReg(IOSTATE, 0) ||
+        !writeReg(EFCR, 6) || !writeReg(FCR, 5))
         goto finish;
 
     // An empty FIFO was just reset. Load it before enabling transmission
@@ -192,6 +195,15 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
     stage = "enable";
     if (!writeReg(EFCR, 2))
         goto finish;
+    u8 mode;
+    stage = "enable readback";
+    if (!transfer(EFCR, &mode, 1, true))
+        goto finish;
+    if ((mode & 6) != 2) {
+        PSPNativeMemLog("[PWALKER] TX mode changed after enable: EFCR=%02x",
+                        (unsigned)mode);
+        goto finish;
+    }
 
     const u64 start = svcGetSystemTick();
     stage = "timeout";
@@ -235,6 +247,15 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
     }
 
 finish:
+    if (!complete && !strcmp(stage, "timeout")) {
+        u8 lcr = 0xff, efcr = 0xff, ier = 0xff, io = 0xff;
+        transfer(LCR, &lcr, 1, true);
+        transfer(EFCR, &efcr, 1, true);
+        transfer(IER, &ier, 1, true);
+        transfer(IOSTATE, &io, 1, true);
+        PSPNativeMemLog("[PWALKER] TX timeout state: LCR=%02x EFCR=%02x IER=%02x IO=%02x",
+                        (unsigned)lcr, (unsigned)efcr, (unsigned)ier, (unsigned)io);
+    }
     bool disabled = writeReg(EFCR, 6);
     bool cleared = writeReg(FCR, 0);
     if (!complete || !disabled || !cleared) {

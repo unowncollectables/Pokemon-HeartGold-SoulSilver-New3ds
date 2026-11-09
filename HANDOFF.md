@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 732 still timed out with TXLVL=00 and LSR=00, including after fully queuing 30- and 64-byte packets. This is broader than refilling long packets. The follow-up wakes the UART before each send, checks EFCR after enabling TX, and records mode and sleep registers on timeout. The hardware cause remains unconfirmed.
+
 Run 731 loaded the first 64 bytes but timed out refilling three packets (136, 77 and 112 bytes). The follow-up checks the UART transmitter-empty flag when TXLVL reads zero and logs both registers on failure. Hardware refill and repeated transfers remain unverified.
 
 Run 730 received valid handshakes after recovering from impossible RX FIFO counts of 128. Three later TX attempts timed out, with 0/59, 64/94 and 0/63 bytes queued. The follow-up preloads the reset TX FIFO for all packet sizes and uses the working probe’s bus timing during the IR session, restoring the previous settings on idle close. Repeated transfers still need device testing.
