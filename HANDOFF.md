@@ -1,3 +1,9 @@
+# Named resident schedules in Johto (0240)
+
+The schedule table adds Mareep near Violet's Pokémon School, Aipom near Kurt's house in Azalea, and Vulpix near Ecruteak's Dance Theater. Mareep and Aipom have daytime indoor spots and morning/evening outdoor spots. Vulpix spends the morning and day outdoors and visits the theater in the evening. Bellossom keeps its Goldenrod routine. When an outdoor routine changes to a different spot on the same map, an undisturbed resident can walk toward the new spot using the existing tile and crowd checks.
+
+The door and NPC anchors were checked against the map event data. The generated C passed devkitARM syntax checks, and host checks covered all four resident schedules and the indoor/outdoor phase rules. The standing tiles and frequency still need a device playtest. Transitions between maps are still clock-based.
+
 # Goldenrod Flower Shop resident (0239)
 
 The first authored schedule uses the Goldenrod Flower Shop map events. A Bellossom can spawn near the entrance in the morning, near the shopkeeper during the day, and a few tiles to the east in the evening. The spawn still requires a legal open tile and respects the town count. The indoor map only participates in this named schedule. The shopkeeper keeps their existing scripts, and the resident's appearance is derived from the clock and current map.

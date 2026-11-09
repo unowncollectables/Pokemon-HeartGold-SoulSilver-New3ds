@@ -1,0 +1,180 @@
+From c83ae8cf245685a211da582795fac1405c233c76 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 03:22:46 -0500
+Subject: [PATCH] ss3ds: add named Johto resident schedules
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 99 +++++++++++++++++++--------
+ 1 file changed, 70 insertions(+), 29 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 5896a3c..2cabcb8 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v13 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v14 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -452,19 +452,41 @@ static int SS3DS_Tile(FieldSystem *fieldSystem, int x, int z) {
+ 
+ BOOL sub_020548C0(FieldSystem *fieldSystem, int x, int z);
+ 
+-// Goldenrod flower shop door (371,332) and shopkeeper (3,5), from the map events.
+-static int SS3DS_FlowerShopSpot(int map, int env, int *x, int *z) {
+-    if (map == MAP_GOLDENROD_FLOWER_SHOP && (env & WILD_DAY)) {
+-        *x = 4;
+-        *z = 5;
+-        return 1;
+-    }
+-    if (map == MAP_GOLDENROD && (env & (WILD_MORNING | WILD_EVENING))) {
+-        *x = env & WILD_MORNING ? 371 : 374;
+-        *z = 335;
+-        return 1;
++// Anchors are beside doors or NPCs in the map event data. The spawn search
++// still checks terrain, objects and doorway approaches.
++typedef struct {
++    u16 map, species, x, z;
++    u8 phase, indoors;
++} SS3DSTownRoutine;
++
++static const int kRoutineOffsetX[5] = {0, 1, -1, 0, 0};
++static const int kRoutineOffsetZ[5] = {0, 0, 0, 1, -1};
++
++static const SS3DSTownRoutine *SS3DS_TownRoutineForMap(int map, int env, int *indoors) {
++    static const SS3DSTownRoutine routines[] = {
++        {MAP_GOLDENROD, SPECIES_BELLOSSOM, 371, 335, WILD_MORNING, 0},
++        {MAP_GOLDENROD_FLOWER_SHOP, SPECIES_BELLOSSOM, 4, 5, WILD_DAY, 1},
++        {MAP_GOLDENROD, SPECIES_BELLOSSOM, 374, 335, WILD_EVENING, 0},
++        {MAP_VIOLET, SPECIES_MAREEP, 495, 260, WILD_MORNING, 0},
++        {MAP_VIOLET_POKEMON_SCHOOL, SPECIES_MAREEP, 5, 5, WILD_DAY, 1},
++        {MAP_VIOLET, SPECIES_MAREEP, 498, 260, WILD_EVENING, 0},
++        {MAP_AZALEA, SPECIES_AIPOM, 399, 457, WILD_MORNING, 0},
++        {MAP_AZALEA_KURT_HOUSE, SPECIES_AIPOM, 3, 5, WILD_DAY, 1},
++        {MAP_AZALEA, SPECIES_AIPOM, 402, 457, WILD_EVENING, 0},
++        {MAP_ECRUTEAK, SPECIES_VULPIX, 397, 176, WILD_MORNING | WILD_DAY, 0},
++        {MAP_ECRUTEAK_DANCE_THEATER, SPECIES_VULPIX, 11, 11, WILD_EVENING, 1},
++    };
++    *indoors = 0;
++    for (u32 i = 0; i < sizeof(routines) / sizeof(routines[0]); i++) {
++        const SS3DSTownRoutine *routine = &routines[i];
++        if (routine->map == map) {
++            *indoors = routine->indoors;
++            if (env & routine->phase) {
++                return routine;
++            }
++        }
+     }
+-    return 0;
++    return NULL;
+ }
+ 
+ // Returns the direction of a scenery feature next to a safe standing tile.
+@@ -907,10 +929,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     // 0223 lively towns: outdoor maps with no wild table get ambient Pokemon (Alive wild Pokemon = ON + TOWNS)
+     int alive = P3DS_WildVisCfg(5);
+     int env = alive ? SS3DS_WildEnv(fieldSystem) : 0;
+-    int shop = map == MAP_GOLDENROD_FLOWER_SHOP;
+-    int ax = 0, az = 0;
+-    int appointment = alive >= 2 && SS3DS_FlowerShopSpot(map, env, &ax, &az);
+-    int town = alive >= 2 && (SS3DS_TownMap(fieldSystem) || (shop && appointment));
++    int indoors = 0;
++    const SS3DSTownRoutine *routine = alive >= 2 ? SS3DS_TownRoutineForMap(map, env, &indoors) : NULL;
++    int town = alive >= 2 && (SS3DS_TownMap(fieldSystem) || (indoors && routine));
+     if (town != sSS3DS_TownMode) {
+         PSPNativeMemLog("[WILD] town life %s on map %d", town ? "on" : "off", map);
+     }
+@@ -956,21 +977,19 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     } else if (S->spawnT == 0) {
+         mx = SS3DS_WildAutoMax(fieldSystem, px, pz, mx);
+     }
+-    int nearX = px - ax, nearZ = pz - az;
+-    int near = appointment && nearX >= -9 && nearX <= 9 && nearZ >= -8 && nearZ <= 8;
++    int near = routine && px >= routine->x - 9 && px <= routine->x + 9 && pz >= routine->z - 8 && pz <= routine->z + 8;
+     if (S->spawnT == 0 && n < mx) {
+         S->spawnT = town ? 150 + (int)SS3DS_WildRand(S, 150) : 90 + (int)SS3DS_WildRand(S, 60);
+         int scenic = town && !(env & 2) && SS3DS_WildRand(S, 2) == 0;
+         for (int tries = 0; tries < 8; tries++) {
+             int regular = !(near && !named && tries < 5);
+-            if (regular && shop) {
++            if (regular && indoors) {
+                 break;
+             }
+-            static const int spotX[5] = {0, 1, -1, 0, 0}, spotZ[5] = {0, 0, 0, 1, -1};
+-            int tx = regular ? px + (int)SS3DS_WildRand(S, 17) - 8 : ax + spotX[tries];
+-            int tz = regular ? pz + (int)SS3DS_WildRand(S, 13) - 6 : az + spotZ[tries];
++            int tx = regular ? px + (int)SS3DS_WildRand(S, 17) - 8 : routine->x + kRoutineOffsetX[tries];
++            int tz = regular ? pz + (int)SS3DS_WildRand(S, 13) - 6 : routine->z + kRoutineOffsetZ[tries];
+             int dx = tx - px, dz = tz - pz;
+-            if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) < (shop ? 2 : 4)) {
++            if ((dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) < (indoors ? 2 : 4)) {
+                 continue;
+             }
+             int kind = SS3DS_Tile(fieldSystem, tx, tz);
+@@ -998,7 +1017,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 }
+             }
+             if (!regular) {
+-                sp = SPECIES_BELLOSSOM;
++                sp = routine->species;
+                 lv = 5;
+             } else if (town) {
+                 lv = 5;
+@@ -1071,7 +1090,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             int napHabit = alive && ro < 0 && m->kind == 1 ? SS3DS_WildNapHabit(sp, town, env & 1) : 0;
+             m->spare = !regular ? 2 : town;
+             if (!regular) {
+-                PSPNativeMemLog("[WILD] Flower Shop Bellossom on map %d at %d,%d", map, tx, tz);
++                PSPNativeMemLog("[WILD] scheduled resident species %d on map %d at %d,%d", sp, map, tx, tz);
+             }
+             if (alive && !town && ro < 0) {
+                 if (SS3DS_WildRand(S, 1024) == 0) { // 0218: a rare huge one (Alpha style): bigger, stronger, bold
+@@ -1158,9 +1177,24 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->bang--;
+         }
+         int ddx = m->x - px, ddz = m->z - pz, adx = ddx < 0 ? -ddx : ddx, adz = ddz < 0 ? -ddz : ddz, dist = adx + adz;
+-        if (m->spare == 2 && !appointment && dist > 6) {
+-            SS3DS_WildKill(S, i, "flower shop routine changed");
+-            continue;
++        if (m->spare == 2) {
++            if (!routine && dist > 6) {
++                SS3DS_WildKill(S, i, "resident schedule changed");
++                continue;
++            }
++            if (routine && m->t >= 16 && m->timer <= 1 && !m->playWith && !m->sleep && !m->noticed
++                && (m->homeX < routine->x - 1 || m->homeX > routine->x + 1
++                    || m->homeZ < routine->z - 1 || m->homeZ > routine->z + 1)) {
++                for (int spot = 0; spot < 5; spot++) {
++                    int x = routine->x + kRoutineOffsetX[spot], z = routine->z + kRoutineOffsetZ[spot];
++                    if ((SS3DS_TownTile(fieldSystem, x, z) & 3) == 1 && !SS3DS_WildCrowded(S, i, x, z)) {
++                        m->homeX = x;
++                        m->homeZ = z;
++                        PSPNativeMemLog("[WILD] resident species %d heads to %d,%d", m->sp, x, z);
++                        break;
++                    }
++                }
++            }
+         }
+         if (ddx * ddx + ddz * ddz > 144) {
+             SS3DS_WildKill(S, i, "far");
+@@ -1433,6 +1467,13 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             int ax = hx < 0 ? -hx : hx, az = hz < 0 ? -hz : hz;
+             if ((m->spare || napHabit) && ax + az >= (m->spare == 2 ? 1 : 3)) {
+                 d = ax > az ? (hx > 0 ? 3 : 2) : (hz > 0 ? 1 : 0);
++                if (m->spare == 2 && ax && az) {
++                    int x = m->x + (d == 2 ? -1 : d == 3 ? 1 : 0);
++                    int z = m->z + (d == 0 ? -1 : d == 1 ? 1 : 0);
++                    if ((SS3DS_TownTile(fieldSystem, x, z) & 3) != 1 || SS3DS_WildCrowded(S, i, x, z)) {
++                        d = ax > az ? (hz > 0 ? 1 : 0) : (hx > 0 ? 3 : 2);
++                    }
++                }
+             } else if (!m->noticed && napHabit && ax + az == 0 && dist > 2 && SS3DS_WildRand(S, 12) < napHabit) {
+                 m->sleep = 180 + (int)SS3DS_WildRand(S, 300);
+                 continue;
+-- 
+2.53.0
+
