@@ -1,3 +1,9 @@
+# Bag pocket palette and JOHTO panel
+
+Rapidly alternating Items and Medicine in Azahar reproduced missing Bag graphics from both entry points. Native Bag state still changed pockets, and software and GPU composition reproduced the same pixel loss. The background palette bytes retained by the native Bag changed during the repro. The platform now snapshots the Bag's background and object palette sources on entry and uses those copies for the matching pocket uploads. The underlying palette overwrite is still unexplained.
+
+Azahar's rapid-click trace kept roughly 49,000 visible pixels after this change, compared with a drop to roughly 6,500 before it. The JOHTO panel also avoids temporary text stand-ins and skips rendering the hidden top screen where possible. Roamer icons use their species palettes. Full-size opening, remaining open latency, visual roamer verification, and hardware testing are pending.
+
 # Visible wild ground height (2026-11-09)
 
 Visible wild sprites were drawn at the player's height (`PlayerAvatar_GetPositionVector()->y` shared by every sprite in `SS3DS_WildDraw`). Walking up stairs lifted them; walking down pushed them into the ground. Patch 0230 samples the map mesh at each sprite's own world x/z through `sub_02061248` (the query map objects already use). Hop, the land shadow, and the flyer altitude (28 or 40 plus bob) stay added on top of that height. The player's height is only the hint when a bridge sits over ground, and the fallback when that spot has no surface (`unk60` null or the query returns false). `wild_vis` off still returns before any of this. Wide view and stereo are unchanged: the quads stay in world space.

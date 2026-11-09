@@ -1,6 +1,7 @@
 /* ss3ds: definitions the Platinum platform layer expects from Platinum's own game/native patches, and the
    game-facing pieces of pspoke's SoulSilver PSP main.c (dropped from the link, see full/Makefile). */
 #include <3ds.h>
+#include <string.h>
 
 /* VRAM write tracking. Platinum stamps 4 KB VRAM pages from redirected game writes (pspoke vram_dirty.c +
    opttex_redirect.py); SoulSilver's objects are not redirected, so every page counts as written once per
@@ -38,6 +39,81 @@ extern int P3DS_InField;
 extern const char ov01_02206378[] __attribute__((weak));
 extern const char gOverlayTemplate_Battle[] __attribute__((weak));
 int P3DS_InBattle;
+/* Bag_Main state 0 waits for its entrance fade. Expose readiness so the
+ * in-panel layout can wait for the complete Bag screen. */
+volatile int P3DS_PanelBagOpening;
+static int bagPaletteActive;
+extern int __real_Bag_Main(void *manager, int *state);
+extern const unsigned char *OverlayManager_GetData(void *manager);
+extern void __real_GXS_LoadBGPltt(const void *source, u32 offset, u32 size);
+extern void PSPNativeMemLog(const char *, ...);
+extern unsigned char s_HW_DB_BG_PLTT[];
+extern void __real_GXS_LoadOBJPltt(const void *source, u32 offset, u32 size);
+// The game retains these raw NCLR pointers, but their bytes can be
+// overwritten while the Bag is open. Keep a clean copy for pocket uploads.
+static const unsigned char *bagPaletteSource[3];
+static unsigned char bagPalette[3][512] __attribute__((aligned(4)));
+
+void __wrap_GXS_LoadBGPltt(const void *source, u32 offset, u32 size) {
+    // ov15_021FD404 uploads one of eight pocket palettes to BG banks 0–3.
+    if (bagPaletteActive && (offset == 0 || offset == 32 || offset == 96) &&
+        size == (offset == 32 ? 64u : 32u)) {
+        for (unsigned i = 0; i < 2; i++) {
+            if (!bagPaletteSource[i]) continue;
+            const uintptr_t pocket = (uintptr_t)source - (uintptr_t)bagPaletteSource[i];
+            if (pocket > 7 * 32 || (pocket & 31)) continue;
+            const unsigned char *expected = bagPalette[i] + pocket;
+            if (memcmp(expected, source, size)) {
+                static unsigned mismatches;
+                if (mismatches++ < 24)
+                    PSPNativeMemLog("[BAGVRAM] pocket palette source changed: set=%u pocket=%u bank=%u",
+                        i, (unsigned)pocket / 32, (unsigned)offset / 32);
+            }
+            memcpy(s_HW_DB_BG_PLTT + offset, expected, size);
+            return;
+        }
+    }
+    __real_GXS_LoadBGPltt(source, offset, size);
+}
+
+void __wrap_GXS_LoadOBJPltt(const void *source, u32 offset, u32 size) {
+    // ov15_02200030 uploads the selected pocket colour and a common colour.
+    if (bagPaletteActive && bagPaletteSource[2]) {
+        const uintptr_t bank = (uintptr_t)source - (uintptr_t)bagPaletteSource[2];
+        if ((bank == 256 && offset == 0 && size == 256) ||
+            (bank <= 7 * 32 && !(bank & 31) && bank == offset && size == 32))
+            source = bagPalette[2] + bank;
+    }
+    __real_GXS_LoadOBJPltt(source, offset, size);
+}
+
+int __wrap_Bag_Main(void *manager, int *state) {
+    if (!bagPaletteActive) {
+        const unsigned char *data = OverlayManager_GetData(manager);
+        // Bag_Init retains the two background and one object NCLR descriptors.
+        static const unsigned descriptorOffsets[] = {0x694, 0x698, 0x6a0};
+        for (unsigned i = 0; i < sizeof descriptorOffsets / sizeof *descriptorOffsets; i++) {
+            const unsigned char *descriptor;
+            u32 size;
+            memcpy(&descriptor, data + descriptorOffsets[i], sizeof descriptor);
+            bagPaletteSource[i] = NULL;
+            if (!descriptor) continue;
+            memcpy(&size, descriptor + 8, sizeof size);
+            const unsigned bytes = i == 2 ? 512 : 9 * 32;
+            if (size >= bytes) {
+                memcpy(&bagPaletteSource[i], descriptor + 12, sizeof bagPaletteSource[i]);
+                memcpy(bagPalette[i], bagPaletteSource[i], bytes);
+            }
+        }
+    }
+    bagPaletteActive = 1;
+    const int finished = __real_Bag_Main(manager, state);
+    if (finished) bagPaletteActive = 0;
+    if (P3DS_PanelBagOpening && (*state != 0 || finished))
+        P3DS_PanelBagOpening = 0;
+    return finished;
+}
+
 int P3DS_InTitle;
 extern const char gApplication_TitleScreen[] __attribute__((weak));
 /* wide_menu_screens: party menu, bag and Pokemon summary. Weak: a renamed symbol just leaves the toggle without effect;
@@ -95,6 +171,10 @@ void *__wrap_OverlayManager_New(const void *template, void *parentWork, int heap
                 if (P3DS_PanelPartyWant && !P3DS_PanelPartyOn) { P3DS_PanelPartyOn = 1; PSPNativeMemLog("[PANEL] %s open: On=1 (in JOHTO panel)", nm); }
                 else if (P3DS_PanelPartyOn) PSPNativeMemLog("[PANEL] %s open: On kept (chained from the panel)", nm);
                 P3DS_PanelPartyWant = 0;
+            }
+            {
+                extern volatile int P3DS_PanelPartyOn;
+                P3DS_PanelBagOpening = P3DS_PanelPartyOn && nm && !strcmp(nm, "bag");
             }
             if (field || battle) { extern volatile int P3DS_PanelPartyOn; P3DS_PanelPartyOn = 0; }
             P3DS_InWideKind = !nm ? 0 : nm[0] == 'p' && nm[1] == 'o' ? 2 : nm[0] == 'p' && nm[1] == 'c' ? 3 : 1;

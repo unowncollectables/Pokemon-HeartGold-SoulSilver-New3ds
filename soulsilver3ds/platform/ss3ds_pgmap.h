@@ -317,21 +317,58 @@ static void pgFindPins(uint32_t *b, const SPg &p, int X0, int Y0, int X1, int oy
   for (int l = 0; l < 100 && l < kPgN; l++) { if (!pgFindAt(l, p.find, p.findTm, ok)) continue; int x, y, w, h; pgSpecRect(l, &x, &y, &w, &h);
     const int mx = x * 8 + w * 4, my = y * 8 + h * 4; if (pgHiddenAt(p, mx, my)) continue; int px, py; pgToDs(p, X0, Y0, oy, mx, my, &px, &py); if (px < X0 + 4 || px >= X1 - 4) continue;
     for (int yy = -4; yy <= 4; yy++) for (int xx = -4; xx <= 4; xx++) { const int d = abs(xx) + abs(yy); if (d <= 4) suiPx(b, px + xx, py + yy, d == 4 ? SUI_RGB(255, 255, 255) : d == 3 ? SUI_RGB(120, 16, 16) : SUI_RGB(236, 56, 48)); } } }
-/* run 148: the finder card shows the species' menu icon (HGSS a/0/2/0: member 0 = palettes, member 7 + species = 32x32 4bpp).
-   The per-species palette index lives in ARM9 and is not read, so the icon is drawn as a silver/navy tint of palette 0's brightness. */
+/* HGSS menu icons use tiled 4bpp graphics and a separate bank of 16-colour palettes. */
 extern "C" int P3DS_RomNarcMember(const char *path, int member, unsigned char *dst, unsigned cap);
-/* menu icon from the ROM (a/0/2/0). The per-species palette index is not in this file, so this is palette 0's brightness
-   as a silver/navy tint, the same picture the finder card uses. Returns false when the member is missing or short. */
-static bool pgMonIcon(int sp, uint32_t *dst) {
-  memset(dst, 0, 32 * 32 * 4); if (sp <= 0 || sp > 493) return false;
-  static uint8_t g[2048], pl[2048]; const int gn = P3DS_RomNarcMember("a/0/2/0", 7 + sp, g, sizeof g), pn = P3DS_RomNarcMember("a/0/2/0", 0, pl, sizeof pl);
-  const uint8_t *c = gn > 0 ? pgSect(g, (uint32_t)gn, "RAHC") : 0, *t = pn > 0 ? pgSect(pl, (uint32_t)pn, "TTLP") : 0; bool ok = false;
-  if (c && t) { const uint8_t *C = c + 8 + pgU32(c + 28), *P = t + 8 + pgU32(t + 20);
-    if (pgU32(c + 24) >= 16 * 32 && C + 16 * 32 <= g + gn && P + 32 <= pl + pn) { int lum[16]; for (int i = 0; i < 16; i++) { const uint16_t k = pgU16(P + 2 * i); lum[i] = ((k & 31) * 30 + (k >> 5 & 31) * 59 + (k >> 10 & 31) * 11) / 100; }
-      for (int tl = 0; tl < 16; tl++) for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) { const int v = C[tl * 32 + y * 4 + x / 2] >> (4 * (x & 1)) & 15;
-        if (v) { const int l = lum[v] > 31 ? 31 : lum[v]; dst[((tl / 4) * 8 + y) * 32 + (tl % 4) * 8 + x] = suiMix(SUI_RGB(0, 70, 54), SUI_RGB(250, 250, 255), l, 31) | 0xFF000000u; } }
-      ok = true; } }
-  return ok; }
+extern "C" uint32_t GetMonIconNaixEx(uint32_t species, int isEgg, uint32_t form);
+extern "C" uint8_t GetMonIconPaletteEx(uint32_t species, uint32_t form, uint32_t isEgg);
+
+static bool pgMonIcon(int sp, uint32_t *dst, bool speciesColours = false) {
+  memset(dst, 0, 32 * 32 * sizeof(*dst));
+  if (sp <= 0 || sp > 493) return false;
+
+  static uint8_t graphics[2048], palettes[2048];
+  const int member = GetMonIconNaixEx(sp, 0, 0);
+  const unsigned bank = speciesColours ? GetMonIconPaletteEx(sp, 0, 0) : 0;
+  const int graphicsSize = P3DS_RomNarcMember("a/0/2/0", member, graphics, sizeof graphics);
+  const int paletteSize = P3DS_RomNarcMember("a/0/2/0", 0, palettes, sizeof palettes);
+  if (graphicsSize <= 0 || paletteSize <= 0) return false;
+
+  const uint8_t *chr = pgSect(graphics, graphicsSize, "RAHC");
+  const uint8_t *pal = pgSect(palettes, paletteSize, "TTLP");
+  if (!chr || !pal || graphics + graphicsSize - chr < 32 || palettes + paletteSize - pal < 24)
+    return false;
+
+  const uint64_t pixelsOffset = (chr - graphics) + 8ull + pgU32(chr + 28);
+  const unsigned bankOffset = bank * 32;
+  const uint64_t coloursOffset = (pal - palettes) + 8ull + pgU32(pal + 20) + bankOffset;
+  if (pgU32(chr + 24) < 512 || pixelsOffset + 512 > (unsigned)graphicsSize ||
+      bankOffset + 32 > pgU32(pal + 16) || coloursOffset + 32 > (unsigned)paletteSize)
+    return false;
+
+  uint32_t colours[16] = {};
+  for (int i = 1; i < 16; i++) {
+    const uint16_t colour = pgU16(palettes + coloursOffset + i * 2);
+    const unsigned r = colour & 31, g = (colour >> 5) & 31, b = (colour >> 10) & 31;
+    if (speciesColours) {
+      colours[i] = SUI_RGB((r << 3) | (r >> 2), (g << 3) | (g >> 2), (b << 3) | (b >> 2));
+    } else {
+      const unsigned brightness = (r * 30 + g * 59 + b * 11) / 100;
+      colours[i] = suiMix(SUI_RGB(0, 70, 54), SUI_RGB(250, 250, 255), brightness, 31);
+    }
+    colours[i] |= 0xFF000000u;
+  }
+
+  const uint8_t *pixels = graphics + pixelsOffset;
+  for (int tile = 0; tile < 16; tile++) {
+    for (int y = 0; y < 8; y++) {
+      for (int x = 0; x < 8; x++) {
+        const unsigned index = (pixels[tile * 32 + y * 4 + x / 2] >> (4 * (x & 1))) & 15;
+        dst[((tile / 4) * 8 + y) * 32 + (tile % 4) * 8 + x] = colours[index];
+      }
+    }
+  }
+  return true;
+}
 static uint32_t pgFindIco[32 * 32]; static int pgFindIcoSp = -1; static bool pgFindIcoOk;
 static void pgFindIconLoad(int sp) {
   if (pgFindIcoSp == sp) return; pgFindIcoSp = sp; pgFindIcoOk = pgMonIcon(sp, pgFindIco);
@@ -340,7 +377,7 @@ static void pgFindIconLoad(int sp) {
 static uint32_t pgRoamPx[4][16 * 16]; static int pgRoamSp[4] = { -1, -1, -1, -1 }; static int pgRoamOk[4];
 static bool pgRoamBlit(uint32_t *b, int slot, int sp, int cx, int cy, int X0, int Y0, int X1, int Y1) {
   if (slot < 0 || slot > 3 || sp <= 0 || sp > 493) return false;
-  if (pgRoamSp[slot] != sp) { pgRoamSp[slot] = sp; uint32_t big[32 * 32]; pgRoamOk[slot] = pgMonIcon(sp, big); memset(pgRoamPx[slot], 0, sizeof pgRoamPx[slot]);
+  if (pgRoamSp[slot] != sp) { pgRoamSp[slot] = sp; uint32_t big[32 * 32]; pgRoamOk[slot] = pgMonIcon(sp, big, true); memset(pgRoamPx[slot], 0, sizeof pgRoamPx[slot]);
     if (pgRoamOk[slot]) for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) pgRoamPx[slot][y * 16 + x] = big[(y * 2) * 32 + x * 2];
     PSPNativeMemLog("[TRACK] roamer sprite slot %d species %d %s", slot, sp, pgRoamOk[slot] ? "ok" : "missing, letter kept"); }
   if (!pgRoamOk[slot]) return false;

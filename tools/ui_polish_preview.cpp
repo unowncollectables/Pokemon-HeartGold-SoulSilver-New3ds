@@ -21,6 +21,7 @@ void P3DS_Toast(const char *);
 }
 static bool pxOn() { return true; }
 static bool brCfg() { return false; }
+static bool panelPartyCfg() { return false; }
 static bool panelLiveCfg() { return false; }
 static bool pgFindCfg() { return false; }
 static bool pgFlyCfg() { return false; }

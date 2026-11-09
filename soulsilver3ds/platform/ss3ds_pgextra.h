@@ -349,14 +349,19 @@ static bool pxLiveSheetTap(int x, int y) {
 static void pxParty(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
   const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(244, 247, 254), fg = SUI_RGB(18, 26, 38), wh = SUI_RGB(255, 255, 255);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
-  gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1; /* run 118: hit-test geometry for tap-to-open */
-  if (!pxLiveHeader(b, T, X0, Y0, X1)) { T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy); const char *hint = (P3DS_PanelPartyWant||P3DS_PanelPartyOn)?"":"TAP TO OPEN"; T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 236, 222), kBlNavy); }
-  { extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; /* run 131: panel_party: the real party is opening here, so do not flash the read-only list for the ~0.3 s the Start menu takes */
-    if (P3DS_PanelPartyWant || P3DS_PanelPartyOn) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening party...", wh, SUI_RGB(20, 140, 104)); return; } }
-  if (!P3DS_VwReady) { /* run 133: with panel_party a tap on this tab always opens the real party, so do not flash "Reading your save..." before the first open */
-    extern int P3DS_CfgInt(const char *, int); static int ppc = -1; if (ppc < 0) ppc = P3DS_CfgInt("panel_party", 0) != 0;
-    if (ppc && !panelLiveCfg()) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening party...", wh, SUI_RGB(20, 140, 104)); return; }
-    pxVwWait(b, T, X0, Y0 + kPxSubH + 6); return; }
+  gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1;
+  if (P3DS_PanelPartyWant || P3DS_PanelPartyOn || (panelPartyCfg() && !panelLiveCfg())) {
+    // The live game picture will replace this pane once the app is ready.
+    gPx.listY0 = gPx.listY1;
+    T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy);
+    return;
+  }
+  if (!pxLiveHeader(b, T, X0, Y0, X1)) {
+    T.draw(b, X0 + 4, Y0 + 2, "PARTY", wh, kBlNavy);
+    const char *hint = "TAP TO OPEN";
+    T.draw(b, X1 - 4 - T.width(hint), Y0 + 2, hint, SUI_RGB(200, 236, 222), kBlNavy);
+  }
+  if (!P3DS_VwReady) { pxVwWait(b, T, X0, gPx.listY0 + 6); return; }
   if (!P3DS_VwPartyN) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "No Pokemon in the party.", wh, SUI_RGB(20, 140, 104)); return; }
   for (int i = 0; i < P3DS_VwPartyN && i < 6; i++) { const uint16_t *m = P3DS_VwParty[i]; const int y0 = Y0 + kPxSubH + 1 + i * 25, y1 = y0 + 24; if (y1 > Y1) break;
     const bool lvS = gPx.lvSel == i + 1; /* run 145: the Pokemon picked to swap */
@@ -381,9 +386,12 @@ static void pxBag(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1)
   const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(244, 247, 254), fg = SUI_RGB(18, 26, 38), wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(20, 140, 104);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
   gPx.listY0 = Y0 + kPxSubH; gPx.listY1 = Y1; gPx.listX1 = X1;
-  { extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn; /* run 136: plain BAG header while the game's own bag is in the panel (the viewer arrows never follow it; < > have no glyph) */
-    if (P3DS_PanelPartyWant || P3DS_PanelPartyOn) { gPx.bagLX0 = gPx.bagLX1 = gPx.bagRX0 = gPx.bagRX1 = 0; T.draw(b, X0 + 4, Y0 + 2, "BAG", wh, kBlNavy);
-      if (!P3DS_PanelPartyOn) T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening bag...", wh, dk); return; } }
+  if (P3DS_PanelPartyWant || P3DS_PanelPartyOn || (panelPartyCfg() && !panelLiveCfg())) {
+    gPx.listY0 = gPx.listY1;
+    gPx.bagLX0 = gPx.bagLX1 = gPx.bagRX0 = gPx.bagRX1 = 0;
+    T.draw(b, X0 + 4, Y0 + 2, "BAG", wh, kBlNavy);
+    return;
+  }
   pxBagBuild();
   /* < pocket name (count) >: tap the arrows to change pocket */
   gPx.bagLX0 = X0 + 2; gPx.bagLX1 = X0 + 16; gPx.bagRX1 = X1 - 3; gPx.bagRX0 = X1 - 17;
