@@ -42,8 +42,7 @@ static int receivePacket(Packet *packet)
     }
     size_t length = 1;
     u64 lastByte = svcGetSystemTick();
-    while (length < sizeof packet->bytes &&
-           svcGetSystemTick() - lastByte < SYSCLOCK_ARM11 / 500) {
+    while (length < sizeof packet->bytes) {
         count = SS3DS_PwalkerIrRead(packet->bytes + length,
                                     sizeof packet->bytes - length);
         if (count < 0)
@@ -51,6 +50,8 @@ static int receivePacket(Packet *packet)
         if (count) {
             length += (size_t)count;
             lastByte = svcGetSystemTick();
+        } else if (svcGetSystemTick() - lastByte >= SYSCLOCK_ARM11 / 500) {
+            break;
         }
     }
     for (size_t i = 0; i < length; i++)
@@ -148,7 +149,12 @@ static void busWorker(void *unused)
                         incoming = packet;
                     LightLock_Unlock(&busLock);
                 }
-                if (packet.length > 1 && rxLogged < 160) {
+                if (!valid) {
+                    int status = SS3DS_PwalkerIrLineStatus();
+                    PSPNativeMemLog("[PWALKER] RX line status: %d (overrun=%d)",
+                                    status, status >= 0 && (status & BIT(1)));
+                }
+                if (packet.length > 1 && (rxLogged < 160 || !valid)) {
                     rxLogged++;
                     PSPNativeMemLog("[PWALKER] RX %s: opcode %02x, %u bytes",
                                     valid ? "valid" : "invalid",
@@ -190,7 +196,8 @@ uint32_t SS3DS_Pwalker_SpiWaitInit(void)
     if (!busThread) {
         // One process-lifetime thread. A blocked IPC cannot hold up overlay
         // teardown, and reconnects do not create additional blocked threads.
-        busThread = threadCreate(busWorker, NULL, 32 * 1024, 0x30, -2, false);
+        // Drain the small RX FIFO ahead of normal rendering workers.
+        busThread = threadCreate(busWorker, NULL, 32 * 1024, 0x2d, -2, false);
         if (!busThread) {
             PSPNativeMemLog("[PWALKER] could not start IR worker");
             return 0;

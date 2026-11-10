@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 739 reached IR ready on every retry. Seven attempts ended on checksum-invalid opcode 0e replies of 108–120 bytes after valid EEPROM read replies. The follow-up schedules the IR worker ahead of normal rendering and checks the FIFO before declaring an inter-byte timeout. Invalid packets still fail checksum validation and now log UART line status, including the overrun flag. Hardware verification is pending.
+
 Run 738 paused extra-input polling successfully and logged valid acknowledgments through the 32-packet trace limit. Two later connection requests never reached IR ready, and no polling-resume result appeared. Patch 0255 keeps polling paused between attempts and requests restoration asynchronously only when leaving overlay 112. The trace now covers up to 160 packets per direction. The restore stall remains a hypothesis until a new device log confirms it.
 
 Run 737 still disconnected at varying points despite faster RX turnaround. The next build pauses the New 3DS extra-input IRRST service during a Pokewalker session because it can poll another device on the same I2C bus. It leaves the shared input memory mapped and restores polling at close. Logs report both service results. Bus contention is a hypothesis and hardware verification is pending.

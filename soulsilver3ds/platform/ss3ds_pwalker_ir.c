@@ -189,6 +189,12 @@ int SS3DS_PwalkerIrRead(uint8_t *data, size_t capacity)
     return (int)count;
 }
 
+int SS3DS_PwalkerIrLineStatus(void)
+{
+    u8 status;
+    return transfer(LSR, &status, 1, true) ? status : -1;
+}
+
 static bool writeFifo(const u8 *data, size_t count)
 {
     u8 chunk[64];
