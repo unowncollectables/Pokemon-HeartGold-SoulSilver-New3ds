@@ -549,15 +549,23 @@ static void pgWeatherButton(uint32_t *b, const SUiText &T, SPg &p, int x, int y,
   suiSDraw(T, b, x + (22 - suiSWidth(T, "WX")) / 2, y + 1, "WX", kBlNavy, fill);
 }
 
-static void pgWeatherLegend(uint32_t *b, const SUiText &T, int x, int y, int right) {
+static const char *pgWeatherStatus(unsigned visibleKinds) {
+  if (!P3DS_PgWeatherTick) return "Waiting for forecast";
+  if (!visibleKinds) return "Clear in this view";
+  return "Seasonal radar";
+}
+
+static void pgWeatherStatusBar(uint32_t *b, const SUiText &T, int x, int y, int right, unsigned visibleKinds) {
   mmFill(b, x, y, right, y + 12, kBlNavy);
-  if (!P3DS_PgWeatherTick) {
-    suiSDraw(T, b, x + 5, y + 1, "Waiting for forecast", kBlSilverHi, kBlNavy);
-    return;
-  }
+  suiSDraw(T, b, x + 4, y + 1, pgWeatherStatus(visibleKinds), kBlSilverHi, kBlNavy);
+}
+
+static void pgWeatherLegend(uint32_t *b, const SUiText &T, int x, int y, int right, unsigned visibleKinds) {
+  mmFill(b, x, y, right, y + 12, kBlNavy);
   static const char *const names[] = { "Rain", "Snow", "Mist" };
   x += 4;
   for (int i = 0; i < 3; i++) {
+    if (!(visibleKinds & (1u << (i + 1)))) continue;
     mmFill(b, x, y + 4, x + 5, y + 9, kPgWeatherColor[i + 1]);
     suiSDraw(T, b, x + 8, y + 1, names[i], kBlSilverHi, kBlNavy);
     x += 13 + suiSWidth(T, names[i]);
@@ -586,6 +594,10 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   if (z > 1 && (p.glide || p.viewY < 0)) { int visH = ah / z; if (visH < 1) visH = 1; int top = cy - visH / 2; if (top > kPgH - visH) top = kPgH - visH; if (top < 0) top = 0; p.viewY = top; }
   const bool weatherEnabled = P3DS_AmbientWeatherCfg();
   const bool weather = weatherEnabled && p.weather;
+  const bool finder = p.find > 0 && pgFindCfg();
+  const int weatherTop = Y0 + (finder ? kPgFindH : 0);
+  const int weatherBottom = p.sel >= 0 ? Y1 - pgCardH(p) : Y1;
+  unsigned visibleWeather = 0;
   if (weather) pgWeatherRefresh(p.kantoOpen);
   const uint32_t dimTo = SUI_RGB(0, 44, 34);
   for (int y = Y0; y < Y1; y++) {
@@ -597,8 +609,13 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       uint32_t c = p.img[my * kPgW + mx];
       if (!p.lit[(my / 8) * 47 + mx / 8]) c = suiMix(c, dimTo, 5, 8);
       if (weather) {
+        c = suiMix(c, SUI_RGB(19, 50, 79), 1, 5);
         const int cell = pgWeatherMask[my * kPgW + mx];
-        if (cell) c = suiMix(c, kPgWeatherColor[cell & 3], cell >> 2, 9);
+        if (cell) {
+          const int kind = cell & 3;
+          c = suiMix(c, kPgWeatherColor[kind], cell >> 2, 7);
+          if (y >= weatherTop && y < weatherBottom) visibleWeather |= 1u << kind;
+        }
       }
       suiPx(b, x, y, c);
     }
@@ -658,13 +675,16 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
     const int fy = (p.find > 0 && pgFindCfg()) ? Y0 + kPgFindH : Y0; if (by >= fy + 1 && by + 12 < Y1) {
       pgZoomChip(b, X0 + 2, by, false); pgZoomChip(b, X0 + 16, by, true);
       p.zmX0 = X0 + 2; p.zmY0 = by; p.zmX1 = X0 + 14; p.zmY1 = by + 12; p.zpX0 = X0 + 16; p.zpY0 = by; p.zpX1 = X0 + 28; p.zpY1 = by + 12;
-      const bool finder = p.find > 0 && pgFindCfg();
       if (weatherEnabled && finder) pgWeatherButton(b, T, p, X0 + 31, by, weather);
-      if (weather) pgWeatherLegend(b, T, X0 + (finder ? 56 : 31), by, X1 - 2);
+      const int legendX = X0 + (finder ? 56 : 31);
+      if (weather && visibleWeather) pgWeatherLegend(b, T, legendX, by, X1 - 2, visibleWeather);
+      else if (weather && finder) pgWeatherStatusBar(b, T, legendX, by, X1 - 2, visibleWeather);
     } }
   pgDots(b, p, X1, Y0);
-  if (weatherEnabled && !(p.find > 0 && pgFindCfg()))
+  if (weatherEnabled && !finder) {
     pgWeatherButton(b, T, p, p.achX0 - 26, Y0 + 1, weather);
+    if (weather) pgWeatherStatusBar(b, T, X0 + 2, Y0 + 1, p.wxX0 - 3, visibleWeather);
+  }
 }
 static int pgZoomHit(const SPg &p, int x, int y) {
   if (p.zmX1 > p.zmX0 && x >= p.zmX0 - 1 && x < p.zmX1 && y >= p.zmY0 - 2 && y < p.zmY1 + 2) return 1;

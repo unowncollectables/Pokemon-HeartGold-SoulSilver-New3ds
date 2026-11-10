@@ -288,6 +288,7 @@ int main(int argc, char **argv) {
   expect(held, "reading the ring does not shorten its hold");
   pxRingFrame();
   expect(pxRingShown() == 0, "ring banner clears after 20 quiet frames");
+  expect(!strcmp(pgWeatherStatus(0), "Waiting for forecast"), "radar reports a missing forecast");
   snprintf(P3DS_PgName[1], sizeof P3DS_PgName[1], "Pallet Town");
   P3DS_PgWeather[0] = 1;
   P3DS_PgWeather[1] = 2;
@@ -303,6 +304,8 @@ int main(int argc, char **argv) {
   P3DS_PgWeatherTick++;
   pgWeatherRefresh(true);
   expect(pgWeatherMask[10 * kPgW + 10] == 0, "a clear forecast removes the old rain");
+  expect(!strcmp(pgWeatherStatus(0), "Clear in this view"), "radar labels a clear viewport");
+  expect(!strcmp(pgWeatherStatus(1u << 2), "Seasonal radar"), "radar labels a viewport with snow");
   printf(fails ? "RESULT FAIL %d\n" : "RESULT PASS\n", fails);
   return fails ? 1 : 0;
 }
