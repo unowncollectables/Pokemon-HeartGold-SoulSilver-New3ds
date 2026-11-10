@@ -1,0 +1,72 @@
+Subject: [PATCH] ss3ds: publish regional seasonal weather to the Johto map
+
+---
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -1425,9 +1425,13 @@
+
+ extern int P3DS_AmbientWeatherCfg(void);
+
++static BOOL SS3DS_OutdoorWeatherMap(int map) {
++    MapType type = MapHeader_GetMapType(map);
++    return (type == MAP_TYPE_CITY_TOWN || type == MAP_TYPE_ROUTE) && MapHeader_IsOutdoors(map);
++}
++
+ static int SS3DS_AmbientForecast(int map) {
+-    MapType type = MapHeader_GetMapType(map);
+-    if ((type != MAP_TYPE_CITY_TOWN && type != MAP_TYPE_ROUTE) || !MapHeader_IsOutdoors(map)) {
++    if (!SS3DS_OutdoorWeatherMap(map)) {
+         return WEATHER_SUNNY;
+     }
+     RTCDate date;
+@@ -1445,6 +1449,41 @@
+         lastSeason = season;
+     }
+     return SS3DS_SeasonWeather(MapHeader_GetRegionNo(map), SS3DS_SeasonHighland(map), (u32)day, time.hour);
++}
++
++// The map uses the same forecast as the field. Only sample while WX is visible.
++static void SS3DS_WeatherMapTick(int seasonal) {
++    extern volatile int P3DS_PgWeatherOn;
++    extern volatile u32 P3DS_PgWeatherTick;
++    extern u8 P3DS_PgWeather[100];
++    extern int P3DS_PgWeatherMapId(int loc);
++    static int frames, lastWindow = -1;
++    if (!seasonal || !P3DS_PgWeatherOn) {
++        frames = 0;
++        lastWindow = -1;
++        return;
++    }
++    if (frames > 0) {
++        frames--;
++        return;
++    }
++    frames = 60;
++    RTCDate date;
++    RTCTime time;
++    GF_RTC_CopyDateTime(&date, &time);
++    const s32 day = RTC_ConvertDateToDay(&date);
++    if (day < 0 || time.hour >= 24) return;
++    const int window = day * 8 + time.hour / 3;
++    if (lastWindow == window) return;
++    lastWindow = window;
++    for (int i = 0; i < 100; i++) {
++        const int map = P3DS_PgWeatherMapId(i);
++        const int weather = map > 0 && SS3DS_OutdoorWeatherMap(map) ?
++            SS3DS_SeasonWeather(MapHeader_GetRegionNo(map), SS3DS_SeasonHighland(map), (u32)day, time.hour) : WEATHER_SUNNY;
++        P3DS_PgWeather[i] = weather == WEATHER_RAIN ? 1 : weather == WEATHER_SNOW ? 2 : weather == WEATHER_UNKNOWN_9 ? 3 : 0;
++    }
++    P3DS_PgWeatherTick++;
++    PSPNativeMemLog("[WEATHER] Johto radar updated for window %d", window);
+ }
+
+ // Map connections reuse the manager. Pass the destination forecast into the
+@@ -1515,6 +1554,7 @@
+ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     SS3DSWildState *S = SS3DS_WildGet();
+     int seasonal = P3DS_AmbientWeatherCfg();
++    SS3DS_WeatherMapTick(seasonal);
+     int ambientWeather = SS3DS_SeasonWeatherTick(fieldSystem, seasonal, S->townShowerT < 0);
+     if (seasonal && !FieldSystem_TaskIsRunning(fieldSystem)) {
+         S->townShowerT = 0;

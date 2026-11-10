@@ -16,6 +16,12 @@
 extern "C" {
 struct SS3DS_PgSpec { uint16_t mapId; uint8_t x, y; uint16_t bits; uint8_t flavorText, block, u8_, u9, uA, uB, srcX, srcY, dw, dh; };
 extern const SS3DS_PgSpec sLocationSpecs[100];
+/* 0259: 0 clear, 1 rain, 2 snow, 3 mist. The game thread publishes a complete forecast before bumping the tick. */
+volatile int P3DS_PgWeatherOn;
+volatile uint32_t P3DS_PgWeatherTick;
+uint8_t P3DS_PgWeather[100];
+int P3DS_PgWeatherMapId(int loc) { return sLocationSpecs[loc].mapId; }
+int P3DS_AmbientWeatherCfg(void);
 extern volatile int P3DS_FlyReq, P3DS_FlyRes, P3DS_FlyN, P3DS_FlyHere; extern volatile unsigned short P3DS_FlyList[32]; /* hook 0228, ss3ds_glue.c */
 volatile int P3DS_PgReady, P3DS_PgLoc = -1, P3DS_PgShoes = -1; volatile uint32_t P3DS_PgTid;
 char P3DS_PgName[100][20]; char P3DS_PgText[100][100];
@@ -49,6 +55,7 @@ struct SPg {
   int sel = -1; int viewX = -1; int lastLoc = -2;
   int zoom = 1; int viewY = -1; int panAcc = 0; /* zoom 1 = the normal map; viewY is the map row at the top when zoom is 2 */
   int zmX0 = 0, zmY0 = 0, zmX1 = 0, zmY1 = 0, zpX0 = 0, zpY0 = 0, zpX1 = 0, zpY1 = 0; /* minus / plus, DS px; x1==x0 means hidden */
+  bool weather; int wxX0, wxY0, wxX1;
   int markX, markY; bool markOk, gameMarker; /* run 11: marker position (DS px) for the native overlay, and whether the game's head is used */
   bool ov; int ovScroll; int ovRows[kPgN]; int ovN, ovListY0, ovListY1; /* run 13: progress overview (menu-dots button) */
   struct { short x, y; uint8_t k; } ico[48]; int nIco; bool gameIco; /* small stat icons drawn by the native overlay */
@@ -504,8 +511,65 @@ static void pgZoomChip(uint32_t *b, int x0, int y0, bool plus) {
   for (int y = 0; y < s; y++) for (int x = 0; x < s; x++) { const bool edge = !x || !y || x == s - 1 || y == s - 1; suiPx(b, x0 + x, y0 + y, edge ? SUI_RGB(7, 33, 54) : SUI_RGB(232, 244, 226)); }
   for (int x = 3; x <= 8; x++) suiPx(b, x0 + x, y0 + 6, SUI_RGB(7, 33, 54));
   if (plus) for (int y = 3; y <= 9; y++) suiPx(b, x0 + 5, y0 + y, SUI_RGB(7, 33, 54)); }
+static const uint32_t kPgWeatherColor[] = {
+  0, SUI_RGB(48, 154, 255), SUI_RGB(225, 252, 255), SUI_RGB(183, 155, 240)
+};
+static uint8_t pgWeatherMask[kPgW * kPgH];
+
+static void pgWeatherRefresh(bool kantoOpen) {
+  static uint32_t seen;
+  static bool kantoWasOpen;
+  if (seen == P3DS_PgWeatherTick && kantoWasOpen == kantoOpen) return;
+  seen = P3DS_PgWeatherTick;
+  kantoWasOpen = kantoOpen;
+  memset(pgWeatherMask, 0, sizeof pgWeatherMask);
+  for (int i = 0; i < kPgN; i++) {
+    const int kind = P3DS_PgWeather[i];
+    if (kind < 1 || kind > 3 || (!kantoOpen && pgIsKanto(i))) continue;
+    int x, y, w, h;
+    pgSpecRect(i, &x, &y, &w, &h);
+    const int x0 = x * 8, y0 = y * 8, x1 = x0 + w * 8, y1 = y0 + h * 8;
+    // A short feathered edge joins nearby cells while keeping the forecast anchored to mapped locations.
+    for (int yy = y0 - 4; yy < y1 + 4; yy++) for (int xx = x0 - 4; xx < x1 + 4; xx++) {
+      if (xx < 0 || xx >= kPgW || yy < 0 || yy >= kPgH) continue;
+      const int dx = xx < x0 ? x0 - xx : xx >= x1 ? xx - x1 + 1 : 0;
+      const int dy = yy < y0 ? y0 - yy : yy >= y1 ? yy - y1 + 1 : 0;
+      const int opacity = 5 - dx - dy;
+      uint8_t &cell = pgWeatherMask[yy * kPgW + xx];
+      if (opacity > (cell >> 2)) cell = (opacity << 2) | kind;
+    }
+  }
+}
+
+static void pgWeatherButton(uint32_t *b, const SUiText &T, SPg &p, int x, int y, bool active) {
+  p.wxX0 = x; p.wxX1 = x + 22; p.wxY0 = y;
+  const uint32_t fill = active ? kBlPress : kBlSilverHi;
+  mmFill(b, x, y, p.wxX1, y + 12, fill);
+  mmFrame(b, x, y, p.wxX1, y + 12, kBlNavy);
+  suiSDraw(T, b, x + (22 - suiSWidth(T, "WX")) / 2, y + 1, "WX", kBlNavy, fill);
+}
+
+static void pgWeatherLegend(uint32_t *b, const SUiText &T, int x, int y, int right) {
+  mmFill(b, x, y, right, y + 12, kBlNavy);
+  if (!P3DS_PgWeatherTick) {
+    suiSDraw(T, b, x + 5, y + 1, "Waiting for forecast", kBlSilverHi, kBlNavy);
+    return;
+  }
+  static const char *const names[] = { "Rain", "Snow", "Mist" };
+  x += 4;
+  for (int i = 0; i < 3; i++) {
+    mmFill(b, x, y + 4, x + 5, y + 9, kPgWeatherColor[i + 1]);
+    suiSDraw(T, b, x + 8, y + 1, names[i], kBlSilverHi, kBlNavy);
+    x += 13 + suiSWidth(T, names[i]);
+  }
+}
+
+static bool pgWeatherHit(const SPg &p, int x, int y) {
+  return p.wxX1 > p.wxX0 && x >= p.wxX0 && x < p.wxX1 && y >= p.wxY0 && y < p.wxY0 + 12;
+}
+
 static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1, bool blink) {
-  const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0; p.zmX1 = p.zpX1 = 0; p.zoom = pgMapZoom();
+  const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0; p.zmX1 = p.zpX1 = p.wxX1 = 0; p.zoom = pgMapZoom();
   if (p.achOpen) { p.markOk = false; pgAchPanel(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
   if (p.ov) { p.markOk = false; pgOverview(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
   const int z = p.zoom < 2 ? 1 : 2; int visW = aw / z; if (visW < 1) visW = 1;
@@ -520,6 +584,9 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   if (z <= 1) p.panAcc = 0;
   const int oy = Y0 + (ah - kPgH) / 2;
   if (z > 1 && (p.glide || p.viewY < 0)) { int visH = ah / z; if (visH < 1) visH = 1; int top = cy - visH / 2; if (top > kPgH - visH) top = kPgH - visH; if (top < 0) top = 0; p.viewY = top; }
+  const bool weatherEnabled = P3DS_AmbientWeatherCfg();
+  const bool weather = weatherEnabled && p.weather;
+  if (weather) pgWeatherRefresh(p.kantoOpen);
   const uint32_t dimTo = SUI_RGB(0, 44, 34);
   for (int y = Y0; y < Y1; y++) {
     for (int x = X0; x < X1; x++) {
@@ -527,7 +594,15 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       else { mx = p.viewX + (x - X0) / z; my = p.viewY + (y - Y0) / z; if (mx >= kPgW) mx = kPgW - 1; if (my >= kPgH) my = kPgH - 1; if (mx < 0) mx = 0; if (my < 0) my = 0; }
       if (my < 0 || my >= kPgH || mx < 0 || mx >= kPgW) { suiPx(b, x, y, SUI_RGB(0, 60, 46)); continue; }
       if (p.hide[(my / 8) * 47 + mx / 8]) { suiPx(b, x, y, SUI_RGB(0, 60, 46)); continue; }
-      const uint32_t c = p.img[my * kPgW + mx]; suiPx(b, x, y, p.lit[(my / 8) * 47 + mx / 8] ? c : suiMix(c, dimTo, 5, 8)); } }
+      uint32_t c = p.img[my * kPgW + mx];
+      if (!p.lit[(my / 8) * 47 + mx / 8]) c = suiMix(c, dimTo, 5, 8);
+      if (weather) {
+        const int cell = pgWeatherMask[my * kPgW + mx];
+        if (cell) c = suiMix(c, kPgWeatherColor[cell & 3], cell >> 2, 9);
+      }
+      suiPx(b, x, y, c);
+    }
+  }
   pxMapPins(b, p, X0, Y0, X1, oy);
   if (p.find > 0 && pgFindCfg()) pgFindPins(b, p, X0, Y0, X1, oy);
   /* selected location outline, then the player marker */
@@ -582,8 +657,15 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   { int by = Y1 - 14; if (p.sel >= 0) { const int top = Y1 - pgCardH(p); if (by + 12 > top - 1) by = top - 14; }
     const int fy = (p.find > 0 && pgFindCfg()) ? Y0 + kPgFindH : Y0; if (by >= fy + 1 && by + 12 < Y1) {
       pgZoomChip(b, X0 + 2, by, false); pgZoomChip(b, X0 + 16, by, true);
-      p.zmX0 = X0 + 2; p.zmY0 = by; p.zmX1 = X0 + 14; p.zmY1 = by + 12; p.zpX0 = X0 + 16; p.zpY0 = by; p.zpX1 = X0 + 28; p.zpY1 = by + 12; } }
-  pgDots(b, p, X1, Y0); }
+      p.zmX0 = X0 + 2; p.zmY0 = by; p.zmX1 = X0 + 14; p.zmY1 = by + 12; p.zpX0 = X0 + 16; p.zpY0 = by; p.zpX1 = X0 + 28; p.zpY1 = by + 12;
+      const bool finder = p.find > 0 && pgFindCfg();
+      if (weatherEnabled && finder) pgWeatherButton(b, T, p, X0 + 31, by, weather);
+      if (weather) pgWeatherLegend(b, T, X0 + (finder ? 56 : 31), by, X1 - 2);
+    } }
+  pgDots(b, p, X1, Y0);
+  if (weatherEnabled && !(p.find > 0 && pgFindCfg()))
+    pgWeatherButton(b, T, p, p.achX0 - 26, Y0 + 1, weather);
+}
 static int pgZoomHit(const SPg &p, int x, int y) {
   if (p.zmX1 > p.zmX0 && x >= p.zmX0 - 1 && x < p.zmX1 && y >= p.zmY0 - 2 && y < p.zmY1 + 2) return 1;
   if (p.zpX1 > p.zpX0 && x >= p.zpX0 && x < p.zpX1 + 1 && y >= p.zpY0 - 2 && y < p.zpY1 + 2) return 2;
