@@ -439,12 +439,15 @@ static unsigned BoxOut(const float*B,float qwK,bool zp){
 #endif
  return fastBox(B,qwK,zp);
 }
+/* Starter-choice fix (2026-11-10): the starter machine is a 3D scene on the BOTTOM screen inside a non-field overlay and was invisible. Menu scenes are cheap, so the
+   batch cull (and its fast bounds) only runs where it pays: the overworld and battles. Logs the first scene change so log.txt shows which mode a scene used. */
+static bool SS3DS_CullScene(){extern int P3DS_InField,P3DS_InBattle;const bool on=P3DS_InField!=0||P3DS_InBattle!=0;static int last=-1;if(on!=last){last=on;PSPNativeMemLog("[G3CULL] batch cull %s (field %d battle %d)",on?"on":"off for this scene",P3DS_InField,P3DS_InBattle);}return on;}
 static void GpuRaw(const GuVertex*v,unsigned n){
  if(cullAll)return;
  static int edgeFix=-1;if(edgeFix<0){edgeFix=P3DS_CfgInt("stereo_edgefix",1)!=0;PSPNativeMemLog("[G3] stereo_edgefix=%d",edgeFix);}
  const float qwK=(G3G_Wide?1.25f:1.0f)+(edgeFix&&stereoSd?stereoSd*(1.0f/128.0f):0.0f);
  bool chunked=false;
- if(n>=(v==replayV?9u:24u)&&P3DS_BatchCullCfg()){float(*cb)[6]=BoxesFor(v,n);const bool zp=!wbufOn();bcTested++;fastBatchOn=P3DS_FastBoundsCfg()!=0;if(fastBatchOn)fastPlanes.prepare(rawM,qwK,zp);
+ if(n>=(v==replayV?9u:24u)&&P3DS_BatchCullCfg()&&SS3DS_CullScene()){float(*cb)[6]=BoxesFor(v,n);const bool zp=!wbufOn();bcTested++;fastBatchOn=P3DS_FastBoundsCfg()!=0;if(fastBatchOn)fastPlanes.prepare(rawM,qwK,zp);
   const unsigned m=BoxOut(cb[0],qwK,zp);if(m){bcSkipB++;bcSkipT+=n/3;rejOut+=n/3;rejMask|=m;return;}
   if(n>kChunkV){const unsigned nc=(n+kChunkV-1)/kChunkV;for(unsigned c=0;c<nc;c++){const unsigned mc=BoxOut(cb[1+c],qwK,zp);chunkOff[c]=mc!=0;rejMask|=mc;}chunked=true;}}
  G3G_CurFog=s_curPolygonAttr.fogEnable?1:0;const int cullMode3d=cull3dCfg();Tex*tex=GetTexture();const G3SIM_TexImageParam_t tp=s_texImageParam;

@@ -64,7 +64,8 @@ static unsigned direct(u32 op,const u32 *args,u32 words,draw_msg_t *m){
 
 void __wrap_NNS_G3dGeBufferOP_N(u32 op,const u32 *args,u32 words){
  static unsigned used,packed,fallback;
- if(!P3DS_G3PacketCfg()||words>64||(words&&!args)||NNS_G3dGeIsBufferExist()||NNS_G3dGeIsSendDLBusy()){
+ extern int P3DS_InField,P3DS_InBattle;
+ if(!P3DS_G3PacketCfg()||!(P3DS_InField||P3DS_InBattle)||words>64||(words&&!args)||NNS_G3dGeIsBufferExist()||NNS_G3dGeIsSendDLBusy()){
   fallback++;__real_NNS_G3dGeBufferOP_N(op,args,words);return;
  }
  draw_msg_t msg;

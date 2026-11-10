@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Starter selection (Elm's lab): the machine and Poké Balls were invisible (3D layer on the bottom screen in a non-field overlay). Untested guess: the 3D batch cull, fast bounds and packet shortcut now run only in the overworld and battles (log `[G3CULL] batch cull off for this scene`). Platform-only rebuild.
+
 - Battle animation cleanup now receives the particle emitter it needs to release. This fixes a native call mismatch in Shadow Ball and two other overlay 7 callbacks.
 
 - Town Pokémon play their species cry when greeted with A and Visible Wild Cries enabled.
