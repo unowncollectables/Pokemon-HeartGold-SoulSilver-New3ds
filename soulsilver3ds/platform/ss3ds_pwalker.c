@@ -116,7 +116,7 @@ static void busWorker(void *unused)
             PSPNativeMemLog("[PWALKER] %s", listening ? "IR ready" : "IR initialization failed");
         } else if (send) {
             bool sent = SS3DS_PwalkerIrSend(packet.bytes, packet.length);
-            if (!SS3DS_PwalkerIrListen()) {
+            if (!sent && !SS3DS_PwalkerIrListen()) {
                 SS3DS_PwalkerIrClose();
                 listening = false;
             }

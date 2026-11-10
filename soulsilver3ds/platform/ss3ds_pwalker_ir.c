@@ -182,7 +182,7 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
     // The system IR module can touch the same UART. Re-select the normal
     // register bank and wake the transceiver before arming each send.
     if (!writeReg(LCR, 3) || !writeReg(IER, 0) || !writeReg(IOSTATE, 0) ||
-        !writeReg(EFCR, 6) || !writeReg(FCR, 5))
+        !writeReg(EFCR, 6) || !writeReg(FCR, 7))
         goto finish;
 
     // An empty FIFO was just reset. Load it before enabling transmission
@@ -252,7 +252,10 @@ bool SS3DS_PwalkerIrSend(const uint8_t *data, size_t length)
         } else {
             lineStatus = status;
             if (status & BIT(6)) {
-                complete = true;
+                // RX FIFO was cleared before TX. Listen immediately without
+                // disabling or resetting the FIFO after the final byte.
+                stage = "receive turnaround";
+                complete = writeReg(EFCR, 4);
                 break;
             }
         }
@@ -268,16 +271,16 @@ finish:
         PSPNativeMemLog("[PWALKER] TX timeout state: LCR=%02x EFCR=%02x IER=%02x IO=%02x",
                         (unsigned)lcr, (unsigned)efcr, (unsigned)ier, (unsigned)io);
     }
-    bool disabled = writeReg(EFCR, 6);
-    bool cleared = writeReg(FCR, 0);
-    if (!complete || !disabled || !cleared) {
+    if (!complete) {
+        writeReg(EFCR, 6);
+        writeReg(FCR, 0);
         PSPNativeMemLog("[PWALKER] TX %s: queued %u/%u bytes, TXLVL=%02x LSR=%02x",
-                        complete ? "cleanup" : stage,
+                        stage,
                         (unsigned)(total - length), (unsigned)total,
                         (unsigned)fifoLevel, (unsigned)lineStatus);
     }
     if (usedEmptyFlag)
         PSPNativeMemLog("[PWALKER] TX opcode %02x used empty-FIFO fallback",
                         opcode);
-    return complete && disabled && cleared;
+    return complete;
 }
