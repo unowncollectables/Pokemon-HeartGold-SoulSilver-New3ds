@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/whirl-islands-title.svg" alt="Pokémon SoulSilver New 3DS Edition emblem over the Whirl Islands" width="900">
+  <img src="assets/whirl-islands-title.webp" alt="Pokémon SoulSilver New 3DS Edition emblem over the Whirl Islands" width="900">
 </p>
 
 <h1 align="center">Return to Johto</h1>
