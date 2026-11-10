@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 738 paused extra-input polling successfully and logged valid acknowledgments through the 32-packet trace limit. Two later connection requests never reached IR ready, and no polling-resume result appeared. Patch 0255 keeps polling paused between attempts and requests restoration asynchronously only when leaving overlay 112. The trace now covers up to 160 packets per direction. The restore stall remains a hypothesis until a new device log confirms it.
+
 Run 737 still disconnected at varying points despite faster RX turnaround. The next build pauses the New 3DS extra-input IRRST service during a Pokewalker session because it can poll another device on the same I2C bus. It leaves the shared input memory mapped and restores polling at close. Logs report both service results. Bus contention is a hypothesis and hardware verification is pending.
 
 Run 736 acknowledged eight writes on one attempt and nine on another. The latter stopped after a 43-byte write with no ACK logged. The follow-up clears both FIFOs before transmission and switches directly to RX on TX completion, avoiding a post-send FIFO reset that could miss a fast ACK. Hardware transfer remains unverified.

@@ -18,6 +18,7 @@ static LightEvent busWake;
 static bool busLockInitialized;
 static Thread busThread;
 static bool active;
+static bool restoreInput;
 static bool ready;
 static bool startupReported;
 static u32 generation;
@@ -89,6 +90,9 @@ static void busWorker(void *unused)
         LightLock_Lock(&busLock);
         u32 requested = generation;
         bool wanted = active;
+        bool shouldRestore = restoreInput && !wanted && !txCount;
+        if (shouldRestore)
+            restoreInput = false;
         bool canReceive = incoming.length == 0;
         if (listening && session == requested && txCount) {
             packet = outgoing[txHead];
@@ -102,6 +106,8 @@ static void busWorker(void *unused)
             SS3DS_PwalkerIrClose();
             listening = false;
         }
+        if (shouldRestore)
+            SS3DS_PwalkerIrRestoreInput();
         if (wanted && session != requested) {
             session = requested;
             txLogged = rxLogged = 0;
@@ -120,7 +126,7 @@ static void busWorker(void *unused)
                 SS3DS_PwalkerIrClose();
                 listening = false;
             }
-            if (sent && listening && txLogged < 32) {
+            if (sent && listening && txLogged < 160) {
                 txLogged++;
                 PSPNativeMemLog("[PWALKER] TX complete: opcode %02x, %u bytes",
                                 (unsigned)(packet.bytes[0] ^ 0xaa),
@@ -142,7 +148,7 @@ static void busWorker(void *unused)
                         incoming = packet;
                     LightLock_Unlock(&busLock);
                 }
-                if (packet.length > 1 && rxLogged < 32) {
+                if (packet.length > 1 && rxLogged < 160) {
                     rxLogged++;
                     PSPNativeMemLog("[PWALKER] RX %s: opcode %02x, %u bytes",
                                     valid ? "valid" : "invalid",
@@ -194,6 +200,7 @@ uint32_t SS3DS_Pwalker_SpiWaitInit(void)
     LightLock_Lock(&busLock);
     generation++;
     active = true;
+    restoreInput = false;
     ready = false;
     startupReported = false;
     openedAt = svcGetSystemTick();
@@ -317,5 +324,19 @@ int SS3DS_PwalkerCanLaunch(void)
 uint32_t SS3DS_Pwalker_Idle(void)
 {
     OS_Sleep(1);
+    return 0;
+}
+
+extern void Heap_Destroy(uint32_t heap);
+
+uint32_t SS3DS_Pwalker_DestroyAppHeap(uint32_t heap)
+{
+    if (busThread) {
+        LightLock_Lock(&busLock);
+        restoreInput = true;
+        LightLock_Unlock(&busLock);
+        LightEvent_Signal(&busWake);
+    }
+    Heap_Destroy(heap);
     return 0;
 }

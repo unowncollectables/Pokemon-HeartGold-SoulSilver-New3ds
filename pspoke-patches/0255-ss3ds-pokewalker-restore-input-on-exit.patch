@@ -1,0 +1,38 @@
+From 548a7e32f53324d95ff4dc8556468146555981d7 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 9 Nov 2026 19:11:59 -0500
+Subject: [PATCH] Restore extra input on leaving the Pokewalker app
+
+---
+ port/soulsilver-native-play/maploader/arg-overrides.json  | 3 ++-
+ port/soulsilver-native-play/maploader/call-retargets.json | 3 +++
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/port/soulsilver-native-play/maploader/arg-overrides.json b/port/soulsilver-native-play/maploader/arg-overrides.json
+index 86b58ee..1b605e2 100644
+--- a/port/soulsilver-native-play/maploader/arg-overrides.json
++++ b/port/soulsilver-native-play/maploader/arg-overrides.json
+@@ -37,5 +37,6 @@
+  "SS3DS_Pwalker_InitMutex": 0,
+  "SS3DS_Pwalker_InitQueue": 0,
+  "SS3DS_Pwalker_StartWorker": 0,
+- "SS3DS_Pwalker_CreateWorker": 6
++ "SS3DS_Pwalker_CreateWorker": 6,
++ "SS3DS_Pwalker_DestroyAppHeap": 1
+ }
+diff --git a/port/soulsilver-native-play/maploader/call-retargets.json b/port/soulsilver-native-play/maploader/call-retargets.json
+index cb563ff..d59a204 100644
+--- a/port/soulsilver-native-play/maploader/call-retargets.json
++++ b/port/soulsilver-native-play/maploader/call-retargets.json
+@@ -72,5 +72,8 @@
+  },
+  "ov112_021E6164": {
+   "OS_Halt": "SS3DS_Pwalker_Idle"
++ },
++ "ov112_021E7910": {
++  "Heap_Destroy": "SS3DS_Pwalker_DestroyAppHeap"
+  }
+ }
+-- 
+2.53.0
+

@@ -96,7 +96,7 @@ bool SS3DS_PwalkerIrOpen(void)
     // libctru starts New 3DS extra-input polling via ir:rst. Its I2C
     // traffic can overlap our direct transactions on the same bus.
     // Leave its shared memory mapped for hidScanInput.
-    if (!envGetHandle("ir:rst")) {
+    if (!restoreIrrst && !envGetHandle("ir:rst")) {
         Result result = IRRST_Shutdown();
         restoreIrrst = R_SUCCEEDED(result);
         PSPNativeMemLog("[PWALKER] extra-input polling pause: %08lx",
@@ -151,7 +151,12 @@ void SS3DS_PwalkerIrClose(void)
             PSPNativeMemLog("[PWALKER] bus still busy at close; timing restore skipped");
         }
     }
+}
+
+void SS3DS_PwalkerIrRestoreInput(void)
+{
     if (restoreIrrst) {
+        PSPNativeMemLog("[PWALKER] resuming extra-input polling");
         restoreIrrst = false;
         Result result = IRRST_Initialize(10, 0);
         PSPNativeMemLog("[PWALKER] extra-input polling resume: %08lx",
