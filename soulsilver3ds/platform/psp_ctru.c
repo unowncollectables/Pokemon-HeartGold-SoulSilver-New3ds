@@ -374,7 +374,7 @@ volatile unsigned P3DS_InjectKeys; volatile int P3DS_InjectFrames; volatile int 
 /* run 120 panel_party: Want set by PARTY tab when panel_party=1; On set by party_menu Init (hook 0201), cleared on Exit */
 volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn;
 /* run 130: DS-space rect (x0,y0,x1,y1) where the party screen is drawn inside the JOHTO panel; main3ds.c maps stylus taps inside it back to the party's 256x192 touch space */
-volatile int P3DS_PanelDest[4];
+volatile int P3DS_PanelDest[4], P3DS_PanelSrcHeight = 192, P3DS_PanelGearTooltip;
 /* ss3ds 0060 bottom_menu: ticks while the game's Start menu task runs; bit n set = StartMenuAction n is in the menu (0xFFFF until it has been opened once) */
 volatile unsigned P3DS_StartMenuTick, P3DS_StartAvail = 0xFFFF;
 /* ss3ds 0080 mini map: written by the game thread once per player step (hook in field_control.c), read by the Bottom menu in render3ds.cpp */

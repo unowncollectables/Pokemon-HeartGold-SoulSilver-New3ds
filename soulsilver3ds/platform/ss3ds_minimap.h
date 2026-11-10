@@ -121,13 +121,14 @@ static void mmDrawPanel(uint32_t *b, const SUiText &T, const SMm &m, int mode, b
 static const int kBlPanX0 = 3, kBlPanY0 = 3, kBlPanX1 = 187, kBlPanY1 = 189, kBlColX0 = 190, kBlColX1 = 253;
 /* run 18: bottom_hd=1 draws GabeSud0's column geometry at native 320x240 (ss3ds_blnative.h); touch follows it (native x 4/5) */
 static int gBlHd;
-enum { kBlItem1 = 8, kBlRun = 9, kBlItem2 = 10, kBlButtonCount = 11, kBlItem2Hit = 12, kBlItemIconSize = 14 };
+enum { kBlItem1 = 8, kBlRun = 9, kBlItem2 = 10, kBlButtonCount = 11, kBlItem2Hit = 12, kBlItemIconSize = 20 };
 static inline void blNativeRect(int i, int *x0, int *y0, int *x1, int *y1) {
   if (i < kBlItem1) { *x0 = 250; *x1 = 316; *y0 = 3 + 23 * i; *y1 = *y0 + 21; }
   else {
-    *x0 = i == kBlItem1 ? 250 : i == kBlItem2 ? 267 : 285;
-    *x1 = i == kBlItem1 ? 265 : i == kBlItem2 ? 282 : 317;
-    *y0 = 197; *y1 = 229;
+    *x0 = i == kBlRun ? 285 : 250;
+    *x1 = i == kBlRun ? 317 : 282;
+    *y0 = i == kBlRun ? 197 : i == kBlItem1 ? 191 : 214;
+    *y1 = i == kBlRun ? 229 : *y0 + 21;
   }
 }
 static inline void blRect(int i, int *x0, int *y0, int *x1, int *y1) {
@@ -137,9 +138,10 @@ static inline void blRect(int i, int *x0, int *y0, int *x1, int *y1) {
   }
   if (i < kBlItem1) { *x0 = kBlColX0; *x1 = kBlColX1; *y0 = 3 + i * 18; *y1 = *y0 + 17; }
   else {
-    *x0 = kBlColX0 + (i == kBlItem1 ? 0 : i == kBlItem2 ? 16 : 32);
-    *x1 = i == kBlRun ? kBlColX1 : *x0 + 15;
-    *y0 = 151; *y1 = 189;
+    *x0 = i == kBlRun ? kBlColX0 + 32 : kBlColX0;
+    *x1 = i == kBlRun ? kBlColX1 : *x0 + 31;
+    *y0 = i == kBlItem2 ? 170 : 151;
+    *y1 = i == kBlItem1 ? 169 : 189;
   }
 }
 /* 10 = map panel, 11 = tabs, 12 = second registered item. */
@@ -196,10 +198,11 @@ static void blButton(uint32_t *b, const SUiText &T, int i, const char *label, co
   if (i == kBlItem1 || i == kBlItem2) {
     const int slot = i == kBlItem1 ? 0 : 1;
     if (!game && (blItemIconMask & (1u << slot))) {
-      const int x = (x0 + x1 - kBlItemIconSize) / 2, y = (y0 + y1 - kBlItemIconSize) / 2;
-      for (int r = 0; r < kBlItemIconSize; r++) for (int c = 0; c < kBlItemIconSize; c++) {
-        const uint32_t color = blItemIcons[slot][r * kBlItemIconSize + c];
-        if ((color >> 24) && x + c > x0 && x + c < x1 - 1) suiPx(b, x + c, y + r, color);
+      const int size = y1 - y0 - 2;
+      const int x = (x0 + x1 - size) / 2, y = y0 + 1;
+      for (int r = 0; r < size; r++) for (int c = 0; c < size; c++) {
+        const uint32_t color = blItemIcons[slot][(r * kBlItemIconSize / size) * kBlItemIconSize + c * kBlItemIconSize / size];
+        if (color >> 24) suiPx(b, x + c, y + r, color);
       }
     } else if (!game) {
       const char *n = slot ? "2" : "1";

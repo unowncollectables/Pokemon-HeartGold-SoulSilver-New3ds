@@ -1,0 +1,86 @@
+Subject: [PATCH] ss3ds: lock embedded Phone and Radio to the Johto tabs
+
+---
+diff --git a/scripts/ss3ds_hooks.d/0260_panelgear_fit.py b/scripts/ss3ds_hooks.d/0260_panelgear_fit.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0260_panelgear_fit.py
+@@ -0,0 +1,63 @@
++from pathlib import Path
++
++def edit(name, pairs):
++    path = Path("src/application/pokegear") / name
++    text = path.read_text()
++    if "SS3DS 0260" in text:
++        return
++    for old, new in pairs:
++        if text.count(old) != 1:
++            raise SystemExit("0260 panel fit: anchor not found exactly once in " + name)
++        text = text.replace(old, new)
++    path.write_text(text)
++
++edit("main/pokegear_main.c", [
++    ("    pokegearApp->cursorInAppSwitchZone = 1;\n", '''    {   /* SS3DS 0260: focus the visible controls on embedded launch. */
++        extern volatile int P3DS_PanelPartyOn, P3DS_PanelGearTooltip;
++        pokegearApp->cursorInAppSwitchZone = P3DS_PanelPartyOn < 2;
++        P3DS_PanelGearTooltip = 0;
++    }
++'''),
++])
++
++edit("main/overlay_100_021E5900.c", [
++    ("int PokegearApp_HandleTouchInput_SwitchApps(PokegearAppData *pokegearApp) {\n", '''int PokegearApp_HandleTouchInput_SwitchApps(PokegearAppData *pokegearApp) {
++    extern volatile int P3DS_PanelPartyOn; /* SS3DS 0260 */
++    if (P3DS_PanelPartyOn >= 2) return GEAR_APP_NO_INPUT;
++'''),
++    ("    if (gSystem.newKeys & PAD_BUTTON_A) {\n        PokegearCursorGrid *buttonSpec", '''    {
++        extern volatile int P3DS_PanelPartyOn;
++        if (P3DS_PanelPartyOn >= 2) return GEAR_APP_NO_INPUT;
++    }
++    if (gSystem.newKeys & PAD_BUTTON_A) {
++        PokegearCursorGrid *buttonSpec'''),
++])
++
++edit("phone/pokegear_phone.c", [
++    ("int PokegearPhone_MainTask_HandleInput(PokegearPhoneAppData *phoneApp) {\n", '''int PokegearPhone_MainTask_HandleInput(PokegearPhoneAppData *phoneApp) {
++    extern volatile int P3DS_PanelPartyOn; /* SS3DS 0260 */
++    if (P3DS_PanelPartyOn >= 2 && (gSystem.newKeys & PAD_BUTTON_B)) {
++        const int result = PokegearApp_HandleKeyInput_SwitchApps(phoneApp->pokegear);
++        phoneApp->pokegear->appReturnCode = result;
++        return PHONE_MAIN_STATE_FADE_GEAR_CLOSE;
++    }
++'''),
++])
++
++edit("phone/overlay_101_021F0880.c", [
++    ("void PokegearPhone_PrintContextMenuTooltip(PokegearPhoneAppData *phoneApp, u8 tooltipId, BOOL draw) {\n", '''void PokegearPhone_PrintContextMenuTooltip(PokegearPhoneAppData *phoneApp, u8 tooltipId, BOOL draw) {
++    extern volatile int P3DS_PanelPartyOn, P3DS_PanelGearTooltip; /* SS3DS 0260 */
++    if (P3DS_PanelPartyOn >= 2) P3DS_PanelGearTooltip = draw;
++'''),
++])
++
++edit("radio/pokegear_radio.c", [
++    ("int PokegearRadio_MainTask_InputLoop(PokegearRadioAppData *radioApp) {\n", '''int PokegearRadio_MainTask_InputLoop(PokegearRadioAppData *radioApp) {
++    extern volatile int P3DS_PanelPartyOn; /* SS3DS 0260 */
++    if (P3DS_PanelPartyOn >= 2 && (gSystem.newKeys & PAD_BUTTON_B)) {
++        const int result = PokegearApp_HandleKeyInput_SwitchApps(radioApp->pokegear);
++        radioApp->pokegear->appReturnCode = result;
++        return RADIO_MAIN_STATE_FADE_OUT;
++    }
++'''),
++])
+diff --git a/scripts/ss3ds_hooks.d/0260_panelgear_fit.sh b/scripts/ss3ds_hooks.d/0260_panelgear_fit.sh
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0260_panelgear_fit.sh
+@@ -0,0 +1,10 @@
++# Keep embedded Phone and Radio within their Johto tabs. Normal Pokegear keeps its app switcher.
++PG=src/application/pokegear
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0260_panelgear_fit.py" &&
++    bash rebuild_game_object.sh "$PG/main/pokegear_main.c" application__pokegear__main__pokegear_main.o 100 &&
++    bash rebuild_game_object.sh "$PG/main/overlay_100_021E5900.c" application__pokegear__main__overlay_100_021E5900.o 100 &&
++    bash rebuild_game_object.sh "$PG/phone/pokegear_phone.c" application__pokegear__phone__pokegear_phone.o 101 &&
++    bash rebuild_game_object.sh "$PG/phone/overlay_101_021F0880.c" application__pokegear__phone__overlay_101_021F0880.o 101 &&
++    bash rebuild_game_object.sh "$PG/radio/pokegear_radio.c" application__pokegear__radio__pokegear_radio.o 101); then
++  log "ss3ds 0260 panel gear fit hook NOT applied"
++fi

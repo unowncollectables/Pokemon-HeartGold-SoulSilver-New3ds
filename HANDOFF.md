@@ -1,3 +1,7 @@
+# Johto panel fit (0260)
+
+Embedded Phone and Radio fill the space above their native dialogue strip. The original app switcher is cropped and only the Johto tabs switch panels. B closes each native app from its main screen, and Phone context-menu tooltips still show. The two registered item shortcuts stack vertically with larger icons to the left of Run. On-device checks are pending.
+
 # Johto weather radar (0259)
 
 With Ambient Weather enabled, tap WX beside the Johto map trophy to show the seasonal forecast. Blue marks rain, icy white marks snow, and lavender marks mist. The overlay uses the same three-hour weather calculation as the field and respects the hidden Kanto area. The forecast covers ambient weather. Story and other native weather still take precedence in the field. Device checks are pending.
