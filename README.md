@@ -10,41 +10,70 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/unowncollectables/patch-builder"><strong>Open Pokémon 3DS Builder →</strong></a><br>
-  <a href="#getting-started">Setup guide</a> &nbsp;·&nbsp;
-  <a href="#see-it-in-play">Gameplay</a> &nbsp;·&nbsp;
-  <a href="#wireless--online">Trading &amp; online</a> &nbsp;·&nbsp;
-  <a href="#status">Project status</a> &nbsp;·&nbsp;
+  <a href="#getting-started"><img alt="New 3DS / New 2DS XL" src="https://img.shields.io/badge/New_3DS_%2F_New_2DS_XL-1e345b?style=flat-square"></a>
+  &nbsp;
+  <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/license_GPL_v3-4e679c?style=flat-square"></a>
+  &nbsp;
+  <a href="#status"><img alt="Status: in active development" src="https://img.shields.io/badge/status%3A_in_active_development-8a6232?style=flat-square"></a>
+  &nbsp;
+  <a href="#see-it-in-play"><img alt="Wide View + stereo 3D" src="https://img.shields.io/badge/Wide_View_%2B_stereo_3D-3d5a80?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="#see-it-in-play">Gameplay</a>
+  &nbsp;·&nbsp;
+  <a href="#whats-new">What's new</a>
+  &nbsp;·&nbsp;
+  <a href="#getting-started">Setup guide</a>
+  &nbsp;·&nbsp;
+  <a href="#wireless--online">Trading &amp; online</a>
+  &nbsp;·&nbsp;
+  <a href="#status">Project status</a>
+  &nbsp;·&nbsp;
+  <a href="#heartgold-experimental">HeartGold</a>
+  &nbsp;·&nbsp;
   <a href="#for-developers">Source &amp; docs</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/unowncollectables/patch-builder"><strong>Open Pokémon 3DS Builder →</strong></a>
+</p>
+
 ---
+
+## What's new
+
+> [!NOTE]
+> A few recent items from the [changelog](CHANGELOG.md), [handoff](HANDOFF.md), and [release notes](RELEASE_NOTES.md). A 3DS result is listed only where those notes record one.
+
+| Topic | In the tree | On a 3DS |
+| --- | --- | --- |
+| Bottom map | Settings > Input. Map zoom defaults to 1X; 2X is a closer view, and `-` / `+` on the map do the same. Roamer sprites default off, so the coloured letters stay until you turn icons on. The player head now uses the screen pixel of the map pixel it marks, and no longer slips while the view moves. | Not yet. Needs a platform rebuild. |
+| Wild Pokémon | Visible wild Pokémon use the map height at their own position, so stairs and slopes stay under that sprite. Hop, shadow, and flyer altitude stay on top of that height. | Not yet. Needs a game rebuild, then a hardware look. |
+| Seasons and radar | With Ambient Weather on, eligible clear outdoor maps can show seasonal scenery, and the Johto WX radar labels clear areas separately from a forecast that has not arrived. | Device checks are still pending. |
+| Rendering | When `config.txt` has no line for them, the five shortcuts start on (command packets, fast bounds, second-screen compose, rotating sprites, and fades) and the title layout starts at WIDE. A value already in the file is kept. | Run 702 used those five in the field and in battles, including stereo. That pass does not cover every scene. The wide title screen is still unconfirmed on a 3DS. |
 
 ## See it in play
 
 ### Goldenrod above. Johto below.
 
-<p align="center">
-  <img src="assets/screens/field-map.png" alt="Goldenrod City fills the top screen while the Johto map and menu shortcuts occupy the touch screen" width="420"><br>
-  <sub>Two-screen gameplay captured in Azahar. The capture shows an earlier touch-panel layout.</sub>
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/screens/field-map.png" alt="Goldenrod City fills the top screen while the Johto map and menu shortcuts occupy the touch screen" width="340"><br>
+      <sub>Earlier panel layout; a fresh capture is coming.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/screens/panel-radio.png" alt="Pokégear Radio with the station list open while the trainer stands in Goldenrod City" width="340"><br>
+      <sub>Radio panel captured in Azahar. Tap-to-tune still needs more hardware testing.</sub>
+    </td>
+  </tr>
+</table>
 
 - **Top screen.** Walk through towns and routes in widescreen, with optional stereoscopic depth in the field and in battles on consoles with a 3D slider.
 - **Touch screen.** Check your party, bag, map, phone, or radio without leaving the field. Optional tools surface encounter locations, Fly destinations, egg progress, and Bug-Catching Contest stats.
 - **Your save.** Bring over a standard 512 KiB cartridge or flashcart save. The port keeps rolling backups and can export a copy from Settings.
 - **Your pace.** Customize battle speed, text speed, move effectiveness hints, and visible wild encounters. Shiny hunt stats live in a separate file.
-
-<details>
-<summary>See the Pokégear Radio in play</summary>
-
-<p align="center">
-  <img src="assets/screens/panel-radio.png" alt="Pokégear Radio with the station list open while the trainer stands in Goldenrod City" width="420"><br>
-  <sub>Radio panel captured in Azahar. Tap-to-tune still needs more hardware testing.</sub>
-</p>
-
-</details>
-
----
 
 <p align="center">
   <img src="assets/johto-waystation.webp" alt="A compass and folded chart on a window ledge overlooking islands at dawn" width="900">
@@ -124,27 +153,6 @@ The Pokédex finder, Breeding tab, Hunt stats, Damage check, Alive wild Pokémon
 
 **Online.** Set Wireless to **ONLINE** for community-server GTS and **Mystery Gift → Get via Nintendo WFC**. Both paths have worked on hardware. GTS and Mystery Gift use separate services, and availability depends on the community hosts. Online mode requires `cheat_*` settings to be off. See the [wireless guide](docs/WIRELESS.md).
 
-## HeartGold (experimental)
-
-The same port also builds **Pokémon HeartGold** (US) as a completely separate game. It shares every line of the port with SoulSilver, and nothing about it touches a SoulSilver install or save.
-
-| | SoulSilver | HeartGold |
-|---|---|---|
-| SD folder | `sdmc:/3ds/soulsilver3ds/` | `sdmc:/3ds/heartgold3ds/` |
-| Game file and save | `soulsilver.nds`, `soulsilver.sav` | `heartgold.nds`, `heartgold.sav` |
-| Programs | `soulsilver3ds.3dsx` / `.cia` | `heartgold3ds.3dsx` / `.cia` |
-| HOME Menu title | `000400000F7D4000` | `000400000F7D4100` (installs beside SoulSilver) |
-
-Build it with the [Pokemon 3DS Builder](https://github.com/unowncollectables/patch-builder) (tick **Pokemon HeartGold**), or by hand:
-
-```sh
-bash scripts/hg_build.sh /path/to/HeartGold.nds     # compiles the game as HeartGold (long the first time)
-make -C heartgold3ds/full                           # heartgold3ds.3dsx
-make -C heartgold3ds/full cia                       # heartgold3ds.cia, with Ho-Oh on the HOME Menu banner
-```
-
-**Status: experimental.** HeartGold compiles, links, and packages, and the build refuses to link a HeartGold program that still names a SoulSilver file. It has **not been played on a console yet**: every SoulSilver hardware result above still needs its own HeartGold check, online included. Your HeartGold game file is only read, and Ho-Oh for the banner is taken from it at build time; nothing from the game is in this repository.
-
 ## Status
 
 **In active development.** The core game, stereoscopic 3D, save round-trips, and local trading have been exercised on hardware. Steady 30 fps across scenes is still the performance target. Fades, some battles, and first visits to a map can hitch.
@@ -162,6 +170,32 @@ See the [handoff notes](HANDOFF.md) for test results, the [changelog](CHANGELOG.
 </details>
 
 When [reporting an issue](https://github.com/unowncollectables/Pokemon-Soulsilver-New3ds/issues), include your console model and `log.txt` or `log_crash.txt` from `sdmc:/3ds/soulsilver3ds/`.
+
+## HeartGold (experimental)
+
+<details>
+<summary><strong>SD paths, build commands, and experimental status</strong></summary>
+
+The same port also builds **Pokémon HeartGold** (US) as a completely separate game. It shares every line of the port with SoulSilver, and nothing about it touches a SoulSilver install or save.
+
+| | SoulSilver | HeartGold |
+| --- | --- | --- |
+| SD folder | `sdmc:/3ds/soulsilver3ds/` | `sdmc:/3ds/heartgold3ds/` |
+| Game file and save | `soulsilver.nds`, `soulsilver.sav` | `heartgold.nds`, `heartgold.sav` |
+| Programs | `soulsilver3ds.3dsx` / `.cia` | `heartgold3ds.3dsx` / `.cia` |
+| HOME Menu title | `000400000F7D4000` | `000400000F7D4100` (installs beside SoulSilver) |
+
+Build it with the [Pokemon 3DS Builder](https://github.com/unowncollectables/patch-builder) (tick **Pokemon HeartGold**), or by hand:
+
+```sh
+bash scripts/hg_build.sh /path/to/HeartGold.nds     # compiles the game as HeartGold (long the first time)
+make -C heartgold3ds/full                           # heartgold3ds.3dsx
+make -C heartgold3ds/full cia                       # heartgold3ds.cia, with Ho-Oh on the HOME Menu banner
+```
+
+**Status: experimental.** HeartGold compiles, links, and packages, and the build refuses to link a HeartGold program that still names a SoulSilver file. It has **not been played on a console yet**: every SoulSilver hardware result above still needs its own HeartGold check, online included. Your HeartGold game file is only read, and Ho-Oh for the banner is taken from it at build time; nothing from the game is in this repository.
+
+</details>
 
 ## For developers
 
