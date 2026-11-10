@@ -1,32 +1,49 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="Pokémon SoulSilver for New Nintendo 3DS" width="900">
+  <img src="assets/whirl-islands-cover.webp" alt="Illustrated cover with a lighthouse beyond stormy whirlpools and jagged islands" width="900">
+</p>
+
+<h1 align="center">Pokémon SoulSilver for New 3DS</h1>
+
+<p align="center">
+  Explore Johto in widescreen, slide into stereoscopic 3D, and keep the Pokégear on the touch screen.<br>
+  A fan-made native port for New 3DS, New 3DS XL, and New 2DS XL.
 </p>
 
 <p align="center">
-  <strong>Return to Johto with a wider view, stereoscopic battles, and a map at your fingertips.</strong><br>
-  Fan-made homebrew for New 3DS, New 3DS XL, and New 2DS XL. Bring your own US cartridge dump.
+  <a href="https://github.com/unowncollectables/patch-builder"><strong>Open Pokémon 3DS Builder →</strong></a><br>
+  <a href="#getting-started">Setup guide</a> &nbsp;·&nbsp;
+  <a href="#see-it-in-play">Gameplay</a> &nbsp;·&nbsp;
+  <a href="#wireless--online">Trading &amp; online</a> &nbsp;·&nbsp;
+  <a href="#for-developers">Source &amp; docs</a>
 </p>
+
+---
+
+## See it in play
+
+<h3>Goldenrod above. Johto below.</h3>
 
 <p align="center">
-  <a href="#getting-started"><strong>Get started</strong></a> &nbsp;·&nbsp;
-  <a href="#features">Explore features</a> &nbsp;·&nbsp;
-  <a href="#wireless--online">Wireless</a> &nbsp;·&nbsp;
-  <a href="#for-developers">Developer docs</a>
+  <img src="assets/screens/field-map.png" alt="Goldenrod City fills the top screen while the Johto map and menu shortcuts occupy the touch screen" width="420"><br>
+  <sub>Two-screen gameplay captured in Azahar. The capture shows an earlier touch-panel layout.</sub>
 </p>
+
+- **Top screen.** Walk through towns and routes in widescreen, with optional stereoscopic depth in the field and in battles on consoles with a 3D slider.
+- **Touch screen.** Check your party, bag, map, phone, or radio without leaving the field. Optional tools surface encounter locations, Fly destinations, egg progress, and Bug-Catching Contest stats.
+- **Your save.** Bring over a standard 512 KiB cartridge or flashcart save. The port keeps rolling backups and can export a copy from Settings.
+- **Your pace.** Customize battle speed, text speed, move effectiveness hints, and visible wild encounters. Shiny hunt stats live in a separate file.
+
+<details>
+<summary>See the Pokégear Radio in play</summary>
 
 <p align="center">
-  <img src="assets/screens/field-map.png" alt="Goldenrod City on the wide top screen with the Johto map below" width="48%">
-  <img src="assets/screens/panel-radio.png" alt="The bottom-screen Pokégear panel open to its Radio tab" width="48%">
-  <br><sub>Goldenrod City and the Pokégear Radio in Azahar. These captures show an earlier panel layout.</sub>
+  <img src="assets/screens/panel-radio.png" alt="Pokégear Radio with the station list open while the trainer stands in Goldenrod City" width="420"><br>
+  <sub>Radio panel captured in Azahar. Tap-to-tune still needs more hardware testing.</sub>
 </p>
 
-## Features
+</details>
 
-- **A wider Johto.** Native ARM11 game code and 3DS GPU rendering fill the top screen across the field, battles, and menus. The 3D slider adds depth on models with stereoscopic displays.
-- **A Pokégear at your fingertips.** Keep the Johto map, phone, radio, party, and bag on the touch screen while you explore. The game's own touch prompts take over when needed. Optional tools add encounter locations, Tap to Fly, egg tracking, and a Bug-Catching Contest helper.
-- **Play at your pace.** Turn on faster text and battles, move effectiveness badges, reusable TMs, or visible wild Pokémon. Shiny hunters can track encounters, time, and streaks in a separate file.
-- **Carry your adventure over.** Use a standard 512 KiB DS save. Rolling backups and in-game save export help you move between the port and a cartridge or flashcart.
-- **Trade in the Union Room.** Local trades between two New 3DS consoles have completed on hardware. Community servers can also provide GTS and Mystery Gift. See [wireless and online play](#wireless--online).
+---
 
 ## Getting started
 
