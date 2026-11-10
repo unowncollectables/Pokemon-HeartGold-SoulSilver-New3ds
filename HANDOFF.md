@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 740 on the owner’s New 3DS completed send and return transfers in one game session and saved after each exchange. Successful per-packet traces now default off. Set `pokewalker_trace=1` in `sdmc:/3ds/soulsilver3ds/config.txt` before launching the game to enable them. Connection and error diagnostics stay enabled.
+
 Run 739 reached IR ready on every retry. Seven attempts ended on checksum-invalid opcode 0e replies of 108–120 bytes after valid EEPROM read replies. The follow-up schedules the IR worker ahead of normal rendering and checks the FIFO before declaring an inter-byte timeout. Invalid packets still fail checksum validation and now log UART line status, including the overrun flag. Hardware verification is pending.
 
 Run 738 paused extra-input polling successfully and logged valid acknowledgments through the 32-packet trace limit. Two later connection requests never reached IR ready, and no polling-resume result appeared. Patch 0255 keeps polling paused between attempts and requests restoration asynchronously only when leaving overlay 112. The trace now covers up to 160 packets per direction. The restore stall remains a hypothesis until a new device log confirms it.

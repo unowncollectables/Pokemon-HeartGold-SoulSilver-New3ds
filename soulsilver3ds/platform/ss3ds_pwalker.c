@@ -4,6 +4,7 @@
 #include <string.h>
 
 extern void PSPNativeMemLog(const char *fmt, ...);
+extern int P3DS_CfgInt(const char *key, int fallback);
 
 // The original overlay holds its own mutex while polling these functions.
 // No system service call may run with either the overlay mutex or busLock held.
@@ -18,6 +19,7 @@ static LightEvent busWake;
 static bool busLockInitialized;
 static Thread busThread;
 static bool active;
+static bool tracePackets;
 static bool restoreInput;
 static bool ready;
 static bool startupReported;
@@ -91,6 +93,7 @@ static void busWorker(void *unused)
         LightLock_Lock(&busLock);
         u32 requested = generation;
         bool wanted = active;
+        bool trace = tracePackets;
         bool shouldRestore = restoreInput && !wanted && !txCount;
         if (shouldRestore)
             restoreInput = false;
@@ -127,7 +130,7 @@ static void busWorker(void *unused)
                 SS3DS_PwalkerIrClose();
                 listening = false;
             }
-            if (sent && listening && txLogged < 160) {
+            if (sent && listening && trace && txLogged < 160) {
                 txLogged++;
                 PSPNativeMemLog("[PWALKER] TX complete: opcode %02x, %u bytes",
                                 (unsigned)(packet.bytes[0] ^ 0xaa),
@@ -154,7 +157,7 @@ static void busWorker(void *unused)
                     PSPNativeMemLog("[PWALKER] RX line status: %d (overrun=%d)",
                                     status, status >= 0 && (status & BIT(1)));
                 }
-                if (packet.length > 1 && (rxLogged < 160 || !valid)) {
+                if (packet.length > 1 && (!valid || (trace && rxLogged < 160))) {
                     rxLogged++;
                     PSPNativeMemLog("[PWALKER] RX %s: opcode %02x, %u bytes",
                                     valid ? "valid" : "invalid",
@@ -204,9 +207,11 @@ uint32_t SS3DS_Pwalker_SpiWaitInit(void)
         }
     }
 
+    bool trace = P3DS_CfgInt("pokewalker_trace", 0) != 0;
     LightLock_Lock(&busLock);
     generation++;
     active = true;
+    tracePackets = trace;
     restoreInput = false;
     ready = false;
     startupReported = false;
@@ -320,8 +325,6 @@ uint32_t SS3DS_Pwalker_WorkerSleep(uint32_t milliseconds)
     OS_Sleep(milliseconds);
     return 0;
 }
-
-extern int P3DS_CfgInt(const char *key, int fallback);
 
 int SS3DS_PwalkerCanLaunch(void)
 {
