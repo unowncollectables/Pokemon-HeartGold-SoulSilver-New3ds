@@ -16,7 +16,7 @@ extern "C" void PSPNativeMemLog(const char*,...);
 extern "C" int P3DS_CfgInt(const char*,int);
 extern "C" unsigned PSPNativeVramPageGen[];
 extern "C" { extern volatile int P3DS_MmMap,P3DS_MmX,P3DS_MmZ,P3DS_MmCx,P3DS_MmCy,P3DS_MmType,P3DS_MmMain,P3DS_MmSec;extern volatile unsigned P3DS_MmTick;extern char P3DS_MmName[24]; }
-extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn,P3DS_BmBlock; /* run 142: BmBlock = the game's own Start menu is alive in the field and not ours to use: no touch, no A/B/D-pad reach it */ extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; extern volatile int P3DS_PanelDest[4]; }
+extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn,P3DS_BmBlock; /* run 142: BmBlock = the game's own Start menu is alive in the field and not ours to use: no touch, no A/B/D-pad reach it */ extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; extern volatile int P3DS_PanelDest[4], P3DS_PanelSrcHeight, P3DS_PanelGearTooltip; }
 static unsigned P3DS_Perf3Worst;extern "C" int P3DS_CurMap;extern "C" void P3DS_ZoneInfo(int*,int*,int*,unsigned*),P3DS_RomSpikeFiles(char*,unsigned),P3DS_RomSpikeReset(void);extern "C" const char*P3DS_AreaName(int);
 
 /* run 76 hunt_counter / shiny_suite (ported from Platinum run 88): wild encounters per species in sdmc:/3ds/soulsilver3ds/hunt.txt
@@ -1444,8 +1444,8 @@ static unsigned bnAtlasGen;static unsigned blBuildIcons(){u32*A=P3DS_OvAtlasGet(
   if(item<=0||!pgIcon32(blIcTmp,key,key+1,0))continue;
   auto &icon=blItemIcons[slot];
   for(int y=0;y<kBlItemIconSize;y++)for(int x=0;x<kBlItemIconSize;x++)
-   icon[y*kBlItemIconSize+x]=blIcTmp.px[(2*y+2)*32+2*x+2];
-  put(icon,kBlItemIconSize,kBlItemIconSize,64+16*slot,32);
+   icon[y*kBlItemIconSize+x]=blIcTmp.px[(2+y*28/kBlItemIconSize)*32+2+x*28/kBlItemIconSize];
+  put(icon,kBlItemIconSize,kBlItemIconSize,64+kBlItemIconSize*slot,32);
   blItemIconMask|=1u<<slot;
   mask|=1u<<(slot?kBlItem2:kBlItem1);
  }
@@ -1910,19 +1910,20 @@ static void panelFilterSpans(PanelFilterSpan *spans, int source, int dest) {
     }
 }
 
-static void ppFinalResample(const u32 *snap, u32 *out, int fw, int fh) {
+static void ppFinalResample(const u32 *snap, int sourceHeight, u32 *out, int fw, int fh) {
     static PanelFilterSpan cols[256], rows[256];
-    static int cachedWidth, cachedHeight;
+    static int cachedWidth, cachedHeight, cachedSourceHeight;
     static u16 tmp[192 * 256 * 3];
     if (fw != cachedWidth) {
         panelFilterSpans(cols, 256, fw);
         cachedWidth = fw;
     }
-    if (fh != cachedHeight) {
-        panelFilterSpans(rows, 192, fh);
+    if (fh != cachedHeight || sourceHeight != cachedSourceHeight) {
+        panelFilterSpans(rows, sourceHeight, fh);
+        cachedSourceHeight = sourceHeight;
         cachedHeight = fh;
     }
-    for (int y = 0; y < 192; y++) {
+    for (int y = 0; y < sourceHeight; y++) {
         const u32 *src = snap + y * 256;
         u16 *dst = tmp + y * fw * 3;
         for (int x = 0; x < fw; x++) {
@@ -1953,7 +1954,7 @@ static void ppFinalResample(const u32 *snap, u32 *out, int fw, int fh) {
                 g += c[1] * weight;
                 b += c[2] * weight;
             }
-            constexpr unsigned area = 256 * 192;
+            const unsigned area = 256 * sourceHeight;
             r = (r + area / 2) / area;
             g = (g + area / 2) / area;
             b = (b + area / 2) / area;
@@ -2556,7 +2557,7 @@ static int Present(bool){
       if(!(icMask&(1u<<i)))continue;
       int x0,y0,x1,y1;blRect(i,&x0,&y0,&x1,&y1);
       R(bhd?bnX[i]:(x0+x1)*5/8-kBlItemIconSize/2,bhd?bnY[i]:(y0+y1)*5/8-kBlItemIconSize/2,
-        kBlItemIconSize,kBlItemIconSize,64+16*slot,32);
+        kBlItemIconSize,kBlItemIconSize,64+kBlItemIconSize*slot,32);
      }
      if(blMode<0&&gPg.decoded&&gPg.gameIco&&!pxPane())for(int k=0;k<gPg.nIco;k++)R(gPg.ico[k].x*5/4,gPg.ico[k].y*5/4+1,10,11,gPg.ico[k].k*12,64);
      if(gPg.gameMarker&&gPg.markOk&&blMode<0&&gPg.decoded&&!pxPane())R(pgDsToNative(gPg.markX)-16,pgDsToNative(gPg.markY)-18,32,32,g*32,32); /* head sits on the same DS pixel the scaled map shows; run 118 B3: no stale MAP head on list panes */
@@ -2634,6 +2635,8 @@ static int Present(bool){
   static unsigned ppLog;static u32 sPanelBot[256*192];int dx0=0,dy0=0,dx1=0,dy1=0;
   // Phone calls and Radio programs use upper LCD rows 128–183 for their title and dialogue.
   constexpr int gearTextHeight=62, gearTextSourceY=125;
+  // The native switcher starts at row 160. A Phone context menu temporarily uses that strip for its tooltip.
+  const int sourceHeight=gearTextStrip&&!P3DS_PanelGearTooltip?160:192;
   static u32 gearText[256*(gearTextHeight-2)];
   if(gearTextStrip&&!sSwapAct){
    topTouch();
@@ -2642,22 +2645,22 @@ static int Present(bool){
   if(bot){
    memcpy(sPanelBot,bot,sizeof sPanelBot); /* chrome (and any game bottom) snapshot */
    if(sPartySnapOk){
-    const int x0=kBlPanX0,y0=kBlPanY0+17,x1=kBlPanX1;
-    const int y1=kBlPanY1-(gearTextStrip?gearTextHeight+2:0),dw=x1-x0,dh=y1-y0;
+    const int x0=kBlPanX0+(gearTextStrip?2:0),y0=kBlPanY0+17,x1=kBlPanX1-(gearTextStrip?2:0);
+    const int y1=kBlPanY1-(gearTextStrip?gearTextHeight+1:0),dw=x1-x0,dh=y1-y0;
     if(dw>0&&dh>0){
-     int outW,outH;if(dw*192<=dh*256){outW=dw;outH=(192*dw+128)/256;}else{outH=dh;outW=(256*dh+96)/192;}
+     int outW,outH;if(gearTextStrip){outW=dw;outH=dh;}else if(dw*192<=dh*256){outW=dw;outH=(192*dw+128)/256;}else{outH=dh;outW=(256*dh+96)/192;}
      if(outW<1)outW=1;if(outH<1)outH=1;if(outW>dw)outW=dw;if(outH>dh)outH=dh;
      const int ox=x0+(dw-outW)/2,oy=y0+(dh-outH)/2;dx0=ox;dy0=oy;dx1=ox+outW;dy1=oy+outH;
      /* run 138: the panel picture is resampled once, to the final bottom-screen size (dest x 1.25), and drawn by the GPU over the stretched DS bottom (gpuscale.c pnDraw). */
      bool ppHd=false;
      if(mode&&gpuOk==1){int fx0=dx0*5/4,fy0=dy0*5/4,fw=(dx1*5+3)/4-fx0,fh=(dy1*5+3)/4-fy0;if(fw>256)fw=256;if(fh>256)fh=256;
       u32*pb=P3DS_PnBufGet();
-      if(pb&&fw>0&&fh>0){static unsigned genDone=~0u;static int fwD,fhD;
-       if(genDone!=sPartySnapGen||fw!=fwD||fh!=fhD){ppFinalResample(sPartySnap,pb,fw,fh);genDone=sPartySnapGen;fwD=fw;fhD=fh;P3DS_PnDirty=1;}
+      if(pb&&fw>0&&fh>0){static unsigned genDone=~0u;static int fwD,fhD,shD;
+       if(genDone!=sPartySnapGen||fw!=fwD||fh!=fhD||sourceHeight!=shD){ppFinalResample(sPartySnap,sourceHeight,pb,fw,fh);genDone=sPartySnapGen;fwD=fw;fhD=fh;shD=sourceHeight;P3DS_PnDirty=1;}
        P3DS_PnX=fx0;P3DS_PnY=fy0;P3DS_PnW=fw;P3DS_PnH=fh;P3DS_PnOn=1;ppHd=true;}}
      if(!ppHd){
      /* run 128: box (area-average) downscale; nearest-neighbour dropped pixels unevenly and made the party text look blurry/garbled */
-     for(int y=0;y<outH;y++){const int sy0=y*192/outH;int sy1=(y+1)*192/outH;if(sy1<=sy0)sy1=sy0+1;u32 *row=sPanelBot+(oy+y)*256+ox;
+     for(int y=0;y<outH;y++){const int sy0=y*sourceHeight/outH;int sy1=(y+1)*sourceHeight/outH;if(sy1<=sy0)sy1=sy0+1;u32 *row=sPanelBot+(oy+y)*256+ox;
       for(int x=0;x<outW;x++){const int sx0=x*256/outW;int sx1=(x+1)*256/outW;if(sx1<=sx0)sx1=sx0+1;
        unsigned a=0,r=0,g=0,b=0,n=0;for(int yy=sy0;yy<sy1;yy++){const u32 *sp=sPartySnap+yy*256;for(int xx=sx0;xx<sx1;xx++){const u32 c=sp[xx];a+=c>>24;r+=(c>>16)&255;g+=(c>>8)&255;b+=c&255;n++;}}
        row[x]=((a/n)<<24)|((r/n)<<16)|((g/n)<<8)|(b/n);}}}
@@ -2673,6 +2676,7 @@ static int Present(bool){
     mmFrame(sPanelBot,x0,y0,x1,kBlPanY1,kBlNavy);
    }
    if(ppLatPend&&sPartySnapOk){ppLatPend=0;PSPNativeMemLog("[PANEL] latency: tab tap f=%u -> panel picture presented f=%u (%u frames)",ppTapF,frames,frames-ppTapF);}
+   P3DS_PanelSrcHeight=sourceHeight;
    P3DS_PanelDest[3]=dy1;P3DS_PanelDest[2]=dx1;P3DS_PanelDest[1]=dy0;P3DS_PanelDest[0]=dx0; /* run 130: stylus taps in this rect drive the party (main3ds.c) */
    bot=sPanelBot; /* GpuPresent must upload THIS, not display[] */
    blSameFrame=false;

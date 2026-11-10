@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
     blRect(kBlItem1, &x0, &y0, &x1, &y1);
     blRect(kBlItem2, &a0, &b0, &a1, &b1);
     blRect(kBlRun, &runX0, &runY0, &runX1, &runY1);
-    expect(x1 <= a0 && a1 <= runX0 &&
+    expect(x0 == a0 && x1 == a1 && y1 <= b0 && a1 <= runX0 &&
            blHit((x0 + x1) / 2, (y0 + y1) / 2) == kBlItem1 &&
            blHit((a0 + a1) / 2, (b0 + b1) / 2) == kBlItem2Hit &&
            blHit((runX0 + runX1) / 2, (runY0 + runY1) / 2) == kBlRun,
