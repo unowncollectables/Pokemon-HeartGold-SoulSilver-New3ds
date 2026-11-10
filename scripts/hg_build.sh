@@ -26,9 +26,8 @@ ROM="$(cd "$(dirname "${1:?usage: hg_build.sh /path/to/HeartGold.nds   (or --pre
 [ -f "$ROM" ] || { echo "no ROM at $ROM" >&2; exit 1; }
 export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}" DEVKITARM="${DEVKITARM:-${DEVKITPRO:-/opt/devkitpro}/devkitARM}"
 [ -x "$DEVKITARM/bin/arm-none-eabi-gcc" ] || { echo "devkitARM not found at $DEVKITARM (install devkitPro 3ds-dev)" >&2; exit 1; }
-WANT=$(sed -n 's/^heartgold_sha1=//p' "$ROOT/upstream.lock")
-GOT=$( (command -v sha1sum >/dev/null && sha1sum "$ROM" || shasum -a 1 "$ROM") | cut -d' ' -f1)
-[ "$GOT" = "$WANT" ] || { echo "error: this ROM is not the HeartGold (US) dump the port expects." >&2; echo "  ROM SHA1:      $GOT" >&2; echo "  expected SHA1: $WANT" >&2; echo "  Build stopped. Use a clean HeartGold (US) .nds (SoulSilver is built with ss3ds_build.sh)." >&2; exit 1; }
+# Exact reference dump, or a US HeartGold whose every file matches it (see scripts/hg_romcheck.py). SoulSilver is refused.
+python3 "$ROOT/scripts/hg_romcheck.py" "$ROM" || { echo "  Build stopped. Use your own clean HeartGold (US) .nds (SoulSilver is built with ss3ds_build.sh)." >&2; exit 1; }
 mkdir -p "$ROOT/build-hg" && echo "$ROM" > "$ROOT/build-hg/rom_path"   # lets heartgold3ds/full `make cia` find the same ROM
 prepare
 # PSPDEV points pspoke at our stand-in SDK so it never downloads the PSP toolchain.
