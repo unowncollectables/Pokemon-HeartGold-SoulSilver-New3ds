@@ -1,0 +1,38 @@
+From fe04b290f7027aefe783994854d301292d851fc8 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 10 Nov 2026 17:52:25 +0000
+Subject: [PATCH] ss3ds: seed the nine comm helpers communication_club.c calls
+ (link fix after 0264)
+
+Patch 0264 seeds the comm club helpers, whose translated code references overlay 3's communication_club.c. That object
+is now linked and calls nine functions that exist only as assembly and were neither seeded nor trapped:
+sub_0203511C, sub_02035150, sub_02035184, sub_02035198, sub_020351DC (unk_02034B0C.s), sub_0203775C (unk_02035900.s),
+sub_02037EC0 (unk_02037C94.s), sub_02058164, sub_02058180 (unk_02058034.s). The link stopped with undefined references.
+Seed them so the translator emits them.
+---
+ port/soulsilver-native-play/maploader/seeds.json | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/port/soulsilver-native-play/maploader/seeds.json b/port/soulsilver-native-play/maploader/seeds.json
+index 8704c40..b4dc949 100644
+--- a/port/soulsilver-native-play/maploader/seeds.json
++++ b/port/soulsilver-native-play/maploader/seeds.json
+@@ -825,5 +825,14 @@
+ "ov05_0221BE04",
+ "ov86_021E5900",
+ "ov86_021E5A40",
+-"ov86_021E5AA4"
++"ov86_021E5AA4",
++"sub_0203511C",
++"sub_02035150",
++"sub_02035184",
++"sub_02035198",
++"sub_020351DC",
++"sub_0203775C",
++"sub_02037EC0",
++"sub_02058164",
++"sub_02058180"
+ ]
+-- 
+2.43.0
+

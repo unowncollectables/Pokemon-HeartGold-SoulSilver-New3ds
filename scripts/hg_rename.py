@@ -30,6 +30,7 @@ PATHS = [
 WORDS = [
     (re.compile(r'SoulSilver 3DS'), 'HeartGold 3DS'),
     (re.compile(r'Pokemon SoulSilver'), 'Pokemon HeartGold'),
+    (re.compile(r'SOULSILVER 3DS'), 'HEARTGOLD 3DS'),          # the settings screen's header
 ]
 # Per file extras for the link Makefile and the CIA settings.
 MAKEFILE = [
