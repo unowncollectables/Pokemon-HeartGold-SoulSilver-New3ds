@@ -1,0 +1,173 @@
+From 5a5fb703dec51c4580a9086f8e609a8ec9860a70 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 10 Nov 2026 13:02:14 +0000
+Subject: [PATCH] ss3ds: translate Union Room link battle (overlay 5 party
+ select, overlay 86, club helpers)
+
+Seeds overlay_05.s and overlay_86.s whole (their function-pointer tables live in extracted data), seeds the unk_02056D7C / unk_02058034 / unk_0205CB48 comm club helpers referenced from the unk_02091564 table, drops their Missing traps, and marks 38 decomp-C duplicates native-provided.
+---
+ .../nitromain-perf/missing.c                  | 38 ------------------
+ .../maploader/native-provided.json            | 40 ++++++++++++++++++-
+ .../maploader/seed-files.json                 |  4 +-
+ .../maploader/seeds.json                      | 22 +++++++++-
+ 4 files changed, 63 insertions(+), 41 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index 5d5aec0..ea3e78d 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -205,25 +205,6 @@ __attribute__((noreturn)) void ScratchOffCards_Main(void){Missing("ScratchOffCar
+ 
+ 
+ __attribute__((noreturn)) void ov01_021EACBC(void){Missing("ov01_021EACBC");}
+-__attribute__((noreturn)) void ov05_0221BE04(void){Missing("ov05_0221BE04");}
+-__attribute__((noreturn)) void ov05_0221BE80(void){Missing("ov05_0221BE80");}
+-__attribute__((noreturn)) void ov05_0221BF08(void){Missing("ov05_0221BF08");}
+-__attribute__((noreturn)) void ov05_0221C018(void){Missing("ov05_0221C018");}
+-__attribute__((noreturn)) void ov05_0221C050(void){Missing("ov05_0221C050");}
+-__attribute__((noreturn)) void ov05_0221C21C(void){Missing("ov05_0221C21C");}
+-__attribute__((noreturn)) void ov05_0221C430(void){Missing("ov05_0221C430");}
+-__attribute__((noreturn)) void ov05_0221C558(void){Missing("ov05_0221C558");}
+-__attribute__((noreturn)) void ov05_0221C568(void){Missing("ov05_0221C568");}
+-__attribute__((noreturn)) void ov05_0221C5A8(void){Missing("ov05_0221C5A8");}
+-__attribute__((noreturn)) void ov05_0221C7FC(void){Missing("ov05_0221C7FC");}
+-__attribute__((noreturn)) void ov05_0221C80C(void){Missing("ov05_0221C80C");}
+-__attribute__((noreturn)) void ov05_0221C8A0(void){Missing("ov05_0221C8A0");}
+-__attribute__((noreturn)) void ov05_0221C8E0(void){Missing("ov05_0221C8E0");}
+-__attribute__((noreturn)) void ov05_0221C908(void){Missing("ov05_0221C908");}
+-__attribute__((noreturn)) void ov05_0221CAB8(void){Missing("ov05_0221CAB8");}
+-__attribute__((noreturn)) void ov05_0221CB70(void){Missing("ov05_0221CB70");}
+-__attribute__((noreturn)) void ov05_0221CC04(void){Missing("ov05_0221CC04");}
+-__attribute__((noreturn)) void ov05_0221CC58(void){Missing("ov05_0221CC58");}
+ __attribute__((noreturn)) void ov13_0222B430(void){Missing("ov13_0222B430");}
+ __attribute__((noreturn)) void ov37_021E5900(void){Missing("ov37_021E5900");}
+ __attribute__((noreturn)) void ov37_021E5A84(void){Missing("ov37_021E5A84");}
+@@ -430,9 +411,6 @@ __attribute__((noreturn)) void ov85_021E5AAC(void){Missing("ov85_021E5AAC");}
+ __attribute__((noreturn)) void ov85_021E88AC(void){Missing("ov85_021E88AC");}
+ __attribute__((noreturn)) void ov85_021E8A08(void){Missing("ov85_021E8A08");}
+ __attribute__((noreturn)) void ov85_021E8B08(void){Missing("ov85_021E8B08");}
+-__attribute__((noreturn)) void ov86_021E5900(void){Missing("ov86_021E5900");}
+-__attribute__((noreturn)) void ov86_021E5A40(void){Missing("ov86_021E5A40");}
+-__attribute__((noreturn)) void ov86_021E5AA4(void){Missing("ov86_021E5AA4");}
+ __attribute__((noreturn)) void ov91_0225C540(void){Missing("ov91_0225C540");}
+ __attribute__((noreturn)) void ov91_0225C58C(void){Missing("ov91_0225C58C");}
+ __attribute__((noreturn)) void ov91_0225C9EC(void){Missing("ov91_0225C9EC");}
+@@ -444,22 +422,6 @@ __attribute__((noreturn)) void ov93_0225C574(void){Missing("ov93_0225C574");}
+ __attribute__((noreturn)) void ov93_0225C6C0(void){Missing("ov93_0225C6C0");}
+ 
+ 
+-__attribute__((noreturn)) void sub_020573AC(void){Missing("sub_020573AC");}
+-__attribute__((noreturn)) void sub_020573F0(void){Missing("sub_020573F0");}
+-__attribute__((noreturn)) void sub_020576C0(void){Missing("sub_020576C0");}
+-__attribute__((noreturn)) void sub_02057798(void){Missing("sub_02057798");}
+-__attribute__((noreturn)) void sub_0205779C(void){Missing("sub_0205779C");}
+-__attribute__((noreturn)) void sub_02057A08(void){Missing("sub_02057A08");}
+-__attribute__((noreturn)) void sub_02057D50(void){Missing("sub_02057D50");}
+-__attribute__((noreturn)) void sub_020580E4(void){Missing("sub_020580E4");}
+-__attribute__((noreturn)) void sub_02058124(void){Missing("sub_02058124");}
+-__attribute__((noreturn)) void sub_02058190(void){Missing("sub_02058190");}
+-__attribute__((noreturn)) void sub_02058284(void){Missing("sub_02058284");}
+-__attribute__((noreturn)) void sub_020582A8(void){Missing("sub_020582A8");}
+-__attribute__((noreturn)) void sub_02058720(void){Missing("sub_02058720");}
+-__attribute__((noreturn)) void sub_020588CC(void){Missing("sub_020588CC");}
+-__attribute__((noreturn)) void sub_0205D240(void){Missing("sub_0205D240");}
+-__attribute__((noreturn)) void sub_0205D2D0(void){Missing("sub_0205D2D0");}
+ __attribute__((noreturn)) void sub_020850F4(void){Missing("sub_020850F4");}
+ __attribute__((noreturn)) void sub_0208524C(void){Missing("sub_0208524C");}
+ __attribute__((noreturn)) void sub_0208527C(void){Missing("sub_0208527C");}
+diff --git a/port/soulsilver-native-play/maploader/native-provided.json b/port/soulsilver-native-play/maploader/native-provided.json
+index d08f94a..5378e7a 100644
+--- a/port/soulsilver-native-play/maploader/native-provided.json
++++ b/port/soulsilver-native-play/maploader/native-provided.json
+@@ -905,5 +905,43 @@
+ "sub_02087E1C",
+ "thunk_ClearMainOAM",
+ "thunk_ClearSubOAM",
+- "sub_0202D660"
++ "sub_0202D660",
++"sub_0202D5DC",
++"sub_0202FD28",
++"sub_0202FE14",
++"sub_0202FF08",
++"sub_02030154",
++"sub_0203018C",
++"sub_02030258",
++"sub_02030AD4",
++"sub_02030AE8",
++"sub_02030E08",
++"sub_02030E58",
++"sub_02030FA0",
++"sub_02030FE4",
++"sub_020312C4",
++"sub_020312E0",
++"sub_0205BFF0",
++"sub_0205C01C",
++"sub_0205C048",
++"sub_0205C074",
++"sub_0205C0CC",
++"sub_0205C11C",
++"sub_0205C144",
++"sub_0205C1A0",
++"sub_0205C1C8",
++"sub_0205C1F0",
++"sub_0205C240",
++"sub_020131F4",
++"sub_02013220",
++"sub_020132A8",
++"sub_02013364",
++"sub_02013424",
++"sub_02013440",
++"sub_02013468",
++"sub_02013488",
++"sub_020134BC",
++"sub_020134D0",
++"sub_020134EC",
++"sub_02013504"
+ ]
+diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
+index 4d1816b..341cd7f 100644
+--- a/port/soulsilver-native-play/maploader/seed-files.json
++++ b/port/soulsilver-native-play/maploader/seed-files.json
+@@ -82,5 +82,7 @@
+  "overlay_70.s",
+  "overlay_74_thumb.s",
+  "overlay_112.s",
+- "unk_020957B0.s"
++ "unk_020957B0.s",
++"overlay_05.s",
++"overlay_86.s"
+ ]
+diff --git a/port/soulsilver-native-play/maploader/seeds.json b/port/soulsilver-native-play/maploader/seeds.json
+index 31fda45..8704c40 100644
+--- a/port/soulsilver-native-play/maploader/seeds.json
++++ b/port/soulsilver-native-play/maploader/seeds.json
+@@ -805,5 +805,25 @@
+ "ov70_022386F4",
+ "ov74_0222AE6C",
+ "ov74_0222C2EC",
+-"ov74_0222CD94"
++"ov74_0222CD94",
++"sub_020573AC",
++"sub_020573F0",
++"sub_020576C0",
++"sub_02057798",
++"sub_0205779C",
++"sub_02057A08",
++"sub_02057D50",
++"sub_020580E4",
++"sub_02058124",
++"sub_02058190",
++"sub_02058284",
++"sub_020582A8",
++"sub_02058720",
++"sub_020588CC",
++"sub_0205D240",
++"sub_0205D2D0",
++"ov05_0221BE04",
++"ov86_021E5900",
++"ov86_021E5A40",
++"ov86_021E5AA4"
+ ]
+-- 
+2.43.0
+
