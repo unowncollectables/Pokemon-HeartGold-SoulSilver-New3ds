@@ -71,6 +71,20 @@ int main(int argc, char **argv) {
   for (int i = 0; i < 256 * 192; i++) ds[i] = SUI_RGB(200, 208, 211);
   pxBar(ds, T, kBlPanX0, kBlPanY0, kBlPanX1, "Goldenrod City");
   pxNameStrip(ds, T, kBlPanX0, kBlPanY0, kBlPanX1, "Goldenrod City");
+  for (int hd = 0; hd <= 1; hd++) {
+    gBlHd = hd;
+    int x0, y0, x1, y1, a0, b0, a1, b1, runX0, runY0, runX1, runY1;
+    blRect(kBlItem1, &x0, &y0, &x1, &y1);
+    blRect(kBlItem2, &a0, &b0, &a1, &b1);
+    blRect(kBlRun, &runX0, &runY0, &runX1, &runY1);
+    expect(x1 <= a0 && a1 <= runX0 &&
+           blHit((x0 + x1) / 2, (y0 + y1) / 2) == kBlItem1 &&
+           blHit((a0 + a1) / 2, (b0 + b1) / 2) == kBlItem2Hit &&
+           blHit((runX0 + runX1) / 2, (runY0 + runY1) / 2) == kBlRun,
+           hd ? "native item 1, item 2 and Run have separate hit targets" :
+                "DS-size item 1, item 2 and Run have separate hit targets");
+  }
+  gBlHd = 0;
   /* hit band is unchanged: the tab row is still y 3..18, the panel below it */
   expect(blHit(40, 8) == 11, "tab band still hit 11");
   expect(blHit(40, 24) == 10, "below the tab band is the panel");

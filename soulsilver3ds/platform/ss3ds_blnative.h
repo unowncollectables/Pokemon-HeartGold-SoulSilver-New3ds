@@ -10,6 +10,8 @@
 #include <string.h>
 struct SBnGlyph { char ch; const char *rows[9]; };
 static const SBnGlyph kBnGlyphs[] = {
+  { '1', { ".#.", "##.", ".#.", ".#.", ".#.", ".#.", ".#.", ".#.", "###" } },
+  { '2', { ".##.", "#..#", "...#", "...#", "..#.", ".#..", "#...", "#...", "####" } },
   { 'A', { ".##.", "#..#", "#..#", "#..#", "####", "#..#", "#..#", "#..#", "#..#" } },
   { 'B', { "###.", "#..#", "#..#", "#..#", "###.", "#..#", "#..#", "#..#", "###." } },
   { 'C', { ".##.", "#..#", "#...", "#...", "#...", "#...", "#...", "#..#", ".##." } },
@@ -78,8 +80,8 @@ static void bnTextO(const SBnCanvas &c, int x, int y, const char *s, uint32_t v,
 /* Gabe's geometry (port_lowermenu.c): buttons x 250-316, rows 3 + 23 i, 22 tall; icon cell 251-274, divider 275, name
    277-314, red tab 317-318; squares {250,197,282,229} {285,197,317,229}. */
 static void bnRectOf(int i, int *x0, int *y0, int *x1, int *y1) {
-  if (i < 8) { *x0 = 250; *x1 = 316; *y0 = 3 + 23 * i; *y1 = *y0 + 21; }
-  else if (i == 8) { *x0 = 250; *y0 = 197; *x1 = 282; *y1 = 229; } else { *x0 = 285; *y0 = 197; *x1 = 317; *y1 = 229; } }
+  blNativeRect(i, x0, y0, x1, y1);
+}
 /* the same in DS pixels (touch), x 4/5 */
 static void bnDsRect(int i, int *x0, int *y0, int *x1, int *y1) { bnRectOf(i, x0, y0, x1, y1); *x0 = *x0 * 4 / 5; *y0 = *y0 * 4 / 5; *x1 = (*x1 + 1) * 4 / 5; *y1 = (*y1 + 1) * 4 / 5; }
 /* DS pixel span [ds0, ds1) on the 256x192 picture, as the native pixels that cover it when that picture is stretched to 320x240 (x5/4). */
@@ -127,7 +129,7 @@ static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const i
   return nd; }
 /* Atlas areas (512x256): column = native (235,0) 85x240 at atlas (256,0); top = native (0,0) 235x4 at (0,160);
    bottom = native (0,236) 235x4 at (0,164); left = native (0,4) 4x232 at (344,0). The DS-drawn map panel shows between. */
-static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *al, const bool *on, int press, unsigned gameIco, int iconX[10], int iconY[10]) {
+static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *al, const bool *on, int press, unsigned gameIco, int iconX[kBlButtonCount], int iconY[kBlButtonCount]) {
   const uint32_t BG = bnRGB(200, 208, 211), EDGE_HI = bnRGB(252, 253, 253), NAVY = bnRGB(7, 33, 54), WHITE = bnRGB(246, 247, 250), COL = bnRGB(77, 100, 114),
     COLDK = bnRGB(60, 80, 94), DIV_L1 = bnRGB(216, 223, 226), DIV_L2 = bnRGB(230, 234, 237), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255),
     BTN_SHD = bnRGB(189, 201, 222), CELL = bnRGB(232, 237, 246),
@@ -142,7 +144,7 @@ static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *a
     for (int y = 0; y < 240; y++) { bnPut(c, 246, y, DIV_L1); bnPut(c, 247, y, NAVY); bnPut(c, 248, y, DIV_L2); bnPut(c, 319, y, NAVY); }
     bnRect(c, 249, 0, 318, 239, COL); for (int x = 249; x < 319; x++) { bnPut(c, x, 188, NAVY); bnPut(c, x, 189, COLDK); } }
   const SBnCanvas &c = parts[0];
-  for (int i = 0; i < 10; i++) { int x0, y0, x1, y1; bnRectOf(i, &x0, &y0, &x1, &y1); const bool sel = press == i;
+  for (int i = 0; i < kBlButtonCount; i++) { int x0, y0, x1, y1; bnRectOf(i, &x0, &y0, &x1, &y1); const bool sel = press == i;
     bnBox(c, x0, y0, x1, y1, NAVY, sel ? SEL : BTN, sel ? SEL : BTN_TOP, sel ? SEL_SHD : BTN_SHD, 2);
     if (i == 9 && gBnSprintOk && strcmp(lb[9], "NO SHOES")) { /* run 20: Sprint Button, its square outlined in the tab orange */
       const uint32_t *sp = gBnSprint[on[9] ? 1 : 0]; const uint32_t OR = bnRGB(184, 104, 16);
@@ -156,5 +158,13 @@ static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *a
       iconX[i] = 253; iconY[i] = y0;   /* the game's 20x22 icon, centred in the cell */
       if (i == 7) bnMapIcon(c, 251, y0 + 1, 274, y0 + 20, on[i] || sel, sel ? SEL_CELL : CELL);
       /* run 22: no drawn fallback icon; the ROM icon is always there once the column is shown */ }
-    else { iconX[i] = x0 + 1; iconY[i] = y0 + 1;   /* the game's 32x32 item icon fills the square */
-      /* run 22: no drawn fallback icon (the RUN square shows the Sprint Button, the item square the item icon or nothing) */ } } }
+    else if (i == kBlItem1 || i == kBlItem2) {
+      iconX[i] = (x0 + x1 + 1 - kBlItemIconSize) / 2;
+      iconY[i] = (y0 + y1 + 1 - kBlItemIconSize) / 2;
+      if (!(gameIco & (1u << i))) {
+        const char *n = i == kBlItem1 ? "1" : "2";
+        bnText(c, (x0 + x1 + 1 - bnTextW(n)) / 2, (y0 + y1 + 1 - 9) / 2, n, TEXT_OFF);
+      }
+    } else { iconX[i] = x0 + 1; iconY[i] = y0 + 1; }
+  }
+}

@@ -121,15 +121,33 @@ static void mmDrawPanel(uint32_t *b, const SUiText &T, const SMm &m, int mode, b
 static const int kBlPanX0 = 3, kBlPanY0 = 3, kBlPanX1 = 187, kBlPanY1 = 189, kBlColX0 = 190, kBlColX1 = 253;
 /* run 18: bottom_hd=1 draws GabeSud0's column geometry at native 320x240 (ss3ds_blnative.h); touch follows it (native x 4/5) */
 static int gBlHd;
+enum { kBlItem1 = 8, kBlRun = 9, kBlItem2 = 10, kBlButtonCount = 11, kBlItem2Hit = 12, kBlItemIconSize = 14 };
+static inline void blNativeRect(int i, int *x0, int *y0, int *x1, int *y1) {
+  if (i < kBlItem1) { *x0 = 250; *x1 = 316; *y0 = 3 + 23 * i; *y1 = *y0 + 21; }
+  else {
+    *x0 = i == kBlItem1 ? 250 : i == kBlItem2 ? 267 : 285;
+    *x1 = i == kBlItem1 ? 265 : i == kBlItem2 ? 282 : 317;
+    *y0 = 197; *y1 = 229;
+  }
+}
 static inline void blRect(int i, int *x0, int *y0, int *x1, int *y1) {
-  if (gBlHd) { int a, b, c, d; if (i < 8) { a = 250; c = 316; b = 3 + 23 * i; d = b + 21; } else if (i == 8) { a = 250; b = 197; c = 282; d = 229; } else { a = 285; b = 197; c = 317; d = 229; }
-    *x0 = a * 4 / 5; *y0 = b * 4 / 5; *x1 = (c + 1) * 4 / 5; *y1 = (d + 1) * 4 / 5; return; }
-  if (i < 8) { *x0 = kBlColX0; *x1 = kBlColX1; *y0 = 3 + i * 18; *y1 = *y0 + 17; }
-  else if (i == 8) { *x0 = kBlColX0; *x1 = kBlColX0 + 31; *y0 = 151; *y1 = 189; }
-  else { *x0 = kBlColX0 + 32; *x1 = kBlColX1; *y0 = 151; *y1 = 189; } }
-/* 0..7 = button, 8 = Y item, 9 = RUN, 10 = map panel, 11 = panel tab bar, -1 nothing */
+  if (gBlHd) {
+    int a, b, c, d; blNativeRect(i, &a, &b, &c, &d);
+    *x0 = a * 4 / 5; *y0 = b * 4 / 5; *x1 = (c + 1) * 4 / 5; *y1 = (d + 1) * 4 / 5; return;
+  }
+  if (i < kBlItem1) { *x0 = kBlColX0; *x1 = kBlColX1; *y0 = 3 + i * 18; *y1 = *y0 + 17; }
+  else {
+    *x0 = kBlColX0 + (i == kBlItem1 ? 0 : i == kBlItem2 ? 16 : 32);
+    *x1 = i == kBlRun ? kBlColX1 : *x0 + 15;
+    *y0 = 151; *y1 = 189;
+  }
+}
+/* 10 = map panel, 11 = tabs, 12 = second registered item. */
 static inline int blHit(int x, int y) {
-  for (int i = 0; i < 10; i++) { int a, b, c, d; blRect(i, &a, &b, &c, &d); if (x >= a && x < c && y >= b && y < d) return i; }
+  for (int i = 0; i < kBlButtonCount; i++) {
+    int a, b, c, d; blRect(i, &a, &b, &c, &d);
+    if (x >= a && x < c && y >= b && y < d) return i == kBlItem2 ? kBlItem2Hit : i;
+  }
   if (x >= kBlPanX0 && x < kBlPanX1 && y >= kBlPanY0 && y < kBlPanY0 + 16) return 11; /* the tab bar (ss3ds_pgextra.h; ignored when pg_extras is off) */
   return x >= kBlPanX0 && x < kBlPanX1 && y >= kBlPanY0 + 16 && y < kBlPanY1 ? 10 : -1; }
 /* run 10: 12x12 icons, 1-px dark outline, solid fills ('#' ink, '+' accent, 'o' white), drawn 1:1 (no scaling in this code) */
@@ -169,10 +187,26 @@ static void blIcon(uint32_t *b, int x, int y, int i, uint32_t ink, uint32_t acc)
     if (ch == '#') suiPx(b, x + c, y + r, ink); else if (ch == '+') suiPx(b, x + c, y + r, acc); else if (ch == 'o') suiPx(b, x + c, y + r, SUI_RGB(255, 255, 255)); } }
 /* run 11: bit i set = button i's icon comes from the game (drawn at native resolution by gpuscale's overlay), skip ours */
 static unsigned blGameIconMask;
+static uint32_t blItemIcons[2][kBlItemIconSize * kBlItemIconSize];
+static unsigned blItemIconMask;
 static void blButton(uint32_t *b, const SUiText &T, int i, const char *label, const char *alt, bool on, bool pressed) {
   /* run 151: the same look as the sharp column (icon cell, divider, name, red tab at the right edge); only seen at SCALE 1:1 */
   int x0, y0, x1, y1; blRect(i, &x0, &y0, &x1, &y1); blBox(b, x0, y0, x1, y1, pressed);
   const bool game = (blGameIconMask >> i) & 1; const uint32_t ink = pressed ? kBlSelO : kBlIcInk, acc = pressed ? SUI_RGB(255, 255, 255) : kBlIcAcc;
+  if (i == kBlItem1 || i == kBlItem2) {
+    const int slot = i == kBlItem1 ? 0 : 1;
+    if (!game && (blItemIconMask & (1u << slot))) {
+      const int x = (x0 + x1 - kBlItemIconSize) / 2, y = (y0 + y1 - kBlItemIconSize) / 2;
+      for (int r = 0; r < kBlItemIconSize; r++) for (int c = 0; c < kBlItemIconSize; c++) {
+        const uint32_t color = blItemIcons[slot][r * kBlItemIconSize + c];
+        if ((color >> 24) && x + c > x0 && x + c < x1 - 1) suiPx(b, x + c, y + r, color);
+      }
+    } else if (!game) {
+      const char *n = slot ? "2" : "1";
+      T.draw(b, (x0 + x1 - T.width(n)) / 2, (y0 + y1) / 2 - 5, n, kBlText, kBlSilverHi);
+    }
+    return;
+  }
   if (i < 8) {
     blButtonDetails(b, x0, y0, y1, x0 + 15, x1 - 3, pressed);
     if (!game) blIcon(b, x0 + 2, (y0 + y1) / 2 - 6, i, ink, acc);
@@ -199,4 +233,4 @@ static void blDraw(uint32_t *b, const SUiText &T, const SMm &m, int mode, bool b
   else if (mode >= 0 || !blPgDraw(b, T, kBlPanX0, kBlPanY0 + 15 + nh, kBlPanX1, kBlPanY1, blink)) /* panel rim shares the tab bar's (or name strip's) bottom row (no gap, no double border) */ mmDrawPanel(b, T, m, mode < 0 ? kMmWorld : mode, blink, kBlPanX0, kBlPanY0 + 17 + nh, kBlPanX1, kBlPanY1);
   if (mode < 0 && pxPane() == 0) ctCardDraw(b, T, kBlPanX0, kBlPanY0 + 17 + nh, kBlPanX1);
   if (mode < 0) pxRingDraw(b, T, blink);
-  for (int i = 0; i < 10; i++) blButton(b, T, i, labels[i], alts[i], on[i], press == i); }
+  for (int i = 0; i < kBlButtonCount; i++) blButton(b, T, i, labels[i], alts[i], on[i], press == i); }
