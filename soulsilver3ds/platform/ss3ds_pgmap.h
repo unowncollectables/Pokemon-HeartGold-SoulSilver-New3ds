@@ -19,10 +19,10 @@ extern const SS3DS_PgSpec sLocationSpecs[100];
 extern volatile int P3DS_FlyReq, P3DS_FlyRes, P3DS_FlyN, P3DS_FlyHere; extern volatile unsigned short P3DS_FlyList[32]; /* hook 0228, ss3ds_glue.c */
 volatile int P3DS_PgReady, P3DS_PgLoc = -1, P3DS_PgShoes = -1; volatile uint32_t P3DS_PgTid;
 char P3DS_PgName[100][20]; char P3DS_PgText[100][100];
-/* buffers the game thread fills (hook 0081). Keys: pgmap_gra member (0..63), 100 + a/0/1/4 member, 200/201 = registered
+/* buffers the game thread fills (hook 0081). Keys: pgmap_gra member (0..63), 100 + a/0/1/4 member, 200–203 = registered
    item icon chars/palette (fixed 16 KB slots, refilled in place when the registered item changes). */
 static uint8_t *pgRaw[256]; static uint32_t pgRawSz[256];
-volatile int P3DS_PgGender = -1, P3DS_PgItem = -1;
+volatile int P3DS_PgGender = -1, P3DS_PgItem = -1, P3DS_PgItem2 = -1, P3DS_PgItemReq;
 /* run 13: progress per Pokegear location from pspoke hook 0083 (read-only flag checks on the game thread). Row i < 100:
    [0] species available, [1] caught, [2] seen, [3] trainers, [4] beaten, [5] visible items, [6] taken, [7] hidden items,
    [8] found. Row 100 = whole map (species counted once). */
@@ -35,7 +35,7 @@ uint8_t P3DS_PsSp[100][64], P3DS_PsCg[100][64];
 uint8_t P3DS_PsTm[100][4][64];
 void *P3DS_PgAlloc(int key, uint32_t size) {
   if (key < 0 || key > 255 || size < 16 || size > 64 * 1024) return 0;
-  if (key >= 200 && key <= 201) { if (size > 0x4000) return 0; if (!pgRaw[key]) pgRaw[key] = (uint8_t *)malloc(0x4000); pgRawSz[key] = pgRaw[key] ? size : 0; return pgRaw[key]; }
+  if (key >= 200 && key <= 203) { if (size > 0x4000) return 0; if (!pgRaw[key]) pgRaw[key] = (uint8_t *)malloc(0x4000); pgRawSz[key] = pgRaw[key] ? size : 0; return pgRaw[key]; }
   free(pgRaw[key]); pgRaw[key] = (uint8_t *)malloc(size); pgRawSz[key] = pgRaw[key] ? size : 0; return pgRaw[key]; }
 }
 /* compatibility for the run 10 decode (members 10/11/20) */

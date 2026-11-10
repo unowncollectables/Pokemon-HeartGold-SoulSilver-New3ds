@@ -1437,7 +1437,17 @@ static unsigned bnAtlasGen;static unsigned blBuildIcons(){u32*A=P3DS_OvAtlasGet(
    const int sk=i==1?0:i==4?1:i==2?2:-1; /* run 13: half-size copies (every 2nd pixel) for the map's stat rows */
    if(sk>=0){uint32_t hs[10*11];for(int y=0;y<11;y++)for(int x=0;x<10;x++)hs[y*10+x]=sm[(y*2)*20+x*2];put(hs,10,11,sk*12,64);mask|=1u<<(24+sk);}}}}
  for(int g=0;g<2;g++)if(pgCell(blIcTmp,1,2,0,2+g)){put(blIcTmp.px,32,32,g*32,32);mask|=1u<<(16+g);}
- if(P3DS_PgItem>0&&pgIcon32(blIcTmp,200,201,0)){put(blIcTmp.px,32,32,64,32);mask|=1u<<8;}
+ blItemIconMask=0;
+ for(int slot=0;slot<2;slot++){
+  const int item=slot?P3DS_PgItem2:P3DS_PgItem, key=200+2*slot;
+  if(item<=0||!pgIcon32(blIcTmp,key,key+1,0))continue;
+  auto &icon=blItemIcons[slot];
+  for(int y=0;y<kBlItemIconSize;y++)for(int x=0;x<kBlItemIconSize;x++)
+   icon[y*kBlItemIconSize+x]=blIcTmp.px[(2*y+2)*32+2*x+2];
+  put(icon,kBlItemIconSize,kBlItemIconSize,64+16*slot,32);
+  blItemIconMask|=1u<<slot;
+  mask|=1u<<(slot?kBlItem2:kBlItem1);
+ }
  {static uint32_t sp[31*32];gBnSprintOk=false;for(int o=0;o<2;o++){if(!pgSprint(sp,o!=0))break;for(int k=0;k<31*32;k++){const uint32_t c=sp[k];gBnSprint[o][k]=bnRGB(c&255,c>>8&255,c>>16&255);}if(o)gBnSprintOk=true;}
   PSPNativeMemLog("[ICONS] Sprint Button (a/0/1/4 pal 7, cells 68, chars 70): %s",gBnSprintOk?"decoded":"not available");} /* run 20 */
  P3DS_OvDirty=1;return mask;}
@@ -2327,6 +2337,10 @@ static int Present(bool){
   if(P3DS_StartReq>=0){if(++bmAge>90){PSPNativeMemLog("[BMENU] request %d timed out: the game's Start menu did not open",P3DS_StartReq);P3DS_StartReq=-1;P3DS_PhCallReq=0;P3DS_RadTuneReq=0;P3DS_VwPartySlot=0;P3DS_VwBagPocket=-1;P3DS_VwBagSlot=-1;P3DS_PanelPartyWant=0;if(pxNativeGear(pxPane()))pxSetPane(0,"Pokegear launch timed out");bmAge=0;}if(!bmHold&&bmAge%8==4){P3DS_InjectKeys=KEY_X;P3DS_InjectFrames=2; /* X missed mid-step: pulse again until the menu opens */}}
   else if(bmAge){PSPNativeMemLog("[BMENU] request handled by the game after %u frames",bmAge);bmAge=0;}
   static bool ignorePanelTouch;
+  {static unsigned itemReqAge;
+   if(!P3DS_PgItemReq)itemReqAge=0;
+   else if(!P3DS_InField||bmHold||++itemReqAge>=12){P3DS_PgItemReq=0;itemReqAge=0;}
+  }
   const bool panelTouchHeld = (hidKeysHeld() & KEY_TOUCH) != 0;
   if (!panelTouchHeld) ignorePanelTouch = false;
   else if (bmFlow || P3DS_PanelPartyWant || P3DS_StartReq >= 0 || sRetHold) {
@@ -2342,7 +2356,7 @@ static int Present(bool){
      if(swTgt>=0){swT++;if(swT%24==6&&swT<400){P3DS_InjectKeys=KEY_B;P3DS_InjectFrames=2;}if(swT>=420){PSPNativeMemLog("[PANEL] tab swap to %s gave up after %u frames",kPxTabs[swTgt],swT);swTgt=-1;}}}
     sSwapAct=swTgt>=0&&P3DS_PanelPartyOn;swPrev=swTouch;}
    static int tX0,tY0,tXl,tYl,tXp,hLast=-1,achScr0;static bool tDrag;int hit=-1;const bool tNow=panelTouchHeld&&!ignorePanelTouch&&!bmFlow;
-   if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){hit=blHit(x,y);if(hit==10&&pxRingHit(x,y))hit=3;if(hit==10)hit=21;else if(hit==8)hit=20;else if(hit==9)hit=22;else if(hit==11)hit=pxOn()?23:-1;tXl=x;tYl=y;}}
+   if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){hit=blHit(x,y);if(hit==10&&pxRingHit(x,y))hit=3;if(hit==10)hit=21;else if(hit==8)hit=20;else if(hit==9)hit=22;else if(hit==kBlItem2Hit)hit=24;else if(hit==11)hit=pxOn()?23:-1;tXl=x;tYl=y;}}
    if(tNow&&!bmPrev){bmDown=hit;tX0=tXp=tXl;tY0=tYl;tDrag=false;if(gPg.achOpen)achScr0=gPg.achScroll;}
    if(tNow)hLast=hit; /* run 148: where the finger is NOW; a button tap only counts if it lifts on the button it landed on */
    {/* run 128 panel_party: tapping the PARTY tab itself opens the real party in the panel (no row tap needed); leaving the party returns the panel to MAP so the next PARTY tap is a fresh tap */
@@ -2391,19 +2405,20 @@ static int Present(bool){
    /* run 49 (Nathan): X is a tile cursor, not a wave. psp_ctru.c swallows X (and A/B/D-pad while the cursor is up) and queues the presses in P3DS_TileKeys;
       X opens the cursor (a second X closes it), D-pad right/down steps to the next usable tile, D-pad left/up to the previous, A taps it, B or 6 s idle drops it. */
    static int tCur=-1;static unsigned tIdle;bool kbFire=false;
-   {static const int kCurL[10]={0,1,2,3,4,5,6,7,20,22};
+   {static const int kCurL[kBlButtonCount]={0,1,2,3,4,5,6,7,20,24,22};
     const unsigned kk=P3DS_TileKeys;P3DS_TileKeys=0;P3DS_TileOn=(bumpCfg()&&!bmFlow)?1:0;
     if(tNow||bmFlow||!P3DS_TileOn){if(tCur>=0)PSPNativeMemLog("[BMENU] tile cursor dropped (touch/flow/off)");tCur=-1;}
     else if(kk){int step=0;if(kk&(KEY_X|KEY_DRIGHT|KEY_DDOWN))step=1;else if(kk&(KEY_DLEFT|KEY_DUP))step=-1;
      if(tCur>=0&&(kk&KEY_B)){tCur=-1;PSPNativeMemLog("[BMENU] tile cursor: B, dropped");}
      else if(tCur>=0&&(kk&KEY_X)){tCur=-1;PSPNativeMemLog("[BMENU] tile cursor: second X, closed");}
      else if(tCur>=0&&(kk&KEY_A)){kbFire=true;bmDown=tCur;tDrag=false;tX0=tY0=0;PSPNativeMemLog("[BMENU] tile cursor: A on tile %d",tCur);tCur=-1;}
-     else if(step){int ix=-1;for(int i=0;i<10;i++)if(kCurL[i]==tCur)ix=i;
-      for(int n=0;n<10;n++){ix=(ix<0?(step>0?-1:0):ix)+step;ix=(ix+10)%10;const int c=kCurL[ix];if(c>=7||((P3DS_StartAvail>>kAct[c])&1)){tCur=c;break;}}
+     else if(step){int ix=-1;for(int i=0;i<kBlButtonCount;i++)if(kCurL[i]==tCur)ix=i;
+      for(int n=0;n<kBlButtonCount;n++){ix=(ix<0?(step>0?-1:0):ix)+step;ix=(ix+kBlButtonCount)%kBlButtonCount;const int c=kCurL[ix];if(c>=7||((P3DS_StartAvail>>kAct[c])&1)){tCur=c;break;}}
       tIdle=0;PSPNativeMemLog("[BMENU] tile cursor -> tile %d",tCur);}}
     if(tCur>=0&&++tIdle>360){tCur=-1;PSPNativeMemLog("[BMENU] tile cursor idle, dropped");}
     P3DS_TileCur=tCur;}
    const int pressShow=press>=0?press:tCur;
+   const int buttonPress=pressShow==20?kBlItem1:pressShow==24?kBlItem2:pressShow==22?kBlRun:pressShow;
    if(!kbFire&&!tNow&&bmPrev&&bmDown>=0&&bmDown<=6&&hLast!=bmDown){PSPNativeMemLog("[BMENU] run 148: touch landed on %s but lifted on %d: ignored (no stray tile)",kNm[bmDown],hLast);bmDown=-1;}
    if(kbFire||(!tNow&&bmPrev&&bmDown>=0)){
     if(bmDown==23){if(hLast==23&&pxChipHit(kSuiText,kBlPanX1,kBlPanY0,tX0)==pxChipHit(kSuiText,kBlPanX1,kBlPanY0,tXl))pxChipTap(kSuiText,kBlPanX1,kBlPanY0,tX0);}
@@ -2467,7 +2482,13 @@ static int Present(bool){
     else if(bmDown==22){extern volatile int P3DS_RunToggle;
      if(P3DS_PgShoes!=1){P3DS_Toast(P3DS_PgShoes<0?"TAKE A STEP FIRST":"NO RUNNING SHOES YET");PSPNativeMemLog("[RUN] RUN button: running shoes %s",P3DS_PgShoes<0?"not known yet (no step since boot)":"not given by the game yet");}
      else{P3DS_RunToggle=!P3DS_RunToggle;P3DS_Toast(P3DS_RunToggle?"RUN ON":"RUN OFF");PSPNativeMemLog("[RUN] RUN button -> run toggle %d (shoes %d)",P3DS_RunToggle,P3DS_PgShoes);}BLINV;}
-    else if(bmDown==20){P3DS_InjectKeys=KEY_Y;P3DS_InjectFrames=2;PSPNativeMemLog("[BMENU] tap Y ITEM -> pressing Y (registered item)");}
+    else if(bmDown==20||bmDown==24){
+     const int slot=bmDown==20?1:2;
+     if((kbFire||hLast==bmDown)&&!tDrag&&!bmHold&&P3DS_InField&&(slot==1?P3DS_PgItem:P3DS_PgItem2)>0){
+      P3DS_PgItemReq=slot;
+      PSPNativeMemLog("[BMENU] requested registered item slot %d",slot);
+     }
+    }
     else{const int act=kAct[bmDown];
     if(!((P3DS_StartAvail>>act)&1)){P3DS_Toast("NOT AVAILABLE YET");PSPNativeMemLog("[BMENU] %s tapped but not in the game's menu (avail mask %04x)",kNm[bmDown],P3DS_StartAvail);}
     else if(P3DS_PanelPartyOn){PSPNativeMemLog("[PANEL] ignore %s tap while party is in the panel",kNm[bmDown]);}
@@ -2475,13 +2496,13 @@ static int Present(bool){
    if(!tNow)bmDown=-1;bmPrev=tNow;
    P3DS_OvN=0;
    u32*b=(u32*)bot;const bool blink=((svcGetSystemTick()/(SYSCLOCK_ARM11/2))&1)!=0;
-   {static const char*const kBl[10]={"POKEDEX","POKEMON","BAG","POKEGEAR","TRAINER","SAVE","OPTIONS","MAP","Y ITEM","RUN"},*const kBlA[10]={"DEX","PKMN","BAG","GEAR","CARD","SAVE","OPTS","MAP","ITEM","RUN"};extern volatile int P3DS_RunToggle;
-    static const char*const kMapBl[3]={"INFO","WORLD","LOCAL"};const char*lb[10];bool on[10];for(int i=0;i<10;i++){lb[i]=kBl[i];on[i]=i<7?((P3DS_StartAvail>>kAct[i])&1)!=0:true;}
-    const int runNow=P3DS_RunToggle;lb[9]=P3DS_PgShoes!=1?"NO SHOES":runNow?"RUN ON":"RUN OFF";on[9]=P3DS_PgShoes==1&&runNow;const char*al[10];for(int i=0;i<10;i++)al[i]=(ppChrome?lb[i]:kBlA[i]);al[9]=P3DS_PgShoes!=1?(ppChrome?"NO SHOES":"--"):(runNow?(ppChrome?"RUN ON":"ON"):(ppChrome?"RUN OFF":"OFF")); /* run 121: no short DEX/PKMN column while party is in the panel */lb[7]=blMode<0?"JOHTO":kMapBl[blMode];if(pxRinging()){lb[3]="ANSWER";al[3]="CALL";}
-    static unsigned icMask;static int icItem=-2,icGender=-2;static bool icTried;
-    if(P3DS_PgReady&&(!icTried||icItem!=P3DS_PgItem||icGender!=P3DS_PgGender)){icTried=true;icItem=P3DS_PgItem;icGender=P3DS_PgGender;icMask=blBuildIcons();
-     PSPNativeMemLog("[ICONS] game icons from the ROM: buttons %02x item %d heads %d (item %d, gender %d)",icMask&0x7F,(icMask>>8)&1,(icMask>>16)&3,P3DS_PgItem,P3DS_PgGender);}
-    const bool native=P3DS_ScaleMode()!=0&&icMask!=0;blGameIconMask=native?(icMask&0x1FF):0;
+   {static const char*const kBl[kBlButtonCount]={"POKEDEX","POKEMON","BAG","POKEGEAR","TRAINER","SAVE","OPTIONS","MAP","ITEM 1","RUN","ITEM 2"},*const kBlA[kBlButtonCount]={"DEX","PKMN","BAG","GEAR","CARD","SAVE","OPTS","MAP","1","RUN","2"};extern volatile int P3DS_RunToggle;
+    static const char*const kMapBl[3]={"INFO","WORLD","LOCAL"};const char*lb[kBlButtonCount];bool on[kBlButtonCount];for(int i=0;i<kBlButtonCount;i++){lb[i]=kBl[i];on[i]=i<7?((P3DS_StartAvail>>kAct[i])&1)!=0:true;}
+    const int runNow=P3DS_RunToggle;lb[9]=P3DS_PgShoes!=1?"NO SHOES":runNow?"RUN ON":"RUN OFF";on[9]=P3DS_PgShoes==1&&runNow;const char*al[kBlButtonCount];for(int i=0;i<kBlButtonCount;i++)al[i]=(ppChrome?lb[i]:kBlA[i]);al[9]=P3DS_PgShoes!=1?(ppChrome?"NO SHOES":"--"):(runNow?(ppChrome?"RUN ON":"ON"):(ppChrome?"RUN OFF":"OFF")); /* run 121: no short DEX/PKMN column while party is in the panel */lb[7]=blMode<0?"JOHTO":kMapBl[blMode];if(pxRinging()){lb[3]="ANSWER";al[3]="CALL";}
+    static unsigned icMask;static int icItem=-2,icItem2=-2,icGender=-2;static bool icTried;
+    if(P3DS_PgReady&&(!icTried||icItem!=P3DS_PgItem||icItem2!=P3DS_PgItem2||icGender!=P3DS_PgGender)){icTried=true;icItem=P3DS_PgItem;icItem2=P3DS_PgItem2;icGender=P3DS_PgGender;icMask=blBuildIcons();
+     PSPNativeMemLog("[ICONS] game icons from the ROM: buttons %02x heads %d (items %d/%d, icon mask %u, gender %d)",icMask&0x7F,(icMask>>16)&3,icItem,icItem2,blItemIconMask,icGender);}
+    const bool native=P3DS_ScaleMode()!=0&&icMask!=0;blGameIconMask=native?(icMask&0x7FF):0;
     const int g=P3DS_PgGender==1?1:0;gPg.gameMarker=native&&((icMask>>(16+g))&1);gPg.gameIco=false; /* run 14: labelled text stats, no half-size icons */
     {static uint32_t psT;static uint16_t psPrev[101][9];if(P3DS_PsTick!=psT){psT=P3DS_PsTick;if(memcmp(psPrev,P3DS_PsStat,sizeof psPrev)){memcpy(psPrev,P3DS_PsStat,sizeof psPrev);BLINV;} /* run 62: the game republishes these stats every 16 steps even when nothing changed; that repainted the overlay (10.7 ms) every ~2.5 s of walking */ static bool lg;if(!lg){lg=true;
       for(int i=0;i<kPgN;i++)if(P3DS_PgName[i][0]&&(blHas(P3DS_PgName[i],"route 29")||blHas(P3DS_PgName[i],"route 30")||blHas(P3DS_PgName[i],"route 31")||blHas(P3DS_PgName[i],"cherrygrove")||blHas(P3DS_PgName[i],"new bark")))
@@ -2494,7 +2515,7 @@ static int Present(bool){
     else{
     {/* run 17: the overlay was repainted (gradient, map, 10 buttons, text) and re-uploaded 30x/s = +10.4 ms present (log 2026-10-26: 22 fps with tiles, 30 without). Paint into blCache only when an input changed, copy it otherwise, and tell the GPU path the bottom texture is unchanged. */
      static u32*blCache;static unsigned blSeenGen=~0u,blKey,blRedraw,blReuse,blAge;static u64 blUs;
-     unsigned key=(unsigned)pressShow+16u*blink+64u*(unsigned)(blMode+1)+512u*P3DS_StartAvail+0x40000000u*(P3DS_PgShoes==1)+0x20000000u*(runNow!=0);for(int i=0;i<10;i++)key=key*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;key=key*31u+icMask;key=key*31u+(unsigned)native;key=key*31u+(unsigned)pxPane();key=key*31u+(unsigned)pgMapZoomIdx()+4u*(unsigned)pgRoamSpr();key=key*31u+(P3DS_PanelPartyWant?1u:0u)+(P3DS_PanelPartyOn?2u:0u);key=key*31u+(unsigned)pxRingShown(); /* run 139: panel Want/On in the key (pxBag/pxParty draw a plain header while set); the blink cache pair flipped between a stale ITEMS (5) header and BAG */ /* run 118: pane + sticky ring so ANSWER banner is never stuck in the overlay cache */
+     unsigned key=(unsigned)pressShow+16u*blink+64u*(unsigned)(blMode+1)+512u*P3DS_StartAvail+0x40000000u*(P3DS_PgShoes==1)+0x20000000u*(runNow!=0);for(int i=0;i<kBlButtonCount;i++)key=key*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;key=key*31u+icMask;key=key*31u+(unsigned)native;key=key*31u+(unsigned)pxPane();key=key*31u+(unsigned)pgMapZoomIdx()+4u*(unsigned)pgRoamSpr();key=key*31u+(P3DS_PanelPartyWant?1u:0u)+(P3DS_PanelPartyOn?2u:0u);key=key*31u+(unsigned)pxRingShown(); /* run 139: panel Want/On in the key (pxBag/pxParty draw a plain header while set); the blink cache pair flipped between a stale ITEMS (5) header and BAG */ /* run 118: pane + sticky ring so ANSWER banner is never stuck in the overlay cache */
      if(!blCache)blCache=(u32*)malloc(256*192*4);
      /* fps_tweaks >= 2 (2026-10-27): the blink flips twice a second and each flip repainted the whole overlay (~10.7 ms,
         log run 24: 20 of ~25 repaints per 300 frames, a dropped frame each). Keep one cached picture per blink state. */
@@ -2504,27 +2525,33 @@ static int Present(bool){
      /* fps_tweaks >= 2: the unchanged picture was force-repainted every 60 frames (idle log: 4 to 6 repaints per 300 at ~10.7 ms, a hitch every 2 s). Input and state changes already bump blGen/key, so the safety refresh is now every 20 s. */
      static const u32*blShown; /* the cached picture presented last frame: only that one lets the GPU present skip the bottom upload */
      if(cc&&cGen==blGen&&cKey==key&&++cAge<(P3DS_FpsTweaks()>=2?600:60)){memcpy(b,cc,256*192*4);blReuse++;blSameFrame=cc==blShown;blShown=cc;}
-     else{blShown=cc;const u64 t0b=svcGetSystemTick();cAge=0;cGen=blGen;cKey=key;gPg.moving=false;blDraw(b,kSuiText,mm,blMode<0?-1:blMode,blink,lb,al,on,pressShow==20?8:pressShow==22?9:pressShow);if(gPg.moving){static unsigned mvT;if(P3DS_FpsTweaks()<5||(mvT++&1)==0)BLINV;}if(cc)memcpy(cc,b,256*192*4);blRedraw++;pfBlRep++;blUs+=(svcGetSystemTick()-t0b)/CPU_TICKS_PER_USEC;}
+     else{blShown=cc;const u64 t0b=svcGetSystemTick();cAge=0;cGen=blGen;cKey=key;gPg.moving=false;blDraw(b,kSuiText,mm,blMode<0?-1:blMode,blink,lb,al,on,buttonPress);if(gPg.moving){static unsigned mvT;if(P3DS_FpsTweaks()<5||(mvT++&1)==0)BLINV;}if(cc)memcpy(cc,b,256*192*4);blRedraw++;pfBlRep++;blUs+=(svcGetSystemTick()-t0b)/CPU_TICKS_PER_USEC;}
      {static unsigned lg;if(++lg%300==0){PSPNativeMemLog("[BMENU] overlay cache: reused %u, repainted %u of last 300 (%u us per repaint)",blReuse,blRedraw,blRedraw?(unsigned)(blUs/blRedraw):0);blReuse=blRedraw=0;blUs=0;}}} /* run 16: map still sliding to the new location */
     /* run 18 bottom_hd=1 (default): the button column at native 320x240 (ss3ds_blnative.h, after GabeSud0's port_lowermenu.c); 0 = the run 17 stretched column */
-    static int bnX[10],bnY[10];static unsigned bnKey=~0u;const int bhd=bottomHdCfg()&&P3DS_ScaleMode()!=0;static int bhdPrev=-1;if(bhd!=bhdPrev){bhdPrev=bhd;bnKey=~0u;gBlHd=bhd;BLINV;}
+    static int bnX[kBlButtonCount],bnY[kBlButtonCount];static unsigned bnKey=~0u;const int bhd=bottomHdCfg()&&P3DS_ScaleMode()!=0;static int bhdPrev=-1;if(bhd!=bhdPrev){bhdPrev=bhd;bnKey=~0u;gBlHd=bhd;BLINV;}
     if(native||(bhd&&P3DS_ScaleMode()!=0)){int n=0;auto R=[&](int dx,int dy,int w,int h,int sx,int sy){if(n<96){P3DS_OvRects[n]={(short)dx,(short)dy,(short)w,(short)h,(short)sx,(short)sy};n++;}};
-     if(bhd){const int pr=pressShow==20?8:pressShow==22?9:pressShow;unsigned k=(unsigned)(pr+1)*2654435761u^(native?icMask:0u)*40503u;for(int i=0;i<10;i++)k=k*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;
+     if(bhd){const int pr=buttonPress;unsigned k=(unsigned)(pr+1)*2654435761u^(native?icMask:0u)*40503u;for(int i=0;i<kBlButtonCount;i++)k=k*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;
       k=k*31u+bnAtlasGen;k=k*31u+(pxOn()?(unsigned)pxPane()+1u:0u)+(unsigned)pxNTab()*13u;
       static SBnTabDst bnTabD[6]; static int bnTabN;
-      if(k!=bnKey){bnKey=k;bnFrame(P3DS_OvAtlasGet(),lb,al,on,pr,native?(icMask&0x1FF):0,bnX,bnY);bnTabN=0;
+      if(k!=bnKey){bnKey=k;bnFrame(P3DS_OvAtlasGet(),lb,al,on,pr,native?(icMask&0x7FF):0,bnX,bnY);bnTabN=0;
        if(pxOn()){int cx0[6],cx1[6],cy0,cy1;pxChips(kSuiText,kBlPanX1,kBlPanY0,cx0,cx1,&cy0,&cy1);bnTabN=bnTabStrip(P3DS_OvAtlasGet(),pxPane(),pxNTab(),cx0,cx1,cy0,cy1,kPxTabIcon,kPxTabs,kPxTabShort,bnTabD,6);
         static bool lgT;if(!lgT){lgT=true;PSPNativeMemLog("[BMENU] native tab strip: %d buttons, column-style icon cells, labels and red accents",bnTabN);}}
        P3DS_OvDirty=1;static bool lg;if(!lg){lg=true;PSPNativeMemLog("[BMENU] native column drawn (atlas 512x256)");}}
       R(235,0,85,240,256,0);R(0,0,235,4,0,160);R(0,236,235,4,0,164);R(0,4,4,232,344,0);
       for(int i=0;i<bnTabN;i++)R(bnTabD[i].dx,bnTabD[i].dy,bnTabD[i].w,bnTabD[i].h,bnTabD[i].sx,bnTabD[i].sy);}
      for(int i=0;i<7;i++)if(native&&((icMask>>i)&1)){int x0,y0,x1,y1;blRect(i,&x0,&y0,&x1,&y1);if(bhd)R(bnX[i],bnY[i],20,22,i*20,0);else R(x0*5/4+1,(y0*5+3)/4-1,20,22,i*20,0); /* run 13: 22 rows, the top one in the 1 px gap, so the Pokedex symbol is not clipped */}
-     if(native&&((icMask>>8)&1)){int x0,y0,x1,y1;blRect(8,&x0,&y0,&x1,&y1);if(bhd)R(bnX[8],bnY[8],32,32,64,32);else R((x0+x1)*5/8-16,y0*5/4+2,32,32,64,32);}
+     if(native)for(int slot=0;slot<2;slot++){
+      const int i=slot?kBlItem2:kBlItem1;
+      if(!(icMask&(1u<<i)))continue;
+      int x0,y0,x1,y1;blRect(i,&x0,&y0,&x1,&y1);
+      R(bhd?bnX[i]:(x0+x1)*5/8-kBlItemIconSize/2,bhd?bnY[i]:(y0+y1)*5/8-kBlItemIconSize/2,
+        kBlItemIconSize,kBlItemIconSize,64+16*slot,32);
+     }
      if(blMode<0&&gPg.decoded&&gPg.gameIco&&!pxPane())for(int k=0;k<gPg.nIco;k++)R(gPg.ico[k].x*5/4,gPg.ico[k].y*5/4+1,10,11,gPg.ico[k].k*12,64);
      if(gPg.gameMarker&&gPg.markOk&&blMode<0&&gPg.decoded&&!pxPane())R(pgDsToNative(gPg.markX)-16,pgDsToNative(gPg.markY)-18,32,32,g*32,32); /* head sits on the same DS pixel the scaled map shows; run 118 B3: no stale MAP head on list panes */
      P3DS_OvN=n;}
     } /* run 22 blReady */
-    {static bool once;if(!once){once=true;PSPNativeMemLog("[BMENU] layout JOHTO: map panel %dx%d, 8 buttons + Y item square",kBlPanX1-kBlPanX0,kBlPanY1-kBlPanY0);}}}
+    {static bool once;if(!once){once=true;PSPNativeMemLog("[BMENU] layout JOHTO: map panel %dx%d, 8 buttons + two registered items and Run",kBlPanX1-kBlPanX0,kBlPanY1-kBlPanY0);}}}
   }else{/* 2026-11-04: the frame the tiles hide (battle start, warps), engine B was not composed last frame (bHideB), so the bottom still shows
      the last menu picture once; its HD column overlay stays for that frame too (it flashed the low-res fallback column for a frame) */
    if(!bHideB||P3DS_MenuOpen)P3DS_OvN=0;bmDown=-1;bmPrev=(hidKeysHeld()&KEY_TOUCH)!=0;}}

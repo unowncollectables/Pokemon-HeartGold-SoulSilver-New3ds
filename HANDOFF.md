@@ -1,3 +1,7 @@
+# Johto registered item shortcuts (0258)
+
+The bottom-right row now shows both registered Bag items before Run. The game still checks item eligibility through the native field input path. Empty slots show their slot numbers. On-device touch and item use checks are pending.
+
 # Pokéwalker infrared bring-up
 
 Run 740 photos show stripes around bottom-screen tiles on the Pokéwalker menu and stroll results. The renderer now uses the DS scanline compositor while the Pokéwalker application template is active, bypassing the GPU tile compositor for those frames. Logs identify when this path starts and ends. Visual verification on the New 3DS is pending.

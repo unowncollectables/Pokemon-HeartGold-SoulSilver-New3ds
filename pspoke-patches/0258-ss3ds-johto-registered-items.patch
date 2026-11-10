@@ -1,0 +1,65 @@
+Subject: [PATCH] ss3ds: expose both registered item slots in the Johto panel
+
+---
+diff --git a/scripts/ss3ds_hooks.d/0258_registered_items.py b/scripts/ss3ds_hooks.d/0258_registered_items.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0258_registered_items.py
+@@ -0,0 +1,47 @@
++from pathlib import Path
++
++path = Path("src/field/field_control.c")
++src = path.read_text()
++if "SS3DS 0258" not in src:
++    def replace(old, new):
++        global src
++        if src.count(old) != 1:
++            raise SystemExit("0258 registered items: anchor not found exactly once: " + old)
++        src = src.replace(old, new)
++
++    # Publish both items even when standing still after closing the Bag.
++    replace("    fieldInput->newKeys = newKeys;\n", '''    extern volatile int P3DS_PgItemReq; /* SS3DS 0258 */
++    void SS3DS_PgRegisteredItems(FieldSystem *);
++    SS3DS_PgRegisteredItems(fieldSystem);
++    const int portItem = P3DS_PgItemReq;
++    P3DS_PgItemReq = 0;
++    fieldInput->newKeys = newKeys;
++''')
++    replace("|| fieldSystem->lastTouchMenuInput == 9) {",
++            "|| fieldSystem->lastTouchMenuInput == 9 || (shouldDrawBagIcon && portItem == 1)) {")
++    replace("} else if (fieldSystem->lastTouchMenuInput == 10) {",
++            "} else if (fieldSystem->lastTouchMenuInput == 10 || (shouldDrawBagIcon && portItem == 2)) {")
++    anchor = "static void SS3DS_PgStep(FieldSystem *fieldSystem, u32 mapId) {"
++    replace(anchor, '''void SS3DS_PgRegisteredItems(FieldSystem *fieldSystem) {
++    extern volatile int P3DS_PgItem2;
++    Bag *bag = Save_Bag_Get(fieldSystem->saveData);
++    const u16 items[] = { Bag_GetRegisteredItem1(bag), Bag_GetRegisteredItem2(bag) };
++    volatile int *const published[] = { &P3DS_PgItem, &P3DS_PgItem2 };
++    for (int slot = 0; slot < 2; ++slot) {
++        const u16 item = items[slot];
++        if (*published[slot] == item) continue;
++        if (item) {
++            const int key = 200 + slot * 2;
++            SS3DS_PgFetch(NARC_itemtool_itemdata_item_icon, GetItemIndexMapping(item, ITEMNARC_NCGR), key);
++            SS3DS_PgFetch(NARC_itemtool_itemdata_item_icon, GetItemIndexMapping(item, ITEMNARC_NCLR), key + 1);
++        }
++        *published[slot] = item;
++        PSPNativeMemLog("[PGMAP] registered item slot %d = %d", slot + 1, item);
++    }
++}
++
++''' + anchor)
++    start = src.index("    {\n        u16 item = Bag_GetRegisteredItem1(", src.index(anchor))
++    end = src.index("    P3DS_PgShoes =", start)
++    src = src[:start] + "    P3DS_PgGender = (int)PlayerProfile_GetTrainerGender(Save_PlayerData_GetProfile(fieldSystem->saveData));\n" + src[end:]
++    path.write_text(src)
+diff --git a/scripts/ss3ds_hooks.d/0258_registered_items.sh b/scripts/ss3ds_hooks.d/0258_registered_items.sh
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0258_registered_items.sh
+@@ -0,0 +1,5 @@
++# The field input path dispatches both touchscreen shortcuts through the game's normal item checks.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0258_registered_items.py" &&
++    bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
++  log "ss3ds 0258 registered items hook NOT applied"
++fi
