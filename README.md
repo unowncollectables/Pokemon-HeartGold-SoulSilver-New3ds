@@ -14,6 +14,7 @@
   <a href="#getting-started">Setup guide</a> &nbsp;·&nbsp;
   <a href="#see-it-in-play">Gameplay</a> &nbsp;·&nbsp;
   <a href="#wireless--online">Trading &amp; online</a> &nbsp;·&nbsp;
+  <a href="#status">Project status</a> &nbsp;·&nbsp;
   <a href="#for-developers">Source &amp; docs</a>
 </p>
 
@@ -21,7 +22,7 @@
 
 ## See it in play
 
-<h3>Goldenrod above. Johto below.</h3>
+### Goldenrod above. Johto below.
 
 <p align="center">
   <img src="assets/screens/field-map.png" alt="Goldenrod City fills the top screen while the Johto map and menu shortcuts occupy the touch screen" width="420"><br>
@@ -45,13 +46,21 @@
 
 ---
 
+<p align="center">
+  <img src="assets/johto-waystation.webp" alt="A compass and folded chart on a window ledge overlooking islands at dawn" width="900">
+</p>
+
 ## Getting started
 
-You'll need a **New Nintendo 3DS, New 3DS XL, or New 2DS XL** with custom firmware and your own **Pokémon SoulSilver (USA)** cartridge dump. See the [3DS Hacks Guide](https://3ds.hacks.guide/) for console setup.
+### 01 · Check your kit
 
-### Build your copy
+- **Console** — New Nintendo 3DS, New 3DS XL, or New 2DS XL with custom firmware. See the [3DS Hacks Guide](https://3ds.hacks.guide/) for console setup.
+- **Game** — Your own dump of Pokémon SoulSilver (USA).
+- **SD card** — The card you use with the console. If you already play this port, copy your save off the card before replacing the build.
 
-On **Windows 10/11**, open [Pokémon 3DS Builder](https://github.com/unowncollectables/patch-builder), choose SoulSilver, then point it at your ROM and SD card. The builder can set up WSL and the toolchain, compile the port, and copy it to the card. Its README covers the full process.
+### 02 · Build your copy
+
+On **Windows 10/11**, open [Pokémon 3DS Builder](https://github.com/unowncollectables/patch-builder), choose **SoulSilver**, and select your ROM and SD card. The builder sets up the toolchain and can install the finished build directly to the card.
 
 <details>
 <summary><strong>Build by hand on Linux or WSL</strong></summary>
@@ -69,11 +78,14 @@ See the [build guide](docs/BUILDING.md) and [toolchain setup](docs/SETUP.md).
 
 </details>
 
-### Install and launch
+### 03 · Launch from your console
 
-1. Put `soulsilver3ds.3dsx` in `sdmc:/3ds/` for the Homebrew Launcher, or install `soulsilver3ds.cia` with FBI for the HOME Menu.
-2. Place your dump at `sdmc:/3ds/soulsilver3ds/soulsilver.nds`.
-3. Launch the game. If you're bringing over a save, use a copy and keep the original somewhere off the SD card.
+If you're copying the files yourself, choose one of these launch options and put your dump at `sdmc:/3ds/soulsilver3ds/soulsilver.nds`.
+
+- **Homebrew Launcher** — Copy `soulsilver3ds.3dsx` into `sdmc:/3ds/`.
+- **HOME Menu** — Install `soulsilver3ds.cia` using FBI.
+
+When bringing over an existing save, use a copy and keep the original off the SD card.
 
 <details>
 <summary><strong>Save files and SD card layout</strong></summary>
@@ -91,7 +103,11 @@ The port uses these files in `sdmc:/3ds/soulsilver3ds/`.
 
 ## Settings app
 
-Press **L + R + Y** or hold the top-left corner of the touch screen. Use **L / R** or tap to switch tabs, then use **Left / Right / A** to change a value. Close with **B**, **START**, or **L + R + Y** to apply and save changes. **SELECT** reveals the Debug tab.
+> **Open Settings with `L + R + Y`** or hold the top-left corner of the touch screen.
+
+- **Browse** with `L` and `R` or tap a tab. Press `SELECT` to reveal Debug.
+- **Change a setting** with `←`, `→`, or `A`.
+- **Apply and save** by closing with `B`, `START`, or `L + R + Y`.
 
 <details>
 <summary><strong>Display defaults and optional tools</strong></summary>
