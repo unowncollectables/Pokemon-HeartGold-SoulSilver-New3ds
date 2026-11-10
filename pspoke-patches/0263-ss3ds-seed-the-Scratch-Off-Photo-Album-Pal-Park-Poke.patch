@@ -1,0 +1,92 @@
+From 9e8089b263771c2cac21906a5521ec87a21aa611 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 10 Nov 2026 12:59:26 +0000
+Subject: [PATCH] ss3ds: seed the Scratch-Off, Photo Album, Pal Park, Poke Ball
+ seal and Accessory Portrait overlays (87, 109, 67, 57, 41)
+
+These apps are launched only through overlay templates, so the translator never rooted them and opening the screen aborted with [SS-MISSING]. Seed the overlay files (as 0134, 0141, 0142 did) and drop the matching Missing() stubs. Statically checked in the 2026-10-29 audit; not yet compiled or run on device. Safari Zone editors (108) and the Wi-Fi apps (39) are left out: they need link and DWC checks.
+---
+ .../nitromain-perf/missing.c                   | 18 ------------------
+ .../maploader/seed-files.json                  | 15 ++++++++++++++-
+ 2 files changed, 14 insertions(+), 19 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index 5d5aec0..9573f8c 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -4,9 +4,6 @@
+ #include "font.h"
+ #include "list_menu.h"
+ extern void PSPNativeMemLog(const char *,...);__attribute__((noreturn)) static void Missing(const char *name){PSPNativeMemLog("[SS-MISSING] %s",name);fflush(stdout);abort();}
+-__attribute__((noreturn)) void AccessoryPortrait_Exit(void){Missing("AccessoryPortrait_Exit");}
+-__attribute__((noreturn)) void AccessoryPortrait_Init(void){Missing("AccessoryPortrait_Init");}
+-__attribute__((noreturn)) void AccessoryPortrait_Main(void){Missing("AccessoryPortrait_Main");}
+ __attribute__((noreturn)) void BattleArcadeData_Alloc(void){Missing("BattleArcadeData_Alloc");}
+ __attribute__((noreturn)) void BattleArcadeData_Free(void){Missing("BattleArcadeData_Free");}
+ __attribute__((noreturn)) void BattleArcadeData_Init(void){Missing("BattleArcadeData_Init");}
+@@ -157,9 +154,6 @@ __attribute__((noreturn)) void MovementScriptMachineSub_Done(void){Missing("Move
+ __attribute__((noreturn)) void NintendoWfc_Exit(void){Missing("NintendoWfc_Exit");}
+ __attribute__((noreturn)) void NintendoWfc_Init(void){Missing("NintendoWfc_Init");}
+ __attribute__((noreturn)) void NintendoWfc_Main(void){Missing("NintendoWfc_Main");}
+-__attribute__((noreturn)) void PhotoAlbum_Exit(void){Missing("PhotoAlbum_Exit");}
+-__attribute__((noreturn)) void PhotoAlbum_Init(void){Missing("PhotoAlbum_Init");}
+-__attribute__((noreturn)) void PhotoAlbum_Main(void){Missing("PhotoAlbum_Main");}
+ __attribute__((noreturn)) void PmAgbCartridge_GetLanguage(void){Missing("PmAgbCartridge_GetLanguage");}
+ __attribute__((noreturn)) void PmAgbCartridge_GetVersionInternal(void){Missing("PmAgbCartridge_GetVersionInternal");}
+ __attribute__((noreturn)) void SafariAreaCustomizer_Exit(void){Missing("SafariAreaCustomizer_Exit");}
+@@ -168,9 +162,6 @@ __attribute__((noreturn)) void SafariAreaCustomizer_Main(void){Missing("SafariAr
+ __attribute__((noreturn)) void SafariDecoration_Exit(void){Missing("SafariDecoration_Exit");}
+ __attribute__((noreturn)) void SafariDecoration_Init(void){Missing("SafariDecoration_Init");}
+ __attribute__((noreturn)) void SafariDecoration_Main(void){Missing("SafariDecoration_Main");}
+-__attribute__((noreturn)) void ScratchOffCards_Exit(void){Missing("ScratchOffCards_Exit");}
+-__attribute__((noreturn)) void ScratchOffCards_Init(void){Missing("ScratchOffCards_Init");}
+-__attribute__((noreturn)) void ScratchOffCards_Main(void){Missing("ScratchOffCards_Main");}
+ 
+ 
+ 
+@@ -267,18 +258,9 @@ __attribute__((noreturn)) void ov39_0222A3DC(void){Missing("ov39_0222A3DC");}
+ __attribute__((noreturn)) void ov39_0222A434(void){Missing("ov39_0222A434");}
+ __attribute__((noreturn)) void ov39_0222A48C(void){Missing("ov39_0222A48C");}
+ __attribute__((noreturn)) void ov39_0222A4C0(void){Missing("ov39_0222A4C0");}
+-__attribute__((noreturn)) void ov41_02246DE0(void){Missing("ov41_02246DE0");}
+-__attribute__((noreturn)) void ov41_02246F08(void){Missing("ov41_02246F08");}
+-__attribute__((noreturn)) void ov41_02247150(void){Missing("ov41_02247150");}
+ __attribute__((noreturn)) void ov45_02229EE0(void){Missing("ov45_02229EE0");}
+ __attribute__((noreturn)) void ov45_02229F70(void){Missing("ov45_02229F70");}
+ __attribute__((noreturn)) void ov45_02229F94(void){Missing("ov45_02229F94");}
+-__attribute__((noreturn)) void ov57_022378DC(void){Missing("ov57_022378DC");}
+-__attribute__((noreturn)) void ov57_02237AF8(void){Missing("ov57_02237AF8");}
+-__attribute__((noreturn)) void ov57_02237B20(void){Missing("ov57_02237B20");}
+-__attribute__((noreturn)) void ov67_021E5900(void){Missing("ov67_021E5900");}
+-__attribute__((noreturn)) void ov67_021E5968(void){Missing("ov67_021E5968");}
+-__attribute__((noreturn)) void ov67_021E5984(void){Missing("ov67_021E5984");}
+ __attribute__((noreturn)) void ov73_021E5900(void){Missing("ov73_021E5900");}
+ __attribute__((noreturn)) void ov73_021E5AB8(void){Missing("ov73_021E5AB8");}
+ __attribute__((noreturn)) void ov73_021E5BAC(void){Missing("ov73_021E5BAC");}
+diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
+index 4d1816b..007baca 100644
+--- a/port/soulsilver-native-play/maploader/seed-files.json
++++ b/port/soulsilver-native-play/maploader/seed-files.json
+@@ -82,5 +82,18 @@
+  "overlay_70.s",
+  "overlay_74_thumb.s",
+  "overlay_112.s",
+- "unk_020957B0.s"
++ "unk_020957B0.s",
++"overlay_87.s",
++"overlay_109.s",
++"overlay_67.s",
++"overlay_57.s",
++"overlay_41_02245EA0.s",
++"overlay_41_02246B34.s",
++"overlay_41_02247828.s",
++"overlay_41_02248400.s",
++"overlay_41_02248ED4.s",
++"overlay_41_02249A40.s",
++"overlay_41_0224A5A4.s",
++"overlay_41_0224B21C.s",
++"overlay_41_0224BE34.s"
+ ]
+-- 
+2.43.0
+
