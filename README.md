@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/whirl-islands-cover.webp" alt="Illustrated cover with a lighthouse beyond stormy whirlpools and jagged islands" width="900">
+  <img src="assets/whirl-islands-title.webp" alt="Pokémon SoulSilver New 3DS Edition emblem over the Whirl Islands" width="900">
 </p>
 
-<h1 align="center">Pokémon SoulSilver for New 3DS</h1>
+<h1 align="center">Return to Johto</h1>
 
 <p align="center">
   Explore Johto in widescreen, slide into stereoscopic 3D, and keep the Pokégear on the touch screen.<br>
-  A fan-made native port for New 3DS, New 3DS XL, and New 2DS XL.
+  A fan-made native port of Pokémon SoulSilver for New 3DS, New 3DS XL, and New 2DS XL.
 </p>
 
 <p align="center">

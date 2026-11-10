@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="910" height="285" viewBox="0 -25 910 285" role="img" aria-labelledby="title description">
+  <title id="title">Pokémon SoulSilver · New 3DS Edition</title>
+  <desc id="description">A silver wordmark with winged edges and a whirlpool crest.</desc>
+  <defs>
+    <linearGradient id="silver" x2="0" y2="1">
+      <stop stop-color="#ffffff"/>
+      <stop offset=".43" stop-color="#e2eafa"/>
+      <stop offset=".49" stop-color="#a2b7d9"/>
+      <stop offset=".78" stop-color="#d7e4f9"/>
+      <stop offset="1" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="wing-metal" x2=".6" y2="1">
+      <stop stop-color="#fbf5ea"/>
+      <stop offset=".48" stop-color="#a1bfdc"/>
+      <stop offset="1" stop-color="#4e679c"/>
+    </linearGradient>
+    <linearGradient id="navy" x2="0" y2="1">
+      <stop stop-color="#1e345b"/>
+      <stop offset="1" stop-color="#10172f"/>
+    </linearGradient>
+    <linearGradient id="gold" x2="0" y2="1">
+      <stop stop-color="#fff1bc"/>
+      <stop offset="1" stop-color="#efb370"/>
+    </linearGradient>
+    <g id="wordmark" fill-rule="evenodd" stroke-linejoin="round">
+      <path transform="translate(0)" d="M72 7L63 24Q51 17 38 17Q23 17 23 27Q23 34 35 37L49 40Q74 46 74 67Q74 95 38 95Q14 95 0 84L10 67Q23 77 39 77Q53 77 53 68Q53 61 41 58L27 55Q2 49 2 28Q2 0 38 0Q57 0 72 7Z"/>
+      <path transform="translate(83)" d="M40 0Q80 0 80 47Q80 95 40 95Q0 95 0 47Q0 0 40 0ZM40 19Q22 19 22 47Q22 76 40 76Q58 76 58 47Q58 19 40 19Z"/>
+      <path transform="translate(172)" d="M0 2H22V57Q22 76 38 76Q54 76 54 57V2H76V58Q76 95 38 95Q0 95 0 58Z"/>
+      <path transform="translate(257)" d="M0 2H22V74H61V93H0Z"/>
+      <path transform="translate(327)" d="M72 7L63 24Q51 17 38 17Q23 17 23 27Q23 34 35 37L49 40Q74 46 74 67Q74 95 38 95Q14 95 0 84L10 67Q23 77 39 77Q53 77 53 68Q53 61 41 58L27 55Q2 49 2 28Q2 0 38 0Q57 0 72 7Z"/>
+      <path transform="translate(410)" d="M2 2H24V93H2Z"/>
+      <path transform="translate(445)" d="M0 2H22V74H61V93H0Z"/>
+      <path transform="translate(515)" d="M0 2H24L41 67L59 2H82L53 93H29Z"/>
+      <path transform="translate(606)" d="M0 2H66V20H22V37H60V55H22V75H66V93H0Z"/>
+      <path transform="translate(681)" d="M0 2H41Q73 2 73 31Q73 50 56 57L76 93H51L34 62H22V93H0ZM22 20V44H39Q51 44 51 32Q51 20 39 20Z"/>
+    </g>
+    <path id="shield" d="M64 144L118 83L295 71L373 53H537L615 71L792 83L846 144L793 205L614 215L554 244H356L296 215L117 205Z"/>
+    <path id="wing" d="M218 162Q156 95 29 99L65 131L13 143L79 161L46 188Q154 192 218 162Z"/>
+    <path id="wing-lines" d="M64 130Q136 132 193 157M78 160Q131 154 176 162M53 184Q133 170 170 168"/>
+  </defs>
+
+  <g>
+    <use href="#shield" transform="translate(0 10)" fill="#0c1025" opacity=".8"/>
+    <g stroke-linecap="round" stroke-linejoin="round">
+      <g fill="url(#wing-metal)" stroke="#10182d" stroke-width="7">
+        <use href="#wing"/>
+        <use href="#wing" transform="translate(910) scale(-1 1)"/>
+      </g>
+      <g fill="none" stroke="#f5f5f0" stroke-opacity=".64" stroke-width="2">
+        <use href="#wing-lines"/>
+        <use href="#wing-lines" transform="translate(910) scale(-1 1)"/>
+      </g>
+      <use href="#shield" fill="url(#navy)" stroke="#0c1328" stroke-width="14"/>
+      <use href="#shield" fill="none" stroke="#c9d9f1" stroke-width="3"/>
+      <path d="M140 86L296 79L373 61H537L614 79L770 86M137 199L295 206L359 235H551L615 206L773 199" fill="none" stroke="#6b8bb9" stroke-width="2"/>
+    </g>
+
+    <!-- A compass diamond contains a three-turn wave motif. -->
+    <g transform="translate(455 25)">
+      <path d="M0-43L39 0L0 43L-39 0Z" fill="#101d38" stroke="#11162b" stroke-width="8"/>
+      <path d="M0-43L39 0L0 43L-39 0Z" fill="url(#navy)" stroke="url(#gold)" stroke-width="3"/>
+      <path d="M-20 2C-16-15 5-22 16-10C26 2 17 17 5 18C-5 19-11 13-11 6C-11 0-6-4 0-4C5-4 9 0 8 5" fill="none" stroke="#e7f3ff" stroke-width="4" stroke-linecap="round"/>
+      <path d="M-22 6Q-17 14-10 16M0-31V-25M0 26V32" fill="none" stroke="#a2c8ec" stroke-width="2" stroke-linecap="round"/>
+    </g>
+
+    <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" font-weight="800">
+      <text x="455" y="94" font-size="30" letter-spacing="5.8" fill="url(#gold)">POKÉMON</text>
+      <g transform="translate(81 108) skewX(-9)">
+        <use href="#wordmark" transform="translate(0 6)" fill="#4977ac" stroke="#10182d" stroke-width="12"/>
+        <use href="#wordmark" fill="url(#silver)" stroke="#f6f9ff" stroke-width="1.35"/>
+      </g>
+      <text x="455" y="228" font-size="23" letter-spacing="4.8" fill="#f1f5ff">NEW 3DS EDITION</text>
+    </g>
+    <path d="M271 222l5-5 5 5-5 5zm358 0 5-5 5 5-5 5z" fill="url(#gold)"/>
+  </g>
+</svg>
