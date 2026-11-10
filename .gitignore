@@ -58,3 +58,14 @@ log.txt
 followers.bin
 __pycache__/
 *.pyc
+
+# HeartGold build (scripts/hg_build.sh, heartgold3ds/full/Makefile): its own pspoke tree and the filtered copies of the
+# SoulSilver sources. All generated; only heartgold3ds/full/Makefile and heartgold3ds/full/cia/art/ are committed.
+pspoke-hg/
+build-hg/
+heartgold3ds/platform/
+heartgold3ds/full/gen.mk
+heartgold3ds/full/mkld_ss.py
+heartgold3ds/full/README_settings.txt
+heartgold3ds/full/cia/make_art.py
+heartgold3ds/full/cia/heartgold3ds.rsf

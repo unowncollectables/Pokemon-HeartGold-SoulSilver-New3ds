@@ -6,3 +6,5 @@ url=https://github.com/IbrahimIrfan/pspoke.git
 commit=7477648fbe904a27eef8ba56bcc11c1799475c1a
 # A clean SoulSilver (US) dump as pspoke's build.sh expects it. ss3ds_build.sh stops the build on another hash.
 soulsilver_sha1=f8dc38ea20c17541a43b58c5e6d18c1732c7e582
+# A clean HeartGold (US) dump, for the experimental HeartGold build (scripts/hg_build.sh). Same decomp, same pspoke commit.
+heartgold_sha1=4fcded0e2713dc03929845de631d0932ea2b5a37

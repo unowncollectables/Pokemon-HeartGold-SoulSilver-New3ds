@@ -4,7 +4,7 @@
 #   bash scripts/bootstrap.sh --clean  delete ./pspoke (and its .work/.cache) and start over
 # pspoke downloads its own pinned decompilations and SDK sources during the build; nothing here is game data.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"; P="$ROOT/pspoke"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"; P="$ROOT/${SS3DS_PSPOKE_DIR:-pspoke}"   # hg_build.sh uses pspoke-hg, its own tree
 lock(){ sed -n "s/^$1=//p" "$ROOT/upstream.lock"; }
 URL=$(lock url); COMMIT=$(lock commit)
 [ "${1:-}" = --clean ] && { rm -rf "$P"; echo "removed $P"; }
