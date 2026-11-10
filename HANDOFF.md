@@ -42,6 +42,10 @@ Run 721 passed the picker and reached the connection prompt, then stopped after 
 
 Probe v2 in `tools/pokewalker_probe` received a valid session reply from a physical Pokéwalker on the owner’s New 3DS via the Homebrew Launcher. The probe stops before registration and never opens a save. Patch 0251 translates the original overlay 112 and replaces only the cartridge SPI transport and native worker lifecycle. Setup > Pokewalker defaults OFF. The app only launches when enabled and the IR register page is mapped. The CIA requests that page. The overlay translation and ARM C syntax checks passed. The game has not been linked or tested on hardware. First device test: use a copy of the save and verify the original menu opens and exits, then send and return a spare Pokemon. Log tag `[PWALKER]`.
 
+# Johto Phone, Radio and Eggs
+
+Settings > Input > Pokégear tabs defaults to Original. Phone and Radio open the native Pokégear in the Party/Bag panel compositor. Hook 0256 selects the app without dialing or tuning. The touch image maps to the native controls and the dialogue strip below it shows the game's live call or program text. Previews retains the former contact and station lists. The Eggs tab has a Day-Care summary and up to six hatch cards. Hook 0257 samples the ring manager every field frame and the banner hold advances once per render frame. Visual and touch checks on New 3DS are pending.
+
 # Town Pokémon greeting cries (0250)
 
 Pressing A next to a town resident now plays its species cry with Visible Wild Cries enabled. The existing audio cooldown and cry-busy check keep repeat presses from cutting off a cry. The greeting still turns the resident toward the player without starting a battle. The generated sources passed devkitARM syntax and hook idempotence checks. A host check covered the A press, mute setting, cooldown and busy audio. Device listening is pending.

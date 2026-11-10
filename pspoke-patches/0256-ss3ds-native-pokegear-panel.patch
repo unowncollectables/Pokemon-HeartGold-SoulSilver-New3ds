@@ -1,0 +1,57 @@
+Subject: [PATCH] ss3ds: open original Pokegear apps inside the Johto panel
+
+---
+diff --git a/scripts/ss3ds_hooks.d/0256_panelgear.py b/scripts/ss3ds_hooks.d/0256_panelgear.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0256_panelgear.py
+@@ -0,0 +1,38 @@
++from pathlib import Path
++
++path = Path("src/application/pokegear/main/pokegear_main.c")
++source = path.read_text()
++anchor = "    pokegearApp->unk_038 = 0;\n"
++if "SS3DS 0256" not in source:
++    if source.count(anchor) != 1:
++        raise SystemExit("0256 panel gear: anchor not found exactly once")
++    source = source.replace(anchor, '''    {   /* SS3DS 0256: open a native tab without dialing or tuning. */
++        extern volatile int P3DS_PhCallReq, P3DS_RadTuneReq;
++        extern volatile int P3DS_PanelPartyWant, P3DS_PanelPartyOn;
++        extern void PSPNativeMemLog(const char *, ...);
++        const int phone = P3DS_PhCallReq == -1;
++        const int radio = P3DS_RadTuneReq == -1;
++        if (phone || radio) {
++            if (phone) P3DS_PhCallReq = 0;
++            if (radio) P3DS_RadTuneReq = 0;
++            if (P3DS_PanelPartyWant) {
++                const int radioUnlocked = radio && (pokegearApp->registeredCards & 2);
++                if (args->isScriptedLaunch == 0) pokegearApp->app = radioUnlocked ? GEAR_APP_RADIO : GEAR_APP_PHONE;
++                P3DS_PanelPartyOn = 2; /* Embedded Pokegear has a second LCD text strip. */
++                PSPNativeMemLog("[PANEL] native Pokegear ready (requested radio %d, radio unlocked %d)", radio, radioUnlocked);
++            }
++            P3DS_PanelPartyWant = 0;
++        }
++    }
++''' + anchor)
++    main = "    switch (*state) {\n    case POKEGEAR_APP_MAIN_STATE_SETUP:"
++    if source.count(main) != 1:
++        raise SystemExit("0256 panel gear: main anchor not found exactly once")
++    source = source.replace(main, '''    /* The Map and settings pages can use more of the upper LCD. */
++    extern volatile int P3DS_PanelPartyOn;
++    if (P3DS_PanelPartyOn >= 2) {
++        const int hasTextStrip = pokegearApp->app == GEAR_APP_PHONE || pokegearApp->app == GEAR_APP_RADIO;
++        P3DS_PanelPartyOn = hasTextStrip ? 2 : 3;
++    }
++''' + main)
++    path.write_text(source)
+diff --git a/scripts/ss3ds_hooks.d/0256_panelgear.sh b/scripts/ss3ds_hooks.d/0256_panelgear.sh
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0256_panelgear.sh
+@@ -0,0 +1,6 @@
++# The native Pokegear tabs share the Party/Bag panel compositor.
++PGM=src/application/pokegear/main/pokegear_main.c
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0256_panelgear.py" &&
++    bash rebuild_game_object.sh "$PGM" application__pokegear__main__pokegear_main.o 100); then
++  log "ss3ds 0256 panel gear hook NOT applied"
++fi

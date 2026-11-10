@@ -20,6 +20,7 @@ int P3DS_FpsTweaks(void);
 void P3DS_Toast(const char *);
 }
 static bool pxOn() { return true; }
+static bool pxNativeGear(int) { return false; }
 static bool brCfg() { return false; }
 static bool panelPartyCfg() { return false; }
 static bool panelLiveCfg() { return false; }
@@ -203,15 +204,24 @@ int main(int argc, char **argv) {
   /* native tab strip: same box colours as a column button */
   static uint32_t atlas[512 * 256]; memset(atlas, 0, sizeof atlas);
   int cx0[6], cx1[6], cy0, cy1; pxChips(T, kBlPanX1, kBlPanY0, cx0, cx1, &cy0, &cy1);
-  SBnTabDst dst[6]; const int nd = bnTabStrip(atlas, 0, 5, cx0, cx1, cy0, cy1, kPxTabIcon, dst, 6);
+  SBnTabDst dst[6]; const int nd = bnTabStrip(atlas, 0, 5, cx0, cx1, cy0, cy1, kPxTabIcon, kPxTabs, kPxTabShort, dst, 6);
   expect(nd == 5, "five native tab buttons");
   { int c6x0[6], c6x1[6]; /* breed_tab adds a sixth button; same height, still inside the atlas row */
     const int L = kBlPanX0 + 2, R = kBlPanX1 - 2, N = 6, W = R - L - (N - 1) * kPxTabGap;
     for (int i = 0; i < N; i++) { c6x0[i] = L + i * kPxTabGap + W * i / N; c6x1[i] = L + i * kPxTabGap + W * (i + 1) / N; }
-    SBnTabDst d6[6]; const int n6 = bnTabStrip(atlas, 5, 6, c6x0, c6x1, cy0, cy1, kPxTabIcon, d6, 6);
+    SBnTabDst d6[6]; const int n6 = bnTabStrip(atlas, 5, 6, c6x0, c6x1, cy0, cy1, kPxTabIcon, kPxTabs, kPxTabShort, d6, 6);
     int hok = n6 == 6; for (int i = 0; i < n6; i++) { if (d6[i].h != d6[0].h || d6[i].w < 16) hok = 0; if (i && d6[i - 1].dx + d6[i - 1].w > d6[i].dx) hok = 0; }
     expect(hok, "six tabs (breed) stay the same height, do not overlap, and fit the atlas row");
-    bnTabStrip(atlas, 0, 5, cx0, cx1, cy0, cy1, kPxTabIcon, dst, 6); }
+    bool matchingDetails = n6 == 6;
+    for (int i = 0; i < n6; i++) {
+      const auto &tab = d6[i];
+      const auto *pixels = atlas + (tab.sy + 4) * 512 + tab.sx;
+      matchingDetails &= pixels[tab.w - 2] == bnRGB(212, 59, 60);
+      matchingDetails &= pixels[13] == (i == 5 ? bnRGB(26, 108, 95) : bnRGB(164, 176, 182));
+    }
+    expect(matchingDetails, "all six native tabs use the column divider and red accent");
+
+    bnTabStrip(atlas, 0, 5, cx0, cx1, cy0, cy1, kPxTabIcon, kPxTabs, kPxTabShort, dst, 6); }
   int sameH = 1, minW = 999, maxW = 0;
   for (int i = 0; i < nd; i++) { if (dst[i].h != dst[0].h) sameH = 0; if (dst[i].w < minW) minW = dst[i].w; if (dst[i].w > maxW) maxW = dst[i].w;
     printf("info tab %d native %d,%d %dx%d\n", i, dst[i].dx, dst[i].dy, dst[i].w, dst[i].h); }
@@ -233,6 +243,34 @@ int main(int argc, char **argv) {
     uint32_t c = atlas[(dst[i].sy + y) * 512 + dst[i].sx + x]; if (c) nat[y * 320 + dst[i].dx + x] = (c >> 24) | ((c >> 16) & 255) << 8 | ((c >> 8) & 255) << 16; }
   for (int y = 0; y < 22; y++) for (int x = 0; x < 67; x++) { uint32_t c = atlas[(210 + y) * 512 + x]; if (c) nat[(y + 24) * 320 + 8 + x] = (c >> 24) | ((c >> 16) & 255) << 8 | ((c >> 8) & 255) << 16; }
   ppm(argv[2], nat, 320, 48, 320);
+  // Render the tallest Day-Care state and verify that both cards in the last row fit.
+  P3DS_BrReady = 1;
+  P3DS_BrD[0] = 2;
+  P3DS_BrD[1] = 25;
+  P3DS_BrD[2] = 132;
+  P3DS_BrD[7] = 70;
+  P3DS_BrD[9] = 1;
+  P3DS_BrD[12] = 2;
+  P3DS_BrD[13] = P3DS_BrD[32] = 6;
+  memset(ds, 0, sizeof ds);
+  const int panelY = kBlPanY0 + 17;
+  pxBreed(ds, T, kBlPanX0, panelY, kBlPanX1, kBlPanY1);
+  const int lastRow = panelY + kPxSubH + 4 + 66 + 4 + 15 + 44;
+  expect(ds[lastRow * 256 + 15] == kBlNavy && ds[lastRow * 256 + 125] == kBlNavy,
+         "all six egg cards fit alongside a full Day-Care");
+
+  P3DS_PhRing = 2;
+  pxRingFrame();
+  expect(pxRingShown() == 2, "ring is visible on its first frame");
+  P3DS_PhRing = 0;
+  bool held = true;
+  for (int frame = 0; frame < 19; frame++) {
+    pxRingFrame();
+    for (int draw = 0; draw < 5; draw++) held &= pxRingShown() == 2;
+  }
+  expect(held, "reading the ring does not shorten its hold");
+  pxRingFrame();
+  expect(pxRingShown() == 0, "ring banner clears after 20 quiet frames");
   printf(fails ? "RESULT FAIL %d\n" : "RESULT PASS\n", fails);
   return fails ? 1 : 0;
 }

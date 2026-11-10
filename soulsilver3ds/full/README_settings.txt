@@ -423,10 +423,10 @@ pg_kanto=0              (run 16, default 0; Settings > Controls > Kanto on map) 
                         been to a Kanto place (like the real Pokegear after the S.S. Aqua; recognised by name, places west of Kanto
                         such as Route 26/27 and Victory Road stay visible). 1 = ALWAYS show the whole map. Log tag [PGMAP].
 
-pg_extras=1             (2026-10-28, default 1; Settings > Input > Pokegear tabs) JOHTO panel: MAP / PHONE / RADIO / PARTY / BAG tabs on the top bar (PARTY and BAG = viewer + tap-to-open (hooks 0167/0200; run 119 selects that mon/item)). PHONE = the
-                        Pokegear's registered numbers (drag/fling to scroll, drag the right edge to scrub, SORT chip, tap a name to find the
-                        place on the map), RADIO = stations tunable here and what is on air now, MAP gets contact pins. 0 = plain map as before.
-                        Needs pspoke hook 0122 for game data. Log tags [PHONE] / [RADIO].
+pg_extras=1             Settings > Input > Pokegear tabs. 0 = Off, 1 = Original (default), 2 = Previews.
+                        Original opens the game's Phone and Radio in the Johto panel, with live program and call text below the controls.
+                        Previews shows the contact and station lists with sort, tune and jump-to-map actions.
+                        Map contact pins and Party, Bag and Eggs tabs are available in both enabled modes. Logs: [PANEL], [PHONE], [RADIO].
 
 Visible wild Pokemon (SoulSilver hook 0110, Settings > Play, all live, default OFF until tested on hardware)
   wild_vis=1          1 = wild Pokemon walk around on the map: grass, caves, any tile with wild encounters, and water
