@@ -29,6 +29,45 @@ def sphere(n):
     return tris
 
 
+class FitParts(unittest.TestCase):
+    """fit_parts.py (HeartGold's Ho-Oh): joints that move together merge, textures go into one atlas."""
+    def test_merge_two_sided_and_atlas(self):
+        import fit_parts
+        import linalg
+        I = linalg.eye()
+        shift = [[1, 0, 0, 2.0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+        up = lambda m, y: [r[:] if i != 1 else r[:3] + [r[3] + y] for i, r in enumerate(m)]
+        inst = [I, shift, I]
+        # joints 0 and 1 always move together; joint 2 moves on its own
+        frames = [[up(I, k), up(shift, k), up(I, -k)] for k in range(4)]
+        model = {"materials": [{"name": "a", "texture": "ta"}, {"name": "b", "texture": "tb"}]}
+        v = lambda j, x, u, w: (j, [x, 0.0, 0.0], (u, w), (1, 1, 1), (0.0, 0.0, 1.0))
+        tris = [(0, [v(0, 0, 0.0, 0.0), v(1, 1, 1.0, 0.0), v(2, 2, 0.0, 1.0)]),
+                (1, [v(2, 0, -1.5, 0.0), v(2, 1, 0.5, 0.0), v(2, 2, -1.5, 1.0)])]       # texture b repeats twice across
+        inst2, tris2, frames2 = fit_parts.prepare(model, inst, tris, frames, 4, ("b",))
+        self.assertEqual(len(inst2), 2)
+        self.assertEqual(len(frames2[0]), 2)
+        self.assertEqual(len(tris2), 3)                                       # b's triangle got a back face
+        moved = tris2[0][1][1]                                                # joint 1's vertex, now on joint 0
+        self.assertEqual(moved[0], 0)
+        self.assertAlmostEqual(moved[1][0], 3.0)                              # same place in the world: 1 + the 2.0 shift
+        images = {"ta": (8, 8, bytes([255, 0, 0, 255]) * 64), "tb": (8, 8, bytes([0, 0, 255, 255]) * 64)}
+        model3, tris3, images3, keep3 = fit_parts.finish(model, tris2, images, ("a", "b"))
+        self.assertEqual(len(model3["materials"]), 1)
+        (w, h, rgba), = images3.values()
+        self.assertEqual((w, h), (fit_parts.ATLAS_W, fit_parts.ATLAS_H))
+        for mat, t in tris3:
+            self.assertEqual(model3["materials"][mat]["name"], keep3[0])
+        want = {0: (255, 0, 0), 1: (0, 0, 255), 2: (0, 0, 255)}
+        for k, (_, t) in enumerate(tris3):                                    # every corner still lands on its own texture
+            for vert in t:
+                self.assertTrue(0.0 <= vert[2][0] <= 1.0 and 0.0 <= vert[2][1] <= 1.0)
+            cu = sum(vert[2][0] for vert in t) / 3
+            cv = sum(vert[2][1] for vert in t) / 3
+            o = (int(cv * h) * w + int(cu * w)) * 4
+            self.assertEqual(tuple(rgba[o:o + 3]), want[k])
+
+
 class Decimate(unittest.TestCase):
     def test_reaches_budget_and_keeps_vertices(self):
         tris = sphere(20)

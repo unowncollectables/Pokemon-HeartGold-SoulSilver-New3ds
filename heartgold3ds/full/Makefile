@@ -15,11 +15,12 @@
 ROOT := $(abspath ../..)
 SS   := $(ROOT)/soulsilver3ds
 REN  := python3 $(ROOT)/scripts/hg_rename.py
-# The HeartGold ROM (icon and, later, the Ho-Oh banner): HGROM=..., P3DS_HEARTGOLD, the path hg_build.sh was given, then the
+# The HeartGold ROM (icon and the Ho-Oh banner): HGROM=..., P3DS_HEARTGOLD, the path hg_build.sh was given, then the
 # usual places. Never SoulSilver's ROM: tools/find_rom.sh is not used here.
 HGROM ?= $(shell bash $(ROOT)/tools/find_rom_hg.sh)
-# The 3D banner shows Lugia from a SoulSilver ROM; HeartGold uses the flat banner until its Ho-Oh banner exists.
-BANNER ?= flat
+# HOME Menu banner, as SoulSilver's: BANNER=3d (default) is the 3D banner with the title screen's Ho-Oh read from the
+# HeartGold ROM at build time (never committed); no ROM or any failed safety check -> BANNER=flat (cia/art/banner.png).
+BANNER ?= 3d
 GEN  := $(MAKE) --no-print-directory -f gen.mk SSROM="$(HGROM)" BANNER=$(BANNER)
 
 all: heartgold3ds.3dsx

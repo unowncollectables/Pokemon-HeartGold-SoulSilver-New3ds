@@ -38,6 +38,10 @@ MAKEFILE = [
     (re.compile(r'tools/find_rom\.sh'), 'tools/find_rom_hg.sh'),
     (re.compile(r'SoulSilver\.nds'), 'HeartGold.nds'),
     (re.compile(r'scripts/ss3ds_build\.sh'), 'scripts/hg_build.sh'),
+    # the 3D banner: Ho-Oh from the HeartGold ROM with the gold art (tools/banner3d/make_banner.py --game heartgold)
+    (re.compile(r'tools/banner3d/make_banner\.py (?=--)'), 'tools/banner3d/make_banner.py --game heartgold '),
+    (re.compile(r'(\$\(ROOT\)/tools/banner3d/decimate\.py) '), r'\1 $(ROOT)/tools/banner3d/fit_parts.py '),
+    (re.compile(r'Lugia'), 'Ho-Oh'),
 ]
 RSF = [
     (re.compile(re.escape(SS_UNIQUE_ID) + r'\b'), HG_UNIQUE_ID),
