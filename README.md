@@ -124,6 +124,27 @@ The Pokédex finder, Breeding tab, Hunt stats, Damage check, Alive wild Pokémon
 
 **Online.** Set Wireless to **ONLINE** for community-server GTS and **Mystery Gift → Get via Nintendo WFC**. Both paths have worked on hardware. GTS and Mystery Gift use separate services, and availability depends on the community hosts. Online mode requires `cheat_*` settings to be off. See the [wireless guide](docs/WIRELESS.md).
 
+## HeartGold (experimental)
+
+The same port also builds **Pokémon HeartGold** (US) as a completely separate game. It shares every line of the port with SoulSilver, and nothing about it touches a SoulSilver install or save.
+
+| | SoulSilver | HeartGold |
+|---|---|---|
+| SD folder | `sdmc:/3ds/soulsilver3ds/` | `sdmc:/3ds/heartgold3ds/` |
+| Game file and save | `soulsilver.nds`, `soulsilver.sav` | `heartgold.nds`, `heartgold.sav` |
+| Programs | `soulsilver3ds.3dsx` / `.cia` | `heartgold3ds.3dsx` / `.cia` |
+| HOME Menu title | `000400000F7D4000` | `000400000F7D4100` (installs beside SoulSilver) |
+
+Build it with the [Pokemon 3DS Builder](https://github.com/unowncollectables/patch-builder) (tick **Pokemon HeartGold**), or by hand:
+
+```sh
+bash scripts/hg_build.sh /path/to/HeartGold.nds     # compiles the game as HeartGold (long the first time)
+make -C heartgold3ds/full                           # heartgold3ds.3dsx
+make -C heartgold3ds/full cia                       # heartgold3ds.cia, with Ho-Oh on the HOME Menu banner
+```
+
+**Status: experimental.** HeartGold compiles, links, and packages, and the build refuses to link a HeartGold program that still names a SoulSilver file. It has **not been played on a console yet**: every SoulSilver hardware result above still needs its own HeartGold check, online included. Your HeartGold game file is only read, and Ho-Oh for the banner is taken from it at build time; nothing from the game is in this repository.
+
 ## Status
 
 **In active development.** The core game, stereoscopic 3D, save round-trips, and local trading have been exercised on hardware. Steady 30 fps across scenes is still the performance target. Fades, some battles, and first visits to a map can hitch.

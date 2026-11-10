@@ -44,3 +44,15 @@ HOME Menu fixes from [daaaaavia/CBC-for-YANBF](https://github.com/daaaaavia/CBC-
 code, `linalg.py`, `pngio.py`, `shims/` adapted from the Platinum port's `tools/banner3d` (GabeSud0/pokeplatinum-3ds, GPL-3.0).
 
 **2026-10-26: the first Lugia banner (CGFX 315,400 bytes; the "483,788" quoted earlier was the whole `.bnr`) FROZE the HOME Menu on the icon.** It had four animated sparkle cards, 14 meshes, 8 textures, 9 materials and 2,056 triangles, none of which Platinum's banner has. This one is rebuilt to Platinum's structure (see top). **Untested on a HOME Menu**: Lugia's pose and wing animation, the hover bob and the jingle have not been seen on a real 3DS (a software preview of the same math was used for framing). The HOME Menu remembers a title's banner: delete the title in FBI and reinstall to see a new one. If HOME freezes on the icon, do not hover over it; delete the title with FBI.
+
+## HeartGold (Ho-Oh)
+
+`make_banner.py --game heartgold --rom HeartGold.nds` (what `heartgold3ds/full/Makefile` runs for `BANNER=3d`) makes the
+HeartGold banner: the title screen's Ho-Oh (`houou_test` in the same title archive, read from the HeartGold ROM at build
+time, never committed), with the gold art in `art-hg/` (remade by `dev/make_hg_art.py`). Ho-Oh has 15 materials, 14
+textures and 32 joints, so `fit_parts.py` first packs it into the same structure the checks demand: joints that move
+together are merged (13 remain), all textures go into one 256 x 128 atlas with one material, the wing and tail back
+faces become real triangles, and the 60-frame wing beat keeps every second frame (31 keys). It then passes the same
+Platinum structure check and limits as Lugia. SoulSilver's banner does not go through any of this and is byte-identical
+(checked by building Lugia with the tool before and after). **Untested on a real HOME Menu**; framing was set with a
+software preview. Any failure falls back to the flat banner.

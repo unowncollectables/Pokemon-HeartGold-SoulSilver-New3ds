@@ -19,6 +19,7 @@ import os
 import struct
 
 import decimate
+import fit_parts
 import linalg
 import lugia_parts
 import pngio
@@ -41,7 +42,12 @@ PLATINUM_TRIS = 1000          # the Platinum banner (runs on the HOME Menu) has 
 CARD_TRIS = 4                 # portal + logo
 
 
-def build(art_dir, out_dir, sparkles=False, lugia=None, max_tris=PLATINUM_TRIS):
+def build(art_dir, out_dir, sparkles=False, lugia=None, max_tris=PLATINUM_TRIS, keep=LUGIA_KEEP, flap_frames=FLAP_FRAMES, two_sided=None,
+          width=LUGIA_WIDTH, pos=LUGIA_POS, turn=(PITCH, YAW), who="Lugia"):
+    """keep / flap_frames: the materials that are the flying Pokemon and the length of one wing beat. The defaults are
+    SoulSilver's Lugia; make_banner.py passes Ho-Oh's for HeartGold. two_sided (a tuple of material names, may be
+    empty) also asks for fit_parts.py: the model is packed into the Platinum banner's structure (Ho-Oh needs it).
+    width / pos / turn: its size, place and (pitch, yaw) in the banner."""
     os.makedirs(out_dir, exist_ok=True)
     blob, views, accs = bytearray(), [], []
 
@@ -110,39 +116,44 @@ def build(art_dir, out_dir, sparkles=False, lugia=None, max_tris=PLATINUM_TRIS):
 
     def add_lugia(nsbmd, nsbca):
         """Lugia's skinned parts under the spin-cancelling bone; returns what the animation needs."""
-        model, inst, tris, frames, images = lugia_parts.build(nsbmd, nsbca, LUGIA_KEEP)
+        nonlocal keep
+        model, inst, tris, frames, images = lugia_parts.build(nsbmd, nsbca, keep)
+        if two_sided is not None:
+            inst, tris, frames = fit_parts.prepare(model, inst, tris, frames, flap_frames, two_sided)
         budget = max_tris - CARD_TRIS - (8 if sparkles else 0)
         if max_tris and len(tris) > budget:
             before = len(tris)
             tris, got = decimate.decimate(tris, budget)
-            print(f"[BANNER] Lugia triangles {before} -> {got} (budget {budget} + {max_tris - budget} for the cards = {max_tris}, the Platinum banner's total)")
+            print(f"[BANNER] {who} triangles {before} -> {got} (budget {budget} + {max_tris - budget} for the cards = {max_tris}, the Platinum banner's total)")
+        if two_sided is not None:
+            model, tris, images, keep = fit_parts.finish(model, tris, images, keep)
         mats = model["materials"]
         face = node(0, name="autorotate")
         world = lambda v: linalg.point(inst[v[0]], v[1])
         # size and centre from the beat's poses (the bind pose has the wings spread flat), not the bind pose
-        pts = [linalg.point(frames[k][v[0]], v[1]) for k in range(0, FLAP_FRAMES, 5) for _, t in tris for v in t]
+        pts = [linalg.point(frames[k][v[0]], v[1]) for k in range(0, flap_frames, 5) for _, t in tris for v in t]
         lo = [min(p[k] for p in pts) for k in range(3)]
         hi = [max(p[k] for p in pts) for k in range(3)]
-        scale = LUGIA_WIDTH / (hi[0] - lo[0])
-        pitch, yaw = math.radians(PITCH), math.radians(YAW)
+        scale = width / (hi[0] - lo[0])
+        pitch, yaw = math.radians(turn[0]), math.radians(turn[1])
         q_turn = linalg.quat_mul([math.sin(pitch / 2), 0, 0, math.cos(pitch / 2)], [0, math.sin(yaw / 2), 0, math.cos(yaw / 2)])
         # pivot = the centre of what is seen after the turn
         rt = linalg.quat_matrix(q_turn)
         rp = [linalg.apply(rt, p) for p in pts]
         c = [(min(p[k] for p in rp) + max(p[k] for p in rp)) / 2 for k in range(3)]
         mid = linalg.apply(linalg.transpose(rt), c)
-        root = node(face, name="LugiaRoot", translation=list(LUGIA_POS), rotation=q_turn, scale=[scale] * 3)
+        root = node(face, name="LugiaRoot", translation=list(pos), rotation=q_turn, scale=[scale] * 3)
         center = node(root, name="LugiaCenter", translation=[-mid[0], -mid[1], -mid[2]])
         hover = node(center, name="LugiaHover")
 
         gtex, gmat = {}, {}
         for m in mats:
-            if m["name"] in LUGIA_KEEP and m["texture"] and m["texture"] not in gtex:
+            if m["name"] in keep and m["texture"] and m["texture"] not in gtex:
                 w, h, rgba = images[m["texture"]]
                 opaque = all(rgba[i] == 255 for i in range(3, len(rgba), 4))
                 gtex[m["texture"]] = (texture(w, h, rgba, "lugia_" + m["texture"], clamp=False), opaque)
         for i, m in enumerate(mats):
-            if m["name"] in LUGIA_KEEP:
+            if m["name"] in keep:
                 t, opaque = gtex[m["texture"]]
                 gmat[i] = material("lugia_" + m["name"].replace(":", "_"), t, "OPAQUE" if opaque else "MASK")
 
@@ -210,8 +221,9 @@ def build(art_dir, out_dir, sparkles=False, lugia=None, max_tris=PLATINUM_TRIS):
 
     if lug:
         face, hover, jnodes, frames, scale = lug
-        frames = frames[:FLAP_FRAMES] + [frames[0]]            # one beat, closed so it loops without a jump
-        keys = list(range(len(frames)))
+        frames = frames[:flap_frames] + [frames[0]]            # one beat, closed so it loops without a jump
+        # at most 31 keys a curve, as Lugia's 30-frame beat has (and the Platinum banner): a longer beat keeps every 2nd, 3rd... frame
+        keys = list(range(0, len(frames), math.ceil(flap_frames / FLAP_FRAMES)))
         t_acc = acc([k / FPS for k in keys], "SCALAR")
         for i, jn in enumerate(jnodes):
             trs = [linalg.decompose(frames[k][i]) for k in keys]

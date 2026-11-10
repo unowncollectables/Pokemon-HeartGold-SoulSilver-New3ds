@@ -3,4 +3,7 @@
 # Carried over from the Platinum 3DS port; paths are relative to this checkout and $DEVKITPRO.
 TC="$(cd "$(dirname "$0")/.." && pwd)"; DKP="${DEVKITPRO:-/opt/devkitpro}"
 INC=(-include errno.h); A=(); for x in "$@"; do case "$x" in *.S|*.s|assembler*) INC=();; esac; case "$x" in -G0|-G*|-mno-gpopt|-mabi=*|-march=allegrex|-mips*) ;; *) A+=("$x");; esac; done
+# HeartGold build (scripts/hg_build.sh sets SS3DS_GAME=HEARTGOLD; unset = SoulSilver, nothing below runs): the decomp picks the
+# game from -DHEARTGOLD / -DSOULSILVER, and pspoke's scripts pass -DSOULSILVER or (for the assembly translator) nothing.
+if [ "${SS3DS_GAME:-}" = HEARTGOLD ]; then HG=0; B=(); for x in "${A[@]}"; do case "$x" in -DSOULSILVER) x=-DHEARTGOLD; HG=2;; *.S|*.s|assembler-with-cpp) [ $HG = 0 ] && HG=1;; esac; B+=("$x"); done; A=("${B[@]}"); [ $HG = 1 ] && A+=(-DHEARTGOLD); fi
 exec "$DKP/devkitARM/bin/arm-none-eabi-g++" -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft -mword-relocations -fno-strict-aliasing -fno-short-enums -D__3DS__ -DPLATINUM3DS -DSS3DS "${INC[@]}" -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=return-mismatch -fpermissive -I"$DKP/libctru/include" -I"$DKP/portlibs/3ds/include" -I"$TC/pspshim" "${A[@]}"
