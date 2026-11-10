@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Battle animation cleanup now receives the particle emitter it needs to release. This fixes a native call mismatch in Shadow Ball and two other overlay 7 callbacks.
+
 - Town Pokémon play their species cry when greeted with A and Visible Wild Cries enabled.
 
 - Fixed the RUN indicator and movement getting out of sync when the original running-shoes lock was active.

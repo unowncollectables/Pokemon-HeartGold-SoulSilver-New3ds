@@ -1,0 +1,22 @@
+From e29b5a5f459e03ce9a5d1efba61eef5bb1b4d7bd Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 22:03:21 -0500
+Subject: [PATCH] Pass the SPL emitter to battle animation cleanup
+
+Overlay 7 loads the particle system into r0 and the emitter into r1 before calling sub_020154C4. The decomp header declares only r0, so generated code silently dropped the emitter despite the native glue taking both arguments.
+---
+ port/soulsilver-native-play/maploader/arg-overrides.json | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/port/soulsilver-native-play/maploader/arg-overrides.json b/port/soulsilver-native-play/maploader/arg-overrides.json
+index 1b605e2..76d5952 100644
+--- a/port/soulsilver-native-play/maploader/arg-overrides.json
++++ b/port/soulsilver-native-play/maploader/arg-overrides.json
+@@ -3,6 +3,7 @@
+  "SS3DS_MysteryGiftListInput": 1,
+  "ov01_021FBA00": 1,
+  "sub_02054E20": 1,
++ "sub_020154C4": 2,
+  "NNS_G3dRenderObjInit": 2,
+  "NNS_GfdResetLnkTexVramState": 0,
+  "NNS_GfdResetLnkPlttVramState": 0,
