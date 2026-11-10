@@ -1,5 +1,9 @@
 # Release notes
 
+## Battle animation cleanup
+
+The native battle code now passes the particle emitter to Shadow Ball cleanup. Requires a game rebuild. A Morty rematch on New 3DS is pending.
+
 ## Running shoes toggle
 
 RUN ON means you run by default. RUN OFF means you walk by default. Holding B temporarily reverses that choice. Auto run in Settings sets the startup mode.

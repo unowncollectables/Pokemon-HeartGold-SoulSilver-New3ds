@@ -1,3 +1,7 @@
+# Shadow Ball battle stall (0262)
+
+Overlay 7 passes the particle system and emitter to the delete routine. The native translator used a one-argument header and dropped the emitter at all three call sites. Patch 0262 tells the translator to forward both arguments. The normal build resyncs the argument map and regenerates the overlay. Replaying Morty on a New 3DS is pending.
+
 # Seasonal scenery and WX season label (0261)
 
 Enable Ambient Weather and tap WX on the Johto map to see the current season alongside the forecast legend. On eligible clear outdoor maps, spring has drifting petals, summer has a few pale seeds, autumn has copper leaves, and winter has sparse flurries in the highlands. Native weather and active ambient rain, snow or mist take priority. The native field geometry draws at most six untextured particles and uses the same scene for mono and stereo. The effects have no save or encounter state. Device checks are pending for visibility, map transitions and frame time.
