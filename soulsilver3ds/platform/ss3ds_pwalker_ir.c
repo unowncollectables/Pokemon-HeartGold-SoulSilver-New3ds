@@ -21,6 +21,7 @@ enum {
 // Poll for completion without raising the system I2C interrupt.
 static vu8 *const bus = (vu8 *)I2C_BASE;
 static bool opened;
+static bool restoreIrrst;
 static u16 savedControl;
 static u16 savedClock;
 extern void PSPNativeMemLog(const char *fmt, ...);
@@ -89,8 +90,22 @@ static bool irAvailable(void);
 
 bool SS3DS_PwalkerIrOpen(void)
 {
-    if (!irAvailable() || !waitIdle())
+    if (!irAvailable())
         return false;
+
+    // libctru starts New 3DS extra-input polling via ir:rst. Its I2C
+    // traffic can overlap our direct transactions on the same bus.
+    // Leave its shared memory mapped for hidScanInput.
+    if (!envGetHandle("ir:rst")) {
+        Result result = IRRST_Shutdown();
+        restoreIrrst = R_SUCCEEDED(result);
+        PSPNativeMemLog("[PWALKER] extra-input polling pause: %08lx",
+                        (unsigned long)(u32)result);
+    }
+    if (!waitIdle()) {
+        SS3DS_PwalkerIrClose();
+        return false;
+    }
     // Match the standalone probe's bus timing for the IR session.
     savedControl = *(vu16 *)(bus + 2);
     savedClock = *(vu16 *)(bus + 4);
@@ -123,18 +138,24 @@ static bool irAvailable(void)
 
 void SS3DS_PwalkerIrClose(void)
 {
-    if (!opened)
-        return;
-    opened = false;
-    writeReg(EFCR, 6);
-    writeReg(FCR, 0);
-    writeReg(IER, BIT(4));
-    writeReg(IOSTATE, BIT(0));
-    if (waitIdle()) {
-        *(vu16 *)(bus + 4) = savedClock;
-        *(vu16 *)(bus + 2) = savedControl;
-    } else {
-        PSPNativeMemLog("[PWALKER] bus still busy at close; timing restore skipped");
+    if (opened) {
+        opened = false;
+        writeReg(EFCR, 6);
+        writeReg(FCR, 0);
+        writeReg(IER, BIT(4));
+        writeReg(IOSTATE, BIT(0));
+        if (waitIdle()) {
+            *(vu16 *)(bus + 4) = savedClock;
+            *(vu16 *)(bus + 2) = savedControl;
+        } else {
+            PSPNativeMemLog("[PWALKER] bus still busy at close; timing restore skipped");
+        }
+    }
+    if (restoreIrrst) {
+        restoreIrrst = false;
+        Result result = IRRST_Initialize(10, 0);
+        PSPNativeMemLog("[PWALKER] extra-input polling resume: %08lx",
+                        (unsigned long)(u32)result);
     }
 }
 

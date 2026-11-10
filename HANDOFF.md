@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 737 still disconnected at varying points despite faster RX turnaround. The next build pauses the New 3DS extra-input IRRST service during a Pokewalker session because it can poll another device on the same I2C bus. It leaves the shared input memory mapped and restores polling at close. Logs report both service results. Bus contention is a hypothesis and hardware verification is pending.
+
 Run 736 acknowledged eight writes on one attempt and nine on another. The latter stopped after a 43-byte write with no ACK logged. The follow-up clears both FIFOs before transmission and switches directly to RX on TX completion, avoiding a post-send FIFO reset that could miss a fast ACK. Hardware transfer remains unverified.
 
 Run 735 received four valid opcode 04 acknowledgments to 136-byte writes, then stopped after another write. Later attempts showed an EFCR=00 readback and streams of checksum-invalid packets. The follow-up resamples EFCR without retransmitting and drops corrupt packets before passing data to the original overlay. Repeated full transfers remain unverified.
