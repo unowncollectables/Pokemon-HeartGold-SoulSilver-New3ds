@@ -115,6 +115,8 @@ int __wrap_Bag_Main(void *manager, int *state) {
 }
 
 int P3DS_InTitle;
+int P3DS_InPokewalker;
+extern const char ov112_App_MainMenu_SelectOption_ConnectToPokewalker[];
 extern const char gApplication_TitleScreen[] __attribute__((weak));
 /* wide_menu_screens: party menu, bag and Pokemon summary. Weak: a renamed symbol just leaves the toggle without effect;
    the first template changes are logged so the log shows which pointers were seen. */
@@ -137,6 +139,11 @@ void *__wrap_OverlayManager_New(const void *template, void *parentWork, int heap
     {int title=gApplication_TitleScreen&&template==(const void*)gApplication_TitleScreen;if(title!=P3DS_InTitle){extern void PSPNativeMemLog(const char*,...);PSPNativeMemLog("[TITLE] overlay active=%d",title);}P3DS_InTitle=title;}
     if (field != P3DS_InField) { extern void PSPNativeMemLog(const char *, ...); PSPNativeMemLog("[3DS] field %d", field); }
     P3DS_InField = field;
+    const int pokewalker = template == (const void *)ov112_App_MainMenu_SelectOption_ConnectToPokewalker;
+    if (pokewalker != P3DS_InPokewalker) {
+        P3DS_InPokewalker = pokewalker;
+        PSPNativeMemLog("[PWALKER] CPU screen composition %s", pokewalker ? "enabled" : "ended");
+    }
     /* wide_battle: the battle overlay manager (gOverlayTemplate_Battle, overlay 12) marks the battle; the field
        manager returning clears it. Sub-screens opened from the battle (bag, party) keep the flag. */
     if (template) {

@@ -1,5 +1,7 @@
 # Pokéwalker infrared bring-up
 
+Run 740 photos show stripes around bottom-screen tiles on the Pokéwalker menu and stroll results. The renderer now uses the DS scanline compositor while the Pokéwalker application template is active, bypassing the GPU tile compositor for those frames. Logs identify when this path starts and ends. Visual verification on the New 3DS is pending.
+
 Run 740 on the owner’s New 3DS completed send and return transfers in one game session and saved after each exchange. Successful per-packet traces now default off. Set `pokewalker_trace=1` in `sdmc:/3ds/soulsilver3ds/config.txt` before launching the game to enable them. Connection and error diagnostics stay enabled.
 
 Run 739 reached IR ready on every retry. Seven attempts ended on checksum-invalid opcode 0e replies of 108–120 bytes after valid EEPROM read replies. The follow-up schedules the IR worker ahead of normal rendering and checks the FIFO before declaring an inter-byte timeout. Invalid packets still fail checksum validation and now log UART line status, including the overrun flag. Hardware verification is pending.

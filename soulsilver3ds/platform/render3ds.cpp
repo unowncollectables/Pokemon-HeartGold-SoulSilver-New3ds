@@ -185,6 +185,7 @@ static bool gBmGapOnly;
 static int bSkipCfg=-1;static volatile unsigned bPower;static unsigned bLastPower=~0u;static unsigned bSkips,bDraws;volatile int P3DS_BottomReused;
 #include "title_layers.h"
 extern "C" int P3DS_InTitle;
+extern "C" int P3DS_InPokewalker;
 static int titleCleanCfg();
 extern "C" {extern int P3DS_TitleWideRequested,P3DS_GcTitleWideValid;extern u32 P3DS_GcTitleStrips[];}
 static u32 titleCanvas[320*192],titleStrips[64*192];static volatile bool titleWideValid;
@@ -1970,7 +1971,9 @@ static int Present(bool){
  P3DS_RomCachePumpC(); /* run 51 zone_prefetch: adopt staged blocks on the game thread */
  if(earlyCfg<0){earlyCfg=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"early_b=%d",&x)==1)earlyCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] early_b=%d",earlyCfg);}
  P3DS_TitleWideRequested=P3DS_InTitle&&titleCleanCfg()==2;P3DS_GcTitleWideValid=0;
- const int gpuBModeFrame=(!P3DS_InField)?gpuBCfg():0;bGpuFrame=bGpuVerify=false;titleWideValid=false;
+ // Use the DS scanline compositor for the Pokewalker screens to avoid GPU tile seams.
+ const bool pokewalker = P3DS_InPokewalker != 0;
+ const int gpuBModeFrame=(!P3DS_InField&&!pokewalker)?gpuBCfg():0;bGpuFrame=bGpuVerify=false;titleWideValid=false;
  bool earlyB=false;
  if(!gpuBModeFrame&&earlyCfg&&engineBAsync()&&stealCfg!=1&&c1Mode!=1){unsigned pw=reg16(0x304);
   mapMemory();engineB.Enabled=(pw&512)!=0;bindRegisters(engineB,0x1000);FrameStart(engineB);bPower=pw;bRightSrc=nullptr;
@@ -2012,8 +2015,8 @@ static int Present(bool){
  FrameStart(engineA);if(!earlyB)FrameStart(engineB);renderer.SetFramebuffer(raw[0],raw[1]);
  composeGpuB(gpuBModeFrame);
  static int par3d=-1;if(par3d<0){par3d=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");int x;char l[64];if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"stereo2d_par=%d",&x)==1)par3d=x!=0;fclose(f);}PSPNativeMemLog("[2D] stereo right eye on core 2: %d",par3d);}
- const int gcMode0=P3DS_GpuComposeCfg();
- const bool gcSt=!hidePanelTop&&gcMode0==2&&stereo&&rightEye&&(P3DS_InField||gcStNfCfg())&&engineA.Enabled&&gcStereoCfg()&&gcEligible();
+ const int gcMode=pokewalker?0:P3DS_GpuComposeCfg();
+ const bool gcSt=!hidePanelTop&&gcMode==2&&stereo&&rightEye&&(P3DS_InField||gcStNfCfg())&&engineA.Enabled&&gcStereoCfg()&&gcEligible();
  bool rightPar=!hidePanelTop&&async&&par3d&&stereo&&rightEye&&!gcSt;
  if(stereo&&!gcSt)G3G_DirectResolveWhy(2);  /* gpu_direct3d: the CPU right-eye worker (core 2) is about to read the right eye */
  if(rightPar){memcpy((void*)&engineA2,(const void*)&engineA,sizeof engineA);engineA2.CaptureCnt=0;engineA2.CaptureLatch=false;}
@@ -2032,7 +2035,7 @@ static int Present(bool){
  if(stealCfg<0){stealCfg=0;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"steal_b=%d",&x)==1)stealCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] steal_b=%d",stealCfg);}
  bClaim=0;const bool stealNow=async&&stealCfg==1&&rightPar&&!onC1&&!earlyB;
  if(splitCfg<0){splitCfg=1;/* run 57: default 1 (Azahar: identical images overworld/battle/menus, mono composite -37%) */FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"split_top=%d",&x)==1)splitCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] split_top=%d",splitCfg);}
- const int gcMode=P3DS_GpuComposeCfg();if(gcMode>=2)gcFrames++;
+ if(gcMode>=2)gcFrames++;
  const bool gcOK=!hidePanelTop&&gcMode==2&&(!stereo||gcSt)&&!rightPar&&engineA.Enabled&&(gcSt||gcEligible());
  if(!gcOK){G3G_DirectResolveWhy(3);holdSync();P3DS_GcDrop();}  /* gpu_direct3d: CPU composite (or the split-top worker) reads NativeFrame. CPU frame: a picture left pending by the last GPU frame is stale (thrown Poke Ball invisible with gc_direct) */
  const bool splitNow=!hidePanelTop&&!gcOK&&splitCfg&&async&&!stereo&&!rightPar&&!onC1&&!stealNow&&engineA.Enabled&&((a>>16)&3)==1&&!(reg32(0x64)&0x80000000u);
