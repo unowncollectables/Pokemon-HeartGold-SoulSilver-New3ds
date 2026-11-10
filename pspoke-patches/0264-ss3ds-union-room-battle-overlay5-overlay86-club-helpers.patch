@@ -1,4 +1,4 @@
-From 5a5fb703dec51c4580a9086f8e609a8ec9860a70 Mon Sep 17 00:00:00 2001
+From 8f11113c8d2e919f8912e7364b2af43fc8041a05 Mon Sep 17 00:00:00 2001
 From: ss3ds <ss3ds@localhost>
 Date: Tue, 10 Nov 2026 13:02:14 +0000
 Subject: [PATCH] ss3ds: translate Union Room link battle (overlay 5 party
@@ -13,10 +13,10 @@ Seeds overlay_05.s and overlay_86.s whole (their function-pointer tables live in
  4 files changed, 63 insertions(+), 41 deletions(-)
 
 diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
-index 5d5aec0..ea3e78d 100644
+index 9573f8c..9e4e7db 100644
 --- a/port/soulsilver-native-core/nitromain-perf/missing.c
 +++ b/port/soulsilver-native-core/nitromain-perf/missing.c
-@@ -205,25 +205,6 @@ __attribute__((noreturn)) void ScratchOffCards_Main(void){Missing("ScratchOffCar
+@@ -196,25 +196,6 @@ __attribute__((noreturn)) void SafariDecoration_Main(void){Missing("SafariDecora
  
  
  __attribute__((noreturn)) void ov01_021EACBC(void){Missing("ov01_021EACBC");}
@@ -42,7 +42,7 @@ index 5d5aec0..ea3e78d 100644
  __attribute__((noreturn)) void ov13_0222B430(void){Missing("ov13_0222B430");}
  __attribute__((noreturn)) void ov37_021E5900(void){Missing("ov37_021E5900");}
  __attribute__((noreturn)) void ov37_021E5A84(void){Missing("ov37_021E5A84");}
-@@ -430,9 +411,6 @@ __attribute__((noreturn)) void ov85_021E5AAC(void){Missing("ov85_021E5AAC");}
+@@ -412,9 +393,6 @@ __attribute__((noreturn)) void ov85_021E5AAC(void){Missing("ov85_021E5AAC");}
  __attribute__((noreturn)) void ov85_021E88AC(void){Missing("ov85_021E88AC");}
  __attribute__((noreturn)) void ov85_021E8A08(void){Missing("ov85_021E8A08");}
  __attribute__((noreturn)) void ov85_021E8B08(void){Missing("ov85_021E8B08");}
@@ -52,7 +52,7 @@ index 5d5aec0..ea3e78d 100644
  __attribute__((noreturn)) void ov91_0225C540(void){Missing("ov91_0225C540");}
  __attribute__((noreturn)) void ov91_0225C58C(void){Missing("ov91_0225C58C");}
  __attribute__((noreturn)) void ov91_0225C9EC(void){Missing("ov91_0225C9EC");}
-@@ -444,22 +422,6 @@ __attribute__((noreturn)) void ov93_0225C574(void){Missing("ov93_0225C574");}
+@@ -426,22 +404,6 @@ __attribute__((noreturn)) void ov93_0225C574(void){Missing("ov93_0225C574");}
  __attribute__((noreturn)) void ov93_0225C6C0(void){Missing("ov93_0225C6C0");}
  
  
@@ -125,15 +125,15 @@ index d08f94a..5378e7a 100644
 +"sub_02013504"
  ]
 diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
-index 4d1816b..341cd7f 100644
+index 007baca..04869bf 100644
 --- a/port/soulsilver-native-play/maploader/seed-files.json
 +++ b/port/soulsilver-native-play/maploader/seed-files.json
-@@ -82,5 +82,7 @@
-  "overlay_70.s",
-  "overlay_74_thumb.s",
-  "overlay_112.s",
-- "unk_020957B0.s"
-+ "unk_020957B0.s",
+@@ -95,5 +95,7 @@
+ "overlay_41_02249A40.s",
+ "overlay_41_0224A5A4.s",
+ "overlay_41_0224B21C.s",
+-"overlay_41_0224BE34.s"
++"overlay_41_0224BE34.s",
 +"overlay_05.s",
 +"overlay_86.s"
  ]
