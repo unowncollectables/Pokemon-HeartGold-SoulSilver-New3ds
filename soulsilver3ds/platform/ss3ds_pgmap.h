@@ -19,6 +19,7 @@ extern const SS3DS_PgSpec sLocationSpecs[100];
 /* 0259: 0 clear, 1 rain, 2 snow, 3 mist. The game thread publishes a complete forecast before bumping the tick. */
 volatile int P3DS_PgWeatherOn;
 volatile uint32_t P3DS_PgWeatherTick;
+int P3DS_PgWeatherSeason = -1;
 uint8_t P3DS_PgWeather[100];
 int P3DS_PgWeatherMapId(int loc) { return sLocationSpecs[loc].mapId; }
 int P3DS_AmbientWeatherCfg(void);
@@ -555,17 +556,36 @@ static const char *pgWeatherStatus(unsigned visibleKinds) {
   return "Seasonal radar";
 }
 
-static void pgWeatherStatusBar(uint32_t *b, const SUiText &T, int x, int y, int right, unsigned visibleKinds) {
-  mmFill(b, x, y, right, y + 12, kBlNavy);
-  suiSDraw(T, b, x + 4, y + 1, pgWeatherStatus(visibleKinds), kBlSilverHi, kBlNavy);
+static const char *pgWeatherSeasonName() {
+  static const char *const seasons[] = { "Spring", "Summer", "Autumn", "Winter" };
+  const int season = P3DS_PgWeatherSeason;
+  return P3DS_PgWeatherTick && season >= 0 && season < 4 ? seasons[season] : nullptr;
 }
 
-static void pgWeatherLegend(uint32_t *b, const SUiText &T, int x, int y, int right, unsigned visibleKinds) {
+static void pgWeatherStatusBar(uint32_t *b, const SUiText &T, int x, int y, int right, unsigned visibleKinds) {
+  mmFill(b, x, y, right, y + 12, kBlNavy);
+  const char *status = pgWeatherStatus(visibleKinds);
+  const char *season = pgWeatherSeasonName();
+  char label[48];
+  if (season) {
+    snprintf(label, sizeof label, "%s | %s", season, visibleKinds ? "Forecast" : "Clear in this view");
+    status = suiSWidth(T, label) <= right - x - 8 ? label : season;
+  }
+  suiSDraw(T, b, x + 4, y + 1, status, kBlSilverHi, kBlNavy);
+}
+
+static void pgWeatherLegend(uint32_t *b, const SUiText &T, int x, int y, int right, unsigned visibleKinds, bool showSeason) {
   mmFill(b, x, y, right, y + 12, kBlNavy);
   static const char *const names[] = { "Rain", "Snow", "Mist" };
   x += 4;
+  const char *season = showSeason ? pgWeatherSeasonName() : nullptr;
+  if (season) {
+    suiSDraw(T, b, x, y + 1, season, kBlSilverHi, kBlNavy);
+    x += suiSWidth(T, season) + 10;
+  }
   for (int i = 0; i < 3; i++) {
     if (!(visibleKinds & (1u << (i + 1)))) continue;
+    if (x + 8 + suiSWidth(T, names[i]) > right) break;
     mmFill(b, x, y + 4, x + 5, y + 9, kPgWeatherColor[i + 1]);
     suiSDraw(T, b, x + 8, y + 1, names[i], kBlSilverHi, kBlNavy);
     x += 13 + suiSWidth(T, names[i]);
@@ -677,7 +697,7 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       p.zmX0 = X0 + 2; p.zmY0 = by; p.zmX1 = X0 + 14; p.zmY1 = by + 12; p.zpX0 = X0 + 16; p.zpY0 = by; p.zpX1 = X0 + 28; p.zpY1 = by + 12;
       if (weatherEnabled && finder) pgWeatherButton(b, T, p, X0 + 31, by, weather);
       const int legendX = X0 + (finder ? 56 : 31);
-      if (weather && visibleWeather) pgWeatherLegend(b, T, legendX, by, X1 - 2, visibleWeather);
+      if (weather && visibleWeather) pgWeatherLegend(b, T, legendX, by, X1 - 2, visibleWeather, finder);
       else if (weather && finder) pgWeatherStatusBar(b, T, legendX, by, X1 - 2, visibleWeather);
     } }
   pgDots(b, p, X1, Y0);

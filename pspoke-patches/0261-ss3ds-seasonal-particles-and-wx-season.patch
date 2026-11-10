@@ -1,0 +1,162 @@
+From 73e1a20ed6aef4fa62368576aa0c31da6b596826 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 9 Nov 2026 21:36:38 -0500
+Subject: [PATCH] Draw seasonal field particles and publish the WX season
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 95 ++++++++++++++++++++++++++-
+ 1 file changed, 92 insertions(+), 3 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 1ff65a8..7f172cd 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -1424,6 +1424,7 @@ static int SS3DS_SeasonWeather(u32 region, BOOL highland, u32 day, int hour) {
+ }
+ 
+ extern int P3DS_AmbientWeatherCfg(void);
++static int sSS3DS_FieldSeason = -1;
+ 
+ static BOOL SS3DS_OutdoorWeatherMap(int map) {
+     MapType type = MapHeader_GetMapType(map);
+@@ -1431,23 +1432,25 @@ static BOOL SS3DS_OutdoorWeatherMap(int map) {
+ }
+ 
+ static int SS3DS_AmbientForecast(int map) {
+-    if (!SS3DS_OutdoorWeatherMap(map)) {
+-        return WEATHER_SUNNY;
+-    }
+     RTCDate date;
+     RTCTime time;
+     GF_RTC_CopyDateTime(&date, &time);
+     s32 day = RTC_ConvertDateToDay(&date);
+     if (day < 0 || time.hour >= 24) {
++        sSS3DS_FieldSeason = -1;
+         return WEATHER_SUNNY;
+     }
+     static int lastSeason = -1;
+     static const char *const names[] = { "spring", "summer", "autumn", "winter" };
+     int season = SS3DS_SeasonForDay((u32)day);
++    sSS3DS_FieldSeason = season;
+     if (season != lastSeason) {
+         PSPNativeMemLog("[WEATHER] season %s", names[season]);
+         lastSeason = season;
+     }
++    if (!SS3DS_OutdoorWeatherMap(map)) {
++        return WEATHER_SUNNY;
++    }
+     return SS3DS_SeasonWeather(MapHeader_GetRegionNo(map), SS3DS_SeasonHighland(map), (u32)day, time.hour);
+ }
+ 
+@@ -1455,6 +1458,7 @@ static int SS3DS_AmbientForecast(int map) {
+ static void SS3DS_WeatherMapTick(int seasonal) {
+     extern volatile int P3DS_PgWeatherOn;
+     extern volatile u32 P3DS_PgWeatherTick;
++    extern int P3DS_PgWeatherSeason;
+     extern u8 P3DS_PgWeather[100];
+     extern int P3DS_PgWeatherMapId(int loc);
+     static int frames, lastWindow = -1;
+@@ -1476,6 +1480,7 @@ static void SS3DS_WeatherMapTick(int seasonal) {
+     const int window = day * 8 + time.hour / 3;
+     if (lastWindow == window) return;
+     lastWindow = window;
++    P3DS_PgWeatherSeason = SS3DS_SeasonForDay((u32)day);
+     for (int i = 0; i < 100; i++) {
+         const int map = P3DS_PgWeatherMapId(i);
+         const int weather = map > 0 && SS3DS_OutdoorWeatherMap(map) ?
+@@ -2647,8 +2652,92 @@ static void SS3DS_TownBerryDraw(FieldSystem *fieldSystem, SS3DSWildState *S, fx3
+     G3_PopMtx(1);
+ }
+ 
++// Draw a few untextured particles in the normal field geometry so both
++// stereo eyes and the wide strips see the same world-space positions.
++static void SS3DS_SeasonParticles(FieldSystem *fieldSystem) {
++    enum { MAX_PARTICLES = 6, LIFE = 144 };
++    static VecFx32 origin[MAX_PARTICLES];
++    static unsigned frame;
++    static int lastMap = -1, lastSeason = -1;
++    const int season = sSS3DS_FieldSeason;
++    if (season < 0 || !P3DS_AmbientWeatherCfg() || fieldSystem->location == NULL
++        || fieldSystem->playerAvatar == NULL || fieldSystem->unk4 == NULL
++        || fieldSystem->unk4->weatherManager == NULL) {
++        lastMap = -1;
++        return;
++    }
++    const int map = fieldSystem->location->mapId;
++    if (!SS3DS_OutdoorWeatherMap(map)
++        || LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData)) != WEATHER_SUNNY
++        || ov01_021EB31C(fieldSystem->unk4->weatherManager) != WEATHER_SUNNY) {
++        lastMap = -1;
++        return;
++    }
++    // Keep the clear-weather winter flurries around the colder routes.
++    if (season == SEASON_WINTER && !SS3DS_SeasonHighland(map)) {
++        lastMap = -1;
++        return;
++    }
++    static const GXRgb color[][2] = {
++        { GX_RGB(31, 23, 25), GX_RGB(29, 17, 22) }, // spring petals
++        { GX_RGB(28, 27, 18), GX_RGB(24, 26, 18) }, // summer seeds
++        { GX_RGB(28, 15, 5), GX_RGB(24, 8, 3) },   // autumn leaves
++        { GX_RGB(31, 31, 31), GX_RGB(24, 28, 31) } // winter flakes
++    };
++    static const int count[] = { 5, 3, 6, 4 };
++    const BOOL entered = map != lastMap || season != lastSeason;
++    if (entered) {
++        frame = 0;
++        lastMap = map;
++        lastSeason = season;
++        PSPNativeMemLog("[WEATHER] seasonal particles season %d map %d", season, map);
++    }
++    const VecFx32 *player = PlayerAvatar_GetPositionVector(fieldSystem->playerAvatar);
++    NNS_G3dGeFlushBuffer();
++    G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
++    G3_PolygonAttr(GX_LIGHTMASK_NONE, GX_POLYGONMODE_MODULATE, GX_CULL_NONE, 0, 31, GX_POLYGON_ATTR_MISC_FOG);
++    G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++    for (int i = 0; i < count[season]; i++) {
++        unsigned phase = frame + i * (LIFE / MAX_PARTICLES);
++        int age = phase % LIFE;
++        if (entered || age == 0) {
++            unsigned seed = (phase / LIFE + i * 29u + map * 7u) * 2654435761u;
++            origin[i] = *player;
++            origin[i].x += ((int)((seed >> 16) % 100) - 62) * FX32_ONE;
++            origin[i].z += ((int)((seed >> 24) % 80) - 44) * FX32_ONE;
++            origin[i].y += (14 + (int)((seed >> 8) % 16)) * FX32_ONE;
++        }
++        VecFx32 pos = origin[i];
++        int swing = (age + i * 7) % 32;
++        if (swing > 16) swing = 32 - swing;
++        pos.x += (age + swing) * (season == SEASON_AUTUMN ? FX32_ONE / 4 : FX32_ONE / 8);
++        pos.y -= age * FX32_ONE / 9;
++        VecFx32 camera = SS3DS_WildCam(&NNS_G3dGlb.cameraMtx, &pos);
++        int width = FX16_ONE / 16;
++        if (season == SEASON_AUTUMN || season == SEASON_SPRING) {
++            width += swing * FX16_ONE / 512;
++        }
++        const int height = (season == SEASON_SUMMER || season == SEASON_WINTER) ? width : FX16_ONE / 12;
++        G3_PushMtx();
++        G3_Identity();
++        G3_Translate(camera.x, camera.y, camera.z);
++        G3_Scale(16 * FX32_ONE, 16 * FX32_ONE, 16 * FX32_ONE);
++        G3_Begin(GX_BEGIN_QUADS);
++        G3_Color(color[season][i & 1]);
++        G3_Vtx(-width, 0, 0);
++        G3_Vtx(width / 3, height, 0);
++        G3_Vtx(width, 0, 0);
++        G3_Vtx(-width / 3, -height, 0);
++        G3_End();
++        G3_PopMtx(1);
++    }
++    G3_Color(GX_RGB(31, 31, 31));
++    frame++;
++}
++
+ // In the field's 3D pass, after the game's own objects, with the camera the map was drawn with
+ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
++    SS3DS_SeasonParticles(fieldSystem);
+     SS3DSWildState *S = P3DS_WildMemV2();
+     int i, any = 0;
+     if (S->magic != SS3DS_WILD_MAGIC || !P3DS_WildVisCfg(0) || fieldSystem->playerAvatar == NULL || fieldSystem->location == NULL || fieldSystem->location->mapId != S->map) {
+-- 
+2.53.0
+

@@ -140,6 +140,7 @@ static UseEnt useTab[] = {
     { "wireless_sessions", "[WIRELESS] WM on 3DS local wireless", 0 }, { "wireless_links", "[WIRELESS] joined parent", 0 },
     { "wireless_children", "[WIRELESS] child aid", 0 },
     { "ambient_weather", "[WEATHER] map ", 0 },
+    { "seasonal_particles", "[WEATHER] seasonal particles ", 0 },
     { "visible_wild_spawns", "[WILD] spawn ", 0 }, { "visible_wild_battles", "[WILD] contact ", 0 },
 };
 #define NUSE ((int)(sizeof useTab / sizeof useTab[0]))

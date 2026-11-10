@@ -1,3 +1,7 @@
+# Seasonal scenery and WX season label (0261)
+
+Enable Ambient Weather and tap WX on the Johto map to see the current season alongside the forecast legend. On eligible clear outdoor maps, spring has drifting petals, summer has a few pale seeds, autumn has copper leaves, and winter has sparse flurries in the highlands. Native weather and active ambient rain, snow or mist take priority. The native field geometry draws at most six untextured particles and uses the same scene for mono and stereo. The effects have no save or encounter state. Device checks are pending for visibility, map transitions and frame time.
+
 # Johto panel fit (0260)
 
 Embedded Phone and Radio fill the space above their native dialogue strip. The original app switcher is cropped and only the Johto tabs switch panels. B closes each native app from its main screen, and Phone context-menu tooltips still show. The two registered item shortcuts stack vertically with larger icons to the left of Run. On-device checks are pending.
