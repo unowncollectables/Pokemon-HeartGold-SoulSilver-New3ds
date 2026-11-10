@@ -158,6 +158,12 @@ static void blBox(uint32_t *b, int x0, int y0, int x1, int y1, bool sel) {
   for (int y = y0 + 1; y < y1 - 1; y++) for (int x = x0 + 1; x < x1 - 1; x++) suiPx(b, x, y, y == y0 + 1 ? top : y >= y1 - 3 ? shd : fill);
   for (int x = x0 + 1; x < x1 - 1; x++) { suiPx(b, x, y0, kBlNavy); suiPx(b, x, y1 - 1, kBlNavy); }
   for (int y = y0 + 1; y < y1 - 1; y++) { suiPx(b, x0, y, kBlNavy); suiPx(b, x1 - 1, y, kBlNavy); } }
+static void blButtonDetails(uint32_t *b, int x0, int y0, int y1, int divider, int accent, bool selected) {
+  mmFill(b, x0 + 1, y0 + 1, divider, y1 - 1, selected ? SUI_RGB(40, 190, 142) : SUI_RGB(232, 237, 246));
+  mmFill(b, divider, y0 + 1, divider + 1, y1 - 1, selected ? SUI_RGB(26, 108, 95) : SUI_RGB(164, 176, 182));
+  mmFill(b, accent, y0 + 3, accent + 1, y1 - 3, SUI_RGB(246, 93, 77));
+  mmFill(b, accent + 1, y0 + 3, accent + 2, y1 - 3, SUI_RGB(212, 59, 60));
+}
 static void blIcon(uint32_t *b, int x, int y, int i, uint32_t ink, uint32_t acc) {
   for (int r = 0; r < 12; r++) for (int c = 0; c < 12 && kBlIcon[i][r][c]; c++) { const char ch = kBlIcon[i][r][c];
     if (ch == '#') suiPx(b, x + c, y + r, ink); else if (ch == '+') suiPx(b, x + c, y + r, acc); else if (ch == 'o') suiPx(b, x + c, y + r, SUI_RGB(255, 255, 255)); } }
@@ -168,8 +174,7 @@ static void blButton(uint32_t *b, const SUiText &T, int i, const char *label, co
   int x0, y0, x1, y1; blRect(i, &x0, &y0, &x1, &y1); blBox(b, x0, y0, x1, y1, pressed);
   const bool game = (blGameIconMask >> i) & 1; const uint32_t ink = pressed ? kBlSelO : kBlIcInk, acc = pressed ? SUI_RGB(255, 255, 255) : kBlIcAcc;
   if (i < 8) {
-    for (int y = y0 + 1; y < y1 - 1; y++) { for (int x = x0 + 1; x < x0 + 15; x++) suiPx(b, x, y, pressed ? SUI_RGB(40, 190, 142) : SUI_RGB(232, 237, 246)); suiPx(b, x0 + 15, y, pressed ? SUI_RGB(26, 108, 95) : SUI_RGB(164, 176, 182)); }
-    for (int y = y0 + 3; y < y1 - 3; y++) { suiPx(b, x1 - 3, y, SUI_RGB(246, 93, 77)); suiPx(b, x1 - 2, y, SUI_RGB(212, 59, 60)); }
+    blButtonDetails(b, x0, y0, y1, x0 + 15, x1 - 3, pressed);
     if (!game) blIcon(b, x0 + 2, (y0 + y1) / 2 - 6, i, ink, acc);
     const char *t = T.width(label) <= x1 - x0 - 20 ? label : alt; const int tx = x0 + 16 + (x1 - x0 - 19 - T.width(t)) / 2;
     T.draw(b, tx, (y0 + y1) / 2 - 5, t, pressed ? SUI_RGB(255, 255, 255) : on ? kBlText : SUI_RGB(150, 160, 170), pressed ? kBlSelO : kBlSilverHi); }

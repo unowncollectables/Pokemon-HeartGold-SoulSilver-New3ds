@@ -1,0 +1,38 @@
+Subject: [PATCH] ss3ds: publish incoming Pokegear calls every field frame
+
+---
+diff --git a/scripts/ss3ds_hooks.d/0257_ringframes.py b/scripts/ss3ds_hooks.d/0257_ringframes.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0257_ringframes.py
+@@ -0,0 +1,19 @@
++from pathlib import Path
++
++field = Path("src/field_system.c")
++control = Path("src/field/field_control.c")
++source = field.read_text()
++if "SS3DS 0257" not in source:
++    old = control.read_text()
++    start = old.index("static void SS3DS_PhRingPublish(")
++    end = old.index("static void SS3DS_PgPhone(", start)
++    publisher = old[start:end]
++    call = "    SS3DS_PhRingPublish(fieldSystem); /* SS3DS 0125, every step */\n"
++    anchor = "static BOOL FieldSystem_Main(FieldSystem *fieldSystem) {\n"
++    tail = "    if (fieldSystem->processManager->isDone &&"
++    if old.count(call) != 1 or source.count(anchor) != 1 or source.count(tail) != 1:
++        raise SystemExit("0257 phone ring: anchor not found exactly once")
++    source = source.replace(anchor, "extern volatile int P3DS_PhRing; /* SS3DS 0257 */\n" + publisher + "\n" + anchor)
++    source = source.replace(tail, "    SS3DS_PhRingPublish(fieldSystem);\n" + tail)
++    control.write_text((old[:start] + old[end:]).replace(call, ""))
++    field.write_text(source)
+diff --git a/scripts/ss3ds_hooks.d/0257_ringframes.sh b/scripts/ss3ds_hooks.d/0257_ringframes.sh
+new file mode 100644
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0257_ringframes.sh
+@@ -0,0 +1,6 @@
++# Sample ringing after field input and tasks, even when the player is standing still.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0257_ringframes.py" &&
++    bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1 &&
++    bash rebuild_game_object.sh src/field_system.c field_system.o none); then
++  log "ss3ds 0257 phone ring hook NOT applied"
++fi

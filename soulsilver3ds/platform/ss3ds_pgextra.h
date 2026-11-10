@@ -1,6 +1,6 @@
 /* ss3ds 2026-10-28 (Nathan: "polish Pokegear map, phone list and radio"): the JOHTO bottom screen's left panel gets three
    tabs on its top bar (MAP / PHONE / RADIO / PARTY / BAG; run 122 restyles them as even rounded JOHTO chips). Setting `pg_extras` (Settings > Input,
-   default ON until tested); OFF = the panel is the plain map exactly as before.
+   defaults to ORIGINAL). OFF hides the tabs. ORIGINAL embeds native Phone and Radio. The lists below describe PREVIEWS.
    MAP    unchanged map plus pins on places where a phone contact lives (blue = number registered, amber = wants a rematch)
           and a "Phone:" line on the info card (pgDraw calls pxMapPins / pxCardLine).
    PHONE  the Pokegear's registered numbers (hook 0122 reads the save's phone book, the ROM's tel/pmtel_book.dat places and
@@ -22,7 +22,7 @@
 
 extern "C" {
 /* published by hook 0122 on the game thread (field_control.c) */
-volatile int P3DS_PhReady, P3DS_RadSel, P3DS_RadNat, P3DS_RadGb, P3DS_RadCard, P3DS_PhRing, P3DS_PhCallReq, P3DS_RadTuneReq; /* RadTuneReq: station id + 1 to tune from the RADIO tab (hook 0129), 0 none; PhCallReq: contact id + 1 to call from the PHONE tab (hook 0128), 0 none; RadCard: Radio card registered; PhRing: 0 quiet, 1 ringing (caller unknown), 2+id = contact id ringing (hook 0125) */ volatile uint32_t P3DS_PhTick;
+volatile int P3DS_PhReady, P3DS_RadSel, P3DS_RadNat, P3DS_RadGb, P3DS_RadCard, P3DS_PhRing, P3DS_PhCallReq, P3DS_RadTuneReq; /* Requests: -1 opens the app in the panel without calling/tuning. RadTuneReq: station id + 1 to tune from the RADIO tab (hook 0129), 0 none; PhCallReq: contact id + 1 to call from the PHONE tab (hook 0128), 0 none; RadCard: Radio card registered; PhRing: 0 quiet, 1 ringing (caller unknown), 2+id = contact id ringing (hook 0125) */ volatile uint32_t P3DS_PhTick;
 /* published by hook 0167 (field_control.c / field_system.c) while a PARTY or BAG tab is open: party slots {species, level, hp, max hp, held item, status bits, egg}, every bag slot of the eight pockets in the game's pocket order (ITEMS, MEDICINE, BALLS, TM/HM, BERRIES, MAIL, BATTLE, KEY), item names read from the game's own text */
 volatile int P3DS_VwOn, P3DS_VwReady; volatile unsigned P3DS_VwTick; int P3DS_VwPartyN; uint16_t P3DS_VwParty[6][7]; uint16_t P3DS_VwBagId[8][165], P3DS_VwBagQty[8][165]; char P3DS_VwItem[540][20]; /* run 119 / hook 0200: row tap selects this mon/item when opening Party/Bag */ volatile int P3DS_VwPartySlot; /* 0 none, 1..6 = party index+1 */ volatile int P3DS_VwBagPocket; /* -1 none, 0..7 pocket */ volatile int P3DS_VwBagSlot; /* -1 none, pocket slot index */
 /* run 145 / hook 0207 (panel_live): one live action for the game thread. Req 1 = swap party slots A and B, 2 = use item A on party slot B;
@@ -101,7 +101,7 @@ static void pxBuild() {
   for (int i = 0; i < 75; i++) if (P3DS_PhFlag[i] & 1) { gPx.ord[gPx.n++] = i; const int l = P3DS_PhLoc[i];
     if (l >= 0 && l < 100) { gPx.locN[l]++; if (P3DS_PhFlag[i] & 2) gPx.locRe[l] = 1; } }
   pxCmpMode = gPx.sort; qsort(gPx.ord, gPx.n, sizeof(int), pxCmp); gPx.built = true; }
-static inline bool pxScrolls() { return pxPane() == 1 || pxPane() == 4; } /* panes with a drag-to-scroll list */
+static inline bool pxScrolls() { return (pxPane() == 1 && !pxNativeGear(1)) || pxPane() == 4; } /* panes with a drag-to-scroll list */
 static inline int pxMaxScroll() { const int h = gPx.listY1 - gPx.listY0; const int m = (gPx.pane == 4 ? gPx.bagN : gPx.n) * kPxRowH - h; return m > 0 ? m : 0; }
 
 /* ---- tab bar (run 122: even-width rounded JOHTO tabs; hit rects match draw) ---- */
@@ -109,9 +109,9 @@ enum { kPxMaxTab = 6, kPxTabGap = 3, kPxTabPad = 3 };
 static bool brCfg();
 static inline int pxNTab() { return brCfg() ? 6 : 5; } /* the BREED tab only exists with breed_tab on */
 static const char *const kPxTabs[kPxMaxTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG", "EGGS" };
+static const char *const kPxTabShort[kPxMaxTab] = { "MAP", "TEL", "FM", "PKM", "BAG", "EGG" };
 static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0, int *y1) {
   /* run 142: the tabs span the whole bar in five even buttons (the name has its own strip below, pxNameStrip), and use the side column's silver button look. X1 is the panel's right edge, the bar starts at kBlPanX0. */
-  /* run 147 (Nathan: icons, not names): equal icon-only buttons in the side column's style across the bar */
   (void)T; const int L = kBlPanX0 + 2, R = X1 - 2, N = pxNTab(), W = R - L - (N - 1) * kPxTabGap;
   for (int i = 0; i < N; i++) { x0[i] = L + i * kPxTabGap + W * i / N; x1[i] = L + i * kPxTabGap + W * (i + 1) / N; }
   *y0 = Y0 + 1; *y1 = Y0 + 15; }
@@ -133,12 +133,18 @@ static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, c
   suiSDraw(T, b, nx, ty, nm, SUI_RGB(255, 255, 255), kBlSelO); }
 /* tab icons: same art as the column. When the bottom picture is scaled, render3ds draws these again at native size (bnTabStrip). */
 static const int kPxTabIcon[kPxMaxTab] = { 7, 3, 10, 1, 2, 11 }; /* map, pokegear, radio, ball, bag, egg */
-/* tab row: same look as the side column's buttons (silver gradient, white top lip, navy frame); the open tab takes the pressed green.
-   This is the 1:1 picture. The scaled screen covers it with the native strip so the icons stay crisp. */
+/* The native strip adds labels where they fit. This DS-size fallback retains the same button details. */
 static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
   (void)X0; (void)name; int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
-  for (int i = 0; i < pxNTab(); i++) { const bool on = gPx.pane == i; blBox(b, cx0[i], cy0, cx1[i], cy1, on);
-    blIcon(b, cx0[i] + (cx1[i] - cx0[i] - 12) / 2, cy0 + (cy1 - cy0 - 12) / 2, kPxTabIcon[i], on ? kBlSelO : kBlIcInk, on ? SUI_RGB(255, 255, 255) : kBlIcAcc); } }
+  for (int i = 0; i < pxNTab(); i++) {
+    const bool on = gPx.pane == i;
+    const int x0 = cx0[i], x1 = cx1[i], divider = x1 - 5;
+    blBox(b, x0, cy0, x1, cy1, on);
+    blButtonDetails(b, x0, cy0, cy1, divider, x1 - 3, on);
+    blIcon(b, (x0 + 1 + divider - 12) / 2, (cy0 + cy1 - 12) / 2,
+           kPxTabIcon[i], on ? kBlSelO : kBlIcInk, on ? SUI_RGB(255, 255, 255) : kBlIcAcc);
+  }
+}
 /* tab index under bar x, -1 none (same layout as pxBar) */
 static int pxChipHit(const SUiText &T, int X1, int Y0, int x) {
   int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
@@ -417,45 +423,88 @@ static void pxBag(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1)
 
 /* ---- the BREED pane (hook 0210 data; read-only) ---- */
 static void pxBreed(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(244, 247, 254), fg = SUI_RGB(18, 26, 38), wh = SUI_RGB(255, 255, 255), dk = SUI_RGB(20, 140, 104), gn = SUI_RGB(40, 120, 64);
+  const uint32_t paper = SUI_RGB(244, 250, 246), mint = SUI_RGB(218, 238, 228);
+  const uint32_t green = SUI_RGB(25, 112, 76), gold = SUI_RGB(255, 229, 155);
   pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
-  T.draw(b, X0 + 4, Y0 + 2, "BREEDING", wh, kBlNavy); const char *ro = "READ-ONLY"; T.draw(b, X1 - 4 - T.width(ro), Y0 + 2, ro, SUI_RGB(200, 236, 222), kBlNavy);
+  T.draw(b, X0 + 5, Y0 + 2, "BREEDING", kBlSilverHi, kBlNavy);
+
+  const int left = X0 + 4, right = X1 - 4, top = Y0 + kPxSubH + 4;
   if (!P3DS_BrReady) {
-    if (gPx.vwWait < 150) { T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Reading your save...", wh, dk); return; }
-    T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "No data from the game yet.", wh, dk); T.draw(b, X0 + 4, Y0 + kPxSubH + 16, "Hook 0210 is missing from", wh, dk); T.draw(b, X0 + 4, Y0 + kPxSubH + 26, "this build, or the field", wh, dk); T.draw(b, X0 + 4, Y0 + kPxSubH + 36, "is not running.", wh, dk); return; }
-  const int *d = P3DS_BrD; int y = Y0 + kPxSubH + 3; char t[96], f[96];
-  /* DAY-CARE card */
-  const int nR = d[0] == 0 ? 1 : d[0] == 1 ? 2 : 5; const int h = 12 + nR * 10 + 2;
-  pxBtn(b, X0 + 2, y, X1 - 2, y + h, SUI_RGB(252, 253, 255), SUI_RGB(236, 246, 242), kBlNavy);
-  T.draw(b, X0 + 5, y + 2, "DAY-CARE", ink, sh); int ty = y + 12;
-  if (d[0] == 0) { T.draw(b, X0 + 5, ty, "Empty.", fg, sh); }
-  else {
-    for (int k = 0; k < 2; k++) { if (d[1 + k] <= 0 || d[1 + k] > 493) continue;
-      snprintf(t, sizeof t, "%s Lv%d", kP3dsSpecies[d[1 + k]], d[3 + k]); T.draw(b, X0 + 5, ty, t, ink, sh);
-      snprintf(t, sizeof t, "+%d", d[5 + k]); T.draw(b, X1 - 6 - T.width(t), ty, t, d[5 + k] > 0 ? gn : fg, sh); ty += 10; }
-    if (d[0] == 1) { T.draw(b, X0 + 5, ty, "Needs a partner to breed.", fg, sh); }
-    else if (d[7] <= 0) { T.draw(b, X0 + 5, ty, "These two cannot breed.", SUI_RGB(140, 100, 60), sh); }
-    else {
-      if (d[9]) { T.draw(b, X0 + 5, ty, "EGG READY at the Day-Care!", gn, sh); }
-      else { snprintf(t, sizeof t, "Egg chance %d%%, next roll in %d steps", d[7], d[10] < 0 ? 0 : d[10]); pxFit(T, f, sizeof f, t, X1 - X0 - 12); T.draw(b, X0 + 5, ty, f, fg, sh); }
-      ty += 10;
-      if (d[9] && d[32] >= 6) { T.draw(b, X0 + 5, ty, "Party full: make room.", SUI_RGB(176, 64, 40), sh); ty += 10; }
-      T.draw(b, X0 + 5, ty, d[8] ? "Masuda: YES (shiny odds 5x)" : "Masuda: no", d[8] ? gn : fg, sh); } }
-  y += h + 3;
-  /* party eggs */
-  const int ne = d[13];
-  snprintf(t, sizeof t, "EGGS IN PARTY (%d)", ne); T.draw(b, X0 + 4, y, t, wh, dk); y += 11;
-  if (!ne) { T.draw(b, X0 + 4, y, "No eggs in the party.", wh, dk); y += 10; }
-  for (int e = 0; e < ne && e < 6; e++) { if (y + 21 > Y1) break;
-    pxBtn(b, X0 + 2, y, X1 - 2, y + 20, SUI_RGB(252, 253, 255), (e & 1) ? SUI_RGB(220, 238, 232) : SUI_RGB(236, 246, 242), kBlNavy);
-    snprintf(t, sizeof t, "EGG (slot %d)", d[14 + e] + 1); T.draw(b, X0 + 5, y + 2, t, ink, sh);
-    if (d[20 + e] <= 0) snprintf(t, sizeof t, "hatches soon"); else snprintf(t, sizeof t, "%d cycles", d[20 + e]); T.draw(b, X1 - 6 - T.width(t), y + 2, t, d[20 + e] <= 0 ? gn : fg, sh);
-    snprintf(t, sizeof t, "about %d steps left", d[26 + e]); T.draw(b, X0 + 5, y + 11, t, fg, sh); y += 21; }
-  if (ne && d[12] >= 2 && y + 10 <= Y1) T.draw(b, X0 + 4, y + 1, "Flame Body / Magma Armor: 2x", wh, dk); }
+    pxBtn(b, left, top, right, top + 33, paper, mint, kBlNavy);
+    blIcon(b, left + 6, top + 9, 11, kBlIcInk, kBlIcAcc);
+    suiSDraw(T, b, left + 24, top + 5, "Waiting for breeding data", kBlNavy, paper);
+    suiSDraw(T, b, left + 24, top + 17, "Take a step in the field.", green, paper);
+    return;
+  }
+
+  const int *d = P3DS_BrD;
+  const int dayH = d[0] == 0 ? 31 : d[0] == 1 ? 43 : 66;
+  pxBtn(b, left, top, right, top + dayH, paper, mint, kBlNavy);
+  pxBtn(b, left, top, right, top + 15, kBlPress, kBlBlue, kBlNavy);
+  blIcon(b, left + 4, top + 2, 11, kBlNavy, gold);
+  suiSDraw(T, b, left + 21, top + 2, "DAY-CARE", kBlSilverHi, kBlNavy);
+
+  char line[64];
+  int y = top + 17;
+  for (int i = 0; i < 2 && i < d[0]; i++) {
+    if (d[1 + i] <= 0 || d[1 + i] > 493) continue;
+    snprintf(line, sizeof line, "%s  Lv%d", kP3dsSpecies[d[1 + i]], d[3 + i]);
+    suiSDraw(T, b, left + 6, y, line, kBlNavy, paper);
+    snprintf(line, sizeof line, "+%d levels", d[5 + i]);
+    suiSDraw(T, b, right - 6 - suiSWidth(T, line), y, line, green, paper);
+    y += 11;
+  }
+  const char *status = "Empty";
+  if (d[0] == 1) status = "Needs a partner";
+  else if (d[0] >= 2 && d[7] <= 0) status = "These two cannot breed";
+  else if (d[0] >= 2 && d[9]) status = d[32] >= 6 ? "Egg ready | Party full" : "Egg ready to pick up!";
+  else if (d[0] >= 2) {
+    snprintf(line, sizeof line, "%d%% egg chance | %d steps to roll", d[7], d[10] < 0 ? 0 : d[10]);
+    status = line;
+  }
+  pxBtn(b, left + 4, y, right - 4, y + 12, d[9] ? gold : paper, d[9] ? gold : mint, kBlNavy);
+  suiSDraw(T, b, left + 8, y + 1, status, kBlNavy, paper);
+  if (d[0] >= 2 && d[7] > 0)
+    suiSDraw(T, b, left + 6, y + 14, d[8] ? "Masuda bonus | 5x shiny odds" : "Masuda bonus inactive", green, paper);
+
+  y = top + dayH + 4;
+  const int eggs = d[13] > 6 ? 6 : d[13];
+  pxBtn(b, left, y, right, y + 13, kBlPress, kBlBlue, kBlNavy);
+  snprintf(line, sizeof line, "PARTY EGGS  %d", eggs);
+  suiSDraw(T, b, left + 5, y + 1, line, kBlSilverHi, kBlNavy);
+  if (eggs && d[12] >= 2) {
+    const char *boost = "2x HATCH SPEED";
+    suiSDraw(T, b, right - 5 - suiSWidth(T, boost), y + 1, boost, gold, kBlNavy);
+  }
+  y += 15;
+  if (!eggs) {
+    pxBtn(b, left, y, right, y + 20, paper, mint, kBlNavy);
+    suiSDraw(T, b, left + 6, y + 4, "No eggs in your party", kBlNavy, paper);
+  }
+  const int tileW = (right - left - 4) / 2;
+  for (int i = 0; i < eggs; i++) {
+    const int x = left + (i % 2) * (tileW + 4), row = y + (i / 2) * 22;
+    if (row + 21 > Y1) break;
+    pxBtn(b, x, row, x + tileW, row + 21, paper, mint, kBlNavy);
+    blIcon(b, x + 4, row + 5, 11, kBlIcInk, d[20 + i] <= 0 ? gold : kBlIcAcc);
+    if (d[20 + i] <= 0) snprintf(line, sizeof line, "Slot %d", d[14 + i] + 1);
+    else snprintf(line, sizeof line, "#%d  %d cycles", d[14 + i] + 1, d[20 + i]);
+    suiSDraw(T, b, x + 19, row + 1, line, kBlNavy, paper);
+    snprintf(line, sizeof line, "~%d steps", d[26 + i]);
+    suiSDraw(T, b, x + 19, row + 11, d[20 + i] <= 0 ? "Hatches soon" : line, green, paper);
+  }
+}
 
 /* the pane under the tab bar; false = draw the map */
 static bool pxPaneDraw(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, int Y1) {
   const int p = pxPane(); if (!p) return false;
+  if (pxNativeGear(p)) {
+    pxBack(b, X0, Y0, X1, Y1, kPxSubH - 1);
+    T.draw(b, X0 + 4, Y0 + 2, kPxTabs[p], kBlSilverHi, kBlNavy);
+    if (!P3DS_PanelPartyOn)
+      T.draw(b, X0 + 4, Y0 + kPxSubH + 6, "Opening Pokegear...", kBlNavy, kBlSilverHi);
+    return true;
+  }
   if (p == 1) { pxPhone(b, T, X0, Y0, X1, Y1); if (!gPx.loggedPhone) { gPx.loggedPhone = true; PSPNativeMemLog("[PHONE] phone pane open: %d contacts%s", gPx.n, P3DS_PhReady ? "" : " (no data from the game yet: hook 0122 not in this build, or no field step yet)"); } }
   else if (p == 3 || p == 4) { if (p == 3) pxParty(b, T, X0, Y0, X1, Y1); else pxBag(b, T, X0, Y0, X1, Y1); pxLiveSheet(b, T, X0, Y0, X1, Y1);
     if (!gPx.vwLogged) { gPx.vwLogged = true; PSPNativeMemLog("[VIEW] %s pane open: %s", p == 3 ? "party" : "bag", P3DS_VwReady ? "data already here" : "waiting for hook 0167 data"); } }
@@ -477,7 +526,7 @@ static void pxFrame(bool touching) {
     if (vw) { if (!P3DS_VwReady) gPx.vwWait++; if (P3DS_VwTick != gPx.vwSeen) { gPx.vwSeen = P3DS_VwTick; BLINV; if (gPx.vwWait) { PSPNativeMemLog("[VIEW] data from the game after %d frames: %d party Pokemon", gPx.vwWait, P3DS_VwPartyN); gPx.vwWait = 0; } } } }
   if (gPx.pane >= pxNTab()) { gPx.pane = 0; BLINV; } /* breed_tab turned off while BREED was open */
   { const bool br = gPx.pane == 5; P3DS_BrOn = br ? 1 : 0;
-    if (br) { if (!P3DS_BrReady) gPx.vwWait++;
+    if (br) {
       if (P3DS_BrTick != gPx.brSeen) { gPx.brSeen = P3DS_BrTick; BLINV; const int *d = P3DS_BrD; const int now[8] = { d[0], d[1], d[2], d[5], d[6], d[9], d[13], d[12] };
         if (memcmp(now, gPx.brLast, sizeof now)) { memcpy(gPx.brLast, now, sizeof now); PSPNativeMemLog("[BREED] daycare %d (%d Lv%d +%d, %d Lv%d +%d), egg waiting %d, chance %d%%, masuda %d, next roll %d steps; party eggs %d%s", d[0], d[1], d[3], d[5], d[2], d[4], d[6], d[9], d[7], d[8], d[10], d[13], d[13] ? "" : " (none)");
           for (int e = 0; e < d[13] && e < 6; e++) PSPNativeMemLog("[BREED] egg slot %d: %d cycles, about %d steps (x%d)", d[14 + e] + 1, d[20 + e], d[26 + e], d[12]); } } } }
@@ -534,26 +583,38 @@ static bool pxSortTap(int x, int y) {
 enum { kPxRingX0 = kBlPanX0 + 2, kPxRingX1 = kBlPanX1 - 2, kPxRingY0 = kBlPanY1 - 21, kPxRingY1 = kBlPanY1 - 2 };
 /* run 118: GearPhoneRingManager_IsRinging can flap between ring beeps; hold the banner ~20 quiet frames so it does not flicker off */
 static int pxRingHold, pxRingVal;
-static int pxRingShown() {
-  const int r = P3DS_PhRing;
-  if (r > 0) { pxRingVal = r; pxRingHold = 20; }
-  else if (pxRingHold > 0) pxRingHold--;
-  else pxRingVal = 0;
-  return pxOn() ? pxRingVal : 0;
-}
+static int pxRingShown() { return pxOn() ? pxRingVal : 0; }
 static inline bool pxRinging() { return pxRingShown() > 0; }
 static bool pxRingHit(int x, int y) { return pxRinging() && x >= kPxRingX0 && x < kPxRingX1 && y >= kPxRingY0 && y < kPxRingY1; }
 static void pxRingDraw(uint32_t *b, const SUiText &T, bool blink) {
   const int ring = pxRingShown(); if (!ring) return;
-  const uint32_t bg = blink ? SUI_RGB(255, 214, 64) : SUI_RGB(255, 170, 40);
-  for (int y = kPxRingY0; y < kPxRingY1; y++) for (int x = kPxRingX0; x < kPxRingX1; x++) suiPx(b, x, y, bg);
-  mmFrame(b, kPxRingX0, kPxRingY0, kPxRingX1, kPxRingY1, kBlNavy);
-  const int id = ring - 2; char t[48]; snprintf(t, sizeof t, "CALL: %s", id >= 0 && id < 75 ? kPxName[id] : "?"); char fit[48]; pxFit(T, fit, sizeof fit, t, kPxRingX1 - kPxRingX0 - 60);
-  T.draw(b, kPxRingX0 + 4, kPxRingY0 + 4, fit, kBlNavy, bg);
-  const int w = T.width("ANSWER") + 8, x1 = kPxRingX1 - 3, x0 = x1 - w;
-  pxBtn(b, x0, kPxRingY0 + 3, x1, kPxRingY1 - 3, SUI_RGB(46, 208, 155), kBlNavy, kBlNavy);
-  T.draw(b, x0 + 4, kPxRingY0 + 4, "ANSWER", SUI_RGB(255, 255, 255), kBlNavy); }
+  const uint32_t paper = SUI_RGB(255, 251, 231), gold = SUI_RGB(248, 217, 139);
+  const uint32_t lamp = blink ? SUI_RGB(255, 213, 74) : SUI_RGB(218, 151, 44);
+  pxBtn(b, kPxRingX0, kPxRingY0, kPxRingX1, kPxRingY1, paper, gold, kBlNavy);
+  mmFill(b, kPxRingX0 + 1, kPxRingY0 + 1, kPxRingX0 + 4, kPxRingY1 - 1, lamp);
+  blIcon(b, kPxRingX0 + 8, kPxRingY0 + 4, 3, kBlNavy, lamp);
+
+  const int id = ring - 2;
+  const char *caller = id >= 0 && id < 75 ? kPxName[id] : "Unknown caller";
+  const int nameX = kPxRingX0 + 24, answerR = kPxRingX1 - 3;
+  const int answerX = answerR - T.width("ANSWER") - 12;
+  char fit[40];
+  pxFit(T, fit, sizeof fit, caller, answerX - nameX - 4);
+  T.draw(b, nameX, kPxRingY0 + 4, fit, kBlNavy, paper);
+  pxBtn(b, answerX, kPxRingY0 + 2, answerR, kPxRingY1 - 2,
+        SUI_RGB(33, 137, 102), SUI_RGB(17, 93, 74), kBlNavy);
+  T.draw(b, answerX + 6, kPxRingY0 + 4, "ANSWER", kBlSilverHi, kBlNavy);
+}
+
 /* every frame: redraw and log when the (sticky) ringing display changes */
 static void pxRingFrame() {
-  static int last; if (!pxOn()) return; const int r = pxRingShown();
+  static int last;
+  const int active = P3DS_PhRing;
+  if (active > 0) {
+    pxRingVal = active;
+    pxRingHold = 20;
+  } else if (pxRingHold > 0 && --pxRingHold == 0) {
+    pxRingVal = 0;
+  }
+  const int r = pxRingShown();
   if (r != last) { last = r; BLINV; if (r > 0) PSPNativeMemLog("[PHONE] Pokegear ringing: caller %d '%s' (tap ANSWER or POKEGEAR)", r - 2, r >= 2 && r - 2 < 75 ? kPxName[r - 2] : "?"); else PSPNativeMemLog("[PHONE] ringing stopped"); } }

@@ -85,11 +85,20 @@ static void bnDsRect(int i, int *x0, int *y0, int *x1, int *y1) { bnRectOf(i, x0
 /* DS pixel span [ds0, ds1) on the 256x192 picture, as the native pixels that cover it when that picture is stretched to 320x240 (x5/4). */
 static void bnDsSpan(int ds0, int ds1, int *n0, int *n1) {
   *n0 = ds0 * 5 / 4; *n1 = (ds1 * 5 + 3) / 4; if (*n1 < *n0) *n1 = *n0; }
+// The right column and the top tabs share the same inset icon cell and red edge accent.
+static void bnButtonDetails(const SBnCanvas &c, int x0, int y0, int y1, int divider, int accent, bool selected) {
+  const uint32_t cell = selected ? bnRGB(40, 190, 142) : bnRGB(232, 237, 246);
+  const uint32_t line = selected ? bnRGB(26, 108, 95) : bnRGB(164, 176, 182);
+  bnRect(c, x0 + 1, y0 + 1, divider - 1, y1 - 1, cell);
+  bnRect(c, divider, y0 + 1, divider, y1 - 1, line);
+  bnRect(c, accent, y0 + 3, accent, y1 - 3, bnRGB(246, 93, 77));
+  bnRect(c, accent + 1, y0 + 3, accent + 1, y1 - 3, bnRGB(212, 59, 60));
+}
 /* One native tab button, placed in the atlas by bnTabStrip. Screen rect is 320x240; source is 1:1 in the atlas. */
 struct SBnTabDst { short dx, dy, w, h, sx, sy; };
 /* JOHTO top tabs at native resolution, same box and green pixel icons as the column (bnBox / bnIcon2x).
    ds* are the DS hit rects from pxChips. Drawn into atlas row y=180 (the frame windows stop at y=168). */
-static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const int *dsX1, int dsY0, int dsY1, const int *icons, SBnTabDst *dst, int maxDst) {
+static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const int *dsX1, int dsY0, int dsY1, const int *icons, const char *const *labels, const char *const *shortLabels, SBnTabDst *dst, int maxDst) {
   if (!atlas || n < 1) return 0;
   const uint32_t NAVY = bnRGB(7, 33, 54), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255), BTN_SHD = bnRGB(189, 201, 222),
     SEL = bnRGB(46, 208, 155), SEL_SHD = bnRGB(24, 153, 115), BG = bnRGB(200, 208, 211),
@@ -102,8 +111,18 @@ static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const i
     bnRect(c, 0, 0, w - 1, h - 1, BG); /* opaque corners: bnBox leaves them out, same cut as the column */
     const bool on = i == pane;
     bnBox(c, 0, 0, w - 1, h - 1, NAVY, on ? SEL : BTN, on ? SEL : BTN_TOP, on ? SEL_SHD : BTN_SHD, 2);
-    int iy = 2; if (iy + 12 > h - 4) iy = (h - 12) / 2; if (iy < 1) iy = 1;
-    bnIcon2x(c, (w - 12) / 2, iy, icons[i], on ? SEL_INK : INK, on ? WHITE : ACC);
+    const int divider = 13, textLeft = divider + 2, textRight = w - 4, room = textRight - textLeft;
+    const char *label = bnTextW(labels[i]) <= room ? labels[i] : shortLabels[i];
+    const int tw = bnTextW(label);
+    const bool showLabel = tw <= room;
+    bnButtonDetails(c, 0, 0, h - 1, showLabel ? divider : w - 5, w - 3, on);
+    bnIcon2x(c, showLabel ? 1 : (w - 5 - 12) / 2, (h - 12) / 2,
+             icons[i], on ? SEL_INK : INK, on ? WHITE : ACC);
+    if (showLabel) {
+      const int x = textLeft + (room - tw) / 2, y = (h - 9) / 2;
+      if (on) bnTextO(c, x, y, label, WHITE, SEL_INK);
+      else bnText(c, x, y, label, bnRGB(18, 26, 38));
+    }
     dst[nd++] = { (short)x0, (short)y0, (short)w, (short)h, (short)ax, 180 }; ax += w; }
   return nd; }
 /* Atlas areas (512x256): column = native (235,0) 85x240 at atlas (256,0); top = native (0,0) 235x4 at (0,160);
@@ -111,8 +130,8 @@ static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const i
 static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *al, const bool *on, int press, unsigned gameIco, int iconX[10], int iconY[10]) {
   const uint32_t BG = bnRGB(200, 208, 211), EDGE_HI = bnRGB(252, 253, 253), NAVY = bnRGB(7, 33, 54), WHITE = bnRGB(246, 247, 250), COL = bnRGB(77, 100, 114),
     COLDK = bnRGB(60, 80, 94), DIV_L1 = bnRGB(216, 223, 226), DIV_L2 = bnRGB(230, 234, 237), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255),
-    BTN_SHD = bnRGB(189, 201, 222), BTN_DIV = bnRGB(164, 176, 182), CELL = bnRGB(232, 237, 246), RED_HI = bnRGB(246, 93, 77), RED = bnRGB(212, 59, 60),
-    TEXT = bnRGB(18, 26, 38), SEL = bnRGB(46, 208, 155), SEL_SHD = bnRGB(24, 153, 115), SEL_DIV = bnRGB(26, 108, 95), SEL_CELL = bnRGB(40, 190, 142),
+    BTN_SHD = bnRGB(189, 201, 222), CELL = bnRGB(232, 237, 246),
+    TEXT = bnRGB(18, 26, 38), SEL = bnRGB(46, 208, 155), SEL_SHD = bnRGB(24, 153, 115), SEL_CELL = bnRGB(40, 190, 142),
     SEL_TXT = bnRGB(255, 255, 255), SEL_TXT_O = bnRGB(0, 84, 64), TEXT_OFF = bnRGB(150, 160, 170);
   /* the frame pieces: drawn as one 320x240 picture through four windows */
   const SBnCanvas parts[4] = { { atlas, 256, 0, 235, 0, 85, 240 }, { atlas, 0, 160, 0, 0, 235, 4 }, { atlas, 0, 164, 0, 236, 235, 4 }, { atlas, 344, 0, 0, 4, 4, 232 } };
@@ -131,8 +150,7 @@ static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *a
       for (int y = 0; y < 32; y++) for (int x = 0; x < 31; x++) bnPut(c, x0 + 1 + x, y0 + 1 + y, sp[y * 31 + x]);
       iconX[i] = x0 + 1; iconY[i] = y0 + 1; continue; }
     if (i < 8) {
-      bnRect(c, 251, y0 + 1, 274, y0 + 20, sel ? SEL_CELL : CELL); for (int y = y0 + 1; y < y0 + 21; y++) bnPut(c, 275, y, sel ? SEL_DIV : BTN_DIV);
-      for (int y = y0 + 3; y < y0 + 19; y++) { bnPut(c, 317, y, RED_HI); bnPut(c, 318, y, RED); }
+      bnButtonDetails(c, x0, y0, y1, 275, 317, sel);
       const char *t = bnTextW(lb[i]) <= 38 ? lb[i] : al[i]; if (!strcmp(t, "POKEDEX")) t = "POKeDEX"; else if (!strcmp(t, "POKEMON")) t = "POKeMON"; const int tx = 277 + (38 - bnTextW(t) + 1) / 2, ty = y0 + 1 + (18 - 9 + 1) / 2;
       if (sel) bnTextO(c, tx, ty, t, SEL_TXT, SEL_TXT_O); else bnText(c, tx, ty, t, on[i] ? TEXT : TEXT_OFF);
       iconX[i] = 253; iconY[i] = y0;   /* the game's 20x22 icon, centred in the cell */
