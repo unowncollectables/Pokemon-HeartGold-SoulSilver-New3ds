@@ -36,6 +36,9 @@ volatile int P3DS_PanelPartyOn;
 #include "ss3ds_pgmap.h"
 #include "ss3ds_pgextra.h"
 #include "ss3ds_blnative.h"
+extern "C" const SS3DS_PgSpec sLocationSpecs[100] = {
+  { 1, 1, 1, 0x11 }, { 2, 4, 1, 0x11 }
+};
 extern "C" {
 void PSPNativeMemLog(const char *, ...) {}
 int P3DS_CfgInt(const char *, int d) { return d; }
@@ -285,6 +288,21 @@ int main(int argc, char **argv) {
   expect(held, "reading the ring does not shorten its hold");
   pxRingFrame();
   expect(pxRingShown() == 0, "ring banner clears after 20 quiet frames");
+  snprintf(P3DS_PgName[1], sizeof P3DS_PgName[1], "Pallet Town");
+  P3DS_PgWeather[0] = 1;
+  P3DS_PgWeather[1] = 2;
+  P3DS_PgWeatherTick++;
+  pgWeatherRefresh(false);
+  expect(pgWeatherMask[10 * kPgW + 10] == ((5 << 2) | 1) &&
+         pgWeatherMask[10 * kPgW + 6] == ((3 << 2) | 1),
+         "rain is anchored to its map cell and feathers at the edge");
+  expect(pgWeatherMask[10 * kPgW + 34] == 0, "Kanto weather stays hidden until the map opens");
+  pgWeatherRefresh(true);
+  expect(pgWeatherMask[10 * kPgW + 34] == ((5 << 2) | 2), "Kanto snow appears after the map opens");
+  P3DS_PgWeather[0] = 0;
+  P3DS_PgWeatherTick++;
+  pgWeatherRefresh(true);
+  expect(pgWeatherMask[10 * kPgW + 10] == 0, "a clear forecast removes the old rain");
   printf(fails ? "RESULT FAIL %d\n" : "RESULT PASS\n", fails);
   return fails ? 1 : 0;
 }

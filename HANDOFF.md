@@ -1,3 +1,7 @@
+# Johto weather radar (0259)
+
+With Ambient Weather enabled, tap WX beside the Johto map trophy to show the seasonal forecast. Blue marks rain, icy white marks snow, and lavender marks mist. The overlay uses the same three-hour weather calculation as the field and respects the hidden Kanto area. The forecast covers ambient weather. Story and other native weather still take precedence in the field. Device checks are pending.
+
 # Johto registered item shortcuts (0258)
 
 The bottom-right row now shows both registered Bag items before Run. The game still checks item eligibility through the native field input path. Empty slots show their slot numbers. On-device touch and item use checks are pending.

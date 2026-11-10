@@ -1380,6 +1380,7 @@ static void menuSet(int i,int v){
  if(i==kPokewalkerItem){P3DS_CfgWrite("pokewalker",v);return;}
  if(i==kAmbientWeatherItem){
     ambientWeatherV=v;
+    BLINV;
     P3DS_CfgWrite("ambient_weather",v);
     return;
  }
@@ -1509,7 +1510,7 @@ static const SAppTab kTabs[7]={
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."},
      {139,"Title layout","Classic uses plain borders. Wide fills the screen with the animated backdrop and keeps the logo proportional."},
-     {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring outdoor showers, snow and mist. Visible Pokemon react."}}},
+     {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."}}},
  {12,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up."},
      {13,"Split top (mono)","Experimental: two CPU cores draw the top screen when 3D is off."},
@@ -2348,6 +2349,12 @@ static int Present(bool){
     bmDown = -1;
   }
   pxRingFrame();
+  P3DS_PgWeatherOn=show&&gPg.decoded&&blMode<0&&!pxPane()&&!gPg.ov&&!gPg.achOpen&&gPg.weather&&P3DS_AmbientWeatherCfg();
+  if(P3DS_PgWeatherOn){
+   static uint32_t weatherSeen;
+   const uint32_t tick=P3DS_PgWeatherTick;
+   if(tick!=weatherSeen){weatherSeen=tick;BLINV;}
+  }
   if(show){
    static int swTgt=-1;static unsigned swT;static bool swPrev; /* run 143: tab tap while an app is open in the panel = close the app and switch (no Cancel first) */
    {const bool swTouch=(hidKeysHeld()&KEY_TOUCH)!=0;
@@ -2466,7 +2473,11 @@ static int Present(bool){
     else if(bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){if(!tDrag){int mx,my;pgTouchMap(gPg,tX0,tY0,&mx,&my);int ix0,iy0,ix1,iy1;pgInner(&ix0,&iy0,&ix1,&iy1);
       const int cardTop=iy1-pgCardH(gPg);
       const int zh=pgZoomHit(gPg,tX0,tY0),fh=pgFindCfg()?pgFindHit(gPg,iy0,tX0,tY0):0;int fsp=0;
-      if(zh)pgSetZoom(pgMapZoomIdx()+(zh==2?1:-1));
+      if(P3DS_AmbientWeatherCfg()&&pgWeatherHit(gPg,tX0,tY0)){
+       gPg.weather=!gPg.weather;BLINV;
+       PSPNativeMemLog("[WEATHER] Johto radar %s",gPg.weather?"opened":"closed");
+      }
+      else if(zh)pgSetZoom(pgMapZoomIdx()+(zh==2?1:-1));
       else if(fh){if(fh==1){PSPNativeMemLog("[FIND] cleared (%s)",kP3dsSpecies[gPg.find]);gPg.find=0;gPg.findTm=0;}else{gPg.findTm=fh-2;PSPNativeMemLog("[FIND] %s time filter %s -> %d places",kP3dsSpecies[gPg.find],kPgFindTm[gPg.findTm],pgFindCount(gPg));}BLINV;}
       else if(pgFlyCfg()&&gPg.sel>=0&&!gPg.page&&gPg.flyX1>gPg.flyX0&&tX0>=gPg.flyX0-3&&tX0<gPg.flyX1+3&&tY0>=gPg.flyY0-3&&tY0<gPg.flyY1+3){
         const int fm=sLocationSpecs[gPg.sel].mapId,fst=P3DS_FlyHere;
