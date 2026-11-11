@@ -1,0 +1,130 @@
+From b00b4e1dbc5c960d9dad0c018022a618783a3ff9 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 10 Nov 2026 19:44:57 -0500
+Subject: [PATCH] Recolor supported outdoor tree canopies at area load
+
+---
+ .../nitromain-perf/area_data_native.c         |  4 ++
+ scripts/ss3ds_game.sh                         |  3 +-
+ scripts/ss3ds_hooks.d/0110_wildvis.py         | 63 +++++++++++++++++++
+ scripts/ss3ds_hooks.d/0110_wildvis.sh         |  2 +-
+ 4 files changed, 70 insertions(+), 2 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/area_data_native.c b/port/soulsilver-native-core/nitromain-perf/area_data_native.c
+index 96294a8..9bc9079 100644
+--- a/port/soulsilver-native-core/nitromain-perf/area_data_native.c
++++ b/port/soulsilver-native-core/nitromain-perf/area_data_native.c
+@@ -58,6 +58,10 @@ void AreaDataManager_Load(AreaDataManager *a,void *unkC0,MapPropAnimationManager
+  a->propTextureFile=AllocAndReadWholeNarcMemberByIdPair(70,a->area.props,HEAP_ID_FIELD1);
+  a->mapTexture=NNS_G3dGetTex(a->mapTextureFile);
+  a->propTexture=load->count?NNS_G3dGetTex(a->propTextureFile):NULL;
++ if (!a->area.resourceKind) {
++  extern void SS3DS_SeasonTreePalette(NNSG3dResTex *);
++  SS3DS_SeasonTreePalette(a->mapTexture);
++ }
+  if(!GF3dRender_AllocAndLoadTexResources(a->mapTexture))GF_AssertFail();
+  StripTexture(a->mapTextureFile,a->mapTexture);
+  if(a->propTexture){if(!GF3dRender_AllocAndLoadTexResources(a->propTexture))GF_AssertFail();StripTexture(a->propTextureFile,a->propTexture);}
+diff --git a/scripts/ss3ds_game.sh b/scripts/ss3ds_game.sh
+index 466eb05..0a7e0f9 100644
+--- a/scripts/ss3ds_game.sh
++++ b/scripts/ss3ds_game.sh
+@@ -119,7 +119,8 @@ for f in native-sound-audio/sas_out.c soulsilver-native-assets/render-fastcompar
+          soulsilver-native-core/nitromain-perf/platform.c soulsilver-native-core/nitromain-perf/frame.c \
+          soulsilver-native-core/nitromain-perf/missing.c native-backup-probe/backup.c \
+          native-audio-app/services/mi_dma.c \
+-         native-render-opt/native_gpu.cpp native-render-opt/GPU2D_Soft.cpp soulsilver-native-core/nitromain-perf/input.c; do   # missing.c: patches 0118/0125 drop traps, a stale staged copy duplicates them at link
++         native-render-opt/native_gpu.cpp native-render-opt/GPU2D_Soft.cpp soulsilver-native-core/nitromain-perf/input.c \
++         soulsilver-native-core/nitromain-perf/area_data_native.c; do   # missing.c: patches 0118/0125 drop traps, a stale staged copy duplicates them at link
+   cmp -s "$ROOT/port/$f" "$T/$f" || { cp -f "$ROOT/port/$f" "$T/$f"; log "ss3ds: staged $f was stale, re-synced"; }
+ done
+ # SS3DS 0153: particle fixes 0151/0152 land in a tree whose ss-particles step already ran, so re-sync them and rebuild
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 2ad4bfb..b03fcca 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -1394,6 +1394,69 @@ static int SS3DS_SeasonForDay(u32 day) {
+     return (day / 7) % 4;
+ }
+ 
++// Called once per outdoor area load before the map texture palette is uploaded.
++void SS3DS_SeasonTreePalette(NNSG3dResTex *tex) {
++    extern int P3DS_CfgInt(const char *, int);
++    if (tex == NULL || tex->plttInfo.ofsDict == 0 || !P3DS_CfgInt("seasonal_trees", 0)) {
++        return;
++    }
++    RTCDate date;
++    GF_RTC_CopyDate(&date);
++    const s32 day = RTC_ConvertDateToDay(&date);
++    if (day < 0) {
++        return;
++    }
++    const int season = SS3DS_SeasonForDay((u32)day);
++    if (season == SEASON_SUMMER) {
++        return;
++    }
++    static const NNSG3dResName tree = { .name = "tree01_un" };
++    const NNSG3dResDictPlttData *entry = NNS_G3dGetPlttDataByName(tex, &tree);
++    if (entry == NULL) {
++        return;
++    }
++    const NNSG3dResDict *dict = (const NNSG3dResDict *)((const u8 *)tex + tex->plttInfo.ofsDict);
++    const u32 start = (u32)entry->offset << 3;
++    u32 end = (u32)tex->plttInfo.sizePltt << 3;
++    for (u32 i = 0; i < dict->numEntry; i++) {
++        const NNSG3dResDictPlttData *other = NNS_G3dGetPlttDataByIdx(tex, i);
++        const u32 offset = (u32)other->offset << 3;
++        if (offset > start && offset < end) {
++            end = offset;
++        }
++        if (offset == start) {
++            const NNSG3dResName *name = NNS_G3dGetPlttNameByIdx(tex, i);
++            if (strcmp(name->name, "tree01_un") && strcmp(name->name, "tree01_re")
++                && strcmp(name->name, "tree01")) {
++                return;
++            }
++        }
++    }
++    if (end < start || end - start != 16 * sizeof(GXRgb)) {
++        return;
++    }
++    GXRgb *colors = (GXRgb *)((u8 *)tex + tex->plttInfo.ofsPlttData + start);
++    // The common 16-color tree uses entries 1 to 5 for the canopy.
++    // Require the expected green ramp before touching the loaded palette.
++    for (int i = 1; i <= 5; i++) {
++        const int r = colors[i] & 31, g = (colors[i] >> 5) & 31, b = (colors[i] >> 10) & 31;
++        if (g <= r + 5 || g <= b + 2) {
++            return;
++        }
++    }
++    for (int i = 1; i <= 5; i++) {
++        const int r = colors[i] & 31, g = (colors[i] >> 5) & 31, b = (colors[i] >> 10) & 31;
++        if (season == SEASON_SPRING) {
++            colors[i] = GX_RGB((3 * r + 31) / 4, (4 * g + 31) / 5, 3 * b / 4);
++        } else if (season == SEASON_AUTUMN) {
++            colors[i] = GX_RGB((4 * g + 31) / 5, 2 * g / 3, b / 3);
++        } else {
++            colors[i] = GX_RGB((r + 31) / 2, (g + 31) / 2, (b + 31) / 2);
++        }
++    }
++    PSPNativeMemLog("[WEATHER] tree canopy season %d", season);
++}
++
+ // One roll per region and three-hour window. Elevation can change the form
+ // of precipitation while the surrounding lowlands share the same front.
+ static int SS3DS_SeasonWeather(u32 region, BOOL highland, u32 day, int hour) {
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.sh b/scripts/ss3ds_hooks.d/0110_wildvis.sh
+index 7006a21..8cfb864 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.sh
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.sh
+@@ -4,6 +4,6 @@
+ # Not fatal: without it the Play rows do nothing.
+ # 0114: the field part goes into pspoke's own fieldmap_native.c ($P), which is what the link uses; src/field/fieldmap.c is dead.
+ export SS3DS_FIELDMAP_NATIVE="$P/fieldmap_native.c"
+-if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0110_wildvis.py" && bash rebuild_game_object.sh src/field/encounter_check.c field__encounter_check.o 2 && make -C "$P" fieldmap_native.o && bash rebuild_game_object.sh src/encounter.c encounter.o none && bash rebuild_game_object.sh src/map_object.c map_object.o none && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0110_wildvis.py" && bash rebuild_game_object.sh src/field/encounter_check.c field__encounter_check.o 2 && make -C "$P" fieldmap_native.o area_data_native.o && bash rebuild_game_object.sh src/encounter.c encounter.o none && bash rebuild_game_object.sh src/map_object.c map_object.o none && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
+   log "ss3ds 0110 wildvis hook NOT applied (see message above); visible wild Pokemon stay off"
+ fi
+-- 
+2.53.0
+
