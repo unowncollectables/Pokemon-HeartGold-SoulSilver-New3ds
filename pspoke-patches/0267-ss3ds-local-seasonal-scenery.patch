@@ -1,0 +1,94 @@
+From 66073d14082f8972892cf807bd72968bb5d28a0b Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 10 Nov 2026 19:37:50 -0500
+Subject: [PATCH] Vary seasonal scenery by location
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 42 +++++++++++++++++++++++++--
+ 1 file changed, 39 insertions(+), 3 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index cd0a239..2ad4bfb 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -2652,6 +2652,27 @@ static void SS3DS_TownBerryDraw(FieldSystem *fieldSystem, SS3DSWildState *S, fx3
+     G3_PopMtx(1);
+ }
+ 
++static BOOL SS3DS_SeasonWoodedRoute(int map) {
++    switch (map) {
++    case MAP_ROUTE_2:
++    case MAP_ROUTE_30:
++    case MAP_ROUTE_31:
++    case MAP_ROUTE_36:
++    case MAP_ROUTE_37:
++        return TRUE;
++    default:
++        return FALSE;
++    }
++}
++
++static BOOL SS3DS_SeasonNearFlowerShop(const VecFx32 *origin) {
++    // The existing Goldenrod resident routine places the shop door at (371, 332).
++    const fx32 tile = 16 * FX32_ONE;
++    const fx32 dx = origin->x - (371 * tile + tile / 2);
++    const fx32 dz = origin->z - (332 * tile + tile / 2);
++    return dx >= -5 * tile && dx <= 5 * tile && dz >= 0 && dz <= 7 * tile;
++}
++
+ // Draw a few untextured particles in the normal field geometry so both
+ // stereo eyes and the wide strips see the same world-space positions.
+ static void SS3DS_SeasonParticles(FieldSystem *fieldSystem) {
+@@ -2684,7 +2705,14 @@ static void SS3DS_SeasonParticles(FieldSystem *fieldSystem) {
+         { GX_RGB(28, 15, 5), GX_RGB(24, 8, 3) },   // autumn leaves
+         { GX_RGB(31, 31, 31), GX_RGB(24, 28, 31) } // winter flakes
+     };
+-    static const int count[] = { 5, 3, 6, 4 };
++    static const int baseCount[] = { 3, 3, 4, 4 };
++    int count = baseCount[season];
++    if (SS3DS_SeasonWoodedRoute(map)) {
++        if (season == SEASON_SPRING || season == SEASON_AUTUMN) count = MAX_PARTICLES;
++    } else if ((map == MAP_ECRUTEAK && season == SEASON_AUTUMN)
++        || (map == MAP_GOLDENROD && season == SEASON_SPRING)) {
++        count = MAX_PARTICLES;
++    }
+     const BOOL entered = map != lastMap || season != lastSeason;
+     if (entered) {
+         frame = 0;
+@@ -2692,12 +2720,16 @@ static void SS3DS_SeasonParticles(FieldSystem *fieldSystem) {
+         lastSeason = season;
+         PSPNativeMemLog("[WEATHER] seasonal particles season %d map %d", season, map);
+     }
++    // A short gust crosses the scene periodically, with a different phase per map.
++    const int gustPhase = (frame + (unsigned)map * 53u) % 780;
++    const int gustRamp = gustPhase < 48 ? gustPhase : 96 - gustPhase;
++    const fx32 gustOffset = gustRamp > 0 ? gustRamp * (FX32_ONE / 12) : 0;
+     const VecFx32 *player = PlayerAvatar_GetPositionVector(fieldSystem->playerAvatar);
+     NNS_G3dGeFlushBuffer();
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+     G3_PolygonAttr(GX_LIGHTMASK_NONE, GX_POLYGONMODE_MODULATE, GX_CULL_NONE, 0, 31, GX_POLYGON_ATTR_MISC_FOG);
+     G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
+-    for (int i = 0; i < count[season]; i++) {
++    for (int i = 0; i < count; i++) {
+         unsigned phase = frame + i * (LIFE / MAX_PARTICLES);
+         int age = phase % LIFE;
+         if (entered || age == 0) {
+@@ -2712,10 +2744,14 @@ static void SS3DS_SeasonParticles(FieldSystem *fieldSystem) {
+             origin[i].y = SS3DS_WildGroundY(fieldSystem, origin[i].x, origin[i].z, player->y);
+             origin[i].y += (14 + (int)((seed >> 8) % 16)) * FX32_ONE;
+         }
++        if (map == MAP_GOLDENROD && season == SEASON_SPRING && i >= baseCount[season]
++            && !SS3DS_SeasonNearFlowerShop(&origin[i])) {
++            continue;
++        }
+         VecFx32 pos = origin[i];
+         int swing = (age + i * 7) % 32;
+         if (swing > 16) swing = 32 - swing;
+-        pos.x += (age + swing) * (season == SEASON_AUTUMN ? FX32_ONE / 4 : FX32_ONE / 8);
++        pos.x += gustOffset + (age + swing) * (season == SEASON_AUTUMN ? FX32_ONE / 4 : FX32_ONE / 8);
+         pos.y -= age * FX32_ONE / 9;
+         VecFx32 camera = SS3DS_WildCam(&NNS_G3dGlb.cameraMtx, &pos);
+         int width = FX16_ONE * 5 / 64;
+-- 
+2.53.0
+
