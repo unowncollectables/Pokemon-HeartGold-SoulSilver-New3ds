@@ -14,6 +14,7 @@
  * 5. the cheat gate: online mode is refused while any cheat_* option is on (no sockets, no identity, no traffic).
  * Nothing here touches the save. Log tag [NET]; every step is flushed to the SD card at once. */
 #include <stdarg.h>
+#include <errno.h>
 #include <3ds.h>
 #include <stdlib.h>
 #include <string.h>
@@ -186,9 +187,27 @@ static int sAdopted;
 
 static int onlineMode(void) { return P3DS_CfgInt("wireless", 0) == 2; }
 
+static int starMeOnline(void)
+{
+    return onlineMode() && P3DS_GtsStarMeSelected();
+}
+
+/* DWC_ACC_USERDATA_BUFSIZE in the linked NitroDWC SDK. */
+enum { STARME_DWC_BYTES = 64, STARME_GAME_CODE = 0x4144414A };
+static unsigned char sStarMeUserData[STARME_DWC_BYTES] __attribute__((aligned(32)));
+static unsigned previewTrainer, sStarMeTrainer;
+static int previewHasTrainer, sStarMeReady;
+
+static int starMeReadyForTrainer(void)
+{
+    return previewHasTrainer && sStarMeReady && sStarMeTrainer == previewTrainer;
+}
+
 int __wrap_DWC_CheckValidConsole(const void *userData)
 {
     static int told;
+    if (starMeOnline())
+        return previewHasTrainer && !P3DS_OnlineCheatBlocked() && P3DS_NetInit();
     if (userData && onlineMode() && !P3DS_OnlineCheatBlocked() && P3DS_NetInit() && __real_DWC_CheckHasProfile(userData)) {
         unsigned long long uid = DWCi_Acc_GetUserId((const char *)userData + 16);
         if (!sAdopted || sAdoptedUid != uid) {
@@ -208,6 +227,21 @@ int __wrap_DWC_CheckValidConsole(const void *userData)
 void __wrap_DWC_Auth_GetId(void *id)
 {
     __real_DWC_Auth_GetId(id);
+    if (starMeOnline()) {
+        if (starMeReadyForTrainer()) {
+            struct AuthWiFiId *a = id;
+            if (__real_DWC_CheckHasProfile(sStarMeUserData)) {
+                a->uId = DWCi_Acc_GetUserId(sStarMeUserData + 16);
+                a->flg = 1;
+            } else {
+                /* Keep the pending profile's console ID stable across restarts. */
+                unsigned long long uid = DWCi_Acc_GetUserId(sStarMeUserData + 4);
+                if (a->flg) a->uId = uid;
+                else a->notAttestedId = uid;
+            }
+        }
+        return;
+    }
     if (sAdopted && onlineMode()) {
         struct AuthWiFiId *a = id;
         a->uId = sAdoptedUid;
@@ -222,7 +256,9 @@ int __wrap_DWC_CheckHasProfile(const void *userData)
 {
     static int told;
     int real = __real_DWC_CheckHasProfile(userData);
-    if (userData) sGameUd = userData;
+    if (userData && userData != sStarMeUserData) sGameUd = userData;
+    if (starMeOnline())
+        return previewHasTrainer && !P3DS_OnlineCheatBlocked() && P3DS_NetInit();
     if (!told) {
         told = 1;
         NLOG("[NET] save has a Wi-Fi profile: %s%s", real ? "yes" : "no", (!real && onlineMode() && !P3DS_OnlineCheatBlocked()) ? " (online mode: connection task allowed anyway, the login will create one)" : "");
@@ -239,7 +275,6 @@ int __wrap_DWC_CheckHasProfile(const void *userData)
  * by asking the community DNS (wifi_dns, default as above) directly over UDP, because the system DNS knows nothing of these hosts.
  * Online mode only, never with a cheat on. Log tag [GHTTP]. Plain GET only, nothing is POSTed, nothing touches the save. */
 #include <poll.h>
-#include <errno.h>
 #include <fcntl.h>
 
 static in_addr_t ghDnsAddr(void)
@@ -287,9 +322,6 @@ static int ghResolve(const char *host, in_addr_t *out, in_addr_t *resolver)
 
 /* A separate cache keeps the most recent server-confirmed status across soft
  * resets. Store only the display fields, keyed to the save's trainer ID. */
-static unsigned previewTrainer;
-static int previewHasTrainer;
-
 void P3DS_GtsPreviewTrainer(unsigned trainerId)
 {
     previewTrainer = trainerId;
@@ -487,19 +519,57 @@ int P3DS_GhttpThink(void)
  * once per frame. The game's netcheck poll (ov00_021ECDC8, polled every frame right before it reads the profile id) is held at "running"
  * until the login finishes or fails (30 s), so the game's next step (state 0x10) sees the real gs_profile_id written by the library.
  * The NAS step uses plain http://nas.nintendowifi.net/ac (libntrdwc skips the cert check for a custom NAS URL). Online mode only, no cheats.
- * The login writes the profile into the save's userdata (that is how a real DS stores it); this is a test save, back it up first.
+ * Poké Classic uses the save's userdata. StarMe uses a separate profile owned by the port.
  * Log tag [LOGIN]. */
 extern void DWC_SetMemFunc(void *(*)(int, unsigned, int), void (*)(int, void *, unsigned));
-extern void DWC_Init(void *work);
+extern int DWC_Init(void *work);
 extern int DWC_CheckUserData(const void *ud);
 extern void DWC_CreateUserData(void *ud, unsigned gamecode);
-extern int DWC_InitFriendsMatch(void *ctl, void *ud, int productID, const char *gameName, const char *secretKey, int sendBufSize, int recvBufSize, void *friendList, int friendListLen);
+extern void DWC_InitFriendsMatch(void *ctl, void *ud, int productID, const char *gameName, const char *secretKey, int sendBufSize, int recvBufSize, void *friendList, int friendListLen);
 extern int DWC_LoginAsync(const unsigned short *name, const char *reserved, void (*cb)(int, int, void *), void *param);
 extern void DWC_ProcessFriendsMatch(void);
 extern int DWC_GetState(void);
 extern int DWC_GetLastError(int *code);
 extern void DWC_Auth_SetCustomNas(const char *url);
 extern int DWC_GetInetStatus(void);
+extern void DWC_ClearDirtyFlag(void *ud);
+extern void DWC_ShutdownFriendsMatch(void);
+
+static void starMeProfilePath(char *path, size_t size, const char *slot)
+{
+    snprintf(path, size, "sdmc:/3ds/soulsilver3ds/starme-wfc-%08x-%s.bin", sStarMeTrainer, slot);
+}
+
+/* Prefer the authenticated profile. Keep the pre-login identity in a
+ * different file so interrupted enrollment can retry the same account. */
+static int starMeReadProfile(const char *slot, int authenticated)
+{
+    char path[96];
+    starMeProfilePath(path, sizeof path, slot);
+    FILE *f = fopen(path, "rb");
+    if (!f) return errno == ENOENT ? 0 : -1;
+    size_t n = fread(sStarMeUserData, 1, sizeof sStarMeUserData, f);
+    int trailing = fgetc(f);
+    int valid = !ferror(f) && trailing == EOF && n == sizeof sStarMeUserData;
+    fclose(f);
+    return valid && DWC_CheckUserData(sStarMeUserData) &&
+        __real_DWC_CheckHasProfile(sStarMeUserData) == authenticated ? 1 : -1;
+}
+
+static int starMeWriteProfile(const char *slot)
+{
+    char path[96], temporary[100];
+    starMeProfilePath(path, sizeof path, slot);
+    snprintf(temporary, sizeof temporary, "%s.tmp", path);
+    FILE *f = fopen(temporary, "wb");
+    if (!f) return 0;
+    int ok = fwrite(sStarMeUserData, 1, sizeof sStarMeUserData, f) == sizeof sStarMeUserData;
+    if (fflush(f) != 0 || fsync(fileno(f)) != 0) ok = 0;
+    if (fclose(f) != 0) ok = 0;
+    if (ok && rename(temporary, path) == 0) return 1;
+    remove(temporary);
+    return 0;
+}
 
 static unsigned char sLoginWork[16384] __attribute__((aligned(32)));
 static unsigned char sLoginCtl[65536] __attribute__((aligned(32)));
@@ -507,34 +577,108 @@ static unsigned char sLoginFriends[2048] __attribute__((aligned(32)));
 static volatile int sLoginDone; /* 0 not started, 1 running, 2 ok, 3 failed */
 static volatile int sLoginPid, sLoginErr;
 static unsigned sLoginFrames;
+static int sLoginStarMe, sLoginInitialized, sStarMeWasAuthenticated;
+static unsigned sLoginTrainer;
+
+int P3DS_PrepareStarMeIdentity(void)
+{
+    if (!starMeOnline()) return 1;
+    if (!previewHasTrainer || P3DS_OnlineCheatBlocked() || !P3DS_NetInit()) return 0;
+    if (starMeReadyForTrainer()) return 1;
+
+    sStarMeReady = 0;
+    sStarMeTrainer = previewTrainer;
+    int loaded = starMeReadProfile("profile", 1);
+    if (loaded == 0) loaded = starMeReadProfile("pending", 0);
+    if (loaded < 0) {
+        NLOG("[LOGIN] StarMe profile unreadable; existing profile kept");
+        return 0;
+    }
+    if (loaded == 0) {
+        DWC_Init(sLoginWork);
+        DWC_CreateUserData(sStarMeUserData, STARME_GAME_CODE);
+        DWC_ClearDirtyFlag(sStarMeUserData);
+        if (!starMeWriteProfile("pending")) {
+            NLOG("[LOGIN] StarMe initial profile could not be saved");
+            return 0;
+        }
+        NLOG("[LOGIN] StarMe separate profile created");
+    } else {
+        NLOG("[LOGIN] StarMe separate profile loaded (%s)",
+             __real_DWC_CheckHasProfile(sStarMeUserData) ? "authenticated" : "pending");
+    }
+    sStarMeReady = 1;
+    return 1;
+}
+
+void P3DS_LoginStart(void);
+
+void P3DS_LoginBegin(void)
+{
+    const int starMe = starMeOnline();
+    if (sLoginDone > 1 && (sLoginStarMe != starMe || starMe)) {
+        if (sLoginInitialized) DWC_ShutdownFriendsMatch();
+        sLoginInitialized = 0;
+        sLoginDone = 0;
+        sLoginPid = 0;
+        sLoginFrames = 0;
+    }
+    P3DS_LoginStart();
+}
 
 static void loginCb(int err, int pid, void *param)
 {
     (void)param;
     sLoginErr = err; sLoginPid = pid;
     NLOG("[LOGIN] callback: error %d, profile id %d", err, pid);
-    if (err == 0 && pid > 0) sLoginDone = 2; else sLoginDone = 3;
+    if (err != 0 || pid <= 0) {
+        if (sLoginStarMe && !sStarMeWasAuthenticated) sStarMeReady = 0;
+        sLoginDone = 3;
+        return;
+    }
+    if (sLoginStarMe && !sStarMeWasAuthenticated) {
+        DWC_ClearDirtyFlag(sStarMeUserData);
+        if (!DWC_CheckUserData(sStarMeUserData) ||
+            !__real_DWC_CheckHasProfile(sStarMeUserData) ||
+            !starMeWriteProfile("profile")) {
+            NLOG("[LOGIN] StarMe profile could not be saved; GTS login stopped");
+            sStarMeReady = 0;
+            sLoginDone = 3;
+            return;
+        }
+        NLOG("[LOGIN] StarMe profile saved outside the game save");
+    }
+    sLoginDone = 2;
 }
 
 /* netcheck start (ov00_021ECD04) */
 void P3DS_LoginStart(void)
 {
     if (sLoginDone != 0) return;
-    if (!sGameUd || !onlineMode() || P3DS_OnlineCheatBlocked() || DWC_GetInetStatus() != 4) {
+    sLoginStarMe = starMeOnline();
+    sLoginTrainer = previewTrainer;
+    if ((!sLoginStarMe && !sGameUd) || !onlineMode() || P3DS_OnlineCheatBlocked() || DWC_GetInetStatus() != 4 ||
+        !P3DS_PrepareStarMeIdentity()) {
         NLOG("[LOGIN] not started (userdata %p, online %d, inet %d)", sGameUd, onlineMode(), DWC_GetInetStatus());
         sLoginDone = 3; return;
     }
-    void *ud = (void *)sGameUd;
+    void *ud = sLoginStarMe ? (void *)sStarMeUserData : (void *)sGameUd;
+    sStarMeWasAuthenticated = sLoginStarMe && __real_DWC_CheckHasProfile(ud);
     int okud = DWC_CheckUserData(ud);
     unsigned gid = *(const unsigned *)((const unsigned char *)ud + 0x1c);
-    NLOG("[LOGIN] starting on the save's userdata %p (valid %d, gs profile id %u)", ud, okud, gid);
-    if (!okud) { DWC_CreateUserData(ud, 0x4144414Au); NLOG("[LOGIN] userdata was invalid: created a fresh one"); }
+    NLOG("[LOGIN] starting with %s userdata (valid %d, gs profile id %u)",
+         sLoginStarMe ? "separate StarMe" : "the game's save", okud, gid);
+    if (!okud && !sLoginStarMe) {
+        DWC_CreateUserData(ud, STARME_GAME_CODE);
+        NLOG("[LOGIN] save userdata was invalid: created a fresh one");
+    }
     DWC_Auth_SetCustomNas("http://nas.nintendowifi.net/ac");
     DWC_Init(sLoginWork);
-    int r = DWC_InitFriendsMatch(sLoginCtl, ud, 0x29E7, "pokemondpds", "1vTlwb", 0, 0, sLoginFriends, 0x20);
-    NLOG("[LOGIN] InitFriendsMatch -> %d", r);
+    DWC_InitFriendsMatch(sLoginCtl, ud, 0x29E7, "pokemondpds", "1vTlwb", 0, 0, sLoginFriends, 0x20);
+    sLoginInitialized = 1;
+    NLOG("[LOGIN] InitFriendsMatch ready");
     static const unsigned short nm[] = { 'T', 'e', 's', 't', 0 };
-    r = DWC_LoginAsync(nm, NULL, loginCb, NULL);
+    int r = DWC_LoginAsync(nm, NULL, loginCb, NULL);
     NLOG("[LOGIN] LoginAsync -> %d (state %d)", r, DWC_GetState());
     sLoginDone = r ? 1 : 3;
 }
@@ -551,6 +695,7 @@ int P3DS_LoginPoll(void)
         if (++sLoginFrames > 30 * 30) { NLOG("[LOGIN] gave up after 30 s"); sLoginDone = 3; }
     }
     if (sLoginDone == 1) return 1;
+    if (sLoginStarMe) return sLoginDone == 2 ? 3 : 4;
     if (sLoginDone == 2) { static int told; if (!told) { told = 1; NLOG("[LOGIN] done, profile id %d is now in the save's userdata", sLoginPid); } return 3; }
     { static int told; if (!told) { told = 1; NLOG("[LOGIN] failed or skipped: continuing without a profile id (the GTS will use -1 as before)"); } }
     return 3;
@@ -969,8 +1114,10 @@ extern int __real_Save_SysInfo_GetDwcProfileId(void *sysInfo);
 extern void __real_Save_SysInfo_SetDwcProfileId(void *sysInfo, int profileId);
 int __wrap_Save_SysInfo_GetDwcProfileId(void *sysInfo)
 {
+    if (starMeOnline())
+        return sLoginStarMe && sLoginDone == 2 && sLoginTrainer == previewTrainer ? sLoginPid : 0;
     int v = __real_Save_SysInfo_GetDwcProfileId(sysInfo);
-    if ((v == -1 || v == 0) && sLoginDone == 2 && sLoginPid > 0) {
+    if ((v == -1 || v == 0) && !sLoginStarMe && sLoginDone == 2 && sLoginPid > 0) {
         static int told; if (!told) { told = 1; NLOG("[LOGIN] GTS profile id: save held %d, using the login's %d", v, sLoginPid); }
         return sLoginPid;
     }
@@ -978,7 +1125,8 @@ int __wrap_Save_SysInfo_GetDwcProfileId(void *sysInfo)
 }
 void __wrap_Save_SysInfo_SetDwcProfileId(void *sysInfo, int profileId)
 {
-    if (profileId == -1 && sLoginDone == 2 && sLoginPid > 0) { NLOG("[LOGIN] storing the login's profile id %d instead of -1", sLoginPid); profileId = sLoginPid; }
+    if (starMeOnline()) return;
+    if (profileId == -1 && !sLoginStarMe && sLoginDone == 2 && sLoginPid > 0) { NLOG("[LOGIN] storing the login's profile id %d instead of -1", sLoginPid); profileId = sLoginPid; }
     __real_Save_SysInfo_SetDwcProfileId(sysInfo, profileId);
 }
 
