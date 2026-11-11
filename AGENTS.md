@@ -61,7 +61,7 @@ In game press **L+R+Y** (or hold the top-left of the touch screen 0.3 s). L/R or
 
 ## 8. Current status
 
-**Bottom map (2026-11-09, platform only, not built here):** the Johto player head uses the same screen pixel as the scaled map (it slipped on some towns). Settings > Input "Map zoom" defaults to 1X; 2X and the on-map -/+ zoom in. "Roamer sprites" defaults OFF (letters). ON reads the ROM menu icon. No game rebuild. See root `HANDOFF.md`.
+**Bottom map (2026-11-09, platform only, not built here):** the Johto player head uses the same screen pixel as the scaled map (it slipped on some towns). Settings > Input "Map zoom" defaults to 1X; 2X and the on-map -/+ zoom in. "Roamer sprites" defaults ON (the ROM menu icon). OFF keeps the letters. No game rebuild. See root `HANDOFF.md`.
 
 **Update 2026-10-29 (run 59, main 158e73b):** a full local wireless trade between two 3DS consoles works (Union Room, via the translated DS comm code on 3DS UDS, patches 0127-0136). Also confirmed on hardware: Pokégear phone calls and header, X tile cursor, move badges, FAST 3D crisp mono, automatic backups (checker fixed in #211). SHARP SCALING was removed (#209). Still untested: radio tap, roamer/breeding tracker, Union Room Battle/Records/Draw/Greet/Spin. Goal is solid 30 fps; 60 fps is a late experiment. The paragraphs below are the older 2026-10-26 snapshot.
 

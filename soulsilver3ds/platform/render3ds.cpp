@@ -1108,7 +1108,7 @@ extern "C" void PSPNativeSoundAdvance(unsigned elapsedMicroseconds);
 extern "C" { int P3DS_WideHazeCfg(void); void P3DS_SetWideHazeCfg(int); }
 /* run 64 fast_text=0 (default off) / 2..4: characters per frame for the game's text printer (text.c; stops at
    every wait/prompt so nothing is skipped). Gameplay tab of the settings app. */
-/* run 64 reusable_tms=0 (default off): 1 = teaching a TM does not use it up (party_menu callbacks.c TeachMove). */
+/* run 64 reusable_tms=1 (default on when the key is absent): 1 = teaching a TM does not use it up (party_menu callbacks.c TeachMove). */
 static int reuseTmV=-1;extern "C" int P3DS_ReusableTMsCfg(void){if(reuseTmV<0){reuseTmV=P3DS_CfgInt("reusable_tms",0)!=0;PSPNativeMemLog("[ITEM] reusable_tms=%d",reuseTmV);}return reuseTmV;}
 /* run 64 Cheats tab: cheat_no_encounters=0 (default off): walking in grass / caves / surfing never starts a random
    wild battle (overlay006 wild_encounters.c returns "no encounter" before rolling). Nothing is written to the save. */
@@ -1220,7 +1220,7 @@ static const MItem mItems[]={
  {"SPRITE DEPTH","sprite_depth",2,{"OFF","ON"}},
  /* 116 (2026-10-28): bottom_bump, X steps a highlight over the Bottom menu tiles, A taps it, B drops it (run 49, replaces the wave); Controls tab, default ON until tested */
  {"X TILE CURSOR","bottom_bump",2,{"OFF","ON"}},
- /* 117 (2026-10-28, sharper picture thread): g3_sharp (g3gpu.c G3G_Begin), every 3D scene drawn at 2x and box-downscaled (4x supersampled edges), fog frames stay 1x; 3D tab, default OFF until tested, remove once tested */
+ /* 117 (2026-10-28, sharper picture thread): g3_sharp (g3gpu.c G3G_Begin), every 3D scene drawn at 2x and box-downscaled (4x supersampled edges), fog frames stay 1x; 3D tab, missing-key default FAST AUTO (3), remove once tested */
  {"SHARP 3D","g3_sharp",5,{"OFF","ON","FAST 3D","FAST AUTO","CRISP"}},
  /* 118 (2026-10-29, achievements): ach_toasts, default ON: Xbox-style toast on unlock; the list works either way; Play tab */
  {"ACHIEVEMENT TOASTS","ach_toasts",2,{"OFF","ON"}},
@@ -1234,13 +1234,13 @@ static const MItem mItems[]={
  /* 121 (run 145): panel_live, default OFF: PARTY / BAG tabs act with the world still running (hook 0207): tap two Pokemon to
     swap them, tap a medicine then a Pokemon to use it. Anything else opens the real menu (held frame) as before. */
  {"LIVE PARTY/BAG","panel_live",2,{"OFF","ON"}},
- /* 122 (run 146, hook 0208): dmg_check, default OFF until tested: Y foe screen gets a YOUR MOVES page (damage range per move, who moves first) */
+ /* 122 (run 146, hook 0208): dmg_check, default ON when the key is absent: Y foe screen gets a YOUR MOVES page (damage range per move, who moves first) */
  {"DAMAGE CHECK","dmg_check",2,{"OFF","ON"}},
- /* 123 (2026-11-03, hunt stats page): hunt_stats, default OFF: Y in the overworld opens a read-only stats page from hunt.txt (Battle tab) */
+ /* 123 (2026-11-03, hunt stats page): hunt_stats, default ON when the key is absent: ZR in the overworld opens a read-only stats page from hunt.txt (Battle tab) */
  {"HUNT STATS (ZR)","hunt_stats",2,{"OFF","ON"}},
- /* 124 (run 146): pg_find, default OFF: tap a name on the JOHTO map's wild list and the map pins every place that Pokemon lives, with a morning/day/night filter (hook 0209 for the times). */
+ /* 124 (run 146): pg_find, default ON when the key is absent: tap a name on the JOHTO map's wild list and the map pins every place that Pokemon lives, with a morning/day/night filter (hook 0209 for the times). */
  {"POKEDEX FINDER","pg_find",2,{"OFF","ON"}},
- /* 125 (run 146, hook 0210): breed_tab, default OFF: an EGGS tab on the Pokegear panel (Day-Care Pokemon, levels gained, egg chance and
+ /* 125 (run 146, hook 0210): breed_tab, default ON when the key is absent: an EGGS tab on the Pokegear panel (Day-Care Pokemon, levels gained, egg chance and
     whether an egg is waiting, steps left on the eggs in the party). Read-only. Setup tab (the Input tab is full). */
  {"BREEDING TAB","breed_tab",2,{"OFF","ON"}},
  /* 126 (2026-11-04, solid-30 fps thread): g3_batchcull (g3soft.cpp BatchOff), default ON: raw 3D batches whose bounding box is
@@ -1249,20 +1249,20 @@ static const MItem mItems[]={
  /* 127 (2026-11-04, solid-30 fps thread): gc_direct (gpucomp.c P3DS_GcDeferOut, gpuscale.c dirTop), default ON: GPU-composed mono field
     frames go to the screen without the readback / CPU colour pass / re-upload; Display tab, remove once tested */
  {"DIRECT SCREEN","gc_direct",2,{"OFF","ON"}},
- /* 128 (2026-11-05, hook 0217): wild_vis_alive, default OFF until tested: visible wild Pokemon are solid (the player cannot walk through one),
+ /* 128 (2026-11-05, hook 0217): wild_vis_alive, missing-key default ON + TOWNS (2): visible wild Pokemon are solid (the player cannot walk through one),
     A facing one or walking into one starts its battle, and some chase you (Scarlet/Violet style). Needs wild_vis. Battle tab; remove once tested.
     2026-11-06 (hook 0110 block v5): third value ON + TOWNS also fills towns and cities with ambient Pokemon (solid on land, no battles) */
  {"ALIVE WILD POKEMON","wild_vis_alive",3,{"OFF","ON","ON + TOWNS"}},
- /* 129 (2026-11-06, hook 0225): event_any_mon, default OFF until tested: the Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus event scenes
+ /* 129 (2026-11-06, hook 0225): event_any_mon, default ON when the key is absent: the Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus event scenes
     start with any Pichu/Pikachu/Raichu, Celebi or Arceus in the lead (no event metadata, no shiny needed). Play tab; remove once tested */
  {"EVENT MON W/O EVENT","event_any_mon",2,{"OFF","ON"}},
  /* 130 (2026-11-06, hook 0226): steady_music, default ON: walking past water/trees/waterfalls no longer fades the field music down and back up (the game's soundplates; Nathan: "gets loud af for a second"). Ambient sounds still play. Setup tab; remove once tested */
  {"STEADY MUSIC","steady_music",2,{"OFF","ON"}},
  /* 131 (2026-11-07, psp_ctru.c mixer): audio_even, default ON: slow loudness leveller + full-scale guard so area themes (route vs Goldenrod) and battle starts do not jump in volume or hard-clip. OFF = exact DS levels. Setup tab; remove once tested */
  {"EVEN LOUDNESS","audio_even",2,{"OFF","ON"}},
- /* 132 (2026-11-07, hook 0228): pg_flytap, default OFF until tested: a FLY chip on the JOHTO map's info card of an unlocked Fly point; tapping it starts the game's own Fly there (same checks as Pokemon > Fly). Input tab; remove once tested */
+ /* 132 (2026-11-07, hook 0228): pg_flytap, default ON when the key is absent: a FLY chip on the JOHTO map's info card of an unlocked Fly point; tapping it starts the game's own Fly there (same checks as Pokemon > Fly). Input tab; remove once tested */
  {"TAP TO FLY","pg_flytap",2,{"OFF","ON"}},
- /* 133 (2026-11-07, hook 0229): contest_helper, default OFF until tested: Bug-Catching Contest card (minutes left, Sport Balls, caught Pokemon) on the Bottom menu panel. Input tab; remove once tested */
+ /* 133 (2026-11-07, hook 0229): contest_helper, default ON when the key is absent: Bug-Catching Contest card (minutes left, Sport Balls, caught Pokemon) on the Bottom menu panel. Input tab; remove once tested */
  {"CONTEST HELPER","contest_helper",2,{"OFF","ON"}},
  {"COMMAND SHORTCUT","g3_packets",2,{"OFF","ON"}},
  {"BOUNDS SHORTCUT","g3_fast_bounds",2,{"OFF","ON"}},
@@ -1272,7 +1272,7 @@ static const MItem mItems[]={
  {"TITLE LAYOUT","title_clean_sides",3,{"LEGACY","CLASSIC","WIDE"}},
  /* 140: map_zoom, default 1X. 2X is a closer Johto map. The -/+ chips on the map write the same key. */
  {"MAP ZOOM","map_zoom",2,{"1X","2X"}},
- /* 141: roamer_sprites, default OFF. ON draws the ROM menu icon instead of the R/E/L letter. Tracker still decides who is shown. */
+ /* 141: roamer_sprites, default ON when the key is absent. ON draws the ROM menu icon instead of the R/E/L letter. Tracker still decides who is shown. */
  {"ROAMER SPRITES","roamer_sprites",2,{"OFF","ON"}},
  {"AMBIENT WEATHER","ambient_weather",2,{"OFF","ON"}},
  {"POKEWALKER","pokewalker",2,{"OFF","ON"}},

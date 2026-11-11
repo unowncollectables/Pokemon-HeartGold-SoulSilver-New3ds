@@ -13,7 +13,7 @@ extern volatile int P3DS_TrkReady;
 extern P3DS_TrkRoamer P3DS_TrkRoam[4];  /* 0 Raikou, 1 Entei, 2 Latias, 3 Latios (the game's roamer slots) */
 extern P3DS_TrkDaycare P3DS_TrkDc;
 int P3DS_TrkOn(void);
-/* contest_helper=1 (Settings > Input "Contest helper", default OFF; hook 0229): Bug-Catching Contest card on the Bottom menu panel while a contest runs.
+/* contest_helper=1 (Settings > Input "Contest helper", default ON when the key is absent; hook 0229): Bug-Catching Contest card on the Bottom menu panel while a contest runs.
  * elapsed = game minutes used of 20 (the game ends the contest at 20), balls = Sport Balls left (starts at 20). Read-only. */
 typedef struct { int active, elapsed, balls, species, level; } P3DS_ContestInfo;
 extern volatile unsigned P3DS_ContestTick;

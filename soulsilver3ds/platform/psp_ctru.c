@@ -328,11 +328,13 @@ void P3DS_CfgInvalidate(void) { if (!cfgLkInit) { LightLock_Init(&cfgLk); cfgLkI
    that read P3DS_CfgInt(key, 0) get them too. A key that IS in config.txt always wins. Keep in step with logring.c cfgTab. */
 static const struct { const char *key; int def; } kCfgDefaults[] = {
     { "shiny_suite", 1 }, { "catch_overlay", 1 },
-    { "wild_vis", 1 }, { "wild_vis_alive", 0 }, { "event_any_mon", 0 }, { "contest_helper", 0 }, { "audio_even", 1 }, { "steady_music", 1 }, { "wild_vis_shiny", 1 }, { "ribbon_check", 1 }, { "celebrations", 1 }, { "summary_ivs", 1 }, { "hm_free", 1 }, { "repel_prompt", 1 }, { "select_reset", 1 }, { "wide_battle", 1 }, { "wide_boxes", 1 }, { "wide_menu_screens", 1 }, { "fast_text", 2 },
-    /* 2026-11-03: Nathan's tuned config.txt values (everything he runs with is now the default; g3_sharp stays 0, experimental) */
-    { "fps_counter", 1 }, { "stereo_strength", 2 }, { "zl_run", 1 }, { "hunt_counter", 1 }, { "hunt_stats", 0 },{ "menu_button", 0 }, { "g3_wmode", 2 }, { "reset_skip_intro", 1 }, { "wide_menus", 1 }, { "wide_pokedex", 1 }, { "wide_pc", 1 }, { "gpu_direct3d", 1 }, { "fps_tweaks", 7 }, { "wireless", 2 }, { "dc_flush_skip", 1 }, { "wild_vis_count", 6 }, { "battery_warn", 1 }, { "tracker", 1 }, { "type_hint", 1 }, { "pm_shortcuts", 1 }, { "sprite_depth", 1 }, { "zr_item", 0 }, { "panel_party", 1 }, { "log_level", 2 }, { "battle_anim_speed", 0 },
+    { "wild_vis", 1 }, { "wild_vis_alive", 2 }, { "event_any_mon", 1 }, { "contest_helper", 1 }, { "audio_even", 1 }, { "steady_music", 1 }, { "wild_vis_shiny", 1 }, { "ribbon_check", 1 }, { "celebrations", 1 }, { "summary_ivs", 1 }, { "hm_free", 1 }, { "repel_prompt", 1 }, { "select_reset", 1 }, { "wide_battle", 1 }, { "wide_boxes", 1 }, { "wide_menu_screens", 1 }, { "fast_text", 2 },
+    /* 2026-11-03: tuned values that were already the missing-key default. fps_counter, wireless and log_level stay as listed here. */
+    { "fps_counter", 1 }, { "stereo_strength", 2 }, { "zl_run", 1 }, { "hunt_counter", 1 }, { "hunt_stats", 1 }, { "menu_button", 0 }, { "g3_wmode", 2 }, { "reset_skip_intro", 1 }, { "wide_menus", 1 }, { "wide_pokedex", 1 }, { "wide_pc", 1 }, { "gpu_direct3d", 1 }, { "fps_tweaks", 7 }, { "wireless", 2 }, { "dc_flush_skip", 1 }, { "wild_vis_count", 6 }, { "battery_warn", 1 }, { "tracker", 1 }, { "type_hint", 1 }, { "pm_shortcuts", 1 }, { "sprite_depth", 1 }, { "zr_item", 0 }, { "panel_party", 1 }, { "log_level", 2 }, { "battle_anim_speed", 0 },
     /* 2026-11-09: used only when the key is absent. A saved line wins, including OFF and LEGACY. gpu_compose_b 1 = ON (2 stays CHECK). title_clean_sides 2 = WIDE. */
     { "g3_packets", 1 }, { "g3_fast_bounds", 1 }, { "gpu_compose_b", 1 }, { "gpu_obj_affine", 1 }, { "gpu_b_fades", 1 }, { "title_clean_sides", 2 },
+    /* 2026-11-11: owner's config.txt, only when the key is absent. g3_sharp 3 = FAST AUTO (0..4). wild_vis_alive 2 = ON + TOWNS (0..2). */
+    { "g3_sharp", 3 }, { "dmg_check", 1 }, { "pg_find", 1 }, { "breed_tab", 1 }, { "reusable_tms", 1 }, { "pg_flytap", 1 }, { "roamer_sprites", 1 }, { "ambient_weather", 1 }, { "pokewalker", 1 },
 };
 int P3DS_CfgInt(const char *key, int def) {
     if (!cfgLkInit) { LightLock_Init(&cfgLk); cfgLkInit = 1; }

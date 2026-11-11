@@ -102,10 +102,11 @@ PICTURE
                     ~0.1 ms). 0 = off. Default 1. (Menu: WIDE HAZE)  [run 61]
   battle_monobj_hide=1  fixes the Pokemon showing twice while a Poke Ball is thrown in battle. 0 = off. Default 1.
   (res3d: ignored since run 52. Use g3_sharp instead.)
-  g3_sharp=0        (2 = FAST 3D: with the 3D slider up only the left eye is 2x, the right eye 1x, much cheaper)
+  g3_sharp=3        (0 off, 1 on, 2 = FAST 3D: with the 3D slider up only the left eye is 2x, the right eye 1x, much cheaper)
+                    (3 = FAST AUTO, the missing-key default: FAST 3D, dropping the left eye to 1x while stereo cannot hold 30 fps)
                     (4 = CRISP test: mono 3D also drawn at the final screen size where nothing is on top; Wide view off, slider 0; log tag [CRISP])
                     all 3D drawn at 2x and box-downscaled (smooth edges); fog areas stay 1x. Experimental, may cost
-                    fps. Default 0. (Menu: 3D > SHARP 3D, applies at once) While on, the screen scaler uses 16-bit
+                    fps. Default 3. (Menu: 3D > SHARP 3D, applies at once) While on, the screen scaler uses 16-bit
                     colour to make VRAM room (tiny colour banding possible).
   tex_postvblank=1  3D sprites pick up their new picture in the same frame (fixes the one-frame coloured box
                     when getting on the bike, and late sprite frames). 0 = off. Default 1.
@@ -268,7 +269,7 @@ fps60_probe=0           (default 0 = off, log only) 1: log.txt gets '[FPS] field
                     60 fps overworld, see docs/FPS60.md. Changes nothing on screen.
 fast_text=2             (default 2) 2, 3, 4 or 64 (instant): the game prints that many letters per frame. Stops at
                         every pause / button prompt, so no text is skipped. Settings app, System tab (Fast text).
-reusable_tms=0          (run 64, default 0) 1 = TMs are not used up when you teach them. Also in the settings app.
+reusable_tms=1          (run 64, default 1) 1 = TMs are not used up when you teach them. Also in the settings app. 0 = a TM is used up.
 follower_gap=1          (run 64, default 1) The following Pokemon walks a bit farther back (more for big Pokemon), so
                         it no longer covers your head. 0 = old spacing.
 follower_area_talk=1    (run 64, default 1) With follower_talk=1: what your Pokemon says depends on where you are
@@ -310,7 +311,7 @@ tracker=1              (default 0; Settings > Play) Roamer + breeding tracker on
                        the roaming Pokemon's location (Raikou, Entei, Latias, Latios), and the progress overview (menu-dots button)
                        lists them plus the Day-Care (egg chance per 256 steps, steps to the next roll, Masuda yes/no with the
                        egg's shiny odds). Read-only; data from pspoke hook 0120. Suicune does not roam in HeartGold/SoulSilver.
-roamer_sprites=0        (default 0; Settings > Input) When the tracker is on, roaming Pokemon are drawn with their menu icon
+roamer_sprites=1        (default 1; Settings > Input) When the tracker is on, roaming Pokemon are drawn with their menu icon
                         read from your ROM (same tinted icon as the Pokedex finder). OFF keeps the coloured letter. A missing
                         icon falls back to the letter. Does not change where they are, or the save.
 map_zoom=0              (default 0 = 1X; Settings > Input, or the - / + chips on the Johto map) 1 = 2X, a closer view of the
@@ -362,9 +363,9 @@ Run 76
                        Rock Smash, surfing, fishing, Headbutt; the visible sparkle (wild_vis_shiny) uses the same odds. Not gifts, eggs, roamers, Safari, Contest.
                        The game's own shiny code makes the Pokemon (like the Poke Radar); the extra roll is the port's own generator, never the game's RNG.
   battery_warn=0       (Battle tab "Low battery warning") at 1 bar or less and not charging: "BATTERY LOW: SAVE NOW" once a minute and hunt.txt is written at once.
-  hunt_stats=0         (Battle tab "Hunt stats (ZR)") ZR (back trigger) in the overworld opens a read-only page from hunt.txt: 1/4 overview (met, encounters, shinies, time, best shiny streak, current hunt), 2/4 most met species, 3/4 timeline by first-met date, 4/4 best streaks (fewest encounters before a shiny). Needs shiny_suite=1 or hunt_counter=1. Nothing is written.
+  hunt_stats=1         (default 1; Battle tab "Hunt stats (ZR)") ZR (back trigger) in the overworld opens a read-only page from hunt.txt: 1/4 overview (met, encounters, shinies, time, best shiny streak, current hunt), 2/4 most met species, 3/4 timeline by first-met date, 4/4 best streaks (fewest encounters before a shiny). Needs shiny_suite=1 or hunt_counter=1. Nothing is written.
 type_hint=0           (Battle tab "Move type hint") while the FIGHT menu is open, each damaging move button on the TOUCH screen gets a small tag: SUPER EFFECTIVE (green), NOT VERY EFF. (red) or NO EFFECT (grey); nothing for neutral or status moves (doubles show the better of the two foes). Gen 4 chart; abilities/items not considered. Hook 0121, read-only. Log tag [HINT] (also prints a colour profile of the bottom image so the tag position can be checked).
-dmg_check=0           (Battle tab "Damage check", hook 0208) the Y foe screen gets a last page: a rough damage range (and % of the foe's HP) for each of your moves, and who moves first. Singles only; ignores crits, items, abilities, weather, priority. Default OFF until tested.
+dmg_check=1           (default 1; Battle tab "Damage check", hook 0208) the Y foe screen gets a last page: a rough damage range (and % of the foe's HP) for each of your moves, and who moves first. Singles only; ignores crits, items, abilities, weather, priority. 0 = off.
   tod_tint=0           (1 = soft evening / night tint outdoors; follows cheat_time when set)
   bottom_vramgen=1     (Underground fix: bottom screen redraws when its VRAM is written; 0 = old reuse)
   Ball tab now also lists Dusk and Net Ball odds. Log adds [PERF3] (worst frame, bottom reuse) every ~10 s.
@@ -381,8 +382,8 @@ Run 80
   text_hold_b=0        (Settings > System. 1 = holding B prints text instantly and advances finished text boxes; never picks yes/no or menu choices)
   text_auto=0          (Settings > System. 1 = text boxes advance by themselves after ~1.5 s; choices still wait for you)
 
-SoulSilver gameplay toggles (Settings > Gameplay, patch 0040; all default 0, apply at once, nothing extra is saved)
-reusable_tms=0          1 = teaching a TM does not use it up ([ITEM] log line).
+SoulSilver gameplay toggles (Settings > Gameplay, patch 0040; apply at once, nothing extra is saved). The value on each line is the missing-key default.
+reusable_tms=1          1 = teaching a TM does not use it up ([ITEM] log line). 0 = a TM is used up.
 hm_free=1               1 = Cut, Surf, Strength, Rock Smash, Waterfall, Whirlpool and Rock Climb work in the field
                         with no Pokemon needing to know or learn the HM (patch 0115; the first non-egg Pokemon does it, and the
                         Pokemon menu lists each HM usable right now). Badges and story checks are still required
@@ -443,7 +444,7 @@ Visible wild Pokemon (SoulSilver hook 0110, Settings > Play, all live, default O
   wild_vis_cries=1    1 = a Pokemon that notices you (3 tiles) plays its cry (it always hops and shows a "!")
   Behaviour: about half wander, some walk up to you and wait (curious), some run away (shy; roamers always run).
   In tall grass the lower part is hidden; elsewhere on land they cast a soft shadow. Log: [WILD] spawn / noticed / contact / removed lines.
-wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive wild Pokemon; needs wild_vis=1) Scarlet/Violet feel:
+wild_vis_alive=2    (2026-11-05, default 2 = ON + TOWNS, hook 0217; Settings > Battle > Alive wild Pokemon; needs wild_vis=1) Scarlet/Violet feel:
   visible wild Pokemon are solid (you stop in front of one instead of walking through), A facing one or pushing against it for
   about half a second starts its battle, and some bold ones charge at you (touching you starts the battle). Every 30-70 s outdoors a
   flyer for the area, time of day and weather crosses the sky with its shadow below (decoration, never battles); shiny 1/2048 (needs
@@ -477,18 +478,19 @@ wild_vis_alive=0    (2026-11-05, default 0, hook 0217; Settings > Battle > Alive
   Violet School, Kurt's house, and Ecruteak Dance Theater also have named resident schedules.
   A resident can head to the door when its schedule changes to the other side. Named residents also use their buildings as rain shelter.
   Log: [WILD] town life on/off ... / spawn ... TOWN / startled by fast approach / low pass / high pass / slots ... play / seeks a rain spot.
-pg_find=0               (2026-11-03, default 0; Settings > Input > Pokedex finder) Pokedex encounter finder on the JOHTO map: tap a place, tap its card (wild list), tap a Pokemon name and the map pins every place that species lives. Chips ANY / MORN / DAY / NITE filter by time of day (MORN 4-10h, DAY 10-20h, NITE 20-4h; surf, fishing and Rock Smash count at any time); X clears. Times come from hook 0209 (without it only ANY works). Read-only, never touches the save. Log [FIND].
-pg_flytap=0             (2026-11-07, default 0, hook 0228; Settings > Input > Tap to Fly) Tap-to-Fly on the JOHTO map: tap a town you can Fly to (the game's own unlocked Fly points), then the FLY chip on its info card (green = Fly works here now, grey = the tap says why not: wrong place, no Storm Badge, follower/costume, no Pokemon with Fly; HM free counts). Starts the game's own Fly flight, nothing is written to the save by the port. Log [FLY].
-breed_tab=0             (2026-11-03, default 0; Settings > Setup > Breeding tab) adds an EGGS tab (6th) to the JOHTO panel: Day-Care Pokemon, levels gained, egg chance / EGG READY, Masuda, steps left on party eggs. Read-only (hook 0210). Remove the toggle once tested.
-event_any_mon=0         (2026-11-06, default 0, hook 0225; Settings > Play > Event Pokemon w/o event) The HGSS event scenes (Ilex Forest shrine: Spiky-eared
+pg_find=1               (2026-11-03, default 1; Settings > Input > Pokedex finder) Pokedex encounter finder on the JOHTO map: tap a place, tap its card (wild list), tap a Pokemon name and the map pins every place that species lives. Chips ANY / MORN / DAY / NITE filter by time of day (MORN 4-10h, DAY 10-20h, NITE 20-4h; surf, fishing and Rock Smash count at any time); X clears. Times come from hook 0209 (without it only ANY works). Read-only, never touches the save. Log [FIND].
+pg_flytap=1             (2026-11-07, default 1, hook 0228; Settings > Input > Tap to Fly) Tap-to-Fly on the JOHTO map: tap a town you can Fly to (the game's own unlocked Fly points), then the FLY chip on its info card (green = Fly works here now, grey = the tap says why not: wrong place, no Storm Badge, follower/costume, no Pokemon with Fly; HM free counts). Starts the game's own Fly flight, nothing is written to the save by the port. Log [FLY].
+breed_tab=1             (2026-11-03, default 1; Settings > Setup > Breeding tab) adds an EGGS tab (6th) to the JOHTO panel: Day-Care Pokemon, levels gained, egg chance / EGG READY, Masuda, steps left on party eggs. Read-only (hook 0210). Remove the toggle once tested.
+event_any_mon=1         (2026-11-06, default 1, hook 0225; Settings > Play > Event Pokemon w/o event) The HGSS event scenes (Ilex Forest shrine: Spiky-eared
   Pichu and Celebi; Arceus at the Ruins of Alph / Sinjoh Ruins / Hall of Origin) normally need a Nintendo-event Pokemon in the lead. ON: any Pichu / Pikachu /
   Raichu (shiny not needed), any Celebi, any Arceus in the lead starts its scene. The scenes' story conditions and once-only flags stay as in the game; the
   port writes nothing (the Pichu scene's own GiveSpikyEarPichu is the game's normal gift). Log: [EVENT]. Needs a game rebuild (scrcmd_c.o).
 steady_music=1        (2026-11-06, default 1, hook 0226; Settings > Setup > Steady music) The game fades the field music to 3/4, 1/2 or 1/4 volume on soundplate tiles (sea, waterfalls, trees, windmills) and back to full after them. ON: the music stays at one volume (ambient sound unchanged). OFF: original DS behaviour. Log: [AUDIO] steady_music. Needs a game rebuild (field_control.o). Remove the toggle once tested.
 audio_even=1          (2026-11-07, default 1; Settings > Setup > Even loudness) Slow loudness leveller (follows the average level over ~1 s, turns the mix down at most to 40% when it sits above the target, back up over ~1 s) plus a guard that only acts when the output would pass 32000. Stops route -> city music jumps and battle-start clipping. OFF = exact DS levels. audio_even_level=5200 sets the target average |sample| (1500..20000, lower = quieter/more even). Log: [AUDIO] even loudness. Remove the toggle once tested.
-contest_helper=0      (2026-11-07, default 0, hook 0229; Settings > Input > Contest helper) Bug-Catching Contest: while a contest runs, a card at the top of the Bottom menu panel (map view, no Pokegear pane open) shows "TIME N min left", "BALLS n / 20" (Sport Balls) and the Pokemon you hold. Time is the game's own whole-minute counter (the contest ends at 20 used), so it can be up to a minute generous; it turns red at 3 minutes / 3 balls. Read-only. Needs the Bottom menu ON. Log: [CONTEST]. Needs a game rebuild (field_control.o). Remove the toggle once tested. The Pokeathlon is not covered: its events run in their own overlay app with no field hook point.
+contest_helper=1      (2026-11-07, default 1, hook 0229; Settings > Input > Contest helper) Bug-Catching Contest: while a contest runs, a card at the top of the Bottom menu panel (map view, no Pokegear pane open) shows "TIME N min left", "BALLS n / 20" (Sport Balls) and the Pokemon you hold. Time is the game's own whole-minute counter (the contest ends at 20 used), so it can be up to a minute generous; it turns red at 3 minutes / 3 balls. Read-only. Needs the Bottom menu ON. Log: [CONTEST]. Needs a game rebuild (field_control.o). Remove the toggle once tested. The Pokeathlon is not covered: its events run in their own overlay app with no field hook point.
 
-ambient_weather=0  (Display > Ambient weather)
+ambient_weather=1  (Display > Ambient weather, default 1)
   1 enables seasonal rain, snow and mist on eligible clear towns and routes.
   Seasons rotate every seven days using the console calendar.
   Alive wild Pokemon reacts when enabled. Original map weather takes priority.
+pokewalker=1       (Setup > Pokewalker, default 1) 1 = the original Pokewalker app can launch. 0 = it stays closed. Experimental.

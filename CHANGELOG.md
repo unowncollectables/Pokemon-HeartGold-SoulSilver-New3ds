@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Missing `config.txt` keys now use the owner's tuned values. A line already in the file still wins. New missing-key defaults: Alive wild Pokémon ON + TOWNS, Event Pokémon without the event flag, Contest helper, Hunt stats, Sharp 3D FAST AUTO, Damage check, Pokédex finder, Breeding tab, Reusable TMs, Tap to Fly, Roamer sprites, Ambient weather, and Pokéwalker. `fps_counter`, `wireless`, `log_level`, and Seasonal trees are unchanged. HeartGold uses the same tables. The save file is untouched.
+
 - Battle animation cleanup now receives the particle emitter it needs to release. This fixes a native call mismatch in Shadow Ball and two other overlay 7 callbacks.
 
 - Town Pokémon play their species cry when greeted with A and Visible Wild Cries enabled.
@@ -27,7 +29,7 @@ All notable changes to this project will be documented here.
 ### Johto bottom map: steadier player head, 2X zoom, roamer icons
 - The player head on the scaled bottom map was placed with `mark * 5 / 4`, which does not match the 2x-then-linear scale. On some towns the head slipped a screen pixel against the map while the view moved, then sat off. It now uses the screen pixel that samples that same map pixel. Standing still was already still. Location changes still move it.
 - Settings > Input "Map zoom" (`map_zoom`, default 1X). 2X is a closer view. `-` and `+` on the map change the same setting. Taps, Fly, finder pins and roamer marks stay on the place you see. The side buttons and captions stay put.
-- Settings > Input "Roamer sprites" (`roamer_sprites`, default OFF). ON draws the ROM menu icon instead of the R/E/L letter. OFF is the letter. A missing icon keeps the letter. Roamer data is unchanged.
+- Settings > Input "Roamer sprites" (`roamer_sprites`, missing-key default ON). ON draws the ROM menu icon instead of the R/E/L letter. OFF is the letter. A missing icon keeps the letter. Roamer data is unchanged.
 - Platform rebuild only. Not compiled in this session, not run in an emulator, not checked on hardware.
 
 ### Visible wild Pokemon keep their own ground height

@@ -1,5 +1,9 @@
 # Release notes
 
+## Built-in settings
+
+A fresh or incomplete `config.txt` now starts from the owner's tuned values. A line already in the file is kept, including OFF. Alive wild Pokémon starts at ON + TOWNS, Sharp 3D at FAST AUTO, and Pokéwalker, Ambient weather, Roamer sprites, Tap to Fly, the Pokédex finder, the Breeding tab, Hunt stats, Damage check, Contest helper, Reusable TMs, and Event Pokémon without the event flag start on. Wide view stays on. HeartGold uses the same defaults. Not built in this session.
+
 ## Battle animation cleanup
 
 The native battle code now passes the particle emitter to Shadow Ball cleanup. Requires a game rebuild. A Morty rematch on New 3DS is pending.
@@ -12,7 +16,7 @@ RUN ON means you run by default. RUN OFF means you walk by default. Holding B te
 Set Alive wild Pokémon to ON + TOWNS in Settings > Battle to meet town residents. Try pressing A next to one, then walk and sprint toward a shy Pokémon outside town to see the difference. Fliers can bank along clear low lanes or pass overhead. Nearby Pokémon sometimes play together, and rain can send land Pokémon into tall grass. Watch for leaves moving in the grass and ripples after a water Pokémon lands. In town, residents may linger beside water or greenery. Outside town, a startled Pokémon may duck into tall grass and peek out if you wait quietly. With Visible wild cries enabled, listen for rustling, calls between Pokémon, and approaching fliers. In town, a berry can roll past two residents and start a chase. Some solo fliers land briefly along clear routes. After rain, look for fading tracks and Pokémon shaking off water. Check the Goldenrod Flower Shop in the morning, daytime and evening for its Bellossom. Look for Mareep around Violet’s Pokémon School, Aipom near Kurt’s house, and Vulpix near the Dance Theater. Catch the time change to see a resident head toward the doorway. Towns now vary in where Pokémon linger, how often they play, and when they nap or get showers. In Kanto, check Vermilion’s Fan Club, Lavender’s Radio Station, and Pewter’s Museum. In Goldenrod, Bellossom can follow the Flower Shop clerk when its daytime routine starts. Additional residents visit Cherrygrove’s Guide Gent, Olivine Café, Cianwood Pharmacy, and Celadon Department Store. Pending a game rebuild and New 3DS testing.
 
 ## Johto map head, zoom, and roamer icons
-The player head on the bottom map stays on the town it is marking while the map recentres. Map zoom in Settings > Input defaults to 1X; 2X (or the - and + on the map) is a closer view of the same map. Roamer sprites default off, so the coloured letters stay until you turn them on. Needs a platform rebuild. Not checked on a 3DS yet.
+The player head on the bottom map stays on the town it is marking while the map recentres. Map zoom in Settings > Input defaults to 1X; 2X (or the - and + on the map) is a closer view of the same map. Roamer sprites default on, so the ROM menu icon is used unless a saved line turns it off. Needs a platform rebuild. Not checked on a 3DS yet.
 
 ## Rendering performance hardware trial
 Use L+R+Y to open settings. Under 3D, enable Command shortcut, Bounds shortcut, Second screen GPU (ON), Affine object GPU, and Second screen fades. Under Display, set Title layout to WIDE. These settings default to the existing renderer and layout. Start with the title reveal, Goldenrod, and a battle send-out, then repeat gameplay with the 3D slider down. The wide title averaged about 26 FPS in the local Azahar trial. Fades and some battle effects can still dip. New 3DS testing is pending.
