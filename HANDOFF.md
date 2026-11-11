@@ -1,3 +1,7 @@
+# Seasonal tree colors (0268)
+
+Settings > Display > Seasonal trees is a separate experiment and defaults to OFF. It changes the canopy on supported outdoor tree palettes when the area loads. Spring is lighter green, summer uses the original colors, autumn is copper, and winter looks frost-tinted. Models, tree trunks, and shadows use the original data. Toggle or season changes take effect on the next area reload. Device checks are pending for visual coverage in both games.
+
 # Local seasonal scenery (0267)
 
 Clear spring days have more petals near Goldenrod's Flower Shop and along wooded routes. Clear autumn days have more leaves around Ecruteak and the same wooded routes, including Kanto Route 2. Most areas use fewer petals or leaves. A brief periodic gust moves the particles together. The six-particle cap and the Ambient Weather setting apply to all of these effects.
