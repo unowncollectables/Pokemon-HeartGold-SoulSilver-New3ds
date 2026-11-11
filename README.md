@@ -59,16 +59,61 @@
 
 <table>
   <tr>
-    <td align="center" width="50%">
-      <img src="assets/screens/field-map.png" alt="Goldenrod City fills the top screen while the Johto map and menu shortcuts occupy the touch screen" width="340"><br>
-      <sub>Earlier panel layout; a fresh capture is coming.</sub>
+    <td align="center">
+      <img src="assets/screens/field-goldenrod.png" alt="Goldenrod City with visible wild Pokémon on the top screen and the Johto map with roamer sprites below" width="260"><br>
+      <sub>Goldenrod with visible wild Pokémon and roamer sprites on the map.</sub>
     </td>
-    <td align="center" width="50%">
-      <img src="assets/screens/panel-radio.png" alt="Pokégear Radio with the station list open while the trainer stands in Goldenrod City" width="340"><br>
-      <sub>Radio panel captured in Azahar. Tap-to-tune still needs more hardware testing.</sub>
+    <td align="center">
+      <img src="assets/screens/map-2x.png" alt="The bottom-screen Johto map zoomed to 2X" width="260"><br>
+      <sub>Bottom map at 2X zoom.</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screens/route-35.png" alt="Route 35 grass and trees north of Goldenrod" width="260"><br>
+      <sub>Route 35, just north of Goldenrod.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="assets/screens/panel-party.png" alt="Party panel on the touch screen" width="260"><br>
+      <sub>Party panel without leaving the field.</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screens/panel-bag.png" alt="Bag panel on the touch screen" width="260"><br>
+      <sub>Bag panel.</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screens/panel-radio.png" alt="Pokégear Radio panel on the touch screen" width="260"><br>
+      <sub>Radio panel. Tap-to-tune still needs more hardware testing.</sub>
     </td>
   </tr>
 </table>
+
+### Around Johto
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="assets/screens/olivine.png" alt="Olivine City Pokémon Center and seaside boardwalk" width="260"><br>
+      <sub>Olivine City.</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screens/ecruteak.png" alt="Ecruteak City streets" width="260"><br>
+      <sub>Ecruteak City.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="assets/screens/mahogany.png" alt="Mahogany Town among the pines" width="260"><br>
+      <sub>Mahogany Town.</sub>
+    </td>
+    <td align="center">
+      <img src="assets/screens/blackthorn.png" alt="Blackthorn City on its rocky plateau" width="260"><br>
+      <sub>Blackthorn City, with Tap to Fly on the bottom map.</sub>
+    </td>
+  </tr>
+</table>
+
+<sub>All screenshots captured in the Azahar emulator from a personal build.</sub>
 
 - **Top screen.** Walk through towns and routes in widescreen, with optional stereoscopic depth in the field and in battles on consoles with a 3D slider.
 - **Touch screen.** Check your party, bag, map, phone, or radio without leaving the field. Optional tools surface encounter locations, Fly destinations, egg progress, and Bug-Catching Contest stats.
