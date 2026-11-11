@@ -1,0 +1,52 @@
+From 1520464d03cd9f66603645b4e0230ebd1dd39f15 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 10 Nov 2026 19:25:41 -0500
+Subject: [PATCH] Spread seasonal particles across the terrain
+
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 19 +++++++++++++++----
+ 1 file changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 7f172cd..cd0a239 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -2703,8 +2703,13 @@ static void SS3DS_SeasonParticles(FieldSystem *fieldSystem) {
+         if (entered || age == 0) {
+             unsigned seed = (phase / LIFE + i * 29u + map * 7u) * 2654435761u;
+             origin[i] = *player;
+-            origin[i].x += ((int)((seed >> 16) % 100) - 62) * FX32_ONE;
+-            origin[i].z += ((int)((seed >> 24) % 80) - 44) * FX32_ONE;
++            // Stagger the spawn points across the scene, with jitter so the
++            // particles do not appear in rows. Start upwind of their drift.
++            const int across = (i % 3 - 1) * 50 - 12;
++            const int depth = (i % 2 ? 32 : -32) - 4;
++            origin[i].x += (across + (int)((seed >> 16) % 25) - 12) * FX32_ONE;
++            origin[i].z += (depth + (int)((seed >> 24) % 25) - 12) * FX32_ONE;
++            origin[i].y = SS3DS_WildGroundY(fieldSystem, origin[i].x, origin[i].z, player->y);
+             origin[i].y += (14 + (int)((seed >> 8) % 16)) * FX32_ONE;
+         }
+         VecFx32 pos = origin[i];
+@@ -2713,11 +2718,17 @@ static void SS3DS_SeasonParticles(FieldSystem *fieldSystem) {
+         pos.x += (age + swing) * (season == SEASON_AUTUMN ? FX32_ONE / 4 : FX32_ONE / 8);
+         pos.y -= age * FX32_ONE / 9;
+         VecFx32 camera = SS3DS_WildCam(&NNS_G3dGlb.cameraMtx, &pos);
+-        int width = FX16_ONE / 16;
++        int width = FX16_ONE * 5 / 64;
+         if (season == SEASON_AUTUMN || season == SEASON_SPRING) {
+             width += swing * FX16_ONE / 512;
+         }
+-        const int height = (season == SEASON_SUMMER || season == SEASON_WINTER) ? width : FX16_ONE / 12;
++        int height = (season == SEASON_SUMMER || season == SEASON_WINTER) ? width : FX16_ONE * 5 / 48;
++        // Ease in and out as each particle drifts through its lifetime.
++        const int edge = age < LIFE / 2 ? age : LIFE - age;
++        if (edge < 12) {
++            width = width * edge / 12;
++            height = height * edge / 12;
++        }
+         G3_PushMtx();
+         G3_Identity();
+         G3_Translate(camera.x, camera.y, camera.z);
+-- 
+2.53.0
+

@@ -1,3 +1,7 @@
+# Seasonal particle spacing (0266)
+
+Device feedback found the original particle count ran well but the effect stayed too close to the player. Seasonal particles now spawn at staggered positions across the field, sample terrain height when they spawn, and grow and shrink at the ends of their drift. Their base dimensions are 25% larger and the cap is still six. Visibility and frame time with the new spacing are pending on New 3DS.
+
 # Shadow Ball battle stall (0262)
 
 Overlay 7 passes the particle system and emitter to the delete routine. The native translator used a one-argument header and dropped the emitter at all three call sites. Patch 0262 tells the translator to forward both arguments. The normal build resyncs the argument map and regenerates the overlay. Replaying Morty on a New 3DS is pending.
