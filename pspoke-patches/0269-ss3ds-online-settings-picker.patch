@@ -1,0 +1,73 @@
+From: ss3ds <ss3ds@localhost>
+Subject: [PATCH] ss3ds: hook title-screen Online Settings picker
+
+diff --git a/scripts/ss3ds_hooks.d/0269_online_settings.py b/scripts/ss3ds_hooks.d/0269_online_settings.py
+new file mode 100755
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0269_online_settings.py
+@@ -0,0 +1,55 @@
++#!/usr/bin/env python3
++"""Connect the title-screen WFC row to the native 3DS Online Settings app."""
++from pathlib import Path
++
++path = Path("src/application/main_menu/main_menu.c")
++source = path.read_text()
++if "SS3DS 0269" in source:
++    raise SystemExit(0)
++
++def replace(old, new):
++    global source
++    if source.count(old) != 1:
++        raise SystemExit(f"0269_online_settings: missing unique anchor: {old}")
++    source = source.replace(old, new)
++
++replace('extern int P3DS_MenuGreyUnsupportedCfg(void);', '''/* SS3DS 0269 */
++extern int P3DS_GtsPickerEnabled(void);
++extern void P3DS_RequestOnlineSettings(void);
++extern int P3DS_MenuGreyUnsupportedCfg(void);''')
++replace('    case APPOPTION_WFC:\n    case APPOPTION_WII_SETTINGS:', '''    case APPOPTION_WFC:
++        return !P3DS_GtsPickerEnabled();
++    case APPOPTION_WII_SETTINGS:''')
++replace('        if (P3DS_MenuGreyUnsupportedCfg() && MainMenu_IsUnsupportedOn3DS(sel0197)) {', '''        if (sel0197 == APPOPTION_WFC && P3DS_GtsPickerEnabled()) {
++            PlaySE(SEQ_SE_DP_SELECT);
++            P3DS_RequestOnlineSettings();
++            return FALSE;
++        }
++        if (P3DS_MenuGreyUnsupportedCfg() && MainMenu_IsUnsupportedOn3DS(sel0197)) {''')
++signature = 'static BOOL MainMenu_PrintNintendoWFCSetupButton(MainMenuAppData *data, u32 a1, UnkStruct_ov74_02235414 *a2, u32 a3) {'
++replace(signature + '''
++    MainMenu_MaybeGreyLabel(a2, sMainMenuButtons[a1].id); /* SS3DS 0197 */
++    ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);''', signature + '''
++    if (P3DS_GtsPickerEnabled()) {
++        /* HGSS character encoding for "Online Settings". */
++        static const u16 label[] = {
++            0x0139, 0x0152, 0x0150, 0x014D, 0x0152, 0x0149, 0x01DE,
++            0x013D, 0x0149, 0x0158, 0x0158, 0x014D, 0x0152, 0x014B,
++            0x0157, 0xFFFF
++        };
++        ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);
++        /* The stock renderer creates the window before we replace its text. */
++        String *text = String_New(NELEMS(label), HEAP_ID_MAIN_MENU);
++        if (text != NULL) {
++            FillWindowPixelBuffer(a2->window, a2->unk44[4]); CopyU16ArrayToString(text, label);
++            AddTextPrinterParameterizedWithColor(a2->window, a2->fontId, text, a2->textX, a2->textY,
++                TEXT_SPEED_NOTRANSFER, *(u32 *)a2->unk44, NULL);
++            String_Delete(text);
++        }
++        DrawFrameAndWindow1(a2->window, FALSE, a2->baseTile, a2->paletteNum2);
++    } else {
++        MainMenu_MaybeGreyLabel(a2, sMainMenuButtons[a1].id);
++        ov74_02235568(data->bgConfig, a2, 3, a3, sMainMenuButtons[a1].msgId);
++    }''')
++path.write_text(source)
++print("0269_online_settings: main_menu.c patched")
+diff --git a/scripts/ss3ds_hooks.d/0269_online_settings.sh b/scripts/ss3ds_hooks.d/0269_online_settings.sh
+new file mode 100755
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0269_online_settings.sh
+@@ -0,0 +1,5 @@
++# Keep the original WFC menu path when the experimental picker is off.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0269_online_settings.py" && bash rebuild_game_object.sh src/application/main_menu/main_menu.c application__main_menu__main_menu.o 74 && (cd nitromain-perf && python3 build_main_menu.py)); then
++  log "ss3ds 0269 Online Settings hook failed"
++  return 1
++fi

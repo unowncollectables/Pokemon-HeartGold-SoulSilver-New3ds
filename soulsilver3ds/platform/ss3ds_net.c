@@ -40,6 +40,17 @@ extern unsigned long CPSDnsIp[2]; /* libntrwifi cps; u32 there, 4 bytes on this 
 #endif
 
 #define DEFAULT_DNS "178.62.43.212"
+#define STARME_DNS "161.35.72.83"
+
+int P3DS_GtsPickerEnabled(void)
+{
+    return P3DS_CfgInt("gts_picker", 0) != 0;
+}
+
+int P3DS_GtsStarMeSelected(void)
+{
+    return P3DS_GtsPickerEnabled() && P3DS_CfgInt("gts_server", 0) == 1;
+}
 #define SOC_BUF_SIZE 0x100000
 
 static int sState; /* 0 untried, 1 sockets up, -1 failed */
@@ -105,11 +116,17 @@ struct ifaddrs {
 };
 
 static in_addr_t gDns; /* network order */
+static int dnsUsesStarMe;
 
 static void setDns(void)
 {
     char dns[64];
-    if (!P3DS_CfgStr("wifi_dns", dns, sizeof dns) || !dns[0]) strcpy(dns, DEFAULT_DNS);
+    dnsUsesStarMe = P3DS_GtsStarMeSelected();
+    if (dnsUsesStarMe) {
+        strcpy(dns, STARME_DNS);
+    } else if (!P3DS_CfgStr("wifi_dns", dns, sizeof dns) || !dns[0]) {
+        strcpy(dns, DEFAULT_DNS);
+    }
     in_addr_t a = inet_addr(dns);
     if (a == (in_addr_t)-1) {
         NLOG("[NET] wifi_dns=%s is not an IPv4 address, using %s", dns, DEFAULT_DNS);
@@ -226,7 +243,7 @@ int __wrap_DWC_CheckHasProfile(const void *userData)
 
 static in_addr_t ghDnsAddr(void)
 {
-    if (!gDns) setDns();
+    if (!gDns || dnsUsesStarMe != P3DS_GtsStarMeSelected()) setDns();
     return gDns;
 }
 

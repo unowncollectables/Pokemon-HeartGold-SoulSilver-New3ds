@@ -1277,10 +1277,12 @@ static const MItem mItems[]={
  {"AMBIENT WEATHER","ambient_weather",2,{"OFF","ON"}},
  {"POKEWALKER","pokewalker",2,{"OFF","ON"}},
  {"SEASONAL TREES","seasonal_trees",2,{"OFF","ON"}},
+ {"GTS SERVER PICKER","gts_picker",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
-enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-22&&kPgFindItem==MENU_N-21&&kBreedItem==MENU_N-20&&kBatchCullItem==MENU_N-19&&kGcDirectItem==MENU_N-18&&kWildAliveItem==MENU_N-17&&kEventAnyItem==MENU_N-16&&kSteadyItem==MENU_N-15&&kEvenItem==MENU_N-14&&kFlyTapItem==MENU_N-13&&kContestItem==MENU_N-12,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
+enum{kGtsPickerItem=MENU_N-1};
+enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-23&&kPgFindItem==MENU_N-22&&kBreedItem==MENU_N-21&&kBatchCullItem==MENU_N-20&&kGcDirectItem==MENU_N-19&&kWildAliveItem==MENU_N-18&&kEventAnyItem==MENU_N-17&&kSteadyItem==MENU_N-16&&kEvenItem==MENU_N-15&&kFlyTapItem==MENU_N-14&&kContestItem==MENU_N-13,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
 extern "C" {extern volatile int P3DS_AudioGainV,P3DS_AudioLimiterV,P3DS_AudioStallFadeV;void P3DS_SetAudioGain(int);void P3DS_SetAudioLimiter(int);void P3DS_SetAudioStallFade(int);}
 static const int kVolGain[7]={4,5,6,7,8,9,10};
 static int volIdx(){int g=P3DS_AudioGainV;if(g<0)g=P3DS_CfgInt("audio_gain",7);int b=0;for(int k=1;k<7;k++)if(abs(kVolGain[k]-g)<abs(kVolGain[b]-g))b=k;return b;}
@@ -1371,6 +1373,7 @@ extern "C" int P3DS_AmbientWeatherCfg(void) {
     return ambientWeatherV;
 }
 static int menuGet(int i){
+ if(i==kGtsPickerItem)return P3DS_CfgInt("gts_picker",0)!=0;
  if(i==kSeasonalTreesItem)return P3DS_CfgInt("seasonal_trees",0)!=0;
  if(i==kPokewalkerItem)return P3DS_CfgInt("pokewalker",0)!=0;
  if(i==kAmbientWeatherItem)return P3DS_AmbientWeatherCfg();if(i==kRoamSprItem)return pgRoamSpr()?1:0;if(i==kMapZoomItem)return pgMapZoomIdx();if(i==139)return titleCleanCfg();if(i==138)return P3DS_GcBFadesCfg();if(i==137)return P3DS_GcAffineCfg();if(i==136)return gpuBCfg();if(i==135)return P3DS_FastBoundsCfg();if(i==134)return P3DS_G3PacketCfg();if(i==kContestItem)return P3DS_ContestOn();if(i==kFlyTapItem)return pgFlyCfg()?1:0;if(i==kEvenItem)return evenCfg()?1:0;if(i==kSteadyItem)return steadyCfg()?1:0;if(i==kEventAnyItem)return evtCfg()?1:0;if(i==kGcDirectItem)return gcDirectCfg();if(i==kBatchCullItem)return P3DS_BatchCullCfg();if(i==kBreedItem)return brCfg();if(i==kPgFindItem)return pgFindCfg();if(i==kHuntStatsItem)return P3DS_CfgInt("hunt_stats",0)!=0;if(i==kPanelLiveItem)return panelLiveCfg();if(i==kAchToastItem)return P3DS_AchToastsOn()?1:0;if(i==kSharpItem){int v=P3DS_CfgInt("g3_sharp",0);return v<0?0:v>4?4:v;}if(i==kSprDepthItem)return P3DS_SpriteDepthCfg();if(i==kPmItem)return P3DS_PmShortcutsCfg();if(i==kAutoRunItem)return P3DS_CfgInt("auto_run",0)!=0;if(i==kPgExtrasItem){pxOn();return pxOnV;}if(i==kHintItem)return P3DS_CfgInt("type_hint",0)!=0;if(i==kTrackerItem)return P3DS_TrkOn();if(i==kRibbonItem)return P3DS_RibbonOn();if(i==kCelebItem)return P3DS_CelebOn();if(i==kHuntItem)return P3DS_HuntOn();if(i==kRateItem)return P3DS_HuntRateIdx();if(i==kBattItem)return P3DS_CfgInt("battery_warn",0)!=0;if(i==kFogHoleItem)return P3DS_FogHoleCfg();if((i>=kWildVisItem&&i<=kWildLastItem)||i==kWildAliveItem)return P3DS_WildVisCfg(wvIdx(i));if(i==kDcSkipItem)return P3DS_DcFlushSkipCfg();if(i==kWideBoxItem)return wideBoxCfg();if(i==kFpsTweakItem)return P3DS_FpsTweakRow();if(i==kWirelessItem){int w=P3DS_CfgInt("wireless",1);return w<0?0:w>2?2:w;}if(i==kUnionGuardItem)return P3DS_CfgInt("union_guard",1)!=0;if(i==kPanelPartyItem)return panelPartyCfg();if(i==kMenuGreyItem)return P3DS_MenuGreyUnsupportedCfg();if(i==kBottomHdItem)return bottomHdCfg();if(i==kWideDexItem)return wideDexCfg();if(i==kWidePcItem)return widePcCfg();if(i==kDirectItem)return G3G_DirectCfg();if(i==kGcNfItem)return gcStNfCfg();if(i==kVolumeItem)return volIdx();if(i==kLimiterItem){int a=P3DS_AudioLimiterV<0?P3DS_CfgInt("audio_limiter",3):P3DS_AudioLimiterV;return a<0?0:a>3?3:a;}if(i==kStallFadeItem)return P3DS_AudioStallFadeV<0?P3DS_CfgInt("audio_stallfade",0)!=0:P3DS_AudioStallFadeV;if(i==kSelectResetItem||i==kSkipIntroItem)return P3DS_CfgInt(mItems[i].key,0)!=0;if(i==kSmoothItem)return P3DS_CfgInt(mItems[i].key,1)!=0;if(i==kBumpItem)return bumpCfg();if(i==kWideScreensItem)return wideScreensCfg();if(i==kBottomMenuItem)return bmCfg();if(i==kPgKantoItem)return pkCfg();if(i==kWDepthItem||i==kWCpuItem||i==kBottomLayoutItem||i==kBottomMapItem)return 0;/* retired rows, in no tab */if(i==kWideBattleItem)return wideBattleCfg();if(i==kMenuBtnItem)return menuBtnCfg();if(i==kGpuBlendItem)return P3DS_GpuBlendCfg();if(i>=33)return genGet(i-33);if(i>=27)return P3DS_Cheat(i-27);switch(i){case 0:return fpsOn?1:0;case 1:return wideCfg>0?1:0;case 2:return P3DS_ScaleMode();case 3:return P3DS_CstickMode()==2?1:0; /* ss3ds: 0 off, 1 = D-pad (mode 2) */
@@ -1379,6 +1382,7 @@ static int menuGet(int i){
  case 16:return P3DS_FollowerSlotCfg();case 17:return P3DS_FollowerTalkCfg();case 18:return menuAudioCfg();case 19:return gcStereoCfg();case 20:return stereo2dCfg();case 21:return P3DS_WideHazeCfg();case 22:return fastTextIdx(P3DS_FastTextCfg());case 23:return P3DS_ReusableTMsCfg();case 24:return P3DS_CheatNoEncCfg();case 25:return repelPrompt();case 26:return sumIvCfg();}return 0;}
 extern "C" int P3DS_SaveExport(void);
 static void menuSet(int i,int v){
+ if(i==kGtsPickerItem){P3DS_CfgWrite("gts_picker",v);return;}
  if(i==kSeasonalTreesItem){P3DS_CfgWrite("seasonal_trees",v);return;}
  if(i==kPokewalkerItem){P3DS_CfgWrite("pokewalker",v);return;}
  if(i==kAmbientWeatherItem){
@@ -1568,7 +1572,7 @@ static const SAppTab kTabs[7]={
       {69,"Hold B skips text","Holding B prints text instantly and moves on. Never picks a choice."},
       {70,"Auto-advance text","Text boxes move on by themselves after a moment."},
       {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions. Experimental."}}},
- {12,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
+ {13,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
      {130,"Steady music","Keeps the field music at one volume. The game fades it down near water, trees and waterfalls and back up after. Ambient sounds still play."},
      {18,"Menu music","Keeps music playing while this settings screen is open."},
      {125,"Breeding tab","Adds an EGGS tab to the Johto panel (needs Pokegear tabs enabled): what is in the Day-Care, levels gained, whether an egg is waiting, and steps left on the eggs in your party. Read-only. Experimental."},
@@ -1579,6 +1583,7 @@ static const SAppTab kTabs[7]={
      {71,"3D frame reuse","Reuses the last 3D picture when nothing changed, to save time."},
      {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS), very early test."},
      {119,"Grey unsupported menu","Title menu: greys Connect to Wii / Nintendo WFC Settings / Wii Message Settings / Ranger / Migrate AGB (dead on 3DS). A/touch buzzes. Mystery Gift greys receive methods unavailable in the current Wireless mode. OFF = original."},
+     {kGtsPickerItem,"GTS server picker","Experimental. Adds Online Settings to the title menu."},
      {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app. Experimental."}}},
  /* hidden unless SELECT is pressed inside the app. Fast upload, Fast 3D convert, GPU compose and GPU compose 3D were removed once proven
     (defaults ON/2; config.txt keys gpu_swizzle, fast_conv, gpu_compose, gpu_compose_stereo still work, mItems 11/12/15/19 unchanged). */
@@ -1609,6 +1614,95 @@ extern "C" int P3DS_GameFontWidth34(int,const char*);extern "C" int P3DS_GameFon
 static int suiDrawS(u32*b,int x,int y,const char*t,u32 fg,u32 sh){if(P3DS_GameFontReady())return P3DS_GameFontDraw34(b,256,256,192,x,y,t,fg,1);return gtxt(b,x,y,t,fg,sh);}
 static int gwS(const char*t){return P3DS_GameFontReady()?P3DS_GameFontWidth34(1,t):gw(t);}
 static const SUiText kSuiText={suiDraw,gw,suiDrawS,gwS};
+extern "C" int P3DS_GtsPickerEnabled(void);
+extern "C" int P3DS_GtsStarMeSelected(void);
+static bool onlineSettingsRequested;
+
+extern "C" void P3DS_RequestOnlineSettings(void)
+{
+    __atomic_store_n(&onlineSettingsRequested, true, __ATOMIC_RELEASE);
+}
+
+static void runOnlineSettings(const u32 *top, int mode, bool gpu)
+{
+    u32 *bottom = (u32 *)malloc(256 * 192 * sizeof(u32));
+    if (!bottom) return;
+
+    P3DS_MenuOpen = 1;
+    P3DS_BmOn = 0;
+    P3DS_OvN = 0;
+    bool wifiSetup = false;
+    int choice = P3DS_GtsStarMeSelected();
+    u32 held = hidKeysHeld();
+    while (aptMainLoop()) {
+        hidScanInput();
+        held &= hidKeysHeld();
+        const u32 pressed = hidKeysDown() & ~held;
+        bool select = (pressed & KEY_A) != 0;
+        if (!wifiSetup && (pressed & KEY_TOUCH)) {
+            touchPosition touch;
+            hidTouchRead(&touch);
+            int x, y;
+            if (touchToDS(touch.px, touch.py, &x, &y) &&
+                x >= 4 && x < 252 && y >= kSuiListY && y < kSuiListY + 3 * kSuiRowPitch) {
+                choice = (y - kSuiListY) / kSuiRowPitch;
+                select = true;
+            }
+        }
+        if (pressed & KEY_B) {
+            if (!wifiSetup) break;
+            wifiSetup = false;
+        } else if (!wifiSetup) {
+            if (pressed & KEY_DUP) choice = (choice + 2) % 3;
+            if (pressed & KEY_DDOWN) choice = (choice + 1) % 3;
+            if (select) {
+                if (choice == 2) {
+                    wifiSetup = true;
+                } else if (choice != P3DS_GtsStarMeSelected()) {
+                    P3DS_CfgWrite("gts_server", choice);
+                    PSPNativeMemLog("[GTS] selected %s", choice ? "StarMe" : "Poké Classic");
+                }
+            }
+        }
+
+        suiBackground(bottom);
+        gtxt(bottom, 12, 10, wifiSetup ? "Wi-Fi Setup" : "Online Settings", kMsgFg, kMsgSh);
+        if (wifiSetup) {
+            gtxt(bottom, 12, 44, "Set up your connection in", kMsgFg, kMsgSh);
+            gtxt(bottom, 12, 62, "Nintendo 3DS System Settings.", kMsgFg, kMsgSh);
+            gtxt(bottom, 12, 96, "Set Wireless to Online in Setup.", kMsgFg, kMsgSh);
+        } else {
+            const int active = P3DS_GtsStarMeSelected();
+            const SUiCell rows[] = {
+                {"Poke Classic", active == 0 ? "Active" : "", choice == 0, false},
+                {"StarMe", active == 1 ? "Active" : "", choice == 1, false},
+                {"Wi-Fi Setup", "", choice == 2, false},
+            };
+            suiList(bottom, kSuiText, rows, 3, 0);
+            suiTip(bottom, kSuiText, "Retrieve deposited Pokemon on their original server. A: Select  B: Back");
+        }
+        extern int P3DS_GpuBotSame;
+        P3DS_GpuBotSame = 0;
+        if (mode && gpu) {
+            P3DS_GpuPresent(top, bottom, mode, true, nullptr);
+        } else {
+            present(GFX_TOP, 400, top, 0);
+            present(GFX_BOTTOM, 320, bottom, 0);
+            gfxFlushBuffers();
+            gfxSwapBuffers();
+        }
+        gspWaitForVBlank();
+    }
+    for (int frame = 0; frame < 120 && aptMainLoop() &&
+        (hidKeysHeld() & (KEY_A | KEY_B | KEY_TOUCH)); ++frame) {
+        gspWaitForVBlank();
+        hidScanInput();
+    }
+    free(bottom);
+    P3DS_GpuInvalidateBot();
+    P3DS_MenuOpen = 0;
+}
+
 static void runApp(const u32*top,int mode,bool gpu){
  const size_t PX=256*192;u32*base=(u32*)malloc(PX*4*3);if(!base){PSPNativeMemLog("[APP] no memory");return;}u32*img=base+PX,*bimg=img+PX;memcpy(base,top,PX*4);
  enum{N=MENU_N};int val[N];for(int i=0;i<N;i++)val[i]=menuGet(i);int old[N];memcpy(old,val,sizeof old);
@@ -2766,6 +2860,11 @@ static int Present(bool){
    else if(bPrev&&bIn&&btnPressed){btnOpen=true;PSPNativeMemLog("[BTN] opened by menu button tap");}}
   const bool pr=tNow&&bIn&&in&&side>=0;if(pr!=btnPressed){btnPressed=pr;btnDirty=true;BLINV;}
   if(!tNow)bIn=false;bPrev=tNow;}
+ if(__atomic_exchange_n(&onlineSettingsRequested,false,__ATOMIC_ACQ_REL)){
+  if(P3DS_GtsPickerEnabled())runOnlineSettings(stereo?eyeL:top,mode,mode&&gpuOk==1);
+  BLINV;
+  return 0;
+ }
  {u32 kd=hidKeysDown(),kh=hidKeysHeld();catchTick();
   if((kd&KEY_Y)&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&!P3DS_InField&&!P3DS_SumOpen&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))runCatch(stereo?eyeL:top,mode,mode&&gpuOk==1);
   else if((kd&KEY_ZR)&&!(kh&(KEY_L|KEY_R|KEY_X|KEY_Y))&&P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&P3DS_CfgInt("hunt_stats",0)&&P3DS_HuntCounting())runHuntStats(stereo?eyeL:top,mode,mode&&gpuOk==1);
