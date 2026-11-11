@@ -1,3 +1,7 @@
+# Local seasonal scenery (0267)
+
+Clear spring days have more petals near Goldenrod's Flower Shop and along wooded routes. Clear autumn days have more leaves around Ecruteak and the same wooded routes, including Kanto Route 2. Most areas use fewer petals or leaves. A brief periodic gust moves the particles together. The six-particle cap and the Ambient Weather setting apply to all of these effects.
+
 # Seasonal particle spacing (0266)
 
 Device feedback found the original particle count ran well but the effect stayed too close to the player. Seasonal particles now spawn at staggered positions across the field, sample terrain height when they spawn, and grow and shrink at the ends of their drift. Their base dimensions are 25% larger and the cap is still six. Visibility and frame time with the new spacing are pending on New 3DS.
