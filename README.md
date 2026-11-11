@@ -48,7 +48,7 @@
 
 | Topic | In the tree | On a 3DS |
 | --- | --- | --- |
-| Bottom map | Settings > Input. Map zoom defaults to 1X; 2X is a closer view, and `-` / `+` on the map do the same. Roamer sprites default off, so the coloured letters stay until you turn icons on. The player head now uses the screen pixel of the map pixel it marks, and no longer slips while the view moves. | Not yet. Needs a platform rebuild. |
+| Bottom map | Settings > Input. Map zoom defaults to 1X; 2X is a closer view, and `-` / `+` on the map do the same. Roamer sprites default on, so the ROM menu icon is used unless a saved line turns it off. The player head now uses the screen pixel of the map pixel it marks, and no longer slips while the view moves. | Not yet. Needs a platform rebuild. |
 | Wild Pokémon | Visible wild Pokémon use the map height at their own position, so stairs and slopes stay under that sprite. Hop, shadow, and flyer altitude stay on top of that height. | Not yet. Needs a game rebuild, then a hardware look. |
 | Seasons and radar | With Ambient Weather on, eligible clear outdoor maps can show seasonal scenery, and the Johto WX radar labels clear areas separately from a forecast that has not arrived. | Device checks are still pending. |
 | Rendering | When `config.txt` has no line for them, the five shortcuts start on (command packets, fast bounds, second-screen compose, rotating sprites, and fades) and the title layout starts at WIDE. A value already in the file is kept. | Run 702 used those five in the field and in battles, including stereo. That pass does not cover every scene. The wide title screen is still unconfirmed on a 3DS. |
@@ -188,7 +188,7 @@ The port uses these files in `sdmc:/3ds/soulsilver3ds/`.
 
 New configurations use **WIDE** title sides and enable the five GPU shortcuts for command packets, fast bounds, second-screen compose, rotating sprites, and fades. Existing values carry over. The [settings reference](soulsilver3ds/full/README_settings.txt) covers many of the `config.txt` keys.
 
-The Pokédex finder, Breeding tab, Hunt stats, Damage check, Alive wild Pokémon, Contest helper, and Tap to Fly are opt-in. Try experimental options with a copy of your save.
+When `config.txt` has no line for them, these start on: Pokédex finder, Breeding tab, Hunt stats, Damage check, Alive wild Pokémon (ON + TOWNS), Contest helper, Tap to Fly, Roamer sprites, Ambient weather, Reusable TMs, Event Pokémon without the event flag, Sharp 3D at FAST AUTO, and Pokéwalker. A value already in the file is kept. Try a copy of your save before relying on an experimental option.
 
 </details>
 
