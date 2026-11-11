@@ -41,6 +41,7 @@ extern unsigned long CPSDnsIp[2]; /* libntrwifi cps; u32 there, 4 bytes on this 
 
 #define DEFAULT_DNS "178.62.43.212"
 #define STARME_DNS "161.35.72.83"
+#include "ss3ds_gts_preview.h"
 
 int P3DS_GtsPickerEnabled(void)
 {
@@ -247,7 +248,7 @@ static in_addr_t ghDnsAddr(void)
     return gDns;
 }
 
-static int ghResolve(const char *host, in_addr_t *out)
+static int ghResolve(const char *host, in_addr_t *out, in_addr_t *resolver)
 {
     unsigned char q[300], r[600];
     int n = 0, fd;
@@ -261,6 +262,7 @@ static int ghResolve(const char *host, in_addr_t *out)
     fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (fd < 0) return -2;
     struct sockaddr_in to; memset(&to, 0, sizeof to); to.sin_family = AF_INET; to.sin_port = htons(53); to.sin_addr.s_addr = ghDnsAddr();
+    if (resolver) *resolver = to.sin_addr.s_addr;
     int got = -3;
     for (int tries = 0; tries < 3 && got < 0; tries++) {
         if (sendto(fd, q, n, 0, (struct sockaddr *)&to, sizeof to) < 0) { got = -4; break; }
@@ -283,8 +285,113 @@ static int ghResolve(const char *host, in_addr_t *out)
     return -6;
 }
 
+/* A separate cache keeps the most recent server-confirmed status across soft
+ * resets. Store only the display fields, keyed to the save's trainer ID. */
+static unsigned previewTrainer;
+static int previewHasTrainer;
+
+void P3DS_GtsPreviewTrainer(unsigned trainerId)
+{
+    previewTrainer = trainerId;
+    previewHasTrainer = 1;
+}
+
+static void previewPath(char *path, size_t size, unsigned trainer, int server)
+{
+    snprintf(path, size, "sdmc:/3ds/soulsilver3ds/gts-preview-%08x-%d.txt", trainer, server);
+}
+
+static int previewValid(GtsPreview p)
+{
+    return p.state <= GTS_PREVIEW_PICKUP && p.species <= 493 &&
+           p.level <= 100 && p.wanted <= 493 &&
+           ((p.species == 0 && p.level == 0 && p.wanted == 0) ||
+            (p.species != 0 && p.level != 0 && p.state == GTS_PREVIEW_OFFERED));
+}
+
+static GtsPreview previewRead(unsigned trainer, int server)
+{
+    char path[80];
+    previewPath(path, sizeof path, trainer, server);
+    GtsPreview p = {0};
+    FILE *f = fopen(path, "r");
+    if (f) {
+        if (fscanf(f, "%3u %3u %3u %3u", &p.state, &p.species, &p.level, &p.wanted) != 4 ||
+            !previewValid(p)) p = (GtsPreview){0};
+        fclose(f);
+    }
+    return p;
+}
+
+GtsPreview P3DS_GtsPreviewRead(int server)
+{
+    if (!previewHasTrainer || (server != 0 && server != 1)) return (GtsPreview){0};
+    return previewRead(previewTrainer, server);
+}
+
+static void previewWrite(unsigned trainer, int server, GtsPreview p)
+{
+    GtsPreview old = previewRead(trainer, server);
+    if (old.state == p.state && old.species == p.species &&
+        old.level == p.level && old.wanted == p.wanted) return;
+
+    char path[80], temp[84];
+    previewPath(path, sizeof path, trainer, server);
+    snprintf(temp, sizeof temp, "%s.tmp", path);
+    FILE *f = fopen(temp, "w");
+    if (!f) return;
+    int written = fprintf(f, "%u %u %u %u\n", p.state, p.species, p.level, p.wanted);
+    int closed = fclose(f);
+    if (written < 0 || closed != 0 || rename(temp, path) != 0) {
+        remove(temp);
+        NLOG("[GTS] preview cache write failed");
+    }
+}
+
+static int previewEndpoint(const char *url, const char *name)
+{
+    const char prefix[] = "http://gamestats2.gs.nintendowifi.net/pokemondpds/worldexchange/";
+    if (strncmp(url, prefix, sizeof prefix - 1) != 0) return 0;
+    const char *endpoint = url + sizeof prefix - 1;
+    size_t n = strlen(name);
+    return strncmp(endpoint, name, n) == 0 && (endpoint[n] == '?' || endpoint[n] == '\0');
+}
+
+static void previewObserve(unsigned trainer, int server, const char *url,
+                           const unsigned char *body, int len)
+{
+    if (server != 0 && server != 1) return;
+    const int get = previewEndpoint(url, "get.asp");
+    const int result = previewEndpoint(url, "result.asp");
+    if ((get || result) && len == 292) {
+        /* Poké Classic GtsRecord4 metadata follows the 236-byte Pokémon data. */
+        if (body[0x121] == 1) {
+            previewWrite(trainer, server, (GtsPreview){.state = GTS_PREVIEW_PICKUP});
+        } else if (get && body[0x121] == 0) {
+            GtsPreview p = {
+                .species = body[0xec] | (unsigned)body[0xed] << 8,
+                .level = body[0xef],
+                .wanted = body[0xf0] | (unsigned)body[0xf1] << 8,
+                .state = GTS_PREVIEW_OFFERED,
+            };
+            if (p.species && previewValid(p)) previewWrite(trainer, server, p);
+        }
+    } else if (len == 2 && body[1] == 0) {
+        if (((get || result) && body[0] == 5) ||
+            (body[0] == 1 && (previewEndpoint(url, "return.asp") ||
+                              previewEndpoint(url, "delete.asp")))) {
+            previewWrite(trainer, server, (GtsPreview){0});
+        } else if ((result && body[0] == 4) ||
+                   (body[0] == 1 && previewEndpoint(url, "post_finish.asp"))) {
+            GtsPreview old = previewRead(trainer, server);
+            if (old.state != GTS_PREVIEW_OFFERED || body[0] == 1)
+                previewWrite(trainer, server, (GtsPreview){.state = GTS_PREVIEW_OFFERED});
+        }
+    }
+}
+
 #define GH_MAX 16384 /* run 100: was 1024, which cut the GTS search listing short */
-static struct { volatile int state; /* 0 idle, 1 running, 2 done */ char url[2048]; char body[GH_MAX]; int len, result; void *cb, *ud; Thread th; } gh;
+static struct { volatile int state; /* 0 idle, 1 running, 2 done */ char url[2048]; char body[GH_MAX]; int len, result; void *cb, *ud; Thread th; unsigned previewTrainer; int previewServer, previewEnabled; } gh;
 
 static void ghWork(void *arg)
 {
@@ -295,7 +402,12 @@ static void ghWork(void *arg)
     int hl = sl ? (int)(sl - u) : (int)strlen(u);
     if (hl > 0 && hl < (int)sizeof host) {
         memcpy(host, u, hl); host[hl] = 0; snprintf(path, sizeof path, "%s", sl ? sl : "/");
-        in_addr_t ip = 0; int rr = ghResolve(host, &ip);
+        in_addr_t ip = 0, resolver = 0;
+        int rr = ghResolve(host, &ip, &resolver);
+        if (gh.previewEnabled && rr == 0) {
+            if (resolver == inet_addr(DEFAULT_DNS)) gh.previewServer = 0;
+            if (resolver == inet_addr(STARME_DNS)) gh.previewServer = 1;
+        }
         NLOG("[GHTTP] %s -> %s (%s)", host, rr == 0 ? inet_ntoa(*(struct in_addr *)&ip) : "lookup failed", rr == 0 ? "ok" : "err");
         if (rr == 0) {
             int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
@@ -342,6 +454,9 @@ int P3DS_GhttpStart(const char *url, void *cb, void *ud)
     if (!url || !onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit()) { NLOG("[GHTTP] not started (online mode off, cheat on, or sockets down): %s", url ? url : "(null)"); return -5; }
     if (gh.state != 0) { NLOG("[GHTTP] busy, refused: %s", url); return -5; }
     snprintf(gh.url, sizeof gh.url, "%s", url); gh.cb = cb; gh.ud = ud; gh.len = 0; gh.result = 5; gh.state = 1;
+    gh.previewEnabled = P3DS_GtsPickerEnabled() && previewHasTrainer;
+    gh.previewTrainer = previewTrainer;
+    gh.previewServer = -1;
     NLOG("[GHTTP] GET %s", gh.url);
     gh.th = threadCreate(ghWork, NULL, 0x8000, 0x30, -2, false);
     if (!gh.th) { gh.state = 0; NLOG("[GHTTP] thread create failed"); return -5; }
@@ -357,6 +472,9 @@ int P3DS_GhttpThink(void)
         threadJoin(gh.th, 2000000000ULL); threadFree(gh.th);
         gh.th = NULL; gh.state = 0; /* idle first: the callback starts the next request */
         NLOG("[GHTTP] callback result %d len %d", res, len);
+        if (res == 0 && gh.previewServer >= 0)
+            previewObserve(gh.previewTrainer, gh.previewServer, gh.url,
+                           (const unsigned char *)gh.body, len);
         if (cb) cb(res == 0 ? gh.body : NULL, len, res, ud);
     }
     return 1;
@@ -452,7 +570,7 @@ unsigned int SOCL_Resolve(const char *host)
     if (!host || !host[0]) return 0;
     a = inet_addr(host);
     if (a == (in_addr_t)-1) {
-        if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit() || ghResolve(host, &a) != 0) { NLOG("[DNS] %s: not resolved", host); return 0; }
+        if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit() || ghResolve(host, &a, NULL) != 0) { NLOG("[DNS] %s: not resolved", host); return 0; }
         NLOG("[DNS] %s -> %s", host, inet_ntoa(*(struct in_addr *)&a));
     }
     return ntohl(a);

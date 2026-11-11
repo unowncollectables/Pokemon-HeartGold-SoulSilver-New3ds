@@ -143,6 +143,8 @@ soulsilver3ds.cia: soulsilver3ds.elf $(ROOT)/tools/home_menu_art.py cia/soulsilv
 # the version string is compiled into these two; rebuild them when it changes
 build/render3ds.o build/main3ds.o: ../platform/ss3ds_version.h build/ss3ds_buildid.h
 
+build/render3ds.o build/ss3ds_net.o: ../platform/ss3ds_gts_preview.h
+
 build/gpucomp.o: ../platform/g3_affine_sample.h
 
 build/render3ds.o: ../platform/title_layers.h ../platform/ss3ds_pgmap.h ../platform/ss3ds_pgextra.h

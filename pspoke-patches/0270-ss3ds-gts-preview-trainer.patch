@@ -1,0 +1,37 @@
+From: ss3ds <ss3ds@localhost>
+Subject: [PATCH] ss3ds: key GTS preview to the loaded trainer
+
+diff --git a/scripts/ss3ds_hooks.d/0270_gts_preview.py b/scripts/ss3ds_hooks.d/0270_gts_preview.py
+new file mode 100755
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0270_gts_preview.py
+@@ -0,0 +1,18 @@
++#!/usr/bin/env python3
++"""Identify the current save for the GTS preview cache."""
++from pathlib import Path
++
++path = Path("src/application/main_menu/main_menu.c")
++source = path.read_text()
++if "SS3DS 0270" in source:
++    raise SystemExit(0)
++
++decl = "extern int P3DS_GtsPickerEnabled(void);"
++profile = "    data->profile = Save_PlayerData_GetProfile(data->saveData);"
++if source.count(decl) != 1 or source.count(profile) != 1:
++    raise SystemExit("0270_gts_preview: missing title menu anchors")
++source = source.replace(decl, decl + "\nextern void P3DS_GtsPreviewTrainer(unsigned trainerId);")
++source = source.replace(profile, profile + """
++    /* SS3DS 0270: the preview belongs to this save, even if enabled later. */
++    P3DS_GtsPreviewTrainer(PlayerProfile_GetTrainerID(data->profile));""")
++path.write_text(source)
+diff --git a/scripts/ss3ds_hooks.d/0270_gts_preview.sh b/scripts/ss3ds_hooks.d/0270_gts_preview.sh
+new file mode 100755
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0270_gts_preview.sh
+@@ -0,0 +1,6 @@
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0270_gts_preview.py" &&
++  bash rebuild_game_object.sh src/application/main_menu/main_menu.c application__main_menu__main_menu.o 74 &&
++  cd nitromain-perf && python3 build_main_menu.py); then
++  log "ss3ds 0270 GTS preview hook failed"
++  return 1
++fi

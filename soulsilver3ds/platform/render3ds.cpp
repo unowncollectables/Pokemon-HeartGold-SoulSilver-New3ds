@@ -1614,6 +1614,8 @@ extern "C" int P3DS_GameFontWidth34(int,const char*);extern "C" int P3DS_GameFon
 static int suiDrawS(u32*b,int x,int y,const char*t,u32 fg,u32 sh){if(P3DS_GameFontReady())return P3DS_GameFontDraw34(b,256,256,192,x,y,t,fg,1);return gtxt(b,x,y,t,fg,sh);}
 static int gwS(const char*t){return P3DS_GameFontReady()?P3DS_GameFontWidth34(1,t):gw(t);}
 static const SUiText kSuiText={suiDraw,gw,suiDrawS,gwS};
+#include "ss3ds_gts_preview.h"
+
 extern "C" int P3DS_GtsPickerEnabled(void);
 extern "C" int P3DS_GtsStarMeSelected(void);
 static bool onlineSettingsRequested;
@@ -1631,6 +1633,18 @@ static void runOnlineSettings(const u32 *top, int mode, bool gpu)
     P3DS_MenuOpen = 1;
     P3DS_BmOn = 0;
     P3DS_OvN = 0;
+    const char *const names[] = {"Poke Classic", "StarMe", "Wi-Fi Setup"};
+    const GtsPreview preview[] = {P3DS_GtsPreviewRead(0), P3DS_GtsPreviewRead(1), {}};
+    constexpr int rowHeight = 20;
+    constexpr int previewHeight = 38;
+    int rowY[] = {26, 0, 0};
+    uint32_t icons[2][32 * 32];
+    for (int server = 0; server < 2; ++server) {
+        rowY[server + 1] = rowY[server] + rowHeight + 3 +
+                          (preview[server].state ? previewHeight + 3 : 0);
+        pgMonIcon(preview[server].species, icons[server], true);
+    }
+
     bool wifiSetup = false;
     int choice = P3DS_GtsStarMeSelected();
     u32 held = hidKeysHeld();
@@ -1643,10 +1657,14 @@ static void runOnlineSettings(const u32 *top, int mode, bool gpu)
             touchPosition touch;
             hidTouchRead(&touch);
             int x, y;
-            if (touchToDS(touch.px, touch.py, &x, &y) &&
-                x >= 4 && x < 252 && y >= kSuiListY && y < kSuiListY + 3 * kSuiRowPitch) {
-                choice = (y - kSuiListY) / kSuiRowPitch;
-                select = true;
+            if (touchToDS(touch.px, touch.py, &x, &y) && x >= 4 && x < 252) {
+                for (int row = 0; row < 3; ++row) {
+                    if (y >= rowY[row] && y < rowY[row] + rowHeight) {
+                        choice = row;
+                        select = true;
+                        break;
+                    }
+                }
             }
         }
         if (pressed & KEY_B) {
@@ -1666,20 +1684,49 @@ static void runOnlineSettings(const u32 *top, int mode, bool gpu)
         }
 
         suiBackground(bottom);
-        gtxt(bottom, 12, 10, wifiSetup ? "Wi-Fi Setup" : "Online Settings", kMsgFg, kMsgSh);
+        gtxt(bottom, 12, 10, wifiSetup ? "Wi-Fi Setup" : "GTS Server", kMsgFg, kMsgSh);
         if (wifiSetup) {
             gtxt(bottom, 12, 44, "Set up your connection in", kMsgFg, kMsgSh);
             gtxt(bottom, 12, 62, "Nintendo 3DS System Settings.", kMsgFg, kMsgSh);
             gtxt(bottom, 12, 96, "Set Wireless to Online in Setup.", kMsgFg, kMsgSh);
         } else {
             const int active = P3DS_GtsStarMeSelected();
-            const SUiCell rows[] = {
-                {"Poke Classic", active == 0 ? "Active" : "", choice == 0, false},
-                {"StarMe", active == 1 ? "Active" : "", choice == 1, false},
-                {"Wi-Fi Setup", "", choice == 2, false},
-            };
-            suiList(bottom, kSuiText, rows, 3, 0);
-            suiTip(bottom, kSuiText, "Retrieve deposited Pokemon on their original server. A: Select  B: Back");
+            for (int row = 0; row < 3; ++row) {
+                const int y = rowY[row];
+                const bool selected = choice == row;
+                suiPanel(bottom, 4, y, 252, y + rowHeight,
+                         selected ? kSuiSelCell : kSuiCell,
+                         selected ? kSuiSelLo : kSuiCellLo,
+                         selected ? kSuiSelEdge : kSuiEdge, selected);
+                gtxt(bottom, 10, y + 2, names[row], kSuiName, kSuiNameSh);
+                if (row == active)
+                    gtxt(bottom, 240 - gw("Active"), y + 2, "Active", kSuiVal, kSuiValSh);
+
+                const GtsPreview &p = preview[row];
+                if (!p.state) continue;
+                const int top = y + rowHeight + 2;
+                suiPanel(bottom, 14, top, 252, top + previewHeight,
+                         kSuiCell, kSuiCellLo, kSuiEdge, false);
+                if (p.species) {
+                    for (int sy = 0; sy < 32; ++sy)
+                        for (int sx = 0; sx < 32; ++sx)
+                            if (uint32_t px = icons[row][sy * 32 + sx])
+                                suiPx(bottom, 19 + sx, top + 2 + sy, px);
+                    char name[40], detail[52];
+                    snprintf(name, sizeof name, "%s  Lv. %u", kP3dsSpecies[p.species], p.level);
+                    if (p.wanted)
+                        snprintf(detail, sizeof detail, "Last seen: Seeking %s", kP3dsSpecies[p.wanted]);
+                    else
+                        snprintf(detail, sizeof detail, "Last seen: Deposited");
+                    gtxt(bottom, 56, top + 2, name, kSuiName, kSuiNameSh);
+                    suiDrawS(bottom, 56, top + 20, detail, kSuiVal, kSuiValSh);
+                } else {
+                    const char *status = p.state == GTS_PREVIEW_PICKUP ?
+                        "Last seen: Trade ready for pickup" : "Last seen: Pokemon deposited";
+                    gtxt(bottom, 22, top + 9, status, kSuiName, kSuiNameSh);
+                }
+            }
+            gtxt(bottom, 12, 174, "A: Select   B: Back", kSuiName, kSuiNameSh);
         }
         extern int P3DS_GpuBotSame;
         P3DS_GpuBotSame = 0;
