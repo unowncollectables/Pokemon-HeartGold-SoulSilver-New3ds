@@ -1,11 +1,11 @@
-# Missing screens round 3 (patches 0271 and 0272, 2026-11-12, not compiled here)
+# Missing screens round 3 (patches 0271 to 0273, 2026-11-12, not compiled here)
 
 - 0271 seeds overlay 108: Safari Zone area customizer and decoration (6 stubs gone, 154 functions).
 - 0272 seeds overlays 75 (Wii message settings on the Continue screen), 72 (Nintendo WFC app), 73, 37 and `unk_020850F4.s` (68 stubs gone, 580 functions).
-- Static check only (closure model of `port.py` plus `translate2.py` on every added function, every new external found as C in the decomp or SDK libraries). No ROM here, so data-table extraction, compile and link are unproven. A link error after this is most likely 0272; fix forward with 0273.
-- Still `[SS-MISSING]` (300 lines in `missing.c`): the whole Battle Frontier, overlay 39 helpers `ov39_0222A1xx` (no assembly for them), 45, 13.
-- Battle Frontier is not a plain seed. Seeding `frontier_map.s`, `frontier_system.s`, `unk_02096910.s` and overlays 80 to 83, 85, 91 to 93 pulls in 2392 functions; 17 fail to translate, all in `overlay_93_arm.s` (ARM mode: conditional `moveq`, `bx ip`, fallthrough), and the translator has no binding for `_dneq`, `_f_lltof`, `_ll_sdiv`, one mid-function label call (`_0223EE86`) and `ov45_0223247C`. Needs translator work first, then one facility per build.
-- Device check: open the Safari Zone area customizer and the object decoration screen; Continue screen Wii message row if shown.
+- 0273 seeds the Battle Frontier: the 28 overlay 80 files, overlays 81, 82, 83 and 85, `frontier_map.s`, `frontier_system.s`, `unk_02096910.s` (245 stubs gone, 1645 functions). `port.py` gains the double compare `_dneq` (`ssd_ne`).
+- `missing.c` goes from 375 traps to 56. Left: the Wi-Fi Plaza (overlay 39 with 39 stubs, 45, and its minigames 91 to 93; `overlay_93_arm.s` is ARM mode and does not translate, 45 has two untranslatable functions and unresolved calls), `ov13_0222B430` (SOC/WCM), `ov01_021EACBC`, `MovementScriptMachineSub_Done`, two `PmAgbCartridge_*`.
+- Static check only (closure model of `port.py`, `translate2.py` on every added function, argument counts of every new external from the headers). No ROM here, so data-table extraction, compile and link are unproven. Expect the first build to need a follow-up patch (0274) for compile or link errors; paste the builder log.
+- Device check: Safari Zone area customizer and object decoration screen; walk into the Battle Frontier, enter the Battle Tower and one other facility, play one round, check BP.
 
 # Audit fixes (2026-11-12, platform only, not compiled here)
 
