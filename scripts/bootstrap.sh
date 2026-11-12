@@ -12,6 +12,12 @@ if [ ! -d "$P/.git" ]; then
   git clone --filter=blob:none "$URL" "$P"
 fi
 cd "$P"
+# A build that was stopped (or failed) in the middle of a patch leaves .git/rebase-apply behind, and every later run then
+# dies with "previous rebase directory .git/rebase-apply still exists". Undo that half-applied patch and start it again.
+if [ -d .git/rebase-apply ]; then
+  echo "bootstrap: an earlier run stopped in the middle of a patch; undoing it and applying again"
+  git am --abort 2>/dev/null || rm -rf .git/rebase-apply
+fi
 apply_patch_mail() {
   local patch="$1"
   if sed '/^$/q' "$patch" | grep '^From: .\+ <.\+>$' >/dev/null; then
