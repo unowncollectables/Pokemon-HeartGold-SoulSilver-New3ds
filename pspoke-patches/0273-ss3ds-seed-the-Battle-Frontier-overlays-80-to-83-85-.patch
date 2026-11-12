@@ -14,11 +14,10 @@ Static check: all 1645 added functions translate, every new external (93) has a 
  3 files changed, 42 insertions(+), 246 deletions(-)
 
 diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
-index 7ecdf06..d02291f 100644
+index 52905b0..4ab39cd 100644
 --- a/port/soulsilver-native-core/nitromain-perf/missing.c
 +++ b/port/soulsilver-native-core/nitromain-perf/missing.c
-@@ -4,152 +4,6 @@
- #include "font.h"
+@@ -4,150 +4,4 @@
  #include "list_menu.h"
  extern void PSPNativeMemLog(const char *,...);__attribute__((noreturn)) static void Missing(const char *name){PSPNativeMemLog("[SS-MISSING] %s",name);fflush(stdout);abort();}
 -__attribute__((noreturn)) void BattleArcadeData_Alloc(void){Missing("BattleArcadeData_Alloc");}
@@ -169,9 +168,7 @@ index 7ecdf06..d02291f 100644
 -__attribute__((noreturn)) void FrtCmd_207(void){Missing("FrtCmd_207");}
  __attribute__((noreturn)) void MovementScriptMachineSub_Done(void){Missing("MovementScriptMachineSub_Done");}
  __attribute__((noreturn)) void PmAgbCartridge_GetLanguage(void){Missing("PmAgbCartridge_GetLanguage");}
- __attribute__((noreturn)) void PmAgbCartridge_GetVersionInternal(void){Missing("PmAgbCartridge_GetVersionInternal");}
-@@ -230,98 +84,6 @@ __attribute__((noreturn)) void ov39_0222A4C0(void){Missing("ov39_0222A4C0");}
- __attribute__((noreturn)) void ov45_02229EE0(void){Missing("ov45_02229EE0");}
+@@ -230,96 +84,4 @@ __attribute__((noreturn)) void ov45_02229EE0(void){Missing("ov45_02229EE0");}
  __attribute__((noreturn)) void ov45_02229F70(void){Missing("ov45_02229F70");}
  __attribute__((noreturn)) void ov45_02229F94(void){Missing("ov45_02229F94");}
 -__attribute__((noreturn)) void ov80_0222AF10(void){Missing("ov80_0222AF10");}
@@ -268,9 +265,7 @@ index 7ecdf06..d02291f 100644
 -__attribute__((noreturn)) void ov85_021E8B08(void){Missing("ov85_021E8B08");}
  __attribute__((noreturn)) void ov91_0225C540(void){Missing("ov91_0225C540");}
  __attribute__((noreturn)) void ov91_0225C58C(void){Missing("ov91_0225C58C");}
- __attribute__((noreturn)) void ov91_0225C9EC(void){Missing("ov91_0225C9EC");}
-@@ -333,13 +95,6 @@ __attribute__((noreturn)) void ov93_0225C574(void){Missing("ov93_0225C574");}
- __attribute__((noreturn)) void ov93_0225C6C0(void){Missing("ov93_0225C6C0");}
+@@ -333,11 +95,4 @@ __attribute__((noreturn)) void ov93_0225C6C0(void){Missing("ov93_0225C6C0");}
  
  
 -__attribute__((noreturn)) void sub_02096910(void){Missing("sub_02096910");}
@@ -282,7 +277,6 @@ index 7ecdf06..d02291f 100644
 -__attribute__((noreturn)) void sub_02096C40(void){Missing("sub_02096C40");}
  /* NitroSDK CRYPTO_RC4Encrypt (ARM in the ROM, which the Thumb translator can't take). Context: i@0, j@1, S[256]@4. */
  void CRYPTO_RC4Encrypt(void *ctx,const void *in,unsigned len,void *out){unsigned char *c=ctx,*s=c+4;const unsigned char *p=in;unsigned char *o=out;unsigned i=c[0],j=c[1];while(len--){i=(i+1)&0xff;unsigned char a=s[i];j=(j+a)&0xff;unsigned char b=s[j];s[i]=b;s[j]=a;*o++=*p++^s[(a+b)&0xff];}c[0]=i;c[1]=j;}
- /* NitroSDK RSA signature check (all ARM bignum code). Native: allocator is a no-op and gift signatures are accepted. */
 diff --git a/port/soulsilver-native-play/maploader/port.py b/port/soulsilver-native-play/maploader/port.py
 index 6bc3bf2..4c873be 100644
 --- a/port/soulsilver-native-play/maploader/port.py
