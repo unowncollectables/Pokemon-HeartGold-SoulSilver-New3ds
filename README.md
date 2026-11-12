@@ -54,7 +54,7 @@
 
 **Pokémon HeartGold & SoulSilver New 3DS** is a fan-made, native New Nintendo 3DS port of Pokémon SoulSilver and Pokémon HeartGold (HGSS), built from the [pret/pokeheartgold](https://github.com/pret/pokeheartgold) decompilation. It is not a DS emulator and not a ROM hack: the game is compiled to run directly on the 3DS, and you install it as a `.cia` from the HOME Menu (or launch the `.3dsx` from the Homebrew Launcher) on a New 3DS, New 3DS XL, or New 2DS XL with custom firmware (Luma3DS).
 
-It adds things the original DS game can't do: stereoscopic 3D with the 3D slider, a widescreen Wide View, a smoother frame rate, and a touch-screen Pokégear with a live map, party, and bag. Trading, the GTS, and Mystery Gift still work. Everything new is a toggle in the in-game settings.
+It adds things the original DS game can't do: stereoscopic 3D with the 3D slider, a widescreen Wide View, a smoother frame rate, and a touch-screen Pokégear with a live map, party, and bag. Trading, the GTS, Mystery Gift, and the Pokéwalker (send and return over the 3DS infrared port) still work. Everything new is a toggle in the in-game settings.
 
 This repository holds only source code and patches. It contains no ROMs, game assets, or saves. You build your own copy from a legally dumped HeartGold or SoulSilver ROM you own.
 
@@ -271,6 +271,8 @@ Debug rows follow the same table when their line is missing. Speed tweaks starts
 **Online.** With no `wireless` line, Wireless starts at **ONLINE**: community-server GTS, and Mystery Gift → Get via Nintendo WFC. Both paths have worked on SoulSilver hardware. They use separate services, and availability depends on the community hosts. Online mode requires every `cheat_*` setting off. `wifi_dns` overrides the community DNS used by Poké Classic. See the [wireless guide](docs/WIRELESS.md).
 
 **Server picker.** Turn on **GTS server picker** in Setup, then reopen the title menu. Online Settings offers Poké Classic (the DNS path above), StarMe, and Wi-Fi setup instructions. Turning the picker off uses the DNS path again, including after StarMe was selected. StarMe's WFC identity is a file in the port folder. Poké Classic keeps using the profile stored in the save. Leaving the GTS runs the WFC cleanup that exit used to skip. Live deposit, pickup, and a hardware re-entry are still open.
+
+**Pokéwalker.** On by default. Send a Pokémon to a Pokéwalker from the PC and bring it back, over the New 3DS infrared port. Send and return have both worked on a New 3DS. Repeat runs and the latest menu fix still need more hardware checks.
 
 **Frontier and the plaza.** The Battle Frontier and the Safari Zone area screens are in the tree and still need a device visit. The Wi-Fi Plaza attendant answers `WI-FI PLAZA IS CLOSED`. The Wi-Fi Club minigames still stop.
 
