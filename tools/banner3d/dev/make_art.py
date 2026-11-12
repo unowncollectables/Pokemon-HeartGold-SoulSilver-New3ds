@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Remakes art/logo.png, art/portal.png and art/sparkle.png (committed; not needed to build the banner; needs numpy and
-Pillow). logo.png is cut out of the repo's own "SoulSilver banner 1024.png" (keyed on the bright lettering, dilated to keep
+Pillow). logo.png is cut out of the repo's "docs/assets/soulsilver-banner-1024.png" (keyed on the bright lettering, dilated to keep
 the outline), resized to 224 px wide (1 texel = 1 screen pixel) and dithered to the 3DS's RGBA4 levels. portal.png is a
 soft silver-blue glow with a gold ring (Lugia / Ho-Oh). sparkle.png is a 4-point star.
 
-    python3 tools/banner3d/dev/make_art.py "SoulSilver banner 1024.png" tools/banner3d/art
+    python3 tools/banner3d/dev/make_art.py docs/assets/soulsilver-banner-1024.png tools/banner3d/art
 """
 import sys, os
 import numpy as np

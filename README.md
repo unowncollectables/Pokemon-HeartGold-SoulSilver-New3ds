@@ -36,7 +36,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/unowncollectables/patch-builder"><strong>Open Pokémon 3DS Builder →</strong></a>
+  <a href="https://github.com/unowncollectables/patch-builder/releases/latest"><strong>Download the Windows builder</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#02--build-your-copy"><strong>Build instructions</strong></a>
 </p>
 
 ---
@@ -44,7 +46,7 @@
 ## What's new
 
 > [!NOTE]
-> A few recent items from the [changelog](CHANGELOG.md), [handoff](HANDOFF.md), and [release notes](RELEASE_NOTES.md). A 3DS result is listed only where those notes record one.
+> A few recent items from the [changelog](docs/CHANGELOG.md), [handoff](docs/HANDOFF.md), and [release notes](docs/RELEASE_NOTES.md). A 3DS result is listed only where those notes record one.
 
 | Topic | In the tree | On a 3DS |
 | --- | --- | --- |
@@ -210,7 +212,7 @@ When `config.txt` has no line for them, these start on: Pokédex finder, Breedin
 - **3D and widescreen.** The Poké Ball opening can show a double image with the 3D slider up. Wide FX is expensive, and the wide title presentation still needs a dedicated hardware check.
 - **Other checks.** Radio tuning, the roamer tracker, Contest helper, Tap to Fly, Alive wild Pokémon, and achievements still need more device coverage.
 
-See the [handoff notes](HANDOFF.md) for test results, the [changelog](CHANGELOG.md) for recent changes, and the [roadmap](docs/ROADMAP.md) for what's planned.
+See the [handoff notes](docs/HANDOFF.md) for test results, the [changelog](docs/CHANGELOG.md) for recent changes, and the [roadmap](docs/ROADMAP.md) for what's planned.
 
 </details>
 
@@ -248,8 +250,8 @@ The port compiles the [pret/pokeheartgold](https://github.com/pret/pokeheartgold
 
 - [Architecture](docs/ARCHITECTURE.md) and [development guide](docs/DEVELOPMENT.md)
 - [Build guide](docs/BUILDING.md), [setup](docs/SETUP.md), and [FAQ](docs/FAQ.md)
-- [Contributing](CONTRIBUTING.md), [project conventions](AGENTS.md), and [handoff notes](HANDOFF.md)
-- [Release notes](RELEASE_NOTES.md), [changelog](CHANGELOG.md), and [security policy](SECURITY.md)
+- [Contributing](.github/CONTRIBUTING.md), [project conventions](AGENTS.md), and [handoff notes](docs/HANDOFF.md)
+- [Release notes](docs/RELEASE_NOTES.md), [changelog](docs/CHANGELOG.md), and [security policy](.github/SECURITY.md)
 
 ## Credits
 
@@ -257,7 +259,7 @@ The port compiles the [pret/pokeheartgold](https://github.com/pret/pokeheartgold
 - [pret/pokeheartgold](https://github.com/pret/pokeheartgold), [pret/pokeplatinum](https://github.com/pret/pokeplatinum), and [IbrahimIrfan/pspoke](https://github.com/IbrahimIrfan/pspoke) provide the decompilation and native build foundations.
 - [3ds-platinum](https://github.com/unowncollectables/3ds-platinum) and [GabeSud0/pokeplatinum-3ds](https://github.com/GabeSud0/pokeplatinum-3ds) contributed platform code, patches, and interface work.
 - [devkitPro](https://devkitpro.org/), libctru, citro3d, and [Azahar](https://azahar-emu.org/) provide tooling for development and testing. Claude and Grok Bot contributed code, tooling, and documentation.
-- Thanks to everyone who tests builds and shares logs. See [third-party notices](THIRD_PARTY.md) for full attributions.
+- Thanks to everyone who tests builds and shares logs. See [third-party notices](docs/THIRD_PARTY.md) for full attributions.
 
 ## Legal
 
