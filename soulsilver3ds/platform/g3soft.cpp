@@ -555,7 +555,7 @@ void G3SIM_FlushDeferred(){
   {static unsigned f;if(++f%900==0){PSPNativeMemLog("[G3] tex_postvblank: %u textures refreshed after VBlank (30 s)",postFixes);postFixes=0;}}}
  /* run 63 tex_trace=1 (debug, default 0): per 3D frame, every small texture used (<=64x64) with a hash of its VRAM
     bytes -> shows whether a sprite's VRAM really changes (game side) or the cache misses it (port side). */
- {static int tt=-1;if(tt<0)tt=P3DS_CfgInt("tex_trace",0);if(tt>0){struct E{unsigned off,pal,wh;u32 h;};static E prv[96],cur[96];static unsigned pn;unsigned cn=0;
+ {static int tt=-1;if(tt<0)tt=0 /* tex_trace: debug option removed */;if(tt>0){struct E{unsigned off,pal,wh;u32 h;};static E prv[96],cur[96];static unsigned pn;unsigned cn=0;
   for(unsigned i=0;i<usedN&&cn<96;i++){Tex*t=usedTex[i];if(t->w>64||t->h>64)continue;u32 hsh=2166136261u;for(unsigned j=0;j<t->rawN;j++)hsh=(hsh^t->raw[j])*16777619u;cur[cn++]={t->off,t->pal,t->w<<8|t->h|t->fmt<<16,hsh};}
   char b[200];int k=0;auto fl=[&](){if(k){PSPNativeMemLog("[TEXTR] f%u g%u%s",g3FrameNo,PSPNativeVramGen,b);k=0;}};
   for(unsigned i=0;i<cn;i++){bool same=false,had=false;for(unsigned j=0;j<pn;j++)if(prv[j].off==cur[i].off&&prv[j].pal==cur[i].pal&&prv[j].wh==cur[i].wh){had=true;same=prv[j].h==cur[i].h;break;}
@@ -567,7 +567,7 @@ void G3SIM_FlushDeferred(){
  if(gpuOn==1){u64 t=svcGetSystemTick();G3G_FogNoW=!wbufOn();G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);prEnd+=svcGetSystemTick()-t;prN++;}
  /* debug g3_shot=N: dump the finished 3D layer (256x192 RGBA, 6-bit) of 3D frames N, N+60, ... (8 files) to
     sdmc:/3ds/soulsilver3ds/g3shot_<frame>.bin, to compare renderers on the exact same game frame. Off (0) by default. */
- {static int shotF=-1;if(shotF<0)shotF=P3DS_CfgInt("g3_shot",0);if(shotF>0&&g3FrameNo>=(unsigned)shotF&&(g3FrameNo-shotF)%60==0&&g3FrameNo<(unsigned)shotF+480){G3G_DirectResolveWhy(7);char fn[64];snprintf(fn,sizeof fn,"sdmc:/3ds/soulsilver3ds/g3shot_%u.bin",g3FrameNo);FILE*f=fopen(fn,"wb");if(f){fwrite(GPU3D::NativeFrame,4,256*192,f);fclose(f);PSPNativeMemLog("[G3SHOT] %s (gpu %d)",fn,gpuOn);}}}
+ {static int shotF=-1;if(shotF<0)shotF=0 /* g3_shot: debug option removed */;if(shotF>0&&g3FrameNo>=(unsigned)shotF&&(g3FrameNo-shotF)%60==0&&g3FrameNo<(unsigned)shotF+480){G3G_DirectResolveWhy(7);char fn[64];snprintf(fn,sizeof fn,"sdmc:/3ds/soulsilver3ds/g3shot_%u.bin",g3FrameNo);FILE*f=fopen(fn,"wb");if(f){fwrite(GPU3D::NativeFrame,4,256*192,f);fclose(f);PSPNativeMemLog("[G3SHOT] %s (gpu %d)",fn,gpuOn);}}}
  {u64 d=svcGetSystemTick()-frameTicks;lastUs=(unsigned)(d/268);lastTris=drawnTris;sumTicks+=d;}if(++frames==120){sumTicks=0;frames=0;
   if(drawnTris)PSPNativeMemLog("[G3DIAG] gpu3d %d %uus | decodes %u | tex %u trans %u | px tested %u depthrej %u texalpha0 %u alpha0 %u written %u | z %.0f..%.0f x %.1f..%.1f a %u..%u | clear %08lx depth %04x dtest %u | fmt0-7 %u %u %u %u %u %u %u %u | vcol or %08lx and %08lx",gpuOn,G3G_LastUs(),stDecodes,
    stTexTris,stTrans,stPix,stDepth,stTexA,stA0,stWritten,stZmin,stZmax,stXmin,stXmax,stAmin,stAmax,(unsigned long)*(u32*)(PSPNative_GfxRegisters+0x350),*(u16*)(PSPNative_GfxRegisters+0x354),s_curPolygonAttr.depthTest,stFmt[0],stFmt[1],stFmt[2],stFmt[3],stFmt[4],stFmt[5],stFmt[6],stFmt[7],(unsigned long)stColOr,(unsigned long)stColAnd);}

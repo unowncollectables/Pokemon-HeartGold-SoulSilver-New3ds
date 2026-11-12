@@ -264,9 +264,6 @@ ui_gamefont=1           (run 64, default 1) Port text boxes (follower talk, toas
                         game's own font and message-box frame, read from your ROM at start. 0 = old port font.
 ui_frame=0              (run 64) Which of the game's 20 message-box frames the port boxes use (0..19).
 settings_app        (retired 2026-10-28; the settings app is the only settings screen, the key is ignored)
-fps60_probe=0           (default 0 = off, log only) 1: log.txt gets '[FPS] field 10 s' (busy vs idle time per game tick in the
-                    overworld) and '[FPS] probe' (how stable the 3D triangle order is between frames). Data for a future
-                    60 fps overworld, see docs/FPS60.md. Changes nothing on screen.
 fast_text=2             (default 2) 2, 3, 4 or 64 (instant): the game prints that many letters per frame. Stops at
                         every pause / button prompt, so no text is skipped. Settings app, System tab (Fast text).
 reusable_tms=1          (run 64, default 1) 1 = TMs are not used up when you teach them. Also in the settings app. 0 = a TM is used up.
@@ -303,7 +300,6 @@ lid_sound=1             (run 64, default 1; run 65 sounds) Closing the lid plays
                         (overworld only; the music keeps playing / resumes). NOTE: those two sounds are in the game's battle
                         sound bank, which the game doesn't keep loaded in the overworld; when they can't start (always so far
                         in testing) the game's overworld Poke Ball sound (the Poke Center ball sound) plays instead. 0 = silent.
-lid_test=1              (run 65, DEBUG ONLY) fakes a lid close / open about 5 and 7 s into the overworld. Default 0.
 summary_ivs=1           (default 1) On the Pokemon summary screen press Y to show / hide a box
                         with the Pokemon's IVs and EVs, in the order HP/Atk/Def/SpA/SpD/Spe. Read only.
                         Also in the settings app (Game page 2).
@@ -324,8 +320,6 @@ birthdays=10-27,03-14   Your birthday list, MM-DD, comma separated, up to 32. Li
                         star sparkle shows in Sprout Tower (New Bark Town too). Beats any holiday that day.
                         Holidays: Jan 1 fireworks Goldenrod, Feb 14 hearts Cherrygrove, Mar 17 green sparkles Ilex
                         Forest, Jul 1 red/white sparkles Olivine, Oct 31 purple wisps Lavender Town, Dec 25 snow Mahogany.
-celeb_test=N            (test only, config.txt) forces effect N on every overworld map: 1 birthday, 2 fireworks, 3 hearts,
-                        4 green rain, 5 red/white, 6 wisps, 7 snow. 0 = real dates.
 repel_prompt=1          (run 64, default 1) When a Repel wears off and you still have one, after the game's "Repel's
                         effect wore off" message you are asked "Use another Repel?" (Up/Down, A = yes, B = no).
                         Yes uses it exactly like the Bag does (one taken from the Bag, normal Repel length).

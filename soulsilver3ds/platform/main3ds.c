@@ -68,9 +68,8 @@ static void hold(const char *why) { P3DS_LogFlushSync();
    game's own save code writes, byte for byte what a cart holds) ----
    Backups: soulsilver.sav.bak1..8, newest first, made at launch, 2 s after each in-game save (pspoke hook 0119 -> P3DS_SaveDone) and at clean exit (save_backup=1, default on). A copy is
    only rotated in when the live file is a valid save (a footer CRC check, same rule as tools/ss_savecheck.py) and differs
-   from bak1, so a blank or damaged file can never push the good copies out. Import: put a raw .sav named import.sav in
-   sdmc:/3ds/soulsilver3ds/; at launch, if it is valid, the current save is kept as soulsilver.sav.preimport and import.sav
-   replaces it (renamed import.sav.done). Export: Settings > Setup > Export save (P3DS_SaveExport) writes a validated byte-for-byte copy of
+   from bak1, so a blank or damaged file can never push the good copies out. To bring in a cart / R4 / emulator save, copy it over soulsilver.sav on the SD card.
+   Export: Settings > Setup > Export save (P3DS_SaveExport) writes a validated byte-for-byte copy of
    soulsilver.sav to export/soulsilver_YYYYMMDD_HHMMSS.sav and export/soulsilver.sav (read back and compared); or copy soulsilver.sav / any .bak by hand. */
 #define SS_BAK_KEEP 8
 #define SS_SAVE_DIR "sdmc:/3ds/soulsilver3ds/"
@@ -151,17 +150,6 @@ done:
     LightLock_Unlock(&ssSaveLock);
     P3DS_Toast(ok ? "SAVE EXPORTED" : "SAVE EXPORT FAILED");
     return ok;
-}
-static void ssSaveImport(void) {
-    u8 *in = ssBuf(0), *cur = ssBuf(1);
-    size_t n = ssReadAll(SS_SAVE_DIR "import.sav", in);
-    FILE *f = fopen(SS_SAVE_DIR "import.sav", "rb"); if (!f) return; fclose(f);
-    u32 cnt = n == SS_SAVE_BYTES ? ssSaveValid(in) : 0;
-    if (!cnt) { PSPNativeMemLog("[SAVE] import.sav ignored: %s", n == SS_SAVE_BYTES ? "no valid slot" : "not exactly 512 KiB"); return; }
-    if (ssReadAll(SS_SAVE_DIR "soulsilver.sav", cur) == SS_SAVE_BYTES && ssSaveValid(cur) && !ssWriteAtomic(SS_SAVE_DIR "soulsilver.sav.preimport", cur)) { PSPNativeMemLog("[SAVE] import aborted: could not keep the current save"); return; }
-    if (!ssWriteAtomic(SS_SAVE_DIR "soulsilver.sav", in)) { PSPNativeMemLog("[SAVE] import FAILED writing soulsilver.sav"); return; }
-    remove(SS_SAVE_DIR "import.sav.done"); rename(SS_SAVE_DIR "import.sav", SS_SAVE_DIR "import.sav.done");
-    PSPNativeMemLog("[SAVE] imported import.sav (save count %u); previous save kept as soulsilver.sav.preimport", cnt);
 }
 static volatile int quitting;
 static aptHookCookie hookCookie;
@@ -324,7 +312,7 @@ void P3DS_FrameHook(void) {
     if (quitting || !aptMainLoop()) hardExit(0);
     /* run 64 lid_sound=1 (default; run 65: Poke Ball recall SE on close, send-out SE on open, see P3DS_PlayLidSE).
        Only in the overworld (sound system up, no battle/cutscene music to interrupt). Played on the game thread. */
-    { static int lt = -1, n; extern int P3DS_CfgInt(const char *, int); extern int P3DS_InField; if (lt < 0) lt = P3DS_CfgInt("lid_test", 0) != 0;
+    { static int lt = -1, n; extern int P3DS_CfgInt(const char *, int); extern int P3DS_InField; if (lt < 0) lt = 0 /* lid_test: debug option removed */ != 0;
       if (lt && P3DS_InField) { ++n; if (n == 300) lidEvt = 1; else if (n == 420) lidEvt = 2; } } /* run 65 debug: fake a lid close/open in the overworld */
     if (lidEvt) { int e = lidEvt; lidEvt = 0; if (e == 1) { extern void P3DS_HuntFlush(void); P3DS_HuntFlush(); } /* shiny_suite: lid closed -> hunt.txt up to date */ static int ls = -1; extern int P3DS_CfgInt(const char *, int); extern int P3DS_InField;
         if (ls < 0) ls = P3DS_CfgInt("lid_sound", 1) != 0;
@@ -477,7 +465,7 @@ int main(void) {
     { /* create a blank save only if none exists; never touch an existing one */
       FILE *f = fopen("sdmc:/3ds/soulsilver3ds/soulsilver.sav", "rb");
       if (f) fclose(f); else if ((f = fopen("sdmc:/3ds/soulsilver3ds/soulsilver.sav", "wb"))) { static u8 blk[4096]; memset(blk, 0xFF, sizeof blk); for (int i = 0; i < 128; i++) fwrite(blk, 1, sizeof blk, f); fclose(f); PSPNativeMemLog("[3DS] created blank soulsilver.sav"); } }
-    ssSaveImport(); ssSaveBackup("launch");
+    ssSaveBackup("launch");
     STEP("Save (soulsilver.sav)", PSPNative_OpenBackup("sdmc:/3ds/soulsilver3ds/soulsilver.sav"), "soulsilver.sav invalid: must be exactly 512 KiB");
     { extern int P3DS_GameFontLoad(void); P3DS_GameFontLoad(); } /* run 64: game font from the ROM for port UI */
     PSPNativeStackProbeInit(); STEP("Stack probe", 1, "");
@@ -527,7 +515,7 @@ extern void __real_OS_WaitIrq(int c, u32 m); void __wrap_OS_WaitIrq(int c, u32 m
     /* ss3ds fps60_probe=1 (log only, default 0): how much of each 33 ms game tick in the overworld is spent working vs
        idle in the VBlank waits. A 60 fps field needs a second 3D draw + composite + present inside that idle time. */
     if (m & 1u) { static int pr = -1; static u64 t0, idle; static unsigned waits; extern int P3DS_CfgInt(const char *, int); extern int P3DS_InField; extern int P3DS_FpsTweaks(void);
-        if (pr < 0) { { pr = P3DS_CfgInt("fps60_probe", 0) != 0; } PSPNativeMemLog("[FPS] fps60_probe=%d (busy/idle time per second in the overworld, triangle order stability)", pr); }
+        if (pr < 0) { { pr = 0 /* fps60_probe: debug option removed */ != 0; } PSPNativeMemLog("[FPS] fps60_probe=%d (busy/idle time per second in the overworld, triangle order stability)", pr); }
         if ((pr || P3DS_FpsTweaks() >= 5) && P3DS_InField) { u64 a = svcGetSystemTick(); if (!t0) t0 = a; __real_OS_WaitIrq(c, m); u64 b = svcGetSystemTick(); idle += b - a; waits++; P3DS_VblIdleTicks += b - a;
             if (b - t0 >= 10 * 268111856ull) { double el = (double)(b - t0) / 268111.856, id = (double)idle / 268111.856;
                 PSPNativeMemLog("[FPS] field 10 s: %u VBlank waits (%.1f/s), idle %.0f ms, busy %.0f ms = %.1f ms per 33.3 ms tick (%.0f%% busy)", waits, waits * 1000.0 / el, id, el - id, (el - id) * 2.0 / (waits ? waits : 1), 100.0 * (el - id) / el);
@@ -550,12 +538,12 @@ extern int P3DS_CfgInt(const char *, int);
 /* run 63 vram_trace (debug, log_level 2): VRAM transfer task requests / failures / process calls per 2 s. */
 extern int __real_VramTransfer_Request(int type, unsigned dest, void *buf, unsigned size); extern void __real_VramTransfer_Process(void);
 static unsigned vtReq, vtFail, vtProc, vtMaxPer, vtPer; static u64 vtT;
-static void vtLog(void) { u64 now = svcGetSystemTick(); if (now - vtT > 268111856ull * 2) { vtT = now; static int vt = -1; if (vt < 0) vt = P3DS_CfgInt("vram_trace", 0); /* run 66: cached */ if (vt) PSPNativeMemLog("[VXFER] 2s: requests %u failed %u process %u max/frame %u", vtReq, vtFail, vtProc, vtMaxPer); vtReq = vtFail = vtProc = vtMaxPer = 0; } }
+static void vtLog(void) { u64 now = svcGetSystemTick(); if (now - vtT > 268111856ull * 2) { vtT = now; static int vt = -1; if (vt < 0) vt = 0 /* vram_trace: debug option removed */; /* run 66: cached */ if (vt) PSPNativeMemLog("[VXFER] 2s: requests %u failed %u process %u max/frame %u", vtReq, vtFail, vtProc, vtMaxPer); vtReq = vtFail = vtProc = vtMaxPer = 0; } }
 int __wrap_VramTransfer_Request(int type, unsigned dest, void *buf, unsigned size) { int r = __real_VramTransfer_Request(type, dest, buf, size); vtReq++; vtPer++; if (!r) vtFail++; return r; }
 /* run 63 heap_watch=<decimal address> (debug, default 0): log every game heap alloc covering that address and every
    free of a block starting up to 64 KiB below it, with the caller (finds use-after-free / reuse of a watched object). */
 extern void *__real_Heap_Alloc(u32 h, u32 n); extern void *__real_Heap_AllocAtEnd(u32 h, u32 n); extern void __real_Heap_Free(void *p); extern void __real_Heap_FreeExplicit(u32 h, void *p);
-static unsigned hwAddr = 1; static unsigned hwA(void) { if (hwAddr == 1) hwAddr = (unsigned)P3DS_CfgInt("heap_watch", 0); return hwAddr; }
+static unsigned hwAddr = 1; static unsigned hwA(void) { if (hwAddr == 1) hwAddr = (unsigned)0 /* heap_watch: debug option removed */; return hwAddr; }
 static void hwChk(const char *k, void *p, u32 h, u32 n, void *ra) { unsigned a = hwA(), q = (unsigned)p; if (!a || !p) return;
   if (n ? (q <= a && a < q + n) : (q <= a && a - q < 0x10000)) PSPNativeMemLog("[HEAPW] %s %p heap %lu size %lu from %p (watch %x)", k, p, (unsigned long)h, (unsigned long)n, ra, a); }
 /* run 681 crash (Heap_Alloc -> NNS_FndAllocFromExpHeapEx, NULL heap handle): the game allocated from a heap id whose heap is not

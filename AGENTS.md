@@ -110,6 +110,9 @@ Feature candidates and their pokeheartgold hook points. Real C in pret/pokeheart
 `unowncollectables/patch-builder` ("Pokemon 3DS Builder": `p3ds_builder.py` window, `p3ds_build.sh` Platinum, `ss_build.sh` SoulSilver, `p3ds_get.sh` project download; Windows/WSL/Linux; `.exe` via `build_exe.bat`) now builds **either or both ports** (merged 2026-10-25). For SoulSilver it checks the ROM (US `IPGE`, SHA1 against `upstream.lock`), downloads this repo, runs `scripts/ss3ds_build.sh` then `make` in `soulsilver3ds/full` (optionally `make cia`), backs up `soulsilver.sav` and installs to `3ds/soulsilver3ds` (`.cia` to `cias/`). Its own README has the end-user steps and its AGENTS.md the script protocol. **Untested end to end:** the real SoulSilver compile through the builder, the `.cia` steps, Windows/WSL and the `.exe`; the window was driven headless with stub scripts only.
 
 ## 11. Working conventions for AIs
+- Patch numbers 0125 and 0215 are each used by two patches (parallel work). Both pairs apply in file-name order and are already on every build tree, so they are left alone: never renumber an applied patch. Before numbering a new patch, check `ls pspoke-patches | tail` on main.
+- Defaults for missing config keys live in ONE table, `kCfgDefaults` in `platform/psp_ctru.c`. `logring.c` reads it through `P3DS_CfgDefault`; its own `cfgTab` only lists which keys exist.
+- There is no save import step. A cart / R4 save is brought in by copying it over `soulsilver.sav` on the SD card.
 - Branch per task (`claude/...`, `grok/...`, `feature/...`), PR to `main`, small diffs, explain risk. Do not rewrite shared history.
 - the owner is usage-conscious: finish, merge, stop. Do not leave sessions idle.
 - Report outcomes honestly; say when something is untested.

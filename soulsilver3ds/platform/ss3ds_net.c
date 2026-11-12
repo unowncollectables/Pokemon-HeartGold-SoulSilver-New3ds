@@ -374,7 +374,8 @@ static void previewWrite(unsigned trainer, int server, GtsPreview p)
     if (!f) return;
     int written = fprintf(f, "%u %u %u %u\n", p.state, p.species, p.level, p.wanted);
     int closed = fclose(f);
-    if (written < 0 || closed != 0 || rename(temp, path) != 0) {
+    /* the SD card refuses a rename onto an existing file: drop the old one first */
+    if (written < 0 || closed != 0 || (remove(path), rename(temp, path)) != 0) {
         remove(temp);
         NLOG("[GTS] preview cache write failed");
     }
@@ -459,7 +460,6 @@ static void ghWork(void *arg)
                     }
                 }
                 resp[tot] = 0;
-                NLOG("[GHTTP] got %d bytes, status line: %.40s", tot, tot > 0 ? resp : "(none)");
                 if (tot > 0 && !(strncmp(resp, "HTTP/", 5) == 0 && strstr(resp, " 200") && strstr(resp, " 200") < resp + 16)) {
                     /* non-200 reply (2026-11-06: nginx 400 from the GTS host): show headers and body, control chars as '.' */
                     char dump[420]; int n = tot < (int)sizeof dump - 1 ? tot : (int)sizeof dump - 1;
@@ -471,7 +471,6 @@ static void ghWork(void *arg)
                 if (tot > 12 && strncmp(resp, "HTTP/", 5) == 0 && strstr(resp, " 200") && strstr(resp, " 200") < resp + 16 && body) {
                     body += 4; len = tot - (int)(body - resp); if (len > GH_MAX - 1) len = GH_MAX - 1;
                     memcpy(gh.body, body, len); gh.body[len] = 0; result = 0;
-                    NLOG("[GHTTP] ok, body %d bytes", len);
                 }
             } else NLOG("[GHTTP] connect failed (errno %d)", errno);
             if (fd >= 0) close(fd);
@@ -489,7 +488,6 @@ int P3DS_GhttpStart(const char *url, void *cb, void *ud)
     gh.previewEnabled = P3DS_GtsPickerEnabled() && previewHasTrainer;
     gh.previewTrainer = previewTrainer;
     gh.previewServer = -1;
-    NLOG("[GHTTP] GET %s", gh.url);
     gh.th = threadCreate(ghWork, NULL, 0x8000, 0x30, -2, false);
     if (!gh.th) { gh.state = 0; NLOG("[GHTTP] thread create failed"); return -5; }
     return 1;
@@ -503,7 +501,6 @@ int P3DS_GhttpThink(void)
         void *ud = gh.ud; int len = gh.len, res = gh.result;
         threadJoin(gh.th, 2000000000ULL); threadFree(gh.th);
         gh.th = NULL; gh.state = 0; /* idle first: the callback starts the next request */
-        NLOG("[GHTTP] callback result %d len %d", res, len);
         if (res == 0 && gh.previewServer >= 0)
             previewObserve(gh.previewTrainer, gh.previewServer, gh.url,
                            (const unsigned char *)gh.body, len);
@@ -566,7 +563,7 @@ static int starMeWriteProfile(const char *slot)
     int ok = fwrite(sStarMeUserData, 1, sizeof sStarMeUserData, f) == sizeof sStarMeUserData;
     if (fflush(f) != 0 || fsync(fileno(f)) != 0) ok = 0;
     if (fclose(f) != 0) ok = 0;
-    if (ok && rename(temporary, path) == 0) return 1;
+    if (ok && (remove(path), rename(temporary, path)) == 0) return 1;
     remove(temporary);
     return 0;
 }
@@ -591,8 +588,17 @@ int P3DS_PrepareStarMeIdentity(void)
     int loaded = starMeReadProfile("profile", 1);
     if (loaded == 0) loaded = starMeReadProfile("pending", 0);
     if (loaded < 0) {
-        NLOG("[LOGIN] StarMe profile unreadable; existing profile kept");
-        return 0;
+        /* A damaged file would block StarMe for good. Keep it as .bad and start a fresh profile. */
+        static const char *const slots[] = { "profile", "pending" };
+        for (int i = 0; i < 2; i++) {
+            char path[96], bad[100];
+            starMeProfilePath(path, sizeof path, slots[i]);
+            snprintf(bad, sizeof bad, "%s.bad", path);
+            remove(bad);
+            rename(path, bad);
+        }
+        NLOG("[LOGIN] StarMe profile unreadable: kept as .bad, a new profile is created");
+        loaded = 0;
     }
     if (loaded == 0) {
         DWC_Init(sLoginWork);
@@ -676,7 +682,6 @@ void P3DS_LoginStart(void)
     DWC_Init(sLoginWork);
     DWC_InitFriendsMatch(sLoginCtl, ud, 0x29E7, "pokemondpds", "1vTlwb", 0, 0, sLoginFriends, 0x20);
     sLoginInitialized = 1;
-    NLOG("[LOGIN] InitFriendsMatch ready");
     static const unsigned short nm[] = { 'T', 'e', 's', 't', 0 };
     int r = DWC_LoginAsync(nm, NULL, loginCb, NULL);
     NLOG("[LOGIN] LoginAsync -> %d (state %d)", r, DWC_GetState());
@@ -809,7 +814,7 @@ int SOC_Socket(int pf, int type, int protocol)
     (void)pf; (void)protocol;
     if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit()) { NLOG("[SOC] socket refused (online mode off, cheat on, or sockets down)"); return -38; }
     int fd = socket(AF_INET, type == 2 ? SOCK_DGRAM : SOCK_STREAM, 0);
-    static int n; if (n++ < 6) NLOG("[SOC] socket(%s) -> %d", type == 2 ? "udp" : "tcp", fd);
+    if (fd < 0) NLOG("[SOC] socket(%s) failed -> %d", type == 2 ? "udp" : "tcp", fd);
     return fd < 0 ? socErr() : fd;
 }
 int SOC_Bind(int s, const void *sa) { soctr("bind %d", s); struct sockaddr_in b; toBsd(sa, &b); return bind(s, (struct sockaddr *)&b, sizeof b) < 0 ? socErr() : 0; }
@@ -819,7 +824,7 @@ int SOC_Connect(int s, const void *sa)
     soctr("connect %d", s);
     int r = connect(s, (struct sockaddr *)&b, sizeof b);
     int e = r < 0 ? socErr() : 0;
-    static int n; if (n++ < 8) NLOG("[SOC] connect(%d, %s:%u) -> %d", s, inet_ntoa(b.sin_addr), (unsigned)ntohs(b.sin_port), e);
+    if (e) NLOG("[SOC] connect(%d, %s:%u) failed -> %d", s, inet_ntoa(b.sin_addr), (unsigned)ntohs(b.sin_port), e);
     return e;
 }
 int SOC_Listen(int s, int backlog) { return listen(s, backlog) < 0 ? socErr() : 0; }
@@ -831,7 +836,7 @@ int SOC_Accept(int s, void *sa)
     if (sa) fromBsd(&b, sa);
     return fd;
 }
-static void cpsDump(const char *tag, const unsigned char *b, unsigned n);
+__attribute__((unused)) static void cpsDump(const char *tag, const unsigned char *b, unsigned n);
 static void tcpPeek(const char *tag, const void *b, int r, unsigned maxn) { static int n; if (r > 0 && n < 14) { n++; cpsDump(tag, b, (unsigned)r < maxn ? (unsigned)r : maxn); } }
 int SOC_Read(int s, void *buf, int len) { soctr("read %d len %d", s, len); int r = read(s, buf, len); return r < 0 ? socErr() : r; }
 int SOC_Recv(int s, void *buf, int len, int flags) { soctr("recv %d len %d", s, len); (void)flags; int r = recv(s, buf, len, 0); tcpPeek("GP recv", buf, r, 600); return r < 0 ? socErr() : r; }
@@ -905,12 +910,10 @@ int SOC_Poll(SS3DSPollFD fds[], unsigned nfds, long long timeout)
  * path; GTS never started SOCL either so this only turns a latent crash into success. */
 int SOCL_Cleanup(void)
 {
-    NLOG("[SOC] SOCL_Cleanup no-op (SOCL not started on 3DS)");
     return 0;
 }
 int SOC_Cleanup(void)
 {
-    NLOG("[SOC] SOC_Cleanup no-op (SOCL not started on 3DS)");
     return 0;
 }
 
@@ -926,14 +929,14 @@ static struct { int fd; unsigned short rport; unsigned int rip; unsigned char rx
 
 static void cpsClose(void) { if (sCps.fd >= 0) { close(sCps.fd); sCps.fd = -1; } sCps.rxn = sCps.rxPos = 0; sCps.eof = 0; sCps.idle = 0; }
 
-void CPS_SocRegister(void *soc) { (void)soc; NLOG("[CPS] SocRegister"); cpsClose(); }
+void CPS_SocRegister(void *soc) { (void)soc; cpsClose(); }
 void CPS_SocUnRegister(void) { cpsClose(); }
 void CPS_SocUse(void) { cpsClose(); }
 void CPS_SocRelease(void) { cpsClose(); }
 unsigned int CPS_Resolve(const char *host) { return SOCL_Resolve(host); }
 void CPS_SetRootCa(const void *a, int n) { (void)a; (void)n; }
 void CPS_SetSsl(int on) { if (on) NLOG("[CPS] ssl requested: not supported on 3DS, request will fail"); }
-void CPS_SocBind(unsigned short lport, unsigned short rport, unsigned int rip) { (void)lport; sCps.rport = rport; sCps.rip = rip; NLOG("[CPS] bind -> %s:%u", inet_ntoa((struct in_addr){ htonl(rip) }), (unsigned)rport); }
+void CPS_SocBind(unsigned short lport, unsigned short rport, unsigned int rip) { (void)lport; sCps.rport = rport; sCps.rip = rip; }
 
 unsigned int CPS_TcpConnect(void)
 {
@@ -948,7 +951,6 @@ unsigned int CPS_TcpConnect(void)
     if (r == 0) { fl = fcntl(sCps.fd, F_GETFL, 0); fcntl(sCps.fd, F_SETFL, fl | O_NONBLOCK); }
     if (r < 0) { NLOG("[CPS] connect failed errno %d (r %d)", e, r); cpsClose(); return 1; }
     CPSMyIp = ntohl((unsigned)gethostid()); if (!CPSMyIp) CPSMyIp = 0x0a000002;
-    NLOG("[CPS] connected");
     return 0;
 }
 
@@ -975,7 +977,6 @@ unsigned int CPS_SocWrite(const unsigned char *buf, unsigned len)
         if (r < 0 && errno == EAGAIN && ++tries < 2000) { svcSleepThread(5000000LL); continue; }
         NLOG("[CPS] send failed errno %d", errno); return off;
     }
-    NLOG("[CPS] sent %u bytes", off); { static int d; if (d++ < 2) cpsDump("request", buf, len); }
     return off;
 }
 void CPS_SocFlush(void) {}
@@ -986,7 +987,7 @@ int CPS_SocGetLength(void)
     if (sCps.rxn - sCps.rxPos == 0) { sCps.rxn = sCps.rxPos = 0; }
     if (!sCps.eof && sCps.rxn < sizeof sCps.rx) {
         int r = recv(sCps.fd, sCps.rx + sCps.rxn, sizeof sCps.rx - sCps.rxn, 0);
-        if (r > 0) { sCps.rxn += r; sCps.idle = 0; static int told; if (told++ < 4) { NLOG("[CPS] received %d bytes", r); if (told <= 2) cpsDump("reply", sCps.rx + sCps.rxn - r, (unsigned)r); } }
+        if (r > 0) { sCps.rxn += r; sCps.idle = 0; }
         else if (r == 0) { sCps.eof = 1; NLOG("[CPS] server closed the connection"); }
         else if (errno != EAGAIN) { NLOG("[CPS] recv failed errno %d", errno); sCps.eof = 1; }
     }
@@ -1101,7 +1102,7 @@ void MD5Digest(unsigned char *input, unsigned int len, char output[33])
         char t[33]; tested = 1;
         MD5Init(&c); MD5Update(&c, (const unsigned char *)"abc", 3); MD5Final(d, &c);
         for (i = 0; i < 16; i++) sprintf(t + i * 2, "%02x", d[i]);
-        NLOG("[LOGIN] MD5 self-test: %s", !strcmp(t, "900150983cd24fb0d6963f7d28e17f72") ? "ok" : "FAILED");
+        if (strcmp(t, "900150983cd24fb0d6963f7d28e17f72")) NLOG("[LOGIN] MD5 self-test FAILED");
     }
 }
 

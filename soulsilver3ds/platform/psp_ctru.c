@@ -325,7 +325,7 @@ static void cfgAcct(u64 t0) { u64 now = svcGetSystemTick(); cfgCalls++; cfgUs +=
 static char cfgBuf[16384]; static int cfgLen = -1; static LightLock cfgLk; static int cfgLkInit;
 void P3DS_CfgInvalidate(void) { if (!cfgLkInit) { LightLock_Init(&cfgLk); cfgLkInit = 1; } LightLock_Lock(&cfgLk); cfgLen = -1; LightLock_Unlock(&cfgLk); }
 /* Defaults for keys that are absent from config.txt (2026-10-28). They override the `def` a caller passes, so game-side hooks
-   that read P3DS_CfgInt(key, 0) get them too. A key that IS in config.txt always wins. Keep in step with logring.c cfgTab. */
+   that read P3DS_CfgInt(key, 0) get them too. A key that IS in config.txt always wins. logring.c reads this table through P3DS_CfgDefault. */
 static const struct { const char *key; int def; } kCfgDefaults[] = {
     { "shiny_suite", 1 }, { "catch_overlay", 1 },
     { "wild_vis", 1 }, { "wild_vis_alive", 2 }, { "event_any_mon", 1 }, { "contest_helper", 1 }, { "audio_even", 1 }, { "steady_music", 1 }, { "wild_vis_shiny", 1 }, { "ribbon_check", 1 }, { "celebrations", 1 }, { "summary_ivs", 1 }, { "hm_free", 1 }, { "repel_prompt", 1 }, { "select_reset", 1 }, { "wide_battle", 1 }, { "wide_boxes", 1 }, { "wide_menu_screens", 1 }, { "fast_text", 2 },
@@ -336,6 +336,8 @@ static const struct { const char *key; int def; } kCfgDefaults[] = {
     /* 2026-11-11: owner's config.txt, only when the key is absent. g3_sharp 3 = FAST AUTO (0..4). wild_vis_alive 2 = ON + TOWNS (0..2). */
     { "g3_sharp", 3 }, { "dmg_check", 1 }, { "pg_find", 1 }, { "breed_tab", 1 }, { "reusable_tms", 1 }, { "pg_flytap", 1 }, { "roamer_sprites", 1 }, { "ambient_weather", 1 }, { "pokewalker", 1 },
 };
+/* The default a missing key gets: this table if it lists the key, else the caller's `def`. logring.c reports with it, so the two cannot drift. */
+int P3DS_CfgDefault(const char *key, int def) { for (unsigned i = 0; i < sizeof kCfgDefaults / sizeof kCfgDefaults[0]; i++) if (!strcmp(key, kCfgDefaults[i].key)) return kCfgDefaults[i].def; return def; }
 int P3DS_CfgInt(const char *key, int def) {
     if (!cfgLkInit) { LightLock_Init(&cfgLk); cfgLkInit = 1; }
     LightLock_Lock(&cfgLk);
