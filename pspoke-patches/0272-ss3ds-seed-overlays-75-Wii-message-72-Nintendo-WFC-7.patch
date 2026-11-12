@@ -1,0 +1,131 @@
+From f0f79c44aa85b4262d7f5caba74ef82888dccfd3 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 12 Nov 2026 14:28:00 +0000
+Subject: [PATCH] ss3ds: seed overlays 75 (Wii message), 72 (Nintendo WFC), 73,
+ 37 and unk_020850F4
+
+Same bug class as 0263: apps reached only through overlay templates stayed [SS-MISSING]. Seed overlay 75 (Continue screen Wii message settings), 72 (Nintendo WFC app), 73 and 37 (launch_application apps) and unk_020850F4, and drop the 68 matching Missing() stubs. Static check: all 580 added functions translate and every new external is a C function in the decomp or the SDK libraries. Not yet compiled or run on device. Left out: overlay 39 (its ov39_0222A1xx helpers have no assembly to translate), 45 and 13 (translator and SOC/WCM gaps), and the Battle Frontier.
+---
+ .../nitromain-perf/missing.c                  | 68 -------------------
+ .../maploader/seed-files.json                 |  7 +-
+ 2 files changed, 6 insertions(+), 69 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index c7178b7..7ecdf06 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -151,9 +151,6 @@ __attribute__((noreturn)) void FrtCmd_205(void){Missing("FrtCmd_205");}
+ __attribute__((noreturn)) void FrtCmd_206(void){Missing("FrtCmd_206");}
+ __attribute__((noreturn)) void FrtCmd_207(void){Missing("FrtCmd_207");}
+ __attribute__((noreturn)) void MovementScriptMachineSub_Done(void){Missing("MovementScriptMachineSub_Done");}
+-__attribute__((noreturn)) void NintendoWfc_Exit(void){Missing("NintendoWfc_Exit");}
+-__attribute__((noreturn)) void NintendoWfc_Init(void){Missing("NintendoWfc_Init");}
+-__attribute__((noreturn)) void NintendoWfc_Main(void){Missing("NintendoWfc_Main");}
+ __attribute__((noreturn)) void PmAgbCartridge_GetLanguage(void){Missing("PmAgbCartridge_GetLanguage");}
+ __attribute__((noreturn)) void PmAgbCartridge_GetVersionInternal(void){Missing("PmAgbCartridge_GetVersionInternal");}
+ 
+@@ -191,9 +188,6 @@ __attribute__((noreturn)) void PmAgbCartridge_GetVersionInternal(void){Missing("
+ 
+ __attribute__((noreturn)) void ov01_021EACBC(void){Missing("ov01_021EACBC");}
+ __attribute__((noreturn)) void ov13_0222B430(void){Missing("ov13_0222B430");}
+-__attribute__((noreturn)) void ov37_021E5900(void){Missing("ov37_021E5900");}
+-__attribute__((noreturn)) void ov37_021E5A84(void){Missing("ov37_021E5A84");}
+-__attribute__((noreturn)) void ov37_021E5B94(void){Missing("ov37_021E5B94");}
+ __attribute__((noreturn)) void ov39_02227334(void){Missing("ov39_02227334");}
+ __attribute__((noreturn)) void ov39_02227348(void){Missing("ov39_02227348");}
+ __attribute__((noreturn)) void ov39_02227364(void){Missing("ov39_02227364");}
+@@ -236,65 +230,6 @@ __attribute__((noreturn)) void ov39_0222A4C0(void){Missing("ov39_0222A4C0");}
+ __attribute__((noreturn)) void ov45_02229EE0(void){Missing("ov45_02229EE0");}
+ __attribute__((noreturn)) void ov45_02229F70(void){Missing("ov45_02229F70");}
+ __attribute__((noreturn)) void ov45_02229F94(void){Missing("ov45_02229F94");}
+-__attribute__((noreturn)) void ov73_021E5900(void){Missing("ov73_021E5900");}
+-__attribute__((noreturn)) void ov73_021E5AB8(void){Missing("ov73_021E5AB8");}
+-__attribute__((noreturn)) void ov73_021E5BAC(void){Missing("ov73_021E5BAC");}
+-__attribute__((noreturn)) void ov75_02246960(void){Missing("ov75_02246960");}
+-__attribute__((noreturn)) void ov75_022469D8(void){Missing("ov75_022469D8");}
+-__attribute__((noreturn)) void ov75_02246B00(void){Missing("ov75_02246B00");}
+-__attribute__((noreturn)) void ov75_02246D00(void){Missing("ov75_02246D00");}
+-__attribute__((noreturn)) void ov75_02246D04(void){Missing("ov75_02246D04");}
+-__attribute__((noreturn)) void ov75_02246D08(void){Missing("ov75_02246D08");}
+-__attribute__((noreturn)) void ov75_02246D40(void){Missing("ov75_02246D40");}
+-__attribute__((noreturn)) void ov75_02246DB4(void){Missing("ov75_02246DB4");}
+-__attribute__((noreturn)) void ov75_02246DFC(void){Missing("ov75_02246DFC");}
+-__attribute__((noreturn)) void ov75_02246E3C(void){Missing("ov75_02246E3C");}
+-__attribute__((noreturn)) void ov75_02246E78(void){Missing("ov75_02246E78");}
+-__attribute__((noreturn)) void ov75_02246EAC(void){Missing("ov75_02246EAC");}
+-__attribute__((noreturn)) void ov75_02246EDC(void){Missing("ov75_02246EDC");}
+-__attribute__((noreturn)) void ov75_02246F0C(void){Missing("ov75_02246F0C");}
+-__attribute__((noreturn)) void ov75_02247118(void){Missing("ov75_02247118");}
+-__attribute__((noreturn)) void ov75_02247180(void){Missing("ov75_02247180");}
+-__attribute__((noreturn)) void ov75_022478E0(void){Missing("ov75_022478E0");}
+-__attribute__((noreturn)) void ov75_02247A78(void){Missing("ov75_02247A78");}
+-__attribute__((noreturn)) void ov75_02247A98(void){Missing("ov75_02247A98");}
+-__attribute__((noreturn)) void ov75_02247B98(void){Missing("ov75_02247B98");}
+-__attribute__((noreturn)) void ov75_022483EC(void){Missing("ov75_022483EC");}
+-__attribute__((noreturn)) void ov75_0224852C(void){Missing("ov75_0224852C");}
+-__attribute__((noreturn)) void ov75_0224854C(void){Missing("ov75_0224854C");}
+-__attribute__((noreturn)) void ov75_02248584(void){Missing("ov75_02248584");}
+-__attribute__((noreturn)) void ov75_02248684(void){Missing("ov75_02248684");}
+-__attribute__((noreturn)) void ov75_022486EC(void){Missing("ov75_022486EC");}
+-__attribute__((noreturn)) void ov75_02248714(void){Missing("ov75_02248714");}
+-__attribute__((noreturn)) void ov75_0224874C(void){Missing("ov75_0224874C");}
+-__attribute__((noreturn)) void ov75_02248774(void){Missing("ov75_02248774");}
+-__attribute__((noreturn)) void ov75_02248800(void){Missing("ov75_02248800");}
+-__attribute__((noreturn)) void ov75_022488AC(void){Missing("ov75_022488AC");}
+-__attribute__((noreturn)) void ov75_022488BC(void){Missing("ov75_022488BC");}
+-__attribute__((noreturn)) void ov75_02248994(void){Missing("ov75_02248994");}
+-__attribute__((noreturn)) void ov75_022489F8(void){Missing("ov75_022489F8");}
+-__attribute__((noreturn)) void ov75_02248A20(void){Missing("ov75_02248A20");}
+-__attribute__((noreturn)) void ov75_02248B8C(void){Missing("ov75_02248B8C");}
+-__attribute__((noreturn)) void ov75_02248C64(void){Missing("ov75_02248C64");}
+-__attribute__((noreturn)) void ov75_02248C84(void){Missing("ov75_02248C84");}
+-__attribute__((noreturn)) void ov75_02248D2C(void){Missing("ov75_02248D2C");}
+-__attribute__((noreturn)) void ov75_02248F18(void){Missing("ov75_02248F18");}
+-__attribute__((noreturn)) void ov75_02248F7C(void){Missing("ov75_02248F7C");}
+-__attribute__((noreturn)) void ov75_02248FE8(void){Missing("ov75_02248FE8");}
+-__attribute__((noreturn)) void ov75_022490D8(void){Missing("ov75_022490D8");}
+-__attribute__((noreturn)) void ov75_022491CC(void){Missing("ov75_022491CC");}
+-__attribute__((noreturn)) void ov75_022491F0(void){Missing("ov75_022491F0");}
+-__attribute__((noreturn)) void ov75_0224921C(void){Missing("ov75_0224921C");}
+-__attribute__((noreturn)) void ov75_02249258(void){Missing("ov75_02249258");}
+-__attribute__((noreturn)) void ov75_02249278(void){Missing("ov75_02249278");}
+-__attribute__((noreturn)) void ov75_0224937C(void){Missing("ov75_0224937C");}
+-__attribute__((noreturn)) void ov75_02249460(void){Missing("ov75_02249460");}
+-__attribute__((noreturn)) void ov75_02249478(void){Missing("ov75_02249478");}
+-__attribute__((noreturn)) void ov75_022494A4(void){Missing("ov75_022494A4");}
+-__attribute__((noreturn)) void ov75_02249550(void){Missing("ov75_02249550");}
+-__attribute__((noreturn)) void ov75_022495B0(void){Missing("ov75_022495B0");}
+-__attribute__((noreturn)) void ov75_02249758(void){Missing("ov75_02249758");}
+-__attribute__((noreturn)) void ov75_0224976C(void){Missing("ov75_0224976C");}
+ __attribute__((noreturn)) void ov80_0222AF10(void){Missing("ov80_0222AF10");}
+ __attribute__((noreturn)) void ov80_0222AF54(void){Missing("ov80_0222AF54");}
+ __attribute__((noreturn)) void ov80_0222AFB8(void){Missing("ov80_0222AFB8");}
+@@ -398,9 +333,6 @@ __attribute__((noreturn)) void ov93_0225C574(void){Missing("ov93_0225C574");}
+ __attribute__((noreturn)) void ov93_0225C6C0(void){Missing("ov93_0225C6C0");}
+ 
+ 
+-__attribute__((noreturn)) void sub_020850F4(void){Missing("sub_020850F4");}
+-__attribute__((noreturn)) void sub_0208524C(void){Missing("sub_0208524C");}
+-__attribute__((noreturn)) void sub_0208527C(void){Missing("sub_0208527C");}
+ __attribute__((noreturn)) void sub_02096910(void){Missing("sub_02096910");}
+ __attribute__((noreturn)) void sub_02096998(void){Missing("sub_02096998");}
+ __attribute__((noreturn)) void sub_02096A34(void){Missing("sub_02096A34");}
+diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
+index 27aec06..a33b18a 100644
+--- a/port/soulsilver-native-play/maploader/seed-files.json
++++ b/port/soulsilver-native-play/maploader/seed-files.json
+@@ -99,5 +99,10 @@
+ "overlay_05.s",
+ "overlay_86.s",
+ "overlay_108.s",
+-"overlay_108_021E8850.s"
++"overlay_108_021E8850.s",
++"overlay_37.s",
++"overlay_72.s",
++"overlay_73.s",
++"overlay_75.s",
++"unk_020850F4.s"
+ ]
+-- 
+2.43.0
+
