@@ -438,7 +438,7 @@ volatile int P3DS_FlyReq, P3DS_FlyRes, P3DS_FlyN, P3DS_FlyHere = -1;
 volatile unsigned short P3DS_FlyList[32];
 
 /* Starter-ball fix (2026-11-12): the SDK-port C versions of MTX_RotX43_/RotY43_/RotZ43_ (libntr fx_mtx43.c, SDK_PORT) only write the 3x3 part, so the matrix
-   translation (_30.._32) stays whatever the caller left on its stack. The real DS routines write zero there. Elm\x27s starter-select app builds tmpRotMtx on the stack, then
+   translation (_30.._32) stays whatever the caller left on its stack. The real DS routines write zero there. Elm's starter-select app builds tmpRotMtx on the stack, then
    MTX_Concat43 folds that garbage translation into every ball matrix (rawM translation about -30000 in the log), so the balls land far behind the camera and are rejected
    as off screen. This copy comes earlier in the link (--allow-multiple-definition keeps the first) and zeroes the translation like the hardware routine. */
 /* MtxFx43 is 12 consecutive fx32 (_00 _01 _02 _10 _11 _12 _20 _21 _22 _30 _31 _32); FX32_ONE = 0x1000. */
