@@ -352,7 +352,16 @@ unsigned int __wrap_ov74_0222A4CC(void *man)
 }
 
 DWC_STUB(ov00_021EC3F0)
-DWC_STUB(ov00_021EC8D8)
+/* The Global Terminal calls the synchronous cleanup entry on exit. */
+extern void DWC_CleanupInet(void);
+extern void P3DS_LoginEnd(void);
+unsigned int ov00_021EC8D8(void)
+{
+    PSPNativeMemLog("[COMM] GTS synchronous WFC cleanup");
+    P3DS_LoginEnd();
+    DWC_CleanupInet();
+    return 0;
+}
 DWC_STUB(ov00_021EC9D4)
 /* ov00_021ECB40: real keep-alive above (ss3ds 0193) */
 DWC_STUB(ov00_021ED730)

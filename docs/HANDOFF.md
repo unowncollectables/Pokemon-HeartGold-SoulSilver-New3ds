@@ -371,3 +371,7 @@ Validation: isolated Azahar 2126.2 build, owner's copied save at Goldenrod / Rou
 - Run 104 (patch 0191): same fix limited to ov74_* functions so nothing outside Mystery Gift changes.
 - Run 105 (patch 0192): Mystery Gift cursor still invisible after 104; no confident root cause. Diagnostic only: native ov74_02235FF8 + gated ListMenuUpdateCursorObj logs ([SS-MG-CURSOR]) dump ListMenu template/window, BG/OBJ palette, and OAM0-2 while navigating MG. Open MG, move the d-pad, capture the device log.
 - 0229 (Claude, unbuilt): Bug-Catching Contest helper data, read-only (field_control.c FieldSystem_UpdateBugContest -> platform tracker.c -> card in ss3ds_pgmap.h ctCardDraw; toggle contest_helper in Settings > Input; log [CONTEST]). Untested on device. Pokeathlon not done (own overlay app, no field hook).
+
+## GTS re-entry (2026-11-12)
+
+The hardware log reached StarMe once, then disconnected on re-entry before starting another connection. The Global Terminal exit called the stubbed synchronous WFC cleanup. The port now shuts down the SDK login and invokes its bounded synchronous Inet cleanup there. Compiler syntax checks passed. Hardware re-entry retest is pending.

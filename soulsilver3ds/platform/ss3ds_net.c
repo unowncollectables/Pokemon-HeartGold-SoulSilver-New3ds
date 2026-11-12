@@ -619,16 +619,19 @@ int P3DS_PrepareStarMeIdentity(void)
 
 void P3DS_LoginStart(void);
 
+void P3DS_LoginEnd(void)
+{
+    if (sLoginInitialized) DWC_ShutdownFriendsMatch();
+    sLoginInitialized = 0;
+    sLoginDone = 0;
+    sLoginPid = 0;
+    sLoginFrames = 0;
+}
+
 void P3DS_LoginBegin(void)
 {
     const int starMe = starMeOnline();
-    if (sLoginDone > 1 && (sLoginStarMe != starMe || starMe)) {
-        if (sLoginInitialized) DWC_ShutdownFriendsMatch();
-        sLoginInitialized = 0;
-        sLoginDone = 0;
-        sLoginPid = 0;
-        sLoginFrames = 0;
-    }
+    if (sLoginDone > 1 && (sLoginStarMe != starMe || starMe)) P3DS_LoginEnd();
     P3DS_LoginStart();
 }
 
