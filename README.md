@@ -28,6 +28,14 @@
   <a href="#02--build-your-copy"><strong>Build instructions</strong></a>
 </p>
 
+<p align="center">
+  <img src="assets/readme/gameplay.gif" alt="Animated tour of the port: Goldenrod and Route 35, the zoomed Johto map, Olivine, Ecruteak, Mahogany, and Blackthorn, then the touch-screen party, bag, and radio panels" width="360">
+</p>
+
+<p align="center">
+  <sub>A quick tour of the field, Johto towns, and the touch-screen Pokégear. Still images are under See it in play.</sub>
+</p>
+
 ## Contents
 
 <table>
@@ -54,57 +62,55 @@
 
 ## Features
 
+<p align="center">
+  <img src="assets/readme/banner-features.webp" alt="Features: a painted ring of rocky islands and a lighthouse at sunset" width="900">
+</p>
+
 SoulSilver is the build played on hardware. HeartGold installs beside it.
 
 <table>
   <tr>
-    <td width="50%" valign="top">
-      <strong>3D slider</strong><br>
-      Stereoscopic depth in the field and in battles, on a console with a 3D slider.
+    <td align="center" width="20%" valign="top">
+      <img src="assets/readme/tile-3d-slider.webp" alt="3D slider: a dual-screen handheld showing a seaside town in depth" width="160"><br>
+      <sub><strong>3D slider.</strong> Stereoscopic depth in the field and in battles, on a console with a 3D slider.</sub>
     </td>
-    <td width="50%" valign="top">
-      <strong>Wide View</strong><br>
-      Towns, routes, and battles in widescreen.
+    <td align="center" width="20%" valign="top">
+      <img src="assets/readme/tile-wide-view.webp" alt="Wide View: a widescreen harbor town at golden hour" width="160"><br>
+      <sub><strong>Wide View.</strong> Towns, routes, and battles in widescreen.</sub>
     </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <strong>Smoother frame rate</strong><br>
-      GPU shortcuts for a steadier picture. Steady 30 fps in every scene is still the target.
+    <td align="center" width="20%" valign="top">
+      <img src="assets/readme/tile-smoother-fps.webp" alt="Smoother frame rate: a silky waterfall turning a wooden waterwheel" width="160"><br>
+      <sub><strong>Smoother frame rate.</strong> GPU shortcuts for a steadier picture. Steady 30 fps in every scene is still the target.</sub>
     </td>
-    <td valign="top">
-      <strong>Touch-screen Pokégear</strong><br>
-      A live map, party, and bag, plus phone and radio, without leaving the field.
+    <td align="center" width="20%" valign="top">
+      <img src="assets/readme/tile-pokegear.webp" alt="Touch-screen Pokégear: a finger tapping a live painted map" width="160"><br>
+      <sub><strong>Touch-screen Pokégear.</strong> A live map, party, and bag, plus phone and radio, without leaving the field.</sub>
     </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <strong>Trading</strong><br>
-      Union Room trades between two consoles running the port. Confirmed on hardware.
-    </td>
-    <td valign="top">
-      <strong>GTS</strong><br>
-      Community-server Global Trade Station. The original path has worked on SoulSilver hardware.
+    <td align="center" width="20%" valign="top">
+      <img src="assets/readme/tile-trading.webp" alt="Trading: two handhelds on a wooden ledge with a ribbon of gold and teal light between them" width="160"><br>
+      <sub><strong>Trading.</strong> Union Room trades between two consoles running the port. Confirmed on hardware.</sub>
     </td>
   </tr>
   <tr>
-    <td valign="top">
-      <strong>Mystery Gift</strong><br>
-      Wonder Cards through Get via Nintendo WFC. The WFC path has worked on SoulSilver hardware.
+    <td align="center" valign="top">
+      <img src="assets/readme/tile-gts.webp" alt="GTS: a grand station hall with a glowing globe at its center" width="160"><br>
+      <sub><strong>GTS.</strong> Community-server Global Trade Station. The original path has worked on SoulSilver hardware.</sub>
     </td>
-    <td valign="top">
-      <strong>Pokéwalker</strong><br>
-      Send and return over the New 3DS infrared port. Both have worked on a New 3DS.
+    <td align="center" valign="top">
+      <img src="assets/readme/tile-mystery-gift.webp" alt="Mystery Gift: a wrapped parcel and a wax-sealed envelope on a window desk at sunset" width="160"><br>
+      <sub><strong>Mystery Gift.</strong> Wonder Cards through Get via Nintendo WFC. The WFC path has worked on SoulSilver hardware.</sub>
     </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <strong>Seasonal scenery</strong><br>
-      Petals, seeds, leaves, and flurries on clear outdoor maps when Ambient Weather is on.
+    <td align="center" valign="top">
+      <img src="assets/readme/tile-pokewalker.webp" alt="Pokéwalker: a clip-on pedometer on a pine trail overlooking a sunset bay" width="160"><br>
+      <sub><strong>Pokéwalker.</strong> Send and return over the New 3DS infrared port. Both have worked on a New 3DS.</sub>
     </td>
-    <td valign="top">
-      <strong>HeartGold</strong><br>
-      The same port as its own install. Experimental, and not yet played on a console.
+    <td align="center" valign="top">
+      <img src="assets/readme/tile-seasonal.webp" alt="Seasonal scenery: a shrine path with cherry blossoms, maples, pines, and falling petals" width="160"><br>
+      <sub><strong>Seasonal scenery.</strong> Petals, seeds, leaves, and flurries on clear outdoor maps when Ambient Weather is on.</sub>
+    </td>
+    <td align="center" valign="top">
+      <img src="assets/readme/tile-heartgold.webp" alt="HeartGold: a shrine bell and gate under a huge gold sun and scarlet maples, labelled experimental" width="160"><br>
+      <sub><strong>HeartGold.</strong> The same port as its own install. Experimental, and not yet played on a console.</sub>
     </td>
   </tr>
 </table>
@@ -120,6 +126,10 @@ It adds things the original DS game can't do: stereoscopic 3D with the 3D slider
 This repository holds only source code and patches. It contains no ROMs, game assets, or saves. You build your own copy from a legally dumped HeartGold or SoulSilver ROM you own.
 
 ## See it in play
+
+<p align="center">
+  <img src="assets/readme/banner-see-it-in-play.webp" alt="See it in play: a dual-screen handheld on a window ledge, showing a cobblestone town at sunset" width="900">
+</p>
 
 ### Goldenrod above. Johto below.
 
@@ -194,6 +204,10 @@ This repository holds only source code and patches. It contains no ROMs, game as
 
 ## Setup
 
+<p align="center">
+  <img src="assets/readme/banner-getting-started.webp" alt="Getting started: a traveler’s desk with a compass, a handheld, and a bay at dawn" width="900">
+</p>
+
 Build from your own US cartridge dump. The repository has no ROM in it. If you already play this port, copy your save off the SD card before replacing the build.
 
 ### 1. Check your kit
@@ -260,6 +274,10 @@ To bring in a cart, flashcart, or emulator save, copy it over `soulsilver.sav` (
 
 ## HeartGold (experimental)
 
+<p align="center">
+  <img src="assets/readme/banner-heartgold.webp" alt="HeartGold: a shrine gate and bell tower in scarlet maples at sunrise" width="900">
+</p>
+
 HeartGold is the same port, built as its own game from your own US HeartGold dump. It installs beside SoulSilver. SoulSilver's folder, save, and HOME Menu title stay as they are.
 
 The first full HeartGold build compiled, linked, and packaged, including the Ho-Oh banner. A console playtest and an emulator playtest are both still ahead. Every SoulSilver hardware result on this page still needs its own HeartGold check, online included.
@@ -302,6 +320,10 @@ Install it beside SoulSilver:
 
 ## Settings
 
+<p align="center">
+  <img src="assets/readme/banner-settings.webp" alt="Settings: a lantern-lit wooden desk with a blank scroll, a compass, and a window onto the bay" width="900">
+</p>
+
 Open Settings with <kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>, or hold the top-left corner of the touch screen.
 
 | | |
@@ -337,6 +359,10 @@ Debug rows follow the same table when their line is missing. Speed tweaks starts
 
 ## Wireless &amp; online
 
+<p align="center">
+  <img src="assets/readme/banner-trading-online.webp" alt="Trading and online: two handhelds on a night-time window desk, linked by a ribbon of light" width="900">
+</p>
+
 | Path | In short |
 | --- | --- |
 | Local | Settings → Setup → Wireless → **LOCAL** on both consoles, then the Union Room. Trading between two consoles running the port is confirmed on hardware. |
@@ -359,6 +385,10 @@ Debug rows follow the same table when their line is missing. Speed tweaks starts
 </details>
 
 ## Status
+
+<p align="center">
+  <img src="assets/readme/banner-status.webp" alt="Status: a brass telescope on a mountain terrace overlooking a valley at dusk" width="900">
+</p>
 
 **In active development.** On SoulSilver hardware, the core game, stereoscopic 3D, save round-trips, and a local Union Room trade have been exercised. Steady 30 fps across scenes is still the performance target. Fades, some battles, and the first visit to a map can hitch.
 
@@ -400,6 +430,10 @@ See the [handoff notes](docs/HANDOFF.md) for test results, the [changelog](docs/
 
 ## For developers
 
+<p align="center">
+  <img src="assets/readme/banner-for-developers.webp" alt="For developers: a night desk with ink, geometric diagrams, and a handheld beside a rainy window" width="900">
+</p>
+
 The port compiles the [pret/pokeheartgold](https://github.com/pret/pokeheartgold) decompilation through [pspoke](https://github.com/IbrahimIrfan/pspoke), retargeted to devkitARM. Platform code lives in `soulsilver3ds/`. Guides live in [`docs/`](docs/).
 
 <details>
@@ -419,6 +453,10 @@ Conduct, contributing, and security live in [`.github/`](.github/).
 </details>
 
 ## Credits
+
+<p align="center">
+  <img src="assets/readme/banner-credits.webp" alt="Credits: paper lanterns on a calm night sea around a glowing lighthouse" width="900">
+</p>
 
 - [unowncollectables](https://github.com/unowncollectables) leads the project and tests on hardware.
 - [pret/pokeheartgold](https://github.com/pret/pokeheartgold), [pret/pokeplatinum](https://github.com/pret/pokeplatinum), and [IbrahimIrfan/pspoke](https://github.com/IbrahimIrfan/pspoke) provide the decompilation and native build foundations.
