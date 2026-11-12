@@ -1,0 +1,26 @@
+From 8823eec4e91ddc925ca3cbf68b36f4fb11770602 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 12 Nov 2026 10:23:16 -0500
+Subject: [PATCH] ss3ds: translate callbacks referenced by overlay data tables
+
+---
+ port/soulsilver-native-play/maploader/seed-files.json | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
+index 22b417a..f6f132b 100644
+--- a/port/soulsilver-native-play/maploader/seed-files.json
++++ b/port/soulsilver-native-play/maploader/seed-files.json
+@@ -143,5 +143,8 @@
+ "overlay_83_02242FE8.s",
+ "overlay_83_02243D7C.s",
+ "overlay_83_02246E08.s",
+-"overlay_83_022479E4.s"
++"overlay_83_022479E4.s",
++"unk_02085604.s",
++"unk_0208FB64.s",
++"unk_02096C88.s"
+ ]
+-- 
+2.53.0
+
