@@ -2283,7 +2283,7 @@ static int Present(bool){
   for(unsigned line=0;line<192;line++){GPU::VCount=line;engineA.CheckWindows(line);renderer.DrawSprites(line,&engineA);renderer.DrawScanline(line,&engineA);}
   if(!rightEye)shift3D(-sd);eyeL=stereoL;eyeR=display[0];}
  {/* run 61 debug: dump_eyes=F dumps both eyes at frame F and every 300 frames after (6 max) -> eyeN_L/R.bmp */
-  static int de=-2,dn;if(de==-2)de=P3DS_CfgInt("dump_eyes",-1);
+  static int de=-2,dn;if(de==-2)de=-1 /* dump_eyes: debug option removed */;
   if(de>=0&&stereo&&eyeL&&eyeR&&dn<6&&(int)frames>=de+dn*300){topTouch();char fn[64];snprintf(fn,sizeof fn,"sdmc:/3ds/soulsilver3ds/eye%d_L.bmp",dn);dumpBmp(fn,eyeL,false);snprintf(fn,sizeof fn,"sdmc:/3ds/soulsilver3ds/eye%d_R.bmp",dn);dumpBmp(fn,eyeR,false);PSPNativeMemLog("[STEREO] dumped eyes %d at frame %u field %d gcStereo %d",dn,frames,P3DS_InField,(int)gcStR);dn++;}}
  /* run 55 stereo blob diag (stereo_blobdiag=1, default): every 60 stereo frames, 16x16 cells where one eye is black
     (rgb < 8) on > 60% of the cell and the other eye is not -> one log line; the first hit dumps both eyes and both 3D

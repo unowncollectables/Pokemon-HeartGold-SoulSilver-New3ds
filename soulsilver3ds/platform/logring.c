@@ -166,6 +166,7 @@ const char *P3DS_LogTailLine(unsigned idx) { const unsigned n = P3DS_LogTailCoun
 
 /* Header: every key found in config.txt with its default and a DEAD / UNLISTED flag, then the effective value of every
    setting this build reads with P3DS_CfgInt. Written once at boot (main3ds.c) so a log always says what it ran with. */
+extern int P3DS_CfgDefault(const char *key, int def); /* psp_ctru.c kCfgDefaults: the one table of real defaults; `def` below is only the fallback for keys it does not list */
 typedef struct { const char *key; int def; const char *dead; } CfgEnt; /* def == INT_MIN: no single default / read elsewhere */
 #define NODEF (-2147483647 - 1)
 static const CfgEnt cfgTab[] = {
@@ -173,19 +174,19 @@ static const CfgEnt cfgTab[] = {
     { "battle_monobj_hide", 1, 0 }, { "fps_tweaks", 7, 0 }, { "dc_flush_skip", 1, 0 }, { "fog_hole", 1, 0 }, { "bottom_hd", 1, 0 }, { "pg_extras", 1, 0 }, { "wide_pokedex", 1, 0 }, { "wide_pc", 1, 0 },  { "bottom_menu", 1, 0 }, { "bottom_vramgen", 1, 0 }, { "cam_zoom", 0, 0 }, { "catch_overlay", 1, 0 },
     { "cheat_no_encounters", 0, 0 }, { "cheat_time", 0, 0 }, { "cpad_dpad", 1, 0 }, { "credits_splash", 1, 0 }, { "cstick_mode", 2, 0 },
     { "display_capture", 1, 0 }, { "fast_text", 2, 0 }, { "follower", 0, 0 }, { "follower_slot", 0, 0 }, { "follower_talk", 0, 0 },
-    { "fps60_probe", 0, 0 }, { "fps_counter", 1, 0 }, { "g3_reuse_verify", 0, 0 }, { "g3_shot", 0, 0 }, { "g3_wmode", 2, 0 }, { "g3_sharp", 3, 0 },
-    { "gpu_blend", 1, 0 }, { "gpu_compose", 2, 0 }, { "gpu_compose_stereo", 1, 0 }, { "gpu_compose_stereo_nf", 1, 0 }, { "gpu_direct3d", 1, 0 }, { "gpu_direct3d_wide", 1, 0 }, { "heap_watch", 0, 0 },
-    { "ribbon_check", 1, 0 }, { "celebrations", 1, 0 }, { "celeb_test", 0, 0 }, { "birthdays", 0, 0 }, { "hunt_counter", 1, 0 }, { "hunt_stats", 1, 0 }, { "shiny_suite", 1, 0 }, { "shiny_rate", 0, 0 }, { "battery_warn", 1, 0 }, { "type_hint", 1, 0 }, { "dmg_check", 1, 0 }, { "hunt_async_save", 1, 0 }, { "lid_sound", 1, 0 }, { "lid_test", 0, 0 }, { "log_max_kb", 1024, 0 }, { "menu_audio", 1, 0 }, { "menu_button", 0, 0 },
+    { "fps_counter", 1, 0 }, { "g3_wmode", 2, 0 }, { "g3_sharp", 3, 0 },
+    { "gpu_blend", 1, 0 }, { "gpu_compose", 2, 0 }, { "gpu_compose_stereo", 1, 0 }, { "gpu_compose_stereo_nf", 1, 0 }, { "gpu_direct3d", 1, 0 }, { "gpu_direct3d_wide", 1, 0 }, 
+    { "ribbon_check", 1, 0 }, { "celebrations", 1, 0 }, { "birthdays", 0, 0 }, { "hunt_counter", 1, 0 }, { "hunt_stats", 1, 0 }, { "shiny_suite", 1, 0 }, { "shiny_rate", 0, 0 }, { "battery_warn", 1, 0 }, { "type_hint", 1, 0 }, { "dmg_check", 1, 0 }, { "hunt_async_save", 1, 0 }, { "lid_sound", 1, 0 }, { "log_max_kb", 1024, 0 }, { "menu_audio", 1, 0 }, { "menu_button", 0, 0 },
     { "menu_combo", 1, 0 }, { "repel_prompt", 1, 0 }, { "reset_skip_intro", 1, 0 }, { "reusable_tms", 1, 0 }, { "save_backup", 1, 0 },
     { "select_reset", 1, 0 }, { "settings_touch", 1, 0 }, { "soft_reset", 1, 0 }, { "speedcheck", 1, 0 }, { "splash_ms", 3000, 0 },
     { "stereo_2d", 3, 0 }, { "stereo_blobdiag", 1, 0 }, { "stereo_edgefix", 1, 0 }, { "stereo_fake", 0, 0 }, { "stereo_strength", 2, 0 },
-    { "summary_ivs", 1, 0 }, { "tex_trace", 0, 0 }, { "tod_tint", 0, 0 }, { "ui_frame", 0, 0 }, { "ui_gamefont", 1, 0 }, { "vram_frame_gen", 1, 0 }, { "map_zoom", 0, 0 }, { "roamer_sprites", 1, 0 },
-    { "vram_trace", 0, 0 }, { "wide_battle", 1, 0 }, { "wide_boxes", 1, 0 }, { "wide_edgefill", 1, 0 }, { "wide_fill", 0, 0 }, { "wide_menu_screens", 1, 0 },
+    { "summary_ivs", 1, 0 }, { "tod_tint", 0, 0 }, { "ui_frame", 0, 0 }, { "ui_gamefont", 1, 0 }, { "vram_frame_gen", 1, 0 }, { "map_zoom", 0, 0 }, { "roamer_sprites", 1, 0 },
+    { "wide_battle", 1, 0 }, { "wide_boxes", 1, 0 }, { "wide_edgefill", 1, 0 }, { "wide_fill", 0, 0 }, { "wide_menu_screens", 1, 0 },
     { "wide_menus", 1, 0 }, { "wide_weather", 1, 0 }, { "ambient_weather", 1, 0 }, { "seasonal_trees", 0, 0 }, { "zl_run", 1, 0 }, { "auto_run", 0, 0 }, { "sprite_depth", 1, 0 }, { "bottom_bump", 1, 0 }, { "pm_shortcuts", 1, 0 }, { "panel_party", 1, 0 }, { "tracker", 1, 0 }, { "pg_flytap", 1, 0 }, { "pg_find", 1, 0 }, { "breed_tab", 1, 0 }, { "pokewalker", 1, 0 }, { "gts_picker", 0, 0 }, { "gts_server", 0, 0 }, { "wifi_dns", NODEF, 0 }, { "wireless", 2, 0 }, { "wild_vis", 1, 0 }, { "wild_vis_count", 6, 0 }, { "wild_vis_shiny", 1, 0 }, { "wild_vis_replace", 0, 0 }, { "wild_vis_cries", 1, 0 }, { "wild_vis_alive", 2, 0 }, { "event_any_mon", 1, 0 }, { "contest_helper", 1, 0 }, { "steady_music", 1, 0 }, { "audio_even", 1, 0 }, { "audio_even_level", NODEF, 0 }, { "zr_item", 0, 0 }, { "log_level", 2, 0 }, { "pg_kanto", 0, 0 },
     /* read with their own parsers: listed so they are not flagged, no single default shown */
     { "async2d", NODEF, 0 }, { "audio_gain", NODEF, 0 }, { "audio_interp", NODEF, 0 }, { "audio_lead", NODEF, 0 }, { "audio_limiter", NODEF, 0 },
     { "audio_rate", NODEF, 0 }, { "audio_stallfade", 0, 0 }, { "audio_volramp", NODEF, 0 }, { "bottom_refresh", NODEF, 0 }, { "bottom_skip", NODEF, 0 }, { "comp_excl", NODEF, 0 },
-    { "core1_limit", NODEF, 0 }, { "cull3d", NODEF, 0 }, { "dump_frame", NODEF, 0 }, { "dump_eyes", NODEF, 0 }, { "early_b", NODEF, 0 }, { "fast_conv", NODEF, 0 },
+    { "core1_limit", NODEF, 0 }, { "cull3d", NODEF, 0 }, { "dump_frame", NODEF, 0 }, { "early_b", NODEF, 0 }, { "fast_conv", NODEF, 0 },
     { "fog3d", NODEF, 0 }, { "g3_boxtest_force", NODEF, 0 }, { "g3_wbuf", NODEF, 0 }, { "g3_wmax", NODEF, 0 }, { "gpu3d", NODEF, 0 }, { "gpu3d_async", NODEF, 0 },
     { "gpu3d_cpuclip", NODEF, 0 }, { "gpu3d_flipy", NODEF, 0 }, { "gpu3d_texflip", NODEF, 0 }, { "gpu3d_zinv", NODEF, 0 }, { "gpu_swizzle", NODEF, 0 },
     { "gpuscale", NODEF, 0 }, { "gpuscale_zoom", NODEF, 0 }, { "hotkey_swallow", NODEF, 0 }, { "land_fastload", NODEF, 0 }, { "mode0_border", NODEF, 0 },
@@ -203,6 +204,7 @@ static const CfgEnt cfgTab[] = {
     { "settings_app", NODEF, "DEAD: the settings app is the only settings screen (ignored)" }, { "bottom_layout", NODEF, "DEAD: the 4x2 Bottom menu is deleted, JOHTO is the only layout (ignored)" }, { "bottom_map", NODEF, "DEAD: the INFO/WORLD/LOCAL panels are deleted (ignored)" }, { "g3_wcpu", NODEF, "DEAD: CPU 3D W-frames removed (ignored)" }, { "g3_wpersp", NODEF, "DEAD: CPU W raster is always perspective-correct (ignored)" },
     { "g3_wdepth", NODEF, "DEAD: replaced by g3_wmode (ignored since run 3)" }, { "scale", NODEF, "DEAD: old key, use gpuscale (ignored)" },
     { "cstick_poketch", NODEF, "DEAD: use cstick_mode (ignored)" },
+    { "g3_shot", NODEF, "DEAD: debug option removed 2026-11-12" }, { "tex_trace", NODEF, "DEAD: debug option removed 2026-11-12" }, { "dump_eyes", NODEF, "DEAD: debug option removed 2026-11-12" }, { "vram_trace", NODEF, "DEAD: debug option removed 2026-11-12" }, { "heap_watch", NODEF, "DEAD: debug option removed 2026-11-12" }, { "lid_test", NODEF, "DEAD: debug option removed 2026-11-12" }, { "celeb_test", NODEF, "DEAD: debug option removed 2026-11-12" }, { "fps60_probe", NODEF, "DEAD: debug option removed 2026-11-12" }, { "g3_reuse_verify", NODEF, "DEAD: debug option removed 2026-11-12" },
     { "wild_vis_max", NODEF, "DEAD: Platinum key, use wild_vis_count" }, { "wild_vis_test", NODEF, "DEAD: Platinum only" }, { "wild_vis_species", NODEF, "DEAD: Platinum only" },
     { "dw_debris", NODEF, "DEAD: Platinum Distortion World only" }, { "dw_unease", NODEF, "DEAD: Platinum Distortion World only" },
     { "dw_cry", NODEF, "DEAD: Platinum Distortion World only" }, { "dw_roll", NODEF, "DEAD: Platinum Distortion World only" },
@@ -227,7 +229,7 @@ void P3DS_LogConfigHeader(const char *version) {
             nkeys++;
             if (!e) { nunl++; PSPNativeMemLog("[CFG] %s=%s  UNLISTED: not a key this build is known to read (ignored or new)", l, v); }
             else if (e->dead) { ndead++; PSPNativeMemLog("[CFG] %s=%s  %s", l, v, e->dead); }
-            else if (e->def != NODEF && atoi(v) != e->def) PSPNativeMemLog("[CFG] %s=%s  (default %d) NON-DEFAULT", l, v, e->def);
+            else if (e->def != NODEF && atoi(v) != P3DS_CfgDefault(l, e->def)) PSPNativeMemLog("[CFG] %s=%s  (default %d) NON-DEFAULT", l, v, P3DS_CfgDefault(l, e->def));
             else PSPNativeMemLog("[CFG] %s=%s", l, v);
         }
         fclose(f); PSPNativeMemLog("[CFG] config.txt: %d keys, %d dead/ignored, %d unlisted", nkeys, ndead, nunl);

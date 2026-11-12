@@ -169,7 +169,7 @@ The port uses these files in `sdmc:/3ds/soulsilver3ds/`.
 - `soulsilver.nds` is your US cartridge dump.
 - `soulsilver.sav` is the 512 KiB save. The game creates it on first launch if needed.
 - `soulsilver.sav.bak1` through `soulsilver.sav.bak8` are rolling backups.
-- `import.sav` is an optional cart, flashcart, or emulator save to import on next launch.
+- To bring in a cart, flashcart, or emulator save, copy it over `soulsilver.sav` (keep a copy of the old one first).
 - `config.txt` holds your settings. `hunt.txt` holds hunt stats separately.
 - `log.txt` is the current run log. `log_crash.txt` preserves logs from unclean exits.
 

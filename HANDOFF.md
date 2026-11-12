@@ -1,3 +1,27 @@
+# Audit fixes (2026-11-12, platform only, not compiled here)
+
+- GTS preview cache and StarMe profile files: remove the old file before the rename (the SD card refuses a rename onto an existing file, so the preview never updated after its first write). A damaged StarMe profile is now set aside as `.bad` and a new one is made, instead of blocking StarMe for good.
+- Save import (`import.sav`) is removed. Copy a save over `soulsilver.sav` by hand. Backups and Export save are unchanged.
+- Debug options removed (now fixed at their old default and listed as DEAD in the log header): `g3_shot`, `tex_trace`, `dump_eyes`, `vram_trace`, `heap_watch`, `lid_test`, `celeb_test`, `fps60_probe`, `g3_reuse_verify`.
+- Online logging trimmed: success-path `[GHTTP]`, `[SOC]`, `[CPS]` lines and the request / reply dumps are gone. Every failure line stays.
+- One defaults table: `kCfgDefaults` (psp_ctru.c). logring.c reads it through `P3DS_CfgDefault`.
+- Still `[SS-MISSING]`: the whole Battle Frontier (overlays 80 to 83, 85, 91 to 93, all `FrtCmd_*`), Safari Zone customizer and decoration (108), overlays 37, 39, 45, 72, 73, 75. Not touched here.
+- Device check: deposit on the GTS twice with the picker on and see the preview change; `[SAVE] backup (launch)` still logs at boot.
+
+# Union Room battle (patches 0264 and 0265)
+
+Status 2026-11-12: 0263 to 0265 are in the builds since run 775, which linked and ran on hardware. The battle itself (two consoles) and the 0263 screens have not been opened on a device yet.
+
+Union Room Battle needs overlay 5 (link battle party select), overlay 86 and the comm club helpers behind the `unk_02091564` table, all stubbed as `[SS-MISSING]` before. 0264 seeds `overlay_05.s` / `overlay_86.s` plus 16 club helpers into the maploader translator and drops their traps; 38 closure functions already compiled from decomp C are marked native-provided. If the build stops with "multiple definition", add that name to `native-provided.json` (new patch); if "undefined", seed it. Test: two consoles, Union Room, Battle. The wireless error screen itself (`ShowCommunicationError`) is decomp C and already works; `ov00_021E6A70` is only a weak 0-returning DWC stub.
+
+# Experimental GTS server picker
+
+Enable **GTS server picker** in L+R+Y > Setup, then reopen the title menu. **Online Settings** offers Poké Classic (the existing DNS path, including a manual `wifi_dns` override), StarMe, and Wi-Fi setup instructions. The picker is off by default. Turning it off makes the port use its existing DNS path even if StarMe was selected. Network logs identify the resolver and `[GTS]` records a manual choice. The title menu hook rebuilds both the overlay archive and the directly linked `main_menu_native.o`. Verified in Azahar 2126.2 with a copied save: Poké Classic selected on first use, StarMe persisted across restart, Wi-Fi Setup opened, and disabling the toggle in Setup restored the original title menu after reopening it. Wireless was off during the UI test. Live GTS and hardware testing remain pending.
+
+The picker can display the last GTS deposit seen for the loaded trainer on Poké Classic or StarMe. It uses the ROM's party icon and the level and requested species from the normal Gen 4 GTS response. A trade ready for pickup has its own status. The preview cache is separate from the cartridge save, and the observer issues no extra requests. Offline checks covered deposit metadata, pickup, clearing, malformed replies, and trainer/server separation. An Azahar fixture confirmed the preview stays with the original server when the active server changes. Live responses and pickup are unverified.
+
+StarMe profile test branch: hardware run 775 confirmed DNS switching and hit WFC error 60000 on the existing profile. StarMe now uses its own per-trainer WFC identity files in the port's SD folder. Login and the GTS profile ID use that identity while StarMe is selected. The original save-backed path is used for Poké Classic. The isolated build linked and the local SDK-stub check covered failure, retry, persistence, trainer isolation and the return to the save-backed path. Azahar verified live StarMe account creation, Mystery Gift download, and reuse of the same profile after restarting and entering the GTS. The GTS requests used that profile ID. The Mystery Gift check left the copied save byte-for-byte identical to its launch backup. The Poké Classic regression check used the original save profile, and both the baseline (04558e9) and the separate-profile build got error 60000 with that test identity. Poké Classic Mystery Gift also downloaded and displayed the Celebi Wonder Card on the separate-profile build, with the copied save unchanged. Hardware and live GTS deposit/pickup remain unverified.
+
 # Built-in settings defaults (owner config, missing keys only)
 
 A `config.txt` line still wins, including OFF. When the key is absent, the owner's values are now the built-in default for SoulSilver and for HeartGold (same platform tables; HeartGold has no separate defaults table). Changed when missing: `wild_vis_alive=2` (ON + TOWNS), `event_any_mon=1`, `contest_helper=1`, `hunt_stats=1`, `g3_sharp=3` (FAST AUTO), `dmg_check=1`, `pg_find=1`, `breed_tab=1`, `reusable_tms=1`, `pg_flytap=1`, `roamer_sprites=1`, `ambient_weather=1`, `pokewalker=1`. Wide view stays on. `fps_counter`, `wireless`, `log_level`, and `seasonal_trees` are unchanged. No birthday data was added. The save file is untouched. Not built in this session.

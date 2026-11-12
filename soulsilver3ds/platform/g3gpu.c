@@ -533,7 +533,7 @@ static void fps60Probe(void) {
     static int cfg = -1, pfail; int on; static V *prev; static unsigned prevN, frames, tot, kind, near16, near4, still, shortRun; static double sumMove;
     extern int P3DS_CfgInt(const char *, int); extern int P3DS_InField;
     extern int P3DS_FpsTweaks(void);
-    if (cfg < 0) cfg = P3DS_CfgInt("fps60_probe", 0) != 0;
+    if (cfg < 0) cfg = 0 /* fps60_probe: debug option removed */ != 0;
     on = cfg && !pfail;   /* Research-only: explicitly opt in with fps60_probe=1. */
     if (on && !prev) { prev = malloc(MAXV * sizeof(V)); if (!prev) { pfail = 1; on = 0; } }
     if (!on || !P3DS_InField || eyes < 1) { prevN = 0; return; }
@@ -659,7 +659,7 @@ void G3G_End(u32 *outL, u32 *outR) {
             C3D_FogColor(((fc & 31) * 255 / 31) | (((fc >> 5) & 31) * 255 / 31) << 8 | (((fc >> 10) & 31) * 255 / 31) << 16); }
         if (fogFrame && ++fogFrames % 600 == 1) PSPNativeMemLog("[GPU3D] fog3d: fog frame (DISP3DCNT %04x, FOG_COLOR %08lx, offset %04x)", *(const u16 *)(PSPNative_GfxRegisters + 0x60), (unsigned long)*(const u32 *)(PSPNative_GfxRegisters + 0x358), *(const u16 *)(PSPNative_GfxRegisters + 0x35C)); }
     int ruCand = 0, ruCheck = 0;
-    if (ruVerify < 0) { ruVerify = P3DS_CfgInt("g3_reuse_verify", 0) != 0; PSPNativeMemLog("[G3REUSE] g3_reuse_verify=%d", ruVerify); }
+    if (ruVerify < 0) { ruVerify = 0 /* g3_reuse_verify: debug option removed */ != 0; PSPNativeMemLog("[G3REUSE] g3_reuse_verify=%d", ruVerify); }
     int direct = 0;
     if (G3G_DirectCfg()) {
         if (!rs || !outL) dirWhy[0]++;
