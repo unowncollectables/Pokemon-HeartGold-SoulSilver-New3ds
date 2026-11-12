@@ -5,7 +5,7 @@
 - **Mystery Gift (overlay 74)** — WFC download works on hardware (patches 0185-0196 + platform Nd wrappers). Local wireless MG parent search still cannot work without a real DS parent.
 - **Global Terminal / GTS (overlay 70)** — fully working on hardware.
 
-Keep this page only as archaeology. For what still traps, read device `log.txt` `[SS-MISSING]` lines and the live [`HANDOFF.md`](../HANDOFF.md). Do not treat the ranked list below as current.
+Keep this page only as archaeology. For what still traps, read device `log.txt` `[SS-MISSING]` lines and the live [`HANDOFF.md`](HANDOFF.md). Do not treat the ranked list below as current.
 
 ---
 
