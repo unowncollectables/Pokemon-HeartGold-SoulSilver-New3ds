@@ -2,7 +2,7 @@
   <img src="assets/whirl-islands-title.webp" alt="Pokémon SoulSilver emblem over the Whirl Islands" width="900">
 </p>
 
-<h1 align="center">HeartGold &amp; SoulSilver</h1>
+<h1 align="center">Pokémon HeartGold &amp; SoulSilver for New 3DS</h1>
 
 <p align="center">
   Return to Johto in widescreen, with stereoscopic 3D and the Pokégear on the touch screen.<br>
@@ -49,6 +49,14 @@
 </p>
 
 ---
+
+## About
+
+**Pokémon HeartGold & SoulSilver New 3DS** is a fan-made, native New Nintendo 3DS port of Pokémon SoulSilver and Pokémon HeartGold (HGSS), built from the [pret/pokeheartgold](https://github.com/pret/pokeheartgold) decompilation. It is not a DS emulator and not a ROM hack: the game is compiled to run directly on the 3DS, and you install it as a `.cia` from the HOME Menu (or launch the `.3dsx` from the Homebrew Launcher) on a New 3DS, New 3DS XL, or New 2DS XL with custom firmware (Luma3DS).
+
+It adds things the original DS game can't do: stereoscopic 3D with the 3D slider, a widescreen Wide View, a smoother frame rate, and a touch-screen Pokégear with a live map, party, and bag. Trading, the GTS, and Mystery Gift still work. Everything new is a toggle in the in-game settings.
+
+This repository holds only source code and patches. It contains no ROMs, game assets, or saves. You build your own copy from a legally dumped HeartGold or SoulSilver ROM you own.
 
 ## What's new
 
