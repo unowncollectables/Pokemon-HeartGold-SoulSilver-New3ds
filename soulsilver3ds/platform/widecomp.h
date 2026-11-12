@@ -22,7 +22,9 @@ int WC_Plan(WcPlan *p, const uint8_t *regs, const short *parts, int n);
 /* 0 when WC_Compose can draw this screen, else why (1 forced blank, 2 not graphics mode, 3 windows, 4 alpha blending,
    5 a non-text BG, 6 BG mosaic, 7 3D layer without a frame) */
 int WC_Check(const WcPlan *p, const uint8_t *regs, int have3d);
-/* ss3ds: only the strip-sprite entry below is kept from the Platinum port (full compose, caches and dirty modes dropped: BSS) */
+/* ss3ds wide_layouts: the whole wide picture, cached by its inputs. 0 = not drawable (WC_Check), 1 = drawn, 2 = reused */
+int WC_Compose(const WcPlan *p, const uint8_t *regs, const WcSrc *src, uint32_t *center, uint32_t *strip);
+/* ss3ds: the strip-sprite entry below is kept from the Platinum port (full compose, caches and dirty modes dropped: BSS) */
 /* ss3ds wide_boxes: sprites reaching into the side strips only (see widecomp.c) */
 int WC_ComposeObjStrips(const WcPlan *p, const uint8_t *regs, const WcSrc *src, uint32_t *strip);
 /* hash of what that compose reads, limited to the sprites that reach into the strips (run 62) */
