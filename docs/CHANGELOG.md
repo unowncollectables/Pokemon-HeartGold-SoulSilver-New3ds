@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- README: shorter landing page with a features grid and a numbered setup guide. Settings, wireless, status, and developer notes sit in collapsible sections. The Pokéwalker stays in About and under Wireless. Docs only. See `README.md`.
+
 - README: the landing page presents HeartGold & SoulSilver (HeartGold experimental), uses the renamed repository URL, and records the seasonal scenery, built-in defaults, GTS picker, StarMe profiles, Frontier/Safari/Plaza, and starter Poké Ball work merged after the previous README pass. Docs only. See `README.md`.
 
 - Starter selection (Elm's lab): the three Poké Balls and the turntable were invisible on the touch screen. The port's C versions of `MTX_RotX43_` / `MTX_RotY43_` / `MTX_RotZ43_` wrote only the 3x3 rotation and left the matrix translation as stack garbage (the DS routines write zero), so every ball matrix got a huge translation and fell outside the view. Platform-only (`ss3ds_glue.c`), no pspoke patch or game rebuild. Verified in local Azahar from a copied save: all three balls and the turntable draw on the bottom screen; real New 3DS check outstanding.
