@@ -5,7 +5,7 @@
 - Static check only (closure model of `port.py` plus `translate2.py` on every added function, every new external found as C in the decomp or SDK libraries). No ROM here, so data-table extraction, compile and link are unproven. A link error after this is most likely 0272; fix forward with 0273.
 - Still `[SS-MISSING]` (300 lines in `missing.c`): the whole Battle Frontier, overlay 39 helpers `ov39_0222A1xx` (no assembly for them), 45, 13.
 - Battle Frontier is not a plain seed. Seeding `frontier_map.s`, `frontier_system.s`, `unk_02096910.s` and overlays 80 to 83, 85, 91 to 93 pulls in 2392 functions; 17 fail to translate, all in `overlay_93_arm.s` (ARM mode: conditional `moveq`, `bx ip`, fallthrough), and the translator has no binding for `_dneq`, `_f_lltof`, `_ll_sdiv`, one mid-function label call (`_0223EE86`) and `ov45_0223247C`. Needs translator work first, then one facility per build.
-- Device check: Safari Zone Gate, talk to Baoba's desk to move areas (customizer) and place objects (decoration); Continue screen Wii message row if shown.
+- Device check: open the Safari Zone area customizer and the object decoration screen; Continue screen Wii message row if shown.
 
 # Audit fixes (2026-11-12, platform only, not compiled here)
 
