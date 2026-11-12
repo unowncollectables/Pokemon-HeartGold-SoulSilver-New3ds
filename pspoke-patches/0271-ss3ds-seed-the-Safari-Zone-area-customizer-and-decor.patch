@@ -1,0 +1,45 @@
+From b810d9f8f150cdee56fc72ce7216eb367f31bf6d Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 12 Nov 2026 14:27:45 +0000
+Subject: [PATCH] ss3ds: seed the Safari Zone area customizer and decoration
+ screens (overlay 108)
+
+Both editors are launched only through overlay templates, so the translator never rooted them and opening either screen aborted with [SS-MISSING]. Seed the two overlay 108 files (as 0263 did for its apps) and drop the six matching Missing() stubs. Static check: all 154 functions translate, the closure adds only overlay 108 functions, and every new external (26) is a C function already in the decomp or the SDK libraries. Not yet compiled or run on device.
+---
+ port/soulsilver-native-core/nitromain-perf/missing.c  | 6 ------
+ port/soulsilver-native-play/maploader/seed-files.json | 4 +++-
+ 2 files changed, 3 insertions(+), 7 deletions(-)
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/missing.c b/port/soulsilver-native-core/nitromain-perf/missing.c
+index 9e4e7db..c7178b7 100644
+--- a/port/soulsilver-native-core/nitromain-perf/missing.c
++++ b/port/soulsilver-native-core/nitromain-perf/missing.c
+@@ -156,12 +156,6 @@ __attribute__((noreturn)) void NintendoWfc_Init(void){Missing("NintendoWfc_Init"
+ __attribute__((noreturn)) void NintendoWfc_Main(void){Missing("NintendoWfc_Main");}
+ __attribute__((noreturn)) void PmAgbCartridge_GetLanguage(void){Missing("PmAgbCartridge_GetLanguage");}
+ __attribute__((noreturn)) void PmAgbCartridge_GetVersionInternal(void){Missing("PmAgbCartridge_GetVersionInternal");}
+-__attribute__((noreturn)) void SafariAreaCustomizer_Exit(void){Missing("SafariAreaCustomizer_Exit");}
+-__attribute__((noreturn)) void SafariAreaCustomizer_Init(void){Missing("SafariAreaCustomizer_Init");}
+-__attribute__((noreturn)) void SafariAreaCustomizer_Main(void){Missing("SafariAreaCustomizer_Main");}
+-__attribute__((noreturn)) void SafariDecoration_Exit(void){Missing("SafariDecoration_Exit");}
+-__attribute__((noreturn)) void SafariDecoration_Init(void){Missing("SafariDecoration_Init");}
+-__attribute__((noreturn)) void SafariDecoration_Main(void){Missing("SafariDecoration_Main");}
+ 
+ 
+ 
+diff --git a/port/soulsilver-native-play/maploader/seed-files.json b/port/soulsilver-native-play/maploader/seed-files.json
+index 04869bf..27aec06 100644
+--- a/port/soulsilver-native-play/maploader/seed-files.json
++++ b/port/soulsilver-native-play/maploader/seed-files.json
+@@ -97,5 +97,7 @@
+ "overlay_41_0224B21C.s",
+ "overlay_41_0224BE34.s",
+ "overlay_05.s",
+-"overlay_86.s"
++"overlay_86.s",
++"overlay_108.s",
++"overlay_108_021E8850.s"
+ ]
+-- 
+2.43.0
+

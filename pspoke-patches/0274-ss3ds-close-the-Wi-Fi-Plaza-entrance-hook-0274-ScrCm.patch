@@ -1,0 +1,61 @@
+From 8d47eaa011e0e71fc080045af81e0c8d686bef00 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 12 Nov 2026 14:44:21 +0000
+Subject: [PATCH] ss3ds: close the Wi-Fi Plaza entrance (hook 0274, ScrCmd_662)
+
+ScrCmd_662 starts the Wi-Fi host app whose first screen is overlay 39; that overlay and the Wi-Fi Plaza behind it (45, minigames 91 to 93) are still [SS-MISSING] and the port has no server for them. The command now returns result 0 (the script's own not-started path), shows the toast WI-FI PLAZA IS CLOSED and logs one [WIFI] line instead of aborting. Optional hook; logs skipped on failure. Not yet compiled or run on device.
+---
+ scripts/ss3ds_hooks.d/0274_wifi_closed.py | 29 +++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0274_wifi_closed.sh |  4 ++++
+ 2 files changed, 33 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0274_wifi_closed.py
+ create mode 100644 scripts/ss3ds_hooks.d/0274_wifi_closed.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0274_wifi_closed.py b/scripts/ss3ds_hooks.d/0274_wifi_closed.py
+new file mode 100644
+index 0000000..1113dd8
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0274_wifi_closed.py
+@@ -0,0 +1,29 @@
++#!/usr/bin/env python3
++"""ss3ds 0274: the Wi-Fi rooms behind ScrCmd_662 are closed. ScrCmd_662 (src/scrcmd_c.c, common script scr_seq_0003_046) starts the
++Wi-Fi host app sub_020192D0, whose first screen is overlay 39 (ov39_02228140 and friends). Overlay 39 and the Wi-Fi Plaza behind it
++(overlay 45, minigames 91 to 93) are still [SS-MISSING] traps, so going in aborted the game. The port has no server to offer for
++them either. The command now reports "not started" (result 0, the script's own no-connection path: the screen fades back in and the
++attendant's script carries on), shows the toast "WI-FI PLAZA IS CLOSED" and logs one [WIFI] line. Nothing is saved or changed.
++Idempotent ('SS3DS 0274'); applied to the staged decomp's src/scrcmd_c.c in cwd (= $C)."""
++import sys
++p = 'src/scrcmd_c.c'
++s = open(p).read()
++if 'SS3DS 0274' in s:
++    sys.exit(0)
++old = ('    if (sub_0203A05C(ctx->fieldSystem->saveData)) {\n'
++       '        *p_ret = 1;\n'
++       '        sub_0203FC14(ctx->fieldSystem, r7, r6);\n')
++if s.count(old) != 1:
++    sys.exit('0274_wifi_closed: ScrCmd_662 pattern missing in ' + p)
++new = ('    extern void P3DS_Toast(const char *); /* SS3DS 0274 */\n'
++       '    extern void PSPNativeMemLog(const char *fmt, ...);\n'
++       '    if (1) {\n'
++       '        (void)r6; (void)r7;\n'
++       '        PSPNativeMemLog("[WIFI] ScrCmd_662 (Wi-Fi Plaza entrance) refused: overlays 39/45 are not ported");\n'
++       '        P3DS_Toast("WI-FI PLAZA IS CLOSED");\n'
++       '        *p_ret = 0;\n'
++       '    } else if (sub_0203A05C(ctx->fieldSystem->saveData)) {\n'
++       '        *p_ret = 1;\n'
++       '        sub_0203FC14(ctx->fieldSystem, r7, r6);\n')
++open(p, 'w').write(s.replace(old, new))
++print('0274_wifi_closed: scrcmd_c.c ScrCmd_662 closed')
+diff --git a/scripts/ss3ds_hooks.d/0274_wifi_closed.sh b/scripts/ss3ds_hooks.d/0274_wifi_closed.sh
+new file mode 100644
+index 0000000..2c59285
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0274_wifi_closed.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0274: Wi-Fi Plaza entrance closed (ScrCmd_662 in scrcmd_c.c). Optional: without it the entrance still aborts on [SS-MISSING] ov39_*.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0274_wifi_closed.py" && bash rebuild_game_object.sh src/scrcmd_c.c scrcmd_c.o none); then
++  log "ss3ds 0274 wifi closed hook skipped (see message above); the Wi-Fi Plaza entrance still aborts"
++fi
+-- 
+2.43.0
+

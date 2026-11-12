@@ -1,3 +1,13 @@
+# Missing screens round 3 (patches 0271 to 0274, 2026-11-12, not compiled here)
+
+- 0271 seeds overlay 108: Safari Zone area customizer and decoration (6 stubs gone, 154 functions).
+- 0272 seeds overlays 75 (Wii message settings on the Continue screen), 72 (Nintendo WFC app), 73, 37 and `unk_020850F4.s` (68 stubs gone, 580 functions).
+- 0273 seeds the Battle Frontier: the 28 overlay 80 files, overlays 81, 82, 83 and 85, `frontier_map.s`, `frontier_system.s`, `unk_02096910.s` (245 stubs gone, 1645 functions). `port.py` gains the double compare `_dneq` (`ssd_ne`).
+- `missing.c` goes from 375 traps to 56. Left: the Wi-Fi Plaza (overlay 39 with 39 stubs, 45, and its minigames 91 to 93; `overlay_93_arm.s` is ARM mode and does not translate, 45 has two untranslatable functions and unresolved calls), `ov13_0222B430` (SOC/WCM), `ov01_021EACBC`, `MovementScriptMachineSub_Done`, two `PmAgbCartridge_*`.
+- 0274 (hook `0274_wifi_closed`, optional): `ScrCmd_662`, the Wi-Fi Plaza entrance (common script `scr_seq_0003_046`, host app on overlay 39), no longer aborts. It returns result 0, shows the toast `WI-FI PLAZA IS CLOSED` and logs `[WIFI] ScrCmd_662 ... refused`. The Wi-Fi Club minigames (91 to 93, picked inside the Club) still trap.
+- Static check only (closure model of `port.py`, `translate2.py` on every added function, argument counts of every new external from the headers). No ROM here, so data-table extraction, compile and link are unproven. Expect the first build to need a follow-up patch (0274) for compile or link errors; paste the builder log.
+- Device check: Safari Zone area customizer and object decoration screen; walk into the Battle Frontier, enter the Battle Tower and one other facility, play one round, check BP; talk to the Wi-Fi Plaza attendant in a Pokemon Center basement and see the toast instead of a crash.
+
 # Audit fixes (2026-11-12, platform only, not compiled here)
 
 - GTS preview cache and StarMe profile files: remove the old file before the rename (the SD card refuses a rename onto an existing file, so the preview never updated after its first write). A damaged StarMe profile is now set aside as `.bad` and a new one is made, instead of blocking StarMe for good.
