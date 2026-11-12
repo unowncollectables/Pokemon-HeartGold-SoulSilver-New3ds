@@ -112,7 +112,8 @@ SSROM  ?= $(shell bash $(ROOT)/tools/find_rom.sh)
 #   BANNER=3d-lugia   same as 3d (kept so old command lines work)
 BANNER ?= 3d
 cia: soulsilver3ds.cia
-$(MAKEROM) $(BT):
+# One recipe produces both tools, including under parallel make.
+$(MAKEROM) $(BT) &:
 	bash $(ROOT)/tools/build_cia_tools.sh $(CIA_TOOLS)
 soulsilver3ds.cia: soulsilver3ds.elf $(ROOT)/tools/home_menu_art.py cia/soulsilver3ds.rsf cia/make_art.py cia/art/icon.png cia/art/banner.png $(ROOT)/tools/banner3d/make_banner.py $(ROOT)/tools/banner3d/scene.py $(ROOT)/tools/banner3d/lugia_parts.py $(ROOT)/tools/banner3d/decimate.py $(ROOT)/tools/banner3d/to_cgfx.py $(ROOT)/tools/banner3d/cgfx_fingerprint.py $(ROOT)/tools/banner3d/reference/platinum_banner.json | $(MAKEROM) $(BT)
 	python3 cia/make_art.py build/cia
