@@ -47,7 +47,7 @@ static const short kWlPcBoxB[][8] = {
     WL_MOVE(0x2, 0, 192, 0, 220, -32), WL_FILL(0x2, 0, 192, 188, 252, 220), WL_MOVE(0x2, 0, 192, 220, 256, 32),
     WL_MOVE(0x1, 0, 192, 0, 256, -32), WL_OBJS(0, 192, 0, 256, -32) };
 /* Side strips continue the picture's own edge columns (given to both engines). Naming screen: the top is black with the question box,
-   so the sides are black. Fly map, Photo Album, Voltorb Flip, Safari editors, berry pots, Scratch-Off, signature: a plain or
+   so the sides are black. Fly map, Voltorb Flip, Safari editors, berry pots, Scratch-Off, signature: a plain or
    gradient top, so the sides continue it. */
 static const short kWlBlackSides[][8] = { WL_FILL(0xF, 0, 192, -32, 0, 0), WL_FILL(0xF, 0, 192, 256, 288, 255) };
 /* Geonet: the grid is on BG3 alone, the dialogue frame must not wrap with it. */
@@ -65,7 +65,6 @@ static const WlScreen kWlScreens[] = {
     { "naming", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "flymap", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "unownreport", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
-    { "photoalbum", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "voltorbflip", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "safaricustom", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "safarideco", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
