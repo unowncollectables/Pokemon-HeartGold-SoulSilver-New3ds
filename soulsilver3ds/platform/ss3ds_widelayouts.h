@@ -46,7 +46,8 @@ static const short kWlTrainerCardA[][8] = {
 static const short kWlPcBoxB[][8] = {
     WL_MOVE(0x2, 0, 192, 0, 220, -32), WL_FILL(0x2, 0, 192, 188, 252, 220), WL_MOVE(0x2, 0, 192, 220, 256, 32),
     WL_MOVE(0x1, 0, 192, 0, 256, -32), WL_OBJS(0, 192, 0, 256, -32) };
-/* Naming screen: the top is black with the question box, so the side strips are black too (given to both engines). */
+/* Side strips continue the picture's own edge columns (given to both engines). Naming screen: the top is black with the question box,
+   so the sides are black. Fly map: the top is a plain light gradient, so the sides continue it. */
 static const short kWlBlackSides[][8] = { WL_FILL(0xF, 0, 192, -32, 0, 0), WL_FILL(0xF, 0, 192, 256, 288, 255) };
 static const WlScreen kWlScreens[] = {
     { "summary", kWlSummaryA, WL_N(kWlSummaryA), kWlNone, 0 },
@@ -59,6 +60,7 @@ static const WlScreen kWlScreens[] = {
     { "gearradio", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
     { "gearmap", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
     { "naming", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
+    { "flymap", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "pcbox", kWlNone, 0, kWlPcBoxB, WL_N(kWlPcBoxB) },
     { "trainercardmain", kWlTrainerCardA, WL_N(kWlTrainerCardA), kWlNone, 0 },
 };
