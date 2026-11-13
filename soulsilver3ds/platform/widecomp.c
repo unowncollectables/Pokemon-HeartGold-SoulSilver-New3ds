@@ -59,7 +59,7 @@ __attribute__((unused)) static int srcCol(const WcPlan *p, int li, int y, int s)
 static void buildRow(const WcPlan *p, int li, int y, short *r) {
     const WcLayer *l = &p->L[li]; const int W = l->w * 8, H = l->h * 8, py = (int)((y + l->vofs) & (H - 1)), M = W - 1;
     uint8_t act[WC_MAX_PARTS]; int na = 0;
-    for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if ((t[0] != 1 && t[0] != 2) || !(t[1] & (1 << li))) continue;
+    for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if ((t[0] != 1 && t[0] != 2 && t[0] != 5 && t[0] != 6) || !(t[1] & (1 << li))) continue;
         const int ln = (t[1] & 0x10) ? y : py; if (ln >= t[2] && ln < t[3]) act[na++] = (uint8_t)k; }
     for (int s = -32; s < 288; s++) r[s + 32] = -1;
     for (int s = 0; s < 256; s++) r[s + 32] = (short)((s + l->h0) & M);
@@ -70,6 +70,10 @@ static void buildRow(const WcPlan *p, int li, int y, short *r) {
         for (int s = a0 < 0 ? 0 : a0; s < a1 && s < 256; s++) r[s + 32] = -1; }
     for (int a = 0; a < na; a++) { const short *t = p->parts + act[a] * 8; const int scr = (t[1] & 0x10) != 0;
         if (t[0] == 1) { for (int c = t[4]; c < t[5]; c++) { const int s = scr ? c + t[6] : c - l->h0 + t[6]; if (s >= -32 && s < 288) r[s + 32] = (short)((scr ? c + l->h0 : c) & M); } }
+        /* ss3ds kinds: 5 = copy (columns x0..x1-1 show the picture columns from col on: a textured stretch of a panel repeated),
+           6 = wrap (beside the DS screen the BG's own map continues, as the DS's wrap would show it: repeating patterns, also while they scroll) */
+        else if (t[0] == 5) { for (int c = t[4]; c < t[5]; c++) { const int s = scr ? c : c - l->h0; if (s >= -32 && s < 288) r[s + 32] = (short)((t[7] + (c - t[4])) & M); } }
+        else if (t[0] == 6) { for (int s = -32; s < 288; s++) if (s < 0 || s >= 256) r[s + 32] = (short)((s + l->h0) & M); }
         else { for (int c = t[4]; c < t[5]; c++) { const int s = scr ? c : c - l->h0; if (s >= -32 && s < 288) r[s + 32] = (short)(t[7] & M); } } }
 }
 
@@ -92,7 +96,7 @@ int WC_Plan(WcPlan *p, const u8 *R, const short *parts, int n) {
     for (int i = 0; i < 4; i++) { const WcLayer *l = &p->L[i]; memset(p->rowOf[i], 255, 192); if (!l->on || !l->text) continue;
         const int H = l->h * 8; uint8_t act[WC_MAX_PARTS], prev[WC_MAX_PARTS]; int na = 0, np = -1;
         for (int y = 0; y < 192; y++) { const int py = (int)((y + l->vofs) & (H - 1)); na = 0;
-            for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if ((t[0] != 1 && t[0] != 2) || !(t[1] & (1 << i))) continue;
+            for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if ((t[0] != 1 && t[0] != 2 && t[0] != 5 && t[0] != 6) || !(t[1] & (1 << i))) continue;
                 const int ln = (t[1] & 0x10) ? y : py; if (ln >= t[2] && ln < t[3]) act[na++] = (uint8_t)k; }
             if (y && na == np && !memcmp(act, prev, na) && p->rowOf[i][y - 1] != 255) { p->rowOf[i][y] = p->rowOf[i][y - 1]; continue; }
             memcpy(prev, act, na); np = na;
@@ -263,6 +267,39 @@ static int composeNow(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *center,
     return 1;
 }
 
+/* ss3ds wide_layouts (2026-11-12): the full wide picture (centre + strips) for a screen with layout parts, as Platinum's
+   WC_Compose. The same picture is asked for again and again while a menu waits, so the result is kept: a hash of everything
+   composeNow reads (registers, palettes, OAM, the BG map entries and tiles on screen, the tiles of each sprite, the 3D layer
+   when BG0 shows it) decides whether it is made again. One cache (menus are the same in both eyes). */
+static u32 cCenter[256 * 192], cStrip[64 * 192]; static u32 cHash; static int cValid;
+static u32 hashSpan(u32 h, const u8 *b, unsigned n) { const u32 *w = (const u32 *)b; for (unsigned i = 0; i < n / 4; i++) h = (h ^ w[i]) * 16777619u; return h; }
+static u32 inputHash(const WcPlan *p, const u8 *R, const WcSrc *S) {
+    const u32 dc = *(const u32 *)R; u32 h = 2166136261u ^ p->hash;
+    h = hashSpan(h, R, 0x80); h = hashSpan(h, (const u8 *)S->bgpal, 512); h = hashSpan(h, (const u8 *)S->objpal, 512); h = hashSpan(h, (const u8 *)S->oam, 1024);
+    for (int i = 0; i < 4; i++) { const WcLayer *l = &p->L[i]; if (!l->on) continue;
+        if (l->extSlot >= 0) h = hashSpan(h, S->bgext + l->extSlot * 0x2000, 0x2000);
+        const unsigned tb = l->hofs >> 3; const unsigned tyb = l->vofs >> 3;
+        for (unsigned r = 0; r < 25; r++) { const unsigned ty = (tyb + r) & (l->h - 1);
+            for (unsigned c = 0; c < 42; c++) { const unsigned tx = (tb + c - 4) & (l->w - 1);
+                const unsigned ma = (l->mapb + ((tx >> 5) + (ty >> 5) * (l->w >> 5)) * 0x800 + ((ty & 31) * 32 + (tx & 31)) * 2) & 0x7FFFF;
+                const u16 me = *(const u16 *)(S->bgvram + ma); h = (h ^ me) * 16777619u;
+                h = hashSpan(h, S->bgvram + ((l->charb + (me & 0x3FF) * (l->bpp8 ? 64 : 32)) & 0x7FFFF), l->bpp8 ? 64 : 32); } } }
+    if (dc & 0x80000000u) h = hashSpan(h, S->objext, 0x2000);
+    if (dc & 0x1000) for (int i = 0; i < 128; i++) { const u16 *a = S->oam + i * 4; if ((a[0] & 0x300) == 0x200) continue;
+        const unsigned shape = a[0] >> 14, size = a[1] >> 14; if (shape > 2) continue;
+        const int width = SPW[shape][size], height = SPH[shape][size], bpp8 = (a[0] & 0x2000) != 0; const u32 tile = a[2] & 0x3FF;
+        for (int t8 = 0; t8 < height / 8; t8++) { u32 addr = (dc & 0x10) ? ((tile << ((dc >> 20) & 3)) + (u32)((t8 * (width >> 3)) << (bpp8 ? 1 : 0))) << 5 : (tile + (u32)(t8 * 0x20)) << 5;
+            h = hashSpan(h, S->objvram + (addr & 0x3FFFF), (unsigned)(width >> 3) * (bpp8 ? 64 : 32)); } }
+    return h;
+}
+int WC_Compose(const WcPlan *p, const u8 *R, const WcSrc *S, u32 *center, u32 *strip) {
+    const u32 dc = *(const u32 *)R; if (WC_Check(p, R, S->frame3d != 0)) return 0;
+    u32 h = inputHash(p, R, S);
+    if (dc & 8) h = hashSpan(h, (const u8 *)S->frame3d, 256 * 192 * 4);
+    if (cValid && h == cHash) { memcpy(center, cCenter, sizeof cCenter); memcpy(strip, cStrip, sizeof cStrip); return 2; }
+    if (!composeNow(p, R, S, center, strip, 0)) return 0;
+    memcpy(cCenter, center, sizeof cCenter); memcpy(cStrip, strip, sizeof cStrip); cHash = h; cValid = 1; return 1;
+}
 /* ss3ds wide_boxes: only the sprites that reach into the side strips (e.g. the player's HP box moved outwards by the game).
    Draws just the lines those sprites cover; strip must be zeroed by the caller (lines not drawn stay 0). Strip pixels that
    a sprite is the top layer of come back as 0xRRGGBBFF, all others alpha 0, so the caller keeps its own background there.

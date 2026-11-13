@@ -1278,11 +1278,15 @@ static const MItem mItems[]={
  {"POKEWALKER","pokewalker",2,{"OFF","ON"}},
  {"SEASONAL TREES","seasonal_trees",2,{"OFF","ON"}},
  {"GTS SERVER PICKER","gts_picker",2,{"OFF","ON"}},
+ /* wide_layouts (2026-11-12): real wide layouts for 2D screens (wideapi.c + widecomp.c WC_Compose); experimental, default OFF */
+ {"WIDE LAYOUTS","wide_layouts",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
-enum{kGtsPickerItem=MENU_N-1};
-enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-23&&kPgFindItem==MENU_N-22&&kBreedItem==MENU_N-21&&kBatchCullItem==MENU_N-20&&kGcDirectItem==MENU_N-19&&kWildAliveItem==MENU_N-18&&kEventAnyItem==MENU_N-17&&kSteadyItem==MENU_N-16&&kEvenItem==MENU_N-15&&kFlyTapItem==MENU_N-14&&kContestItem==MENU_N-13,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
+enum{kGtsPickerItem=MENU_N-2,kWideLayItem=MENU_N-1};
+static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
+extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
+enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-24&&kPgFindItem==MENU_N-23&&kBreedItem==MENU_N-22&&kBatchCullItem==MENU_N-21&&kGcDirectItem==MENU_N-20&&kWildAliveItem==MENU_N-19&&kEventAnyItem==MENU_N-18&&kSteadyItem==MENU_N-17&&kEvenItem==MENU_N-16&&kFlyTapItem==MENU_N-15&&kContestItem==MENU_N-14,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
 extern "C" {extern volatile int P3DS_AudioGainV,P3DS_AudioLimiterV,P3DS_AudioStallFadeV;void P3DS_SetAudioGain(int);void P3DS_SetAudioLimiter(int);void P3DS_SetAudioStallFade(int);}
 static const int kVolGain[7]={4,5,6,7,8,9,10};
 static int volIdx(){int g=P3DS_AudioGainV;if(g<0)g=P3DS_CfgInt("audio_gain",7);int b=0;for(int k=1;k<7;k++)if(abs(kVolGain[k]-g)<abs(kVolGain[b]-g))b=k;return b;}
@@ -1374,6 +1378,7 @@ extern "C" int P3DS_AmbientWeatherCfg(void) {
 }
 static int menuGet(int i){
  if(i==kGtsPickerItem)return P3DS_CfgInt("gts_picker",0)!=0;
+ if(i==kWideLayItem)return P3DS_WideLayoutsOn();
  if(i==kSeasonalTreesItem)return P3DS_CfgInt("seasonal_trees",0)!=0;
  if(i==kPokewalkerItem)return P3DS_CfgInt("pokewalker",0)!=0;
  if(i==kAmbientWeatherItem)return P3DS_AmbientWeatherCfg();if(i==kRoamSprItem)return pgRoamSpr()?1:0;if(i==kMapZoomItem)return pgMapZoomIdx();if(i==139)return titleCleanCfg();if(i==138)return P3DS_GcBFadesCfg();if(i==137)return P3DS_GcAffineCfg();if(i==136)return gpuBCfg();if(i==135)return P3DS_FastBoundsCfg();if(i==134)return P3DS_G3PacketCfg();if(i==kContestItem)return P3DS_ContestOn();if(i==kFlyTapItem)return pgFlyCfg()?1:0;if(i==kEvenItem)return evenCfg()?1:0;if(i==kSteadyItem)return steadyCfg()?1:0;if(i==kEventAnyItem)return evtCfg()?1:0;if(i==kGcDirectItem)return gcDirectCfg();if(i==kBatchCullItem)return P3DS_BatchCullCfg();if(i==kBreedItem)return brCfg();if(i==kPgFindItem)return pgFindCfg();if(i==kHuntStatsItem)return P3DS_CfgInt("hunt_stats",0)!=0;if(i==kPanelLiveItem)return panelLiveCfg();if(i==kAchToastItem)return P3DS_AchToastsOn()?1:0;if(i==kSharpItem){int v=P3DS_CfgInt("g3_sharp",0);return v<0?0:v>4?4:v;}if(i==kSprDepthItem)return P3DS_SpriteDepthCfg();if(i==kPmItem)return P3DS_PmShortcutsCfg();if(i==kAutoRunItem)return P3DS_CfgInt("auto_run",0)!=0;if(i==kPgExtrasItem){pxOn();return pxOnV;}if(i==kHintItem)return P3DS_CfgInt("type_hint",0)!=0;if(i==kTrackerItem)return P3DS_TrkOn();if(i==kRibbonItem)return P3DS_RibbonOn();if(i==kCelebItem)return P3DS_CelebOn();if(i==kHuntItem)return P3DS_HuntOn();if(i==kRateItem)return P3DS_HuntRateIdx();if(i==kBattItem)return P3DS_CfgInt("battery_warn",0)!=0;if(i==kFogHoleItem)return P3DS_FogHoleCfg();if((i>=kWildVisItem&&i<=kWildLastItem)||i==kWildAliveItem)return P3DS_WildVisCfg(wvIdx(i));if(i==kDcSkipItem)return P3DS_DcFlushSkipCfg();if(i==kWideBoxItem)return wideBoxCfg();if(i==kFpsTweakItem)return P3DS_FpsTweakRow();if(i==kWirelessItem){int w=P3DS_CfgInt("wireless",1);return w<0?0:w>2?2:w;}if(i==kUnionGuardItem)return P3DS_CfgInt("union_guard",1)!=0;if(i==kPanelPartyItem)return panelPartyCfg();if(i==kMenuGreyItem)return P3DS_MenuGreyUnsupportedCfg();if(i==kBottomHdItem)return bottomHdCfg();if(i==kWideDexItem)return wideDexCfg();if(i==kWidePcItem)return widePcCfg();if(i==kDirectItem)return G3G_DirectCfg();if(i==kGcNfItem)return gcStNfCfg();if(i==kVolumeItem)return volIdx();if(i==kLimiterItem){int a=P3DS_AudioLimiterV<0?P3DS_CfgInt("audio_limiter",3):P3DS_AudioLimiterV;return a<0?0:a>3?3:a;}if(i==kStallFadeItem)return P3DS_AudioStallFadeV<0?P3DS_CfgInt("audio_stallfade",0)!=0:P3DS_AudioStallFadeV;if(i==kSelectResetItem||i==kSkipIntroItem)return P3DS_CfgInt(mItems[i].key,0)!=0;if(i==kSmoothItem)return P3DS_CfgInt(mItems[i].key,1)!=0;if(i==kBumpItem)return bumpCfg();if(i==kWideScreensItem)return wideScreensCfg();if(i==kBottomMenuItem)return bmCfg();if(i==kPgKantoItem)return pkCfg();if(i==kWDepthItem||i==kWCpuItem||i==kBottomLayoutItem||i==kBottomMapItem)return 0;/* retired rows, in no tab */if(i==kWideBattleItem)return wideBattleCfg();if(i==kMenuBtnItem)return menuBtnCfg();if(i==kGpuBlendItem)return P3DS_GpuBlendCfg();if(i>=33)return genGet(i-33);if(i>=27)return P3DS_Cheat(i-27);switch(i){case 0:return fpsOn?1:0;case 1:return wideCfg>0?1:0;case 2:return P3DS_ScaleMode();case 3:return P3DS_CstickMode()==2?1:0; /* ss3ds: 0 off, 1 = D-pad (mode 2) */
@@ -1383,6 +1388,7 @@ static int menuGet(int i){
 extern "C" int P3DS_SaveExport(void);
 static void menuSet(int i,int v){
  if(i==kGtsPickerItem){P3DS_CfgWrite("gts_picker",v);return;}
+ if(i==kWideLayItem){P3DS_SetWideLayouts(v);P3DS_CfgWrite("wide_layouts",v);return;}
  if(i==kSeasonalTreesItem){P3DS_CfgWrite("seasonal_trees",v);return;}
  if(i==kPokewalkerItem){P3DS_CfgWrite("pokewalker",v);return;}
  if(i==kAmbientWeatherItem){
@@ -1513,7 +1519,8 @@ struct SAppTab{int n;SAppRow r[14];};
 /* the Wide tab was removed (its rows stay in config.txt: wide_battle, wide_boxes, wide_menus ... all default ON, wide_fx default OFF) */
 static const char*const kTabNm[7]={"Display","3D","Input","Battle","Play","Setup","Debug"};
 static const SAppTab kTabs[7]={
- {6,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+ {7,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+     {kWideLayItem,"Wide layouts","Experimental. Menu screens are laid out for the full 400 px width instead of filling the sides."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."},
      {139,"Title layout","Classic uses plain borders. Wide fills the screen with the animated backdrop and keeps the logo proportional."},
@@ -2347,6 +2354,27 @@ static int Present(bool){
  static bool fillReady;fillReady=false;
  static bool wnReady;wnReady=false;
  {static bool wbPrev;const bool wbNow=wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg());if(wbNow&&!wbPrev)PSPNativeMemLog("[WIDE] battle entered (wide_battle=1, wide native pass)");wbPrev=wbNow;}
+ /* wide_layouts (2026-11-12): a screen whose game code gave layout parts (NitroPort_WideScreenParts, wideapi.c) for the engine
+    on the top screen is drawn again 320 wide by widecomp (Platinum's wide layout engine): panels at their wide positions,
+    backgrounds continued, sprites moved with their panels. Centre + strips replace the 256-wide picture; both eyes show it
+    (menus are flat). Cached by its inputs, so a still menu costs one hash. Not drawable (WC_Check) -> the old strips. */
+ bool wlDone=false;gWlDone=0;
+ if(wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_WideLayoutsOn()&&!P3DS_InField&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&!hidePanelTop&&!titleCleanActive&&!pokewalker){
+  const int eng=(power&0x8000)?0:1;static short wlParts[WC_MAX_PARTS*8];const int np=P3DS_WideGetParts(eng,wlParts);
+  if(np>0&&(eng==0?engineA.Enabled:engineB.Enabled)&&!(eng==1&&bStale)){static WcPlan wlPlan;const u8*R=(const u8*)PSPNative_GfxRegisters+(eng?0x1000:0);
+   if(eng==0){G3G_DirectResolveWhy(6);topTouch();}
+   {if(P3DS_WideShow[eng]!=0x1F){static u8 rc[0x100] __attribute__((aligned(4)));memcpy(rc,R,sizeof rc);*(u32*)rc&=~((u32)(~P3DS_WideShow[eng]&0x1F)<<8);R=rc;}}
+   WcSrc ws=eng?WcSrc{GPU::VRAMFlat_BBG,GPU::VRAMFlat_BOBJ,GPU::VRAMFlat_BBGExtPal,GPU::VRAMFlat_BOBJExtPal,(const u16*)(GPU::Palette+1024),(const u16*)(GPU::Palette+1536),(const u16*)(GPU::OAM+1024),nullptr}
+                :WcSrc{GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,GPU::VRAMFlat_ABGExtPal,GPU::VRAMFlat_AOBJExtPal,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,GPU3D::NativeFrame};
+   const u64 t0=svcGetSystemTick();WC_Plan(&wlPlan,R,wlParts,np);if(wlPlan.changed){wlPlan.changed=0;static unsigned nl;if(nl++<120)PSPNativeMemLog("[WIDE] wide_layouts plan: %s engine %c DISPCNT %08X BGCNT %04X %04X %04X %04X hofs %d %d %d %d vofs %d %d %d %d",P3DS_WideScreenName,eng?'B':'A',*(const u32*)R,*(const u16*)(R+8),*(const u16*)(R+10),*(const u16*)(R+12),*(const u16*)(R+14),*(const u16*)(R+0x10)&511,*(const u16*)(R+0x14)&511,*(const u16*)(R+0x18)&511,*(const u16*)(R+0x1C)&511,*(const u16*)(R+0x12)&511,*(const u16*)(R+0x16)&511,*(const u16*)(R+0x1A)&511,*(const u16*)(R+0x1E)&511);}const int r=WC_Compose(&wlPlan,R,&ws,(u32*)display[eng],P3DS_WideFillBuf);
+   static unsigned nF,nDrawn,nNo,us;static int lastWhy=-1;nF++;us+=(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_USEC);
+   if(r){wlDone=true;if(r==1)nDrawn++;
+    /* the centre reaches the screen as RGB565; give the strips the same 5-bit red and blue so no seam shows at DS x 0 / 255 */
+    for(int i=0;i<64*192;i++){const u32 c=P3DS_WideFillBuf[i];const u32 r5=c>>27,b5=(c>>11)&31;P3DS_WideFillBuf[i]=(c&0x00FF00FFu)|(((r5<<3)|(r5>>2))<<24)|(((b5<<3)|(b5>>2))<<8);}
+    if(stereo&&eyeL){eyeL=eyeR=display[eng];}}
+   else{nNo++;const int why=WC_Check(&wlPlan,R,ws.frame3d!=nullptr);if(why!=lastWhy){lastWhy=why;PSPNativeMemLog("[WIDE] wide_layouts: screen not drawable (WC_Check %d, engine %c, DISPCNT %08X), old strips",why,eng?'B':'A',*(const u32*)R);}}
+   if(nF==600){PSPNativeMemLog("[WIDE] wide_layouts: engine %c, %d parts, %u of 600 frames redrawn, %u not drawable, avg %u us/frame",eng?'B':'A',np,nDrawn,nNo,us/600);nF=nDrawn=nNo=us=0;}}}
+ if(wlDone){wnReady=true;gWlDone=1;}else
  if(wideCfg>0&&P3DS_ScaleMode()==1&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
   /* 2026-11-05 (Nathan: the whole game wide): strip pixels no repeating layer reached (title, intro, plain menu screens) were
      backdrop, i.e. black bars; with edge fill on they take the mirrored, softened picture edge instead (wideFill) */
@@ -2751,6 +2779,7 @@ static int Present(bool){
   /* 2026-11-05: only the real wide_fx pass fills P3DS_WideFxBuf; the edge fill also sets WideFxOn (= fades already in the picture),
      and this swap used to replace its strips with the empty wide_fx buffer: edge fill always showed black bars */
   if(wideFxCfg()&&P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(wideFxCfg()&&P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
+  if(gWlDone&&P3DS_WideStrip[0]==P3DS_WideFillBuf)P3DS_WideFxOn=1; /* wide_layouts: widecomp applied brightness and blends itself; strips() must not add the 3D fade rule (BG0 off = black) */
   if((panelPartyCfg()||pxNativeGear(1))&&P3DS_InField&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold){sStripHoldOk=0;for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){memcpy(sStripHold[e],P3DS_WideStrip[e],sizeof sStripHold[e]);sStripHoldOk|=1<<e;}} /* run 136 */
   G3G_Wide=act;
   /* run 45 wide_cull=1 (default; only while wideview is active): the game's box test (map props / buildings) uses a
