@@ -50,9 +50,7 @@ static const short kWlPcBoxB[][8] = {
    so the sides are black. Fly map, Photo Album, Voltorb Flip, Safari editors, berry pots, Scratch-Off, signature: a plain or
    gradient top, so the sides continue it. */
 static const short kWlBlackSides[][8] = { WL_FILL(0xF, 0, 192, -32, 0, 0), WL_FILL(0xF, 0, 192, 256, 288, 255) };
-/* Pokeathlon medals: a patterned background with panels; every layer's own map continues. */
-static const short kWlWrapAll[][8] = { WL_WRAP(0xF, 0, 192) };
-/* Apricorn box, Geonet: the pattern is on BG3 alone, the dialogue frame must not wrap with it. */
+/* Geonet: the grid is on BG3 alone, the dialogue frame must not wrap with it. */
 static const short kWlWrapBg3[][8] = { WL_WRAP(0x8, 0, 192) };
 static const WlScreen kWlScreens[] = {
     { "summary", kWlSummaryA, WL_N(kWlSummaryA), kWlNone, 0 },
@@ -67,7 +65,6 @@ static const WlScreen kWlScreens[] = {
     { "naming", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "flymap", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "unownreport", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
-    { "athlonmedals", kWlWrapAll, WL_N(kWlWrapAll), kWlWrapAll, WL_N(kWlWrapAll) },
     { "photoalbum", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "voltorbflip", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "safaricustom", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
@@ -75,7 +72,6 @@ static const WlScreen kWlScreens[] = {
     { "berrypots", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "scratch", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "signature", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
-    { "apricorn", kWlWrapBg3, WL_N(kWlWrapBg3), kWlWrapBg3, WL_N(kWlWrapBg3) },
     { "geonet", kWlWrapBg3, WL_N(kWlWrapBg3), kWlWrapBg3, WL_N(kWlWrapBg3) },
     { "pcbox", kWlNone, 0, kWlPcBoxB, WL_N(kWlPcBoxB) },
     { "trainercardmain", kWlTrainerCardA, WL_N(kWlTrainerCardA), kWlNone, 0 },
