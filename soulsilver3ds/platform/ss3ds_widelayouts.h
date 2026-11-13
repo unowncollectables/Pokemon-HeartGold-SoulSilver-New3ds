@@ -33,7 +33,7 @@ static const short kWlBagA[][8] = {
 };
 /* Options (top: BG0 a banded backdrop, BG1 the sample text box, which stays the size the game's text boxes are). Either engine. */
 static const short kWlOptions[][8] = { WL_FILL(0x1, 0, 192, -32, 0, 0), WL_FILL(0x1, 0, 192, 256, 288, 255) };
-/* Pokegear phone (engine B on top: BG0 the curved backdrop, BG3 the call window, sprites the clock). The backdrop opens in the
+/* Pokegear, all four tabs (engine B on top: BG0 the curved backdrop, BG3 the call / radio / map window, sprites the clock). The backdrop opens in the
    middle, where its curves are level: the halves move to the edges and column 128 fills the 64 px between. */
 static const short kWlGearPhoneB[][8] = { WL_MOVE(0x1, 0, 192, 0, 128, -32), WL_FILL(0x1, 0, 192, 96, 160, 128), WL_MOVE(0x1, 0, 192, 128, 256, 32) };
 /* Trainer card, front (engine A on top: BG3 a scrolling tiled pattern, BG2 the badge band and the LEAGUE BADGES tab, sprites the
@@ -47,5 +47,9 @@ static const WlScreen kWlScreens[] = {
     { "bag", kWlBagA, WL_N(kWlBagA), kWlNone, 0 },
     { "options", kWlOptions, WL_N(kWlOptions), kWlOptions, WL_N(kWlOptions) },
     { "gearphone", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
+    { "pokegear", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
+    { "gearconfig", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
+    { "gearradio", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
+    { "gearmap", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
     { "trainercardmain", kWlTrainerCardA, WL_N(kWlTrainerCardA), kWlNone, 0 },
 };
