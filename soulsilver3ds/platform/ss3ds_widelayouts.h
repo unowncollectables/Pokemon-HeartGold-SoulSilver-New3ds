@@ -41,6 +41,11 @@ static const short kWlGearPhoneB[][8] = { WL_MOVE(0x1, 0, 192, 0, 128, -32), WL_
 static const short kWlTrainerCardA[][8] = {
     WL_WRAP(0x8 | WL_SCREEN, 0, 192), WL_FILL(0x4, 0, 192, -32, 0, 0), WL_FILL(0x4, 0, 192, 256, 288, 255), WL_MOVE(0x4, 0, 26, 0, 112, -32),
 };
+/* PC boxes (engine B on top: BG1 the title bar, the info panel flush with the left edge and the striped blue behind it,
+   BG0 the text, sprites the Pokemon and its type). The panel goes to the real left edge, the blue runs on to the right. */
+static const short kWlPcBoxB[][8] = {
+    WL_MOVE(0x2, 0, 192, 0, 220, -32), WL_FILL(0x2, 0, 192, 188, 252, 220), WL_MOVE(0x2, 0, 192, 220, 256, 32),
+    WL_MOVE(0x1, 0, 192, 0, 256, -32), WL_OBJS(0, 192, 0, 256, -32) };
 static const WlScreen kWlScreens[] = {
     { "summary", kWlSummaryA, WL_N(kWlSummaryA), kWlNone, 0 },
     { "party", kWlNone, 0, kWlPartyB, WL_N(kWlPartyB) },
@@ -51,5 +56,6 @@ static const WlScreen kWlScreens[] = {
     { "gearconfig", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
     { "gearradio", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
     { "gearmap", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
+    { "pcbox", kWlNone, 0, kWlPcBoxB, WL_N(kWlPcBoxB) },
     { "trainercardmain", kWlTrainerCardA, WL_N(kWlTrainerCardA), kWlNone, 0 },
 };
