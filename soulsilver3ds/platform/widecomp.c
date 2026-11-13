@@ -59,7 +59,7 @@ __attribute__((unused)) static int srcCol(const WcPlan *p, int li, int y, int s)
 static void buildRow(const WcPlan *p, int li, int y, short *r) {
     const WcLayer *l = &p->L[li]; const int W = l->w * 8, H = l->h * 8, py = (int)((y + l->vofs) & (H - 1)), M = W - 1;
     uint8_t act[WC_MAX_PARTS]; int na = 0;
-    for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if ((t[0] != 1 && t[0] != 2) || !(t[1] & (1 << li))) continue;
+    for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if ((t[0] != 1 && t[0] != 2 && t[0] != 5 && t[0] != 6) || !(t[1] & (1 << li))) continue;
         const int ln = (t[1] & 0x10) ? y : py; if (ln >= t[2] && ln < t[3]) act[na++] = (uint8_t)k; }
     for (int s = -32; s < 288; s++) r[s + 32] = -1;
     for (int s = 0; s < 256; s++) r[s + 32] = (short)((s + l->h0) & M);
@@ -70,6 +70,10 @@ static void buildRow(const WcPlan *p, int li, int y, short *r) {
         for (int s = a0 < 0 ? 0 : a0; s < a1 && s < 256; s++) r[s + 32] = -1; }
     for (int a = 0; a < na; a++) { const short *t = p->parts + act[a] * 8; const int scr = (t[1] & 0x10) != 0;
         if (t[0] == 1) { for (int c = t[4]; c < t[5]; c++) { const int s = scr ? c + t[6] : c - l->h0 + t[6]; if (s >= -32 && s < 288) r[s + 32] = (short)((scr ? c + l->h0 : c) & M); } }
+        /* ss3ds kinds: 5 = copy (columns x0..x1-1 show the picture columns from col on: a textured stretch of a panel repeated),
+           6 = wrap (beside the DS screen the BG's own map continues, as the DS's wrap would show it: repeating patterns, also while they scroll) */
+        else if (t[0] == 5) { for (int c = t[4]; c < t[5]; c++) { const int s = scr ? c : c - l->h0; if (s >= -32 && s < 288) r[s + 32] = (short)((t[7] + (c - t[4])) & M); } }
+        else if (t[0] == 6) { for (int s = -32; s < 288; s++) if (s < 0 || s >= 256) r[s + 32] = (short)((s + l->h0) & M); }
         else { for (int c = t[4]; c < t[5]; c++) { const int s = scr ? c : c - l->h0; if (s >= -32 && s < 288) r[s + 32] = (short)(t[7] & M); } } }
 }
 
@@ -92,7 +96,7 @@ int WC_Plan(WcPlan *p, const u8 *R, const short *parts, int n) {
     for (int i = 0; i < 4; i++) { const WcLayer *l = &p->L[i]; memset(p->rowOf[i], 255, 192); if (!l->on || !l->text) continue;
         const int H = l->h * 8; uint8_t act[WC_MAX_PARTS], prev[WC_MAX_PARTS]; int na = 0, np = -1;
         for (int y = 0; y < 192; y++) { const int py = (int)((y + l->vofs) & (H - 1)); na = 0;
-            for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if ((t[0] != 1 && t[0] != 2) || !(t[1] & (1 << i))) continue;
+            for (int k = 0; k < p->n; k++) { const short *t = p->parts + k * 8; if ((t[0] != 1 && t[0] != 2 && t[0] != 5 && t[0] != 6) || !(t[1] & (1 << i))) continue;
                 const int ln = (t[1] & 0x10) ? y : py; if (ln >= t[2] && ln < t[3]) act[na++] = (uint8_t)k; }
             if (y && na == np && !memcmp(act, prev, na) && p->rowOf[i][y - 1] != 255) { p->rowOf[i][y] = p->rowOf[i][y - 1]; continue; }
             memcpy(prev, act, na); np = na;

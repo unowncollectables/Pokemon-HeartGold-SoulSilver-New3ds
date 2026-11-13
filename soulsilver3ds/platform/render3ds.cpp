@@ -1284,6 +1284,7 @@ static const MItem mItems[]={
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
 enum{kGtsPickerItem=MENU_N-2,kWideLayItem=MENU_N-1};
+static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
 enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-24&&kPgFindItem==MENU_N-23&&kBreedItem==MENU_N-22&&kBatchCullItem==MENU_N-21&&kGcDirectItem==MENU_N-20&&kWildAliveItem==MENU_N-19&&kEventAnyItem==MENU_N-18&&kSteadyItem==MENU_N-17&&kEvenItem==MENU_N-16&&kFlyTapItem==MENU_N-15&&kContestItem==MENU_N-14,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
 extern "C" {extern volatile int P3DS_AudioGainV,P3DS_AudioLimiterV,P3DS_AudioStallFadeV;void P3DS_SetAudioGain(int);void P3DS_SetAudioLimiter(int);void P3DS_SetAudioStallFade(int);}
@@ -2357,7 +2358,7 @@ static int Present(bool){
     on the top screen is drawn again 320 wide by widecomp (Platinum's wide layout engine): panels at their wide positions,
     backgrounds continued, sprites moved with their panels. Centre + strips replace the 256-wide picture; both eyes show it
     (menus are flat). Cached by its inputs, so a still menu costs one hash. Not drawable (WC_Check) -> the old strips. */
- bool wlDone=false;
+ bool wlDone=false;gWlDone=0;
  if(wideCfg>0&&P3DS_ScaleMode()==1&&P3DS_WideLayoutsOn()&&!P3DS_InField&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&!hidePanelTop&&!titleCleanActive&&!pokewalker){
   const int eng=(power&0x8000)?0:1;static short wlParts[WC_MAX_PARTS*8];const int np=P3DS_WideGetParts(eng,wlParts);
   if(np>0&&(eng==0?engineA.Enabled:engineB.Enabled)&&!(eng==1&&bStale)){static WcPlan wlPlan;const u8*R=(const u8*)PSPNative_GfxRegisters+(eng?0x1000:0);
@@ -2373,7 +2374,7 @@ static int Present(bool){
     if(stereo&&eyeL){eyeL=eyeR=display[eng];}}
    else{nNo++;const int why=WC_Check(&wlPlan,R,ws.frame3d!=nullptr);if(why!=lastWhy){lastWhy=why;PSPNativeMemLog("[WIDE] wide_layouts: screen not drawable (WC_Check %d, engine %c, DISPCNT %08X), old strips",why,eng?'B':'A',*(const u32*)R);}}
    if(nF==600){PSPNativeMemLog("[WIDE] wide_layouts: engine %c, %d parts, %u of 600 frames redrawn, %u not drawable, avg %u us/frame",eng?'B':'A',np,nDrawn,nNo,us/600);nF=nDrawn=nNo=us=0;}}}
- if(wlDone)wnReady=true;else
+ if(wlDone){wnReady=true;gWlDone=1;}else
  if(wideCfg>0&&P3DS_ScaleMode()==1&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
   /* 2026-11-05 (Nathan: the whole game wide): strip pixels no repeating layer reached (title, intro, plain menu screens) were
      backdrop, i.e. black bars; with edge fill on they take the mirrored, softened picture edge instead (wideFill) */
@@ -2778,6 +2779,7 @@ static int Present(bool){
   /* 2026-11-05: only the real wide_fx pass fills P3DS_WideFxBuf; the edge fill also sets WideFxOn (= fades already in the picture),
      and this swap used to replace its strips with the empty wide_fx buffer: edge fill always showed black bars */
   if(wideFxCfg()&&P3DS_WideFxOn>=1&&P3DS_WideStrip[0])P3DS_WideStrip[0]=P3DS_WideFxBuf[0];if(wideFxCfg()&&P3DS_WideFxOn>=2&&P3DS_WideStrip[1])P3DS_WideStrip[1]=P3DS_WideFxBuf[1];
+  if(gWlDone&&P3DS_WideStrip[0]==P3DS_WideFillBuf)P3DS_WideFxOn=1; /* wide_layouts: widecomp applied brightness and blends itself; strips() must not add the 3D fade rule (BG0 off = black) */
   if((panelPartyCfg()||pxNativeGear(1))&&P3DS_InField&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold){sStripHoldOk=0;for(int e=0;e<2;e++)if(P3DS_WideStrip[e]){memcpy(sStripHold[e],P3DS_WideStrip[e],sizeof sStripHold[e]);sStripHoldOk|=1<<e;}} /* run 136 */
   G3G_Wide=act;
   /* run 45 wide_cull=1 (default; only while wideview is active): the game's box test (map props / buildings) uses a

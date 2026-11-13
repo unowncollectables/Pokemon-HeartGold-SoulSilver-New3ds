@@ -29,6 +29,8 @@ typedef struct { AppFn init, exec, exit; int ovy; } AppTemplate; /* OverlayManag
 #define WL_FILL(bgs, top, bottom, x0, x1, col) { 2, (bgs), (top), (bottom), (x0), (x1), 0, (col) }
 #define WL_OBJS(top, bottom, x0, x1, dx)       { 3, 0, (top), (bottom), (x0), (x1), (dx), 0 }
 #define WL_OBJS_STRETCH(top, bottom, x0, x1, dx) { 3, 0, (top), (bottom), (x0), (x1), (dx), 1 }
+#define WL_COPY(bgs, top, bottom, x0, x1, col) { 5, (bgs), (top), (bottom), (x0), (x1), 0, (col) }
+#define WL_WRAP(bgs, top, bottom)              { 6, (bgs), (top), (bottom), 0, 0, 0, 0 }
 #define WL_SHIFT3D(dx)                         { 4, 0, 0, 0, 0, 0, (dx), 0 }
 #define WL_SCREEN 0x10 /* with a part's bgs: x0..x1 are screen columns, not columns of the BG's picture */
 typedef struct { const char *name; const short (*a)[8]; int na; const short (*b)[8]; int nb; } WlScreen;
@@ -50,7 +52,7 @@ typedef struct { const char *name; const short (*a)[8]; int na; const short (*b)
     X(PokeathlonCourse_Init, "athloncourse") X(PokeathlonMedals_Init, "athlonmedals") X(PokeathlonCourseRecord_Init, "athlonrecord") \
     X(PokeathlonEventRecord_Init, "athlonevent") X(ScratchOffCards_Init, "scratch") X(GeonetGlobe_Init, "geonet") \
     X(LegendaryCinematic_Init, "cinematic") X(SafariAreaCustomizer_Init, "safaricustom") X(SafariDecoration_Init, "safarideco") \
-    X(NamingScreen_Init, "naming") X(PartyMenu_Init, "party") X(Battle_Init, "battle")
+    X(NamingScreen_Init, "naming") X(TrainerCardMainApp_Init, "trainercardmain") X(PartyMenu_Init, "party") X(Battle_Init, "battle")
 #define X(fn, nm) extern int fn() __attribute__((weak));
 APPS(X)
 #undef X
@@ -85,6 +87,8 @@ static int fromFile(const char *name) {
         if (!strcmp(kind, "move") && nv >= 6) { r[0] = 1; r[1] = (short)v[0]; r[2] = (short)v[1]; r[3] = (short)v[2]; r[4] = (short)v[3]; r[5] = (short)v[4]; r[6] = (short)v[5]; }
         else if (!strcmp(kind, "fill") && nv >= 6) { r[0] = 2; r[1] = (short)v[0]; r[2] = (short)v[1]; r[3] = (short)v[2]; r[4] = (short)v[3]; r[5] = (short)v[4]; r[7] = (short)v[5]; }
         else if ((!strcmp(kind, "objs") || !strcmp(kind, "objstretch")) && nv >= 5) { r[0] = 3; r[2] = (short)v[0]; r[3] = (short)v[1]; r[4] = (short)v[2]; r[5] = (short)v[3]; r[6] = (short)v[4]; r[7] = kind[4] == 's'; }
+        else if (!strcmp(kind, "copy") && nv >= 6) { r[0] = 5; r[1] = (short)v[0]; r[2] = (short)v[1]; r[3] = (short)v[2]; r[4] = (short)v[3]; r[5] = (short)v[4]; r[7] = (short)v[5]; }
+        else if (!strcmp(kind, "wrap") && nv >= 3) { r[0] = 6; r[1] = (short)v[0]; r[2] = (short)v[1]; r[3] = (short)v[2]; }
         else if (!strcmp(kind, "shift3d") && nv >= 1) { r[0] = 4; r[6] = (short)v[0]; }
         else continue;
         fileN[g]++; }
@@ -99,8 +103,7 @@ static void screenChanged(AppFn init) {
     P3DS_WideScreenName = nm ? nm : "";
     NitroPort_WideScreenParts(0, 0, 0); NitroPort_WideScreenParts(1, 0, 0); P3DS_WideShow[0] = P3DS_WideShow[1] = 0x1F;
     if (!nm) return; /* the parts are kept whether or not the toggle is on; the renderer reads the toggle */
-    static int haveFile = -1; if (haveFile < 0) { FILE *f = fopen("sdmc:/3ds/soulsilver3ds/wide_layouts.txt", "r"); haveFile = f != 0; if (f) fclose(f); PSPNativeMemLog("[WIDE] wide_layouts.txt %s", haveFile ? "found: it overrides the built-in layouts" : "not present (built-in layouts)"); }
-    if (haveFile && fromFile(nm)) { PSPNativeMemLog("[WIDE] layout for %s from wide_layouts.txt: A %d rows, B %d rows", nm, fileN[0], fileN[1]);
+    if (fromFile(nm)) { PSPNativeMemLog("[WIDE] layout for %s from wide_layouts.txt: A %d rows, B %d rows", nm, fileN[0], fileN[1]);
         if (fileN[0]) NitroPort_WideScreenParts(0, &fileRows[0][0][0], fileN[0]); if (fileN[1]) NitroPort_WideScreenParts(1, &fileRows[1][0][0], fileN[1]); return; }
     for (int i = 0; i < WL_N(kWlScreens); i++) if (!strcmp(kWlScreens[i].name, nm)) { const WlScreen *s = &kWlScreens[i];
         if (s->na) NitroPort_WideScreenParts(0, &s->a[0][0], s->na); if (s->nb) NitroPort_WideScreenParts(1, &s->b[0][0], s->nb);
