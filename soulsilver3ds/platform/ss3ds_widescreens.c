@@ -45,14 +45,14 @@ typedef struct { const char *name; const short (*a)[8]; int na; const short (*b)
     X(PokegearConfigure_Init, "gearconfig") X(FlyMap_Init, "flymap") X(OakSpeech_Init, "oakspeech") X(IntroMovie_Init, "intromovie") \
     X(TitleScreen_Init, "title") X(ChooseStarter_Init, "starter") X(Credits_Init, "credits") X(EasyChat_Init, "easychat") \
     X(HallOfFameShowcase_Init, "halloffame") X(RegisterHallOfFame_Init, "hofregister") X(MoveRelearner_Init, "relearner") \
-    X(ApricornBox_Init, "apricorn") X(BerryPots_Init, "berrypots") X(AlphPuzzle_Init, "alphpuzzle") X(UnownReport_Init, "unownreport") \
+    X(ApricornBox_Init, "apricorn") X(BerryPots_Init, "berrypots") X(BerryPotsApp_Initialize, "berrypots") X(ov59_02237D40, "apricorn") X(AlphPuzzle_Init, "alphpuzzle") X(UnownReport_Init, "unownreport") \
     X(VoltorbFlip_Init, "voltorbflip") X(PhotoAlbum_Init, "photoalbum") X(AccessoryPortrait_Init, "portrait") \
     X(Certificates_Init, "certificates") X(ViewRankingsApp_Init, "rankings") X(PalPad_Init, "palpad") X(MicTest_Init, "mictest") \
     X(TradeSequence_Init, "trade") X(WirelessTradeSelectMon_Init, "tradeselect") X(BugContestSwapMon_Init, "contestswap") \
     X(PokeathlonCourse_Init, "athloncourse") X(PokeathlonMedals_Init, "athlonmedals") X(PokeathlonCourseRecord_Init, "athlonrecord") \
     X(PokeathlonEventRecord_Init, "athlonevent") X(ScratchOffCards_Init, "scratch") X(GeonetGlobe_Init, "geonet") \
     X(LegendaryCinematic_Init, "cinematic") X(SafariAreaCustomizer_Init, "safaricustom") X(SafariDecoration_Init, "safarideco") \
-    X(NamingScreen_Init, "naming") X(TrainerCardMainApp_Init, "trainercardmain") X(PartyMenu_Init, "party") X(Battle_Init, "battle")
+    X(NamingScreenApp_Init, "naming") X(TrainerCardMainApp_Init, "trainercardmain") X(PartyMenu_Init, "party") X(Battle_Init, "battle")
 #define X(fn, nm) extern int fn() __attribute__((weak));
 APPS(X)
 #undef X
