@@ -336,6 +336,16 @@ Validation: isolated Azahar 2126.2 build, owner's copied save at Goldenrod / Rou
 - 0193 (Grok): Mystery Gift WFC download — drop Missing() on 10 ov00 Nd/inet trampolines; real DWC_Nd* + CleanupInetAsync + NASLoginAbort in ss3ds_dwcstub.c; plain HTTP DLS URL + NdCancel fill in compile-network.py; IPGE→IPKE. Need ONLINE.
 - 0192 (Grok): Mystery Gift moveCursorFunc — native ov74_02235FF8 PlaySE(1500); run 116 strips [SS-MG-CURSOR] dumps (keeps gSS_MG_CursorDiag for patch compatibility).
 
+## Wide layouts (2026-11-13, in progress)
+
+Settings > Display > Wide layouts (`wide_layouts`, default OFF, experimental). Platform only: no pspoke patch, no save write. Built and checked in a cloud build with Azahar (mono); not yet run on hardware, frame cost on a real New 3DS is unknown.
+
+- Engine: `wideapi.c` (layout parts), `widecomp.c` `WC_Compose` (full 320-column compose, cached by a hash of its inputs), render pass in `render3ds.cpp` just before `wideNative()`: when the engine on the top screen has parts, its picture and both strips are redrawn. Part kinds: move, fill, objs, shift3d (Platinum), copy and wrap (new).
+- Screens: `ss3ds_widescreens.c` wraps `OverlayManager_Run`; the deepest manager run in a frame is the visible screen, named from its Init function. Layout tables: `ss3ds_widelayouts.h`. Log: `[WIDE] screen: NAME (init PTR)`, `[WIDE] layout for NAME`, `[WIDE] wide_layouts: ... avg N us/frame` every 600 frames.
+- Tuning without a rebuild: `sdmc:/3ds/soulsilver3ds/wide_layouts.txt` overrides the built-in table (format at the top of `ss3ds_widescreens.c`; `A show 8` draws one layer only).
+- Done: summary, party, bag, options, Pokegear (phone, radio, map, settings), Trainer Card front. A screen without a layout still uses the old strips (`wideNative` / mirrored `wideFill`).
+- Not done: Pokedex, PC boxes, shop, save, naming, starter, Hall of Fame, evolution and other screens; multi-page apps need a per-page key (plan: hash of a BG map). Removing the mirror for the rest. A still screen costs one input hash per frame (about 2.8 ms in Azahar); the Trainer Card pattern scrolls, so it is redrawn every frame (about 13 ms in Azahar).
+
 ## Run log (Grok Bot)
 - 2026-11-04 solid-30 fps thread, part 2 (Claude): `gc_direct` direct screen (gpucomp P3DS_GcDeferOut / P3DS_GcResolve*, gpuscale dirTop/dirTopR, render3ds topTouch/holdSync; field + battle, mono + both eyes; menus still read back). Any new CPU code that reads or draws on display[0]/eyeL/eyeR after the compose must call topTouch() first. Also: tab-swap hold, battle-start column flash, window/black-BG aware wide strips (winEdge, edgeBgBlack), hook 0214 type-hint off. Azahar: wild battle with slider 17 -> 30 fps, Goldenrod slider walking 29.5 avg. Hardware untested.
 - 2026-11-04 solid-30 fps thread (Claude): `g3_batchcull` (3D tab "Off-screen skip", default ON, log `[G3CULL]`) skips raw 3D batches / 16-triangle runs whose bounding box is off screen before transforming them; stereo raw triangles are written for both eyes in one pass (`G3G_TriClip2`); colour divides -> table. Azahar Goldenrod: mono 26.1 -> 29.3 fps, slider up 21.0 -> 25.0 fps. Not on hardware yet. Profiling method: link `--wrap` timers around NNS_G3dDraw / PSPNativeG3CommandsBorrowed etc. in a throwaway build (Azahar svcGetSystemTick is a fair CPU proxy; GPU waits are not modelled).

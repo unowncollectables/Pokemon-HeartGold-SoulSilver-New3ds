@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- New experimental setting, Settings > Display > Wide layouts (`wide_layouts`, default OFF). Menu screens with a layout are drawn for the full 400 px top screen instead of filling the sides with a mirrored edge: Pokémon summary, party, Bag, Options, all Pokégear tabs and the Trainer Card front so far. Display only; no game patch and no save change.
+
 - Missing `config.txt` keys now use the owner's tuned values. A line already in the file still wins. New missing-key defaults: Alive wild Pokémon ON + TOWNS, Event Pokémon without the event flag, Contest helper, Hunt stats, Sharp 3D FAST AUTO, Damage check, Pokédex finder, Breeding tab, Reusable TMs, Tap to Fly, Roamer sprites, Ambient weather, and Pokéwalker. `fps_counter`, `wireless`, `log_level`, and Seasonal trees are unchanged. HeartGold uses the same tables. The save file is untouched.
 
 - Battle animation cleanup now receives the particle emitter it needs to release. This fixes a native call mismatch in Shadow Ball and two other overlay 7 callbacks.
