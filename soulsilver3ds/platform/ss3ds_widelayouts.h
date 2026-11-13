@@ -52,9 +52,6 @@ static const short kWlPcBoxB[][8] = {
 static const short kWlBlackSides[][8] = { WL_FILL(0xF, 0, 192, -32, 0, 0), WL_FILL(0xF, 0, 192, 256, 288, 255) };
 /* Geonet: the grid is on BG3 alone, the dialogue frame must not wrap with it. */
 static const short kWlWrapBg3[][8] = { WL_WRAP(0x8, 0, 192) };
-/* Apricorn box (engine B on top: the diagonal stripes and the dialogue frame are both on BG3). Above the frame the stripes wrap;
-   beside the frame the edge columns continue, so no piece of the frame is repeated. */
-static const short kWlApricornB[][8] = { WL_WRAP(0x8, 0, 130), WL_FILL(0x8, 130, 192, -32, 0, 0), WL_FILL(0x8, 130, 192, 256, 288, 255) };
 static const WlScreen kWlScreens[] = {
     { "summary", kWlSummaryA, WL_N(kWlSummaryA), kWlNone, 0 },
     { "party", kWlNone, 0, kWlPartyB, WL_N(kWlPartyB) },
@@ -75,7 +72,6 @@ static const WlScreen kWlScreens[] = {
     { "scratch", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "signature", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "geonet", kWlWrapBg3, WL_N(kWlWrapBg3), kWlWrapBg3, WL_N(kWlWrapBg3) },
-    { "apricorn", kWlNone, 0, kWlApricornB, WL_N(kWlApricornB) },
     { "pcbox", kWlNone, 0, kWlPcBoxB, WL_N(kWlPcBoxB) },
     { "trainercardmain", kWlTrainerCardA, WL_N(kWlTrainerCardA), kWlNone, 0 },
 };

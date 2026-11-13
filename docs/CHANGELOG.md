@@ -4,7 +4,7 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
-- New experimental setting, Settings > Display > Wide layouts (`wide_layouts`, default OFF). Menu screens with a layout are drawn for the full 400 px top screen instead of filling the sides with a mirrored edge: Pokémon summary, party, Bag, Options, all Pokégear tabs, the Trainer Card front, PC boxes, the naming screen, Fly map, Unown report, Voltorb Flip, both Safari editors, berry pots, Scratch-Off, the trainer signature, Geonet and the Apricorn box so far. Display only; no game patch and no save change.
+- New experimental setting, Settings > Display > Wide layouts (`wide_layouts`, default OFF). Menu screens with a layout are drawn for the full 400 px top screen instead of filling the sides with a mirrored edge: Pokémon summary, party, Bag, Options, all Pokégear tabs, the Trainer Card front, PC boxes, the naming screen, Fly map, Unown report, Voltorb Flip, both Safari editors, berry pots, Scratch-Off, the trainer signature and Geonet so far. Display only; no game patch and no save change.
 - README: shorter landing page with a features grid and a numbered setup guide. Settings, wireless, status, and developer notes sit in collapsible sections. The Pokéwalker stays in About and under Wireless. Docs only. See `README.md`.
 
 - README: the landing page presents HeartGold & SoulSilver (HeartGold experimental), uses the renamed repository URL, and records the seasonal scenery, built-in defaults, GTS picker, StarMe profiles, Frontier/Safari/Plaza, and starter Poké Ball work merged after the previous README pass. Docs only. See `README.md`.
