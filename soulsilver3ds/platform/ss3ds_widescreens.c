@@ -52,7 +52,7 @@ typedef struct { const char *name; const short (*a)[8]; int na; const short (*b)
     X(PokeathlonCourse_Init, "athloncourse") X(PokeathlonMedals_Init, "athlonmedals") X(PokeathlonCourseRecord_Init, "athlonrecord") \
     X(PokeathlonEventRecord_Init, "athlonevent") X(ScratchOffCards_Init, "scratch") X(GeonetGlobe_Init, "geonet") \
     X(LegendaryCinematic_Init, "cinematic") X(SafariAreaCustomizer_Init, "safaricustom") X(SafariDecoration_Init, "safarideco") \
-    X(NamingScreen_Init, "naming") X(TrainerCardMainApp_Init, "trainercardmain") X(PartyMenu_Init, "party") X(Battle_Init, "battle")
+    X(NamingScreenApp_Init, "naming") X(TrainerCardMainApp_Init, "trainercardmain") X(PartyMenu_Init, "party") X(Battle_Init, "battle")
 #define X(fn, nm) extern int fn() __attribute__((weak));
 APPS(X)
 #undef X
