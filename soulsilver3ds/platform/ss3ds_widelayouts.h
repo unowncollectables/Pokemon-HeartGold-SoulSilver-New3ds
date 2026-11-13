@@ -49,6 +49,8 @@ static const short kWlPcBoxB[][8] = {
 /* Side strips continue the picture's own edge columns (given to both engines). Naming screen: the top is black with the question box,
    so the sides are black. Fly map: the top is a plain light gradient, so the sides continue it. */
 static const short kWlBlackSides[][8] = { WL_FILL(0xF, 0, 192, -32, 0, 0), WL_FILL(0xF, 0, 192, 256, 288, 255) };
+/* Pokeathlon medals: a patterned background with panels; every layer's own map continues (given to both engines). */
+static const short kWlWrapAll[][8] = { WL_WRAP(0xF, 0, 192) };
 static const WlScreen kWlScreens[] = {
     { "summary", kWlSummaryA, WL_N(kWlSummaryA), kWlNone, 0 },
     { "party", kWlNone, 0, kWlPartyB, WL_N(kWlPartyB) },
@@ -61,6 +63,8 @@ static const WlScreen kWlScreens[] = {
     { "gearmap", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
     { "naming", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "flymap", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
+    { "unownreport", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
+    { "athlonmedals", kWlWrapAll, WL_N(kWlWrapAll), kWlWrapAll, WL_N(kWlWrapAll) },
     { "pcbox", kWlNone, 0, kWlPcBoxB, WL_N(kWlPcBoxB) },
     { "trainercardmain", kWlTrainerCardA, WL_N(kWlTrainerCardA), kWlNone, 0 },
 };
