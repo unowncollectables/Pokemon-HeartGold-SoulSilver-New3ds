@@ -38,3 +38,19 @@ void __wrap_sceKernelDcacheWritebackInvalidateRange(const void *p, unsigned n) {
                         calls, bytes >> 10, flushedUs);
     }
 }
+
+/* 2026-11-14 (hardware-audit thread): the same skip for sceKernelDcacheWritebackRange, the call under pspoke's DC_StoreRange and under the 3D handler's
+   two PSP-only flushes (display-list cache entry vertices in frontend.cpp, texture-cache pixels in texture_cache.h). On the PSP the GE reads those
+   buffers; here the only readers are CPU code (GpuRaw reads the cached GuVertex list, G3SIM_GpuTex swizzles the pixels into a C3D texture and flushes
+   that itself), so each call was a GSP IPC round trip for nothing. Azahar PC sampling of the field showed ~30% of the game thread inside these.
+   Follows dc_flush_skip (same toggle). OFF = flush exactly as before. */
+extern void __real_sceKernelDcacheWritebackRange(const void *, unsigned);
+void __wrap_sceKernelDcacheWritebackRange(const void *p, unsigned n) {
+    static unsigned wc, wb, ws; static unsigned long long wt;
+    if (!on()) { const unsigned long long t0 = svcGetSystemTick(); __real_sceKernelDcacheWritebackRange(p, n); wt += svcGetSystemTick() - t0; wc++; wb += n; ws++; }
+    else { wc++; wb += n; ws++; }
+    if (ws >= 4 * LOG_EVERY || wc == 1) {
+        ws = 0;
+        PSPNativeMemLog(cfg ? "[HEAP] dc_flush_skip: %u store/writeback flushes skipped so far (%u KB)" : "[HEAP] dc_flush: %u store/writeback flushes so far (%u KB), %u us spent in them", wc, wb >> 10, (unsigned)(wt / 268));
+    }
+}

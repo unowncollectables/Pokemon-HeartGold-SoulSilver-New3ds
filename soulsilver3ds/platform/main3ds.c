@@ -104,8 +104,27 @@ static int ssWriteAtomic(const char *path, const u8 *buf) {
     if (w != SS_SAVE_BYTES || cl) { remove(tmp); return 0; }
     remove(path); return rename(tmp, path) == 0;
 }
-static LightLock ssSaveLock; static int ssSaveLockInit;
 static u32 ssCrc32(const u8 *p, u32 n) { u32 c = 0xFFFFFFFFu; while (n--) { c ^= *p++; for (int i = 0; i < 8; i++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); } return ~c; }
+/* ssBgWrite: the rotate + atomic write of the backup, the slow part (~0.5 s on the card, fsync included). */
+static void ssBgWrite(const u8 *live, u32 cnt, const char *why) {
+    char a[160], b[160];
+    snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", SS_BAK_KEEP); remove(a);
+    for (int i = SS_BAK_KEEP - 1; i >= 1; i--) { snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", i); snprintf(b, sizeof b, SS_SAVE_DIR "soulsilver.sav.bak%d", i + 1); rename(a, b); }
+    int ok = ssWriteAtomic(SS_SAVE_DIR "soulsilver.sav.bak1", live);
+    PSPNativeMemLog("[SAVE] backup (%s): save count %u crc %08x -> bak1 (%s, %d kept)", why, cnt, ssCrc32(live, SS_SAVE_BYTES), ok ? "ok" : "FAILED", SS_BAK_KEEP);
+}
+static void ssLock(void);
+static volatile int quitting;
+/* perf pass 2026-11-14: the "after save" backup used to run its write on the game thread (a ~0.5 s hitch right after every save). The game thread now
+   only reads and validates the live file (as before) and copies the snapshot; a low-priority worker rotates and writes it. It takes ssSaveLock, so
+   export and clean exit wait for it, and it skips if the game is already exiting (the exit backup then covers it). save_backup_bg=0 = old behaviour. */
+static u8 ssBgSnap[SS_SAVE_BYTES]; static u32 ssBgCnt; static volatile int ssBgBusy; static LightLock ssSaveLock; static int ssSaveLockInit;
+void P3DS_ThreadGuard(const char *name);
+static void ssBgMain(void *arg) { (void)arg; P3DS_ThreadGuard("savebak");
+    ssLock();
+    if (!quitting) { u8 *old = ssBuf(1); if (ssReadAll(SS_SAVE_DIR "soulsilver.sav.bak1", old) == SS_SAVE_BYTES && !memcmp(ssBgSnap, old, SS_SAVE_BYTES)) PSPNativeMemLog("[SAVE] backup (after save): save count %u already in bak1", ssBgCnt);
+        else ssBgWrite(ssBgSnap, ssBgCnt, "after save, background"); }
+    LightLock_Unlock(&ssSaveLock); ssBgBusy = 0; }
 static void ssSaveBackupLocked(const char *why) {
     extern int P3DS_CfgInt(const char *, int);
     if (!P3DS_CfgInt("save_backup", 1)) return;
@@ -128,7 +147,19 @@ static volatile u64 ssDoneAt;
 void P3DS_SaveDone(void) { ssDoneAt = svcGetSystemTick() | 1; }
 static void ssSaveTick(void) {
     u64 t = ssDoneAt; if (!t || svcGetSystemTick() - t < 2000ull * CPU_TICKS_PER_MSEC) return;
-    ssDoneAt = 0; ssSaveBackup("after save");
+    extern int P3DS_CfgInt(const char *, int);
+    if (!P3DS_CfgInt("save_backup_bg", 1)) { ssDoneAt = 0; ssSaveBackup("after save"); return; }
+    if (ssBgBusy || quitting) return;                       /* try again next frame; ssDoneAt stays set */
+    ssDoneAt = 0; ssLock();
+    if (P3DS_CfgInt("save_backup", 1)) {
+        u8 *live = ssBuf(0);
+        if (ssReadAll(SS_SAVE_DIR "soulsilver.sav", live) != SS_SAVE_BYTES) PSPNativeMemLog("[SAVE] backup (after save): soulsilver.sav missing or not 512 KiB, skipped");
+        else { u32 cnt = ssSaveValid(live);
+            if (!cnt) PSPNativeMemLog("[SAVE] backup (after save): live save has no valid slot (blank or damaged), backups left untouched");
+            else { memcpy(ssBgSnap, live, SS_SAVE_BYTES); ssBgCnt = cnt; ssBgBusy = 1;
+                Thread th = threadCreate(ssBgMain, NULL, 0x8000, 0x30, -2, true);
+                if (!th) { ssBgBusy = 0; ssSaveBackupLocked("after save"); } } } }
+    LightLock_Unlock(&ssSaveLock);
 }
 /* Settings > Setup > Export save. Returns 1 on success. The export is the raw 512 KiB image the game itself wrote, so it is
    byte-identical to what a DS cart or R4 holds; it is refused unless a slot validates, and it is read back and compared. */
@@ -151,7 +182,6 @@ done:
     P3DS_Toast(ok ? "SAVE EXPORTED" : "SAVE EXPORT FAILED");
     return ok;
 }
-static volatile int quitting;
 static aptHookCookie hookCookie;
 extern void P3DS_ShutdownThreads(void); extern void P3DS_ShutdownSDL(void);
 /* Clean exit: stop workers, join them, close files, gfxExit, then exit() normally (returns to HBL / HOME). */
@@ -445,6 +475,8 @@ int main(void) {
     P3DS_ThreadGuard("main");
     gfxInitDefault(); consoleInit(GFX_BOTTOM, &con); aptHook(&hookCookie, aptHookCb, NULL); uiInit();
     bool n3ds = false; APT_CheckNew3DS(&n3ds); if (n3ds) osSetSpeedupEnable(true);
+    mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
+    { extern void P3DS_SpeedCheck(void); P3DS_SpeedCheck(); } /* perf pass 2026-11-14: logs whether 804 MHz / L2 is really on and each core's speed (speedcheck=0 skips); built since run 81 but never called here */
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
     PSPNativeMemLog("[3DS] booted"); 
     { extern int P3DS_CfgInt(const char *, int); /* ss3ds 0070 reset_skip_intro: only right after a soft reset (marker < 30 s old) */
