@@ -323,7 +323,11 @@ static void cfgAcct(u64 t0) { u64 now = svcGetSystemTick(); cfgCalls++; cfgUs +=
    (~13 ms each on hardware, 9-23 reads per 10 s in log_run66). Now only the first call (and the first call after
    P3DS_CfgWrite / saveScale changed the file) touches the SD; [CFG] counts those real file reads. */
 static char cfgBuf[16384]; static int cfgLen = -1; static LightLock cfgLk; static int cfgLkInit;
-void P3DS_CfgInvalidate(void) { if (!cfgLkInit) { LightLock_Init(&cfgLk); cfgLkInit = 1; } LightLock_Lock(&cfgLk); cfgLen = -1; LightLock_Unlock(&cfgLk); }
+/* Per-key result cache (perf pass 2026-11-14): P3DS_CfgInt is called many times a frame and used to scan the whole config text with strchr/strncmp
+   every time (libc was ~40% of guest CPU in the cloud profile). Key -> {found value, table default, or absent}; cleared with the RAM copy. */
+#define CFGC_N 256
+static struct { char key[28]; unsigned char st; int v; } cfgc[CFGC_N]; /* st 0 empty, 1 value (file or table), 2 absent */
+void P3DS_CfgInvalidate(void) { if (!cfgLkInit) { LightLock_Init(&cfgLk); cfgLkInit = 1; } LightLock_Lock(&cfgLk); cfgLen = -1; memset(cfgc, 0, sizeof cfgc); LightLock_Unlock(&cfgLk); }
 /* Defaults for keys that are absent from config.txt (2026-10-28). They override the `def` a caller passes, so game-side hooks
    that read P3DS_CfgInt(key, 0) get them too. A key that IS in config.txt always wins. logring.c reads this table through P3DS_CfgDefault. */
 static const struct { const char *key; int def; } kCfgDefaults[] = {
@@ -344,9 +348,14 @@ int P3DS_CfgInt(const char *key, int def) {
     if (cfgLen < 0) { u64 t0 = svcGetSystemTick(); FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); cfgLen = 0;
         if (f) { cfgLen = (int)fread(cfgBuf, 1, sizeof cfgBuf - 1, f); if (cfgLen < 0) cfgLen = 0; fclose(f); } cfgBuf[cfgLen] = 0; cfgAcct(t0);
         PSPNativeMemLog("[CFG] config.txt loaded into RAM (%d bytes, %u us)", cfgLen, (unsigned)((svcGetSystemTick() - t0) / CPU_TICKS_PER_USEC)); }
-    int v = def; size_t n = strlen(key); const char *p = cfgBuf; int found = 0;
+    size_t n = strlen(key); unsigned h = 2166136261u; for (size_t i = 0; i < n; i++) h = (h ^ (unsigned char)key[i]) * 16777619u;
+    int cacheable = n < sizeof cfgc[0].key; unsigned slot = h & (CFGC_N - 1), probe = 0;
+    if (cacheable) { while (probe < 8 && cfgc[(slot + probe) & (CFGC_N - 1)].st && strcmp(cfgc[(slot + probe) & (CFGC_N - 1)].key, key)) probe++;
+        if (probe < 8) { slot = (slot + probe) & (CFGC_N - 1); if (cfgc[slot].st) { int r = cfgc[slot].st == 1 ? cfgc[slot].v : def; LightLock_Unlock(&cfgLk); return r; } } else cacheable = 0; }
+    int v = def; const char *p = cfgBuf; int found = 0;
     while (*p) { const char *e = strchr(p, '\n'); if (!strncmp(p, key, n) && p[n] == '=') { v = atoi(p + n + 1); found = 1; } if (!e) break; p = e + 1; }
-    if (!found) for (unsigned i = 0; i < sizeof kCfgDefaults / sizeof kCfgDefaults[0]; i++) if (!strcmp(key, kCfgDefaults[i].key)) { v = kCfgDefaults[i].def; break; }
+    int tbl = 0; if (!found) for (unsigned i = 0; i < sizeof kCfgDefaults / sizeof kCfgDefaults[0]; i++) if (!strcmp(key, kCfgDefaults[i].key)) { v = kCfgDefaults[i].def; tbl = 1; break; }
+    if (cacheable) { memcpy(cfgc[slot].key, key, n + 1); cfgc[slot].st = (found || tbl) ? 1 : 2; cfgc[slot].v = v; }
     LightLock_Unlock(&cfgLk); return v; }
 /* ss3ds: string value of one config.txt key (e.g. birthdays=10-27,03-14), from the same RAM cache as P3DS_CfgInt. Returns 1 if found. */
 int P3DS_CfgStr(const char *key, char *out, int outN) {
