@@ -2896,7 +2896,9 @@ static int Present(bool){
   {static u64 lastIdle;const u64 idl=P3DS_VblIdleTicks;pfT[PF_IDLE]+=idl-lastIdle;lastIdle=idl;}
   if(!secStart)secStart=tEnd;unsigned el=(unsigned)((tEnd-secStart)/CPU_TICKS_PER_USEC);
   if(el>=1000000){unsigned n=secFrames;fpsShown=(unsigned)((u64)n*1000000/el);msShown=(unsigned)((u64)el/n/100);
-   struct mallinfo mi=mallinfo();
+   /* perf pass 2026-11-14: mallinfo() walks every heap chunk (it showed as ~3% of guest samples in the cloud profile, all of it in one frame per second);
+      the [PERF] "malloc used" figure is refreshed every 20 s instead. */
+   static struct mallinfo mi;static unsigned miAge=99;if(++miAge>=20){miAge=0;mi=mallinfo();}
    PSPNativeMemLogC("[PERF] fps %u | ms/frame %u.%u = game %u.%u + g3soft %u.%u + composite %u.%u + present %u.%u | tris/frame %u | malloc used %u KiB | mode %d slider %.2f | res3d %d, 3D GPU draw+readback %u us",
     fpsShown,msShown/10,msShown%10,secGame/n/1000,(secGame/n/100)%10,secG3/n/1000,(secG3/n/100)%10,secComp/n/1000,(secComp/n/100)%10,secGpu/n/1000,(secGpu/n/100)%10,secTris/n,(unsigned)(mi.uordblks/1024),P3DS_ScaleMode(),(double)p3dsSlider(),G3G_Hi()?2:0,secG3G/n);
    PSPNativeMemLogC("[PERF2] upload %u us | 3D convert %u us | composite %u us",secUp/n,secConv/n,secComp/n);secUp=secConv=0;
