@@ -2880,10 +2880,11 @@ static int Present(bool){
  {unsigned total=tPrevEnd?(unsigned)((tEnd-tPrevEnd)/CPU_TICKS_PER_USEC):0,comp=(unsigned)((tComp-t0)/CPU_TICKS_PER_USEC),gpu=(unsigned)((tEnd-tComp)/CPU_TICKS_PER_USEC);
   {/* run 43 [SPIKE] diag: any frame > spike_ms (default 70, 0 = off) logs where the time went (max 60 lines / session).
      g3soft time includes the game's own CPU work between frame start and the 3D flush (loads, decompression). */
-   static int spikeMs=-1;static unsigned spikeN;if(spikeMs<0){spikeMs=70;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"spike_ms=%d",&x)==1)spikeMs=x;fclose(f);}PSPNativeMemLog("[SPIKE] spike_ms=%d",spikeMs);}
+   extern int P3DS_InField;static int spikeMs=-1,spikeCfg=0;static unsigned spikeN,spikeFieldN;if(spikeMs<0){spikeMs=70;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"spike_ms=%d",&x)==1){spikeMs=x;spikeCfg=1;}fclose(f);}PSPNativeMemLog("[SPIKE] spike_ms=%d",spikeMs);}
    static unsigned lastSpikeF,runLen;/* a run of back-to-back slow frames logs its first frame and then every 30th, so the 60-line cap is not used up by one slow screen */
-   const bool spk=spikeMs>0&&total>(unsigned)spikeMs*1000;if(spk){runLen=(frames==lastSpikeF+1)?runLen+1:0;lastSpikeF=frames;}
-   if(spk&&(runLen==0||runLen%30==0)&&spikeN<60){spikeN++;struct mallinfo mi=mallinfo();
+   /* 2026-11-14 (fps thread): with no spike_ms in config.txt, overworld frames over 36 ms are also logged (own 60-line cap, [SPIKE] fld), to find the unexplained one slow frame per second; other scenes keep the 70 ms limit */
+   const bool fld=!spikeCfg&&P3DS_InField;const int thr=fld?36:spikeMs;const bool spk=thr>0&&total>(unsigned)thr*1000;if(spk){runLen=(frames==lastSpikeF+1)?runLen+1:0;lastSpikeF=frames;}
+   if(spk&&(runLen==0||runLen%30==0)&&(fld?spikeFieldN<60:spikeN<60)){if(fld)spikeFieldN++;else spikeN++;struct mallinfo mi=mallinfo();
     PSPNativeMemLog("[SPIKE] f=%u frame %u ms = g3soft+game %u + composite %u + present %u | romfs %u ms (%u x16K misses) | GetTexture %u ms | GPU tex create %u ms (%u) | tris %u | malloc %u KiB",
      frames,total/1000,g3us/1000,comp/1000,gpu/1000,(unsigned)(P3DS_SpkRomTicks/CPU_TICKS_PER_MSEC),P3DS_SpkRomBlocks,(unsigned)(P3DS_SpkGetTexTicks/CPU_TICKS_PER_MSEC),(unsigned)(P3DS_SpkTexTicks/CPU_TICKS_PER_MSEC),P3DS_SpkTexN,P3DS_G3LastTris(),(unsigned)(mi.uordblks/1024));
     /* second line: the map (and the one before it, whether zone_prefetch had learned it, ms since the change) and the ROM files that missed */
