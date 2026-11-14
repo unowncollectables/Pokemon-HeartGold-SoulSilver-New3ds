@@ -93,6 +93,11 @@ static int rcRead(FILE *fp, u32 romSize, u32 pos, void *dst, u32 len) {
 #define NSTG 8
 typedef struct { u16 r[NR][2]; u16 nb[NN]; u8 nr, nn; } Zone;
 static Zone *zt; static int pfCfg = -1; static volatile int curZone = -1, recZone = -1; static volatile u64 recUntil;
+/* perf pass 2026-11-14 (boot prefetch): the first map entry after boot cost ~430 ms of SD reads (run 812) because the prefetch thread only fetches the NEIGHBOURS of the
+ * current zone and there is no current zone until the map loads. lastzone.bin (2 bytes) remembers the zone the last session ended in; until the first zone change the thread
+ * fetches that zone's own learned blocks (the title screen's idle time). boot_prefetch=0 in config.txt turns it off. */
+static volatile int startZone = -1, lzCur = -1, lzSaved = -1; static int bootPfCfg = -1;
+static const char *LZPATH = "sdmc:/3ds/soulsilver3ds/lastzone.bin", *LZTMP = "sdmc:/3ds/soulsilver3ds/lastzone.tmp";
 static volatile int pfReady; static volatile u64 gameLastRead; static volatile int gameInRead, pfDirty; static volatile unsigned pfBudget;
 static struct { volatile int st; u32 blk, len; u8 *buf; } stg[NSTG];  /* st: 0 empty, 1 filling (thread), 2 ready */
 static unsigned pfFetched, pfAdopted, pfUsed, zcN, zcWant, zcHave; static u64 spikeMax;
@@ -149,7 +154,7 @@ void P3DS_ZoneEnter(int zone) {   /* game thread */
     zcN++; zcWant += want; zcHave += have; znLearned = want > 0;
     PSPNativeMemLog("[PREFETCH] zone %d -> %d: learned %u blocks, %u already in RAM | totals: fetched %u adopted %u used %u | zone changes %u, ready %u%% | worst learn-window SD read %u ms",
         prev, zone, want, have, pfFetched, pfAdopted, pfUsed, zcN, zcWant ? (unsigned)(100ull * zcHave / zcWant) : 0, (unsigned)(spikeMax / 268111));
-    spikeMax = 0; curZone = zone; recZone = zone; recUntil = svcGetSystemTick() + msT(4000); pfBudget = nSlots / 4;
+    spikeMax = 0; curZone = zone; lzCur = zone; recZone = zone; recUntil = svcGetSystemTick() + msT(4000); pfBudget = nSlots / 4;
 }
 static int inStaging(u32 b) { for (int i = 0; i < NSTG; i++) if (stg[i].st && stg[i].blk == b) return 1; return 0; }
 static int idleOk(void) { return !gameInRead && svcGetSystemTick() - gameLastRead > msT(150) && !P3DS_SaveActive() && !P3DS_LogWriting; }
@@ -175,22 +180,25 @@ static void pfSave(void) {
 }
 static void pfThread(void *arg) {
     P3DS_ThreadGuard("prefetch");
-    (void)arg; FILE *fp = NULL; u64 lastPersist = svcGetSystemTick(); int busy = 0;
+    (void)arg; FILE *fp = NULL; u64 lastPersist = svcGetSystemTick(), lastLz = svcGetSystemTick(); int busy = 0;
     for (;;) {
         svcSleepThread(busy ? 2000000LL : 30000000LL); busy = 0;
         if (state != 1 || !pfReady) continue;
         if (!idleOk()) continue;
         if (pfDirty && svcGetSystemTick() - lastPersist > msT(60000)) { pfDirty = 0; lastPersist = svcGetSystemTick(); pfSave(); continue; }
-        const int a = curZone; if (a < 0 || !pfBudget) continue;
+        if (lzCur >= 0 && lzCur != lzSaved && svcGetSystemTick() - lastLz > msT(60000)) { lastLz = svcGetSystemTick(); const int z = lzCur; FILE *lf = fopen(LZTMP, "wb");
+            if (lf) { u16 v = (u16)z; int ok = fwrite(&v, 2, 1, lf) == 1; if (fclose(lf)) ok = 0; if (ok) { remove(LZPATH); ok = rename(LZTMP, LZPATH) == 0; } else remove(LZTMP); if (ok) lzSaved = z; } continue; }
+        const int boot = curZone < 0 && startZone >= 0 && bootPfCfg == 1;
+        const int a = curZone >= 0 ? curZone : (boot ? startZone : -1); if (a < 0 || !pfBudget) continue;
         int slot = -1; for (int i = 0; i < NSTG; i++) if (!stg[i].st) { slot = i; break; }
         if (slot < 0) continue;   /* wait for the game thread to adopt */
         u32 want = 0xFFFFFFFFu; Zone *za = &zt[a];
-        for (unsigned n = 0; n <= za->nn && want == 0xFFFFFFFFu; n++) { Zone *z = &zt[n ? za->nb[n - 1] : BZ];   /* battle blocks first */
+        for (int n = boot ? -1 : 0; n <= (int)za->nn && want == 0xFFFFFFFFu; n++) { Zone *z = n < 0 ? za : &zt[n ? za->nb[n - 1] : BZ];   /* boot: the zone's own blocks first; then battle blocks */
             for (unsigned i = 0; i < z->nr && want == 0xFFFFFFFFu; i++) for (u32 b = z->r[i][0]; b < (u32)z->r[i][0] + z->r[i][1] && b < nBlocks; b++)
                 if (slotOf[b] < 0 && !inStaging(b)) { want = b; break; } }
         if (want == 0xFFFFFFFFu) continue;
         if (!fp) { fp = fopen("sdmc:/3ds/soulsilver3ds/soulsilver.nds", "rb"); if (!fp) continue; }
-        if (!idleOk() || curZone != a) continue;
+        if (!idleOk() || (curZone >= 0 && curZone != a)) continue;
         stg[slot].blk = want; stg[slot].st = 1;
         u32 off = want * BLK, len = romSizeG - off < BLK ? romSizeG - off : BLK;
         clearerr(fp);
@@ -205,7 +213,11 @@ void P3DS_RomCachePump(void) {   /* game thread, once per frame (render3ds Prese
             Thread t = zt ? threadCreate(pfThread, NULL, 0x4000, 0x3F, 2, true) : NULL; if (!t) { pfCfg = 0; } }
         PSPNativeMemLog("[PREFETCH] zone_prefetch=%d", pfCfg); }
     { extern int P3DS_InBattle; static int wasB; if (P3DS_InBattle && !wasB && pfCfg == 1) battleLearn(); wasB = P3DS_InBattle != 0; }
-    if (pfCfg == 1 && state == 1) { static int loaded; if (!loaded) { loaded = 1; pfLoad(); pfReady = 1; }  /* game thread, once: no race with learning */
+    if (pfCfg == 1 && state == 1) { static int loaded; if (!loaded) { loaded = 1; pfLoad();
+            if (bootPfCfg < 0) { bootPfCfg = 1; FILE *cf = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (cf) { while (fgets(l, sizeof l, cf)) if (sscanf(l, "boot_prefetch=%d", &x) == 1) bootPfCfg = x != 0; fclose(cf); } }
+            { FILE *lf = fopen(LZPATH, "rb"); u16 v; if (lf) { if (fread(&v, 2, 1, lf) == 1 && v < MAXZ && (zt[v].nr || zt[v].nn)) { startZone = v; lzSaved = v; pfBudget = nSlots / 4; } fclose(lf); } }
+            PSPNativeMemLog("[PREFETCH] boot_prefetch=%d, last session ended in zone %d%s", bootPfCfg, startZone, startZone >= 0 ? " (its learned blocks are read during the title screen)" : " (none / nothing learned)");
+            pfReady = 1; }  /* game thread, once: no race with learning */
         if (!gameInRead) adopt(); }
 }
 int P3DS_RomCacheRead(FILE *fp, u32 romSize, u32 pos, void *dst, u32 len) {
