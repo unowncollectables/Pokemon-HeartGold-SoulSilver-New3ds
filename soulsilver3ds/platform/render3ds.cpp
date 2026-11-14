@@ -1168,7 +1168,7 @@ static const MItem mItems[]={
  {"SELECT RESET","select_reset",2,{"OFF","ON"}},{"SKIP INTRO ON RESET","reset_skip_intro",2,{"OFF","ON"}},
  /* 80: wide_menu_screens (ss3ds), party / bag / Pokemon summary only; Display tab; default OFF */
  {"WIDE PARTY/BAG","wide_menu_screens",2,{"OFF","ON"}},
- /* 81: g3_smooth (2026-10-26, Lugia thread), 3D tab, default ON: title (W-buffer) 3D drawn at 2x and box-downscaled = smooth edges */
+ /* 81: g3_smooth (2026-10-26, Lugia thread), 3D tab, default OFF since 2026-11-14 (2x title ran 19-22 fps, Nathan never wanted a hi-res Lugia): title (W-buffer) 3D drawn at 2x and box-downscaled = smooth edges */
  {"SMOOTH TITLE 3D","g3_smooth",2,{"OFF","ON"}},
  /* 82: retired 2026-10-28 (bottom_map: the old INFO/WORLD/LOCAL panels are gone); row kept so the indices stay put; in no tab; config.txt key is ignored */
  {"BOTTOM MAP","bottom_map",3,{"INFO","WORLD","LOCAL"}},
