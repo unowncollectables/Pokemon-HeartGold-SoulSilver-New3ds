@@ -2880,17 +2880,20 @@ static int Present(bool){
  {unsigned total=tPrevEnd?(unsigned)((tEnd-tPrevEnd)/CPU_TICKS_PER_USEC):0,comp=(unsigned)((tComp-t0)/CPU_TICKS_PER_USEC),gpu=(unsigned)((tEnd-tComp)/CPU_TICKS_PER_USEC);
   {/* run 43 [SPIKE] diag: any frame > spike_ms (default 70, 0 = off) logs where the time went (max 60 lines / session).
      g3soft time includes the game's own CPU work between frame start and the 3D flush (loads, decompression). */
-   extern int P3DS_InField;static int spikeMs=-1,spikeCfg=0;static unsigned spikeN,spikeFieldN;if(spikeMs<0){spikeMs=70;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"spike_ms=%d",&x)==1){spikeMs=x;spikeCfg=1;}fclose(f);}PSPNativeMemLog("[SPIKE] spike_ms=%d",spikeMs);}
+   extern int P3DS_InField;static int spikeMs=-1,spikeCfg=0;static unsigned spikeN,spikeFieldN;bool spkPr=false;if(spikeMs<0){spikeMs=70;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"spike_ms=%d",&x)==1){spikeMs=x;spikeCfg=1;}fclose(f);}PSPNativeMemLog("[SPIKE] spike_ms=%d",spikeMs);}
    static unsigned lastSpikeF,runLen;/* a run of back-to-back slow frames logs its first frame and then every 30th, so the 60-line cap is not used up by one slow screen */
    /* 2026-11-14 (fps thread): with no spike_ms in config.txt, overworld frames over 36 ms are also logged (own 60-line cap, [SPIKE] fld), to find the unexplained one slow frame per second; other scenes keep the 70 ms limit */
    const bool fld=!spikeCfg&&P3DS_InField;const int thr=fld?36:spikeMs;const bool spk=thr>0&&total>(unsigned)thr*1000;if(spk){runLen=(frames==lastSpikeF+1)?runLen+1:0;lastSpikeF=frames;}
-   if(spk&&(runLen==0||runLen%30==0)&&(fld?spikeFieldN<60:spikeN<60)){if(fld)spikeFieldN++;else spikeN++;struct mallinfo mi=mallinfo();
+   if(spk&&(runLen==0||runLen%30==0)&&(fld?spikeFieldN<60:spikeN<60)){spkPr=true;if(fld)spikeFieldN++;else spikeN++;struct mallinfo mi=mallinfo();
     PSPNativeMemLog("[SPIKE] f=%u frame %u ms = g3soft+game %u + composite %u + present %u | romfs %u ms (%u x16K misses) | GetTexture %u ms | GPU tex create %u ms (%u) | tris %u | malloc %u KiB",
      frames,total/1000,g3us/1000,comp/1000,gpu/1000,(unsigned)(P3DS_SpkRomTicks/CPU_TICKS_PER_MSEC),P3DS_SpkRomBlocks,(unsigned)(P3DS_SpkGetTexTicks/CPU_TICKS_PER_MSEC),(unsigned)(P3DS_SpkTexTicks/CPU_TICKS_PER_MSEC),P3DS_SpkTexN,P3DS_G3LastTris(),(unsigned)(mi.uordblks/1024));
     /* second line: the map (and the one before it, whether zone_prefetch had learned it, ms since the change) and the ROM files that missed */
     int zc,zp,zl;unsigned zms;P3DS_ZoneInfo(&zc,&zp,&zl,&zms);char mf[200];P3DS_RomSpikeFiles(mf,sizeof mf);
     PSPNativeMemLog("[SPIKE] f=%u map %s <- %s (%s, +%u ms)%s",frames,P3DS_AreaName(zc),P3DS_AreaName(zp),zl<0?"no prefetch data":zl?"learned":"first visit",zms,mf);}
    else P3DS_RomSpikeReset();
+   {/* per-frame deltas of the [PERF4] stage accumulators, printed on a spike line so one slow frame shows which stage ate it */
+    static u64 pv[PF_N];u64 dl[PF_N];for(int i=0;i<PF_N;i++){dl[i]=pfT[i]>=pv[i]?pfT[i]-pv[i]:pfT[i];pv[i]=pfT[i];}
+    if(spkPr)PSPNativeMemLog("[SPIKE] f=%u stages ms: composite L %u R %u CPU-A %u | strips prep %u overlays %u bottom menu %u GPU present %u | VBlank idle %u",frames,(unsigned)(dl[PF_GCL]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_GCR]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_CPUA]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_WPREP]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_OVL]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_BMENU]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_PRESENT]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_IDLE]/CPU_TICKS_PER_MSEC));}
    P3DS_SpkRomTicks=P3DS_SpkTexTicks=P3DS_SpkGetTexTicks=0;P3DS_SpkRomBlocks=P3DS_SpkTexN=0;}
   secUp+=P3DS_UploadUs;secConv+=G3G_ConvUs;
   {static unsigned w3;if(total>w3)w3=total;P3DS_Perf3Worst=w3;if(secFrames==0)w3=total;}tPrevEnd=tEnd;secFrames++;secG3+=g3us;secComp+=comp;secGpu+=gpu;secGame+=total>comp+gpu+g3us?total-comp-gpu-g3us:0;secTris+=P3DS_G3LastTris();secG3G+=G3G_LastUs();
