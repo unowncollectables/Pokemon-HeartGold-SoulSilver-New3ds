@@ -4,6 +4,16 @@ The 2D compositor keeps unmapped extended palette spans zeroed and clears each s
 
 A host comparison matched every byte across 18,000 frames with bank remaps and writes, including overlapping bank priorities. Full SoulSilver build passed. New 3DS timing is pending.
 
+# Engine B timing and field Save prompt
+
+Run 850 on New 3DS confirmed Bottom Menu repaints around 6.1–6.2 ms (previously about 12.2 ms). Its mono Route 34 run also had windows with 3.5–6.4 ms/frame in compositor worker waits while Engine B drew again.
+
+The new `[BPERF]` line splits main-thread wait into the core-2 frame job (which can include right-eye or split-top work), core-1 Engine B and early Engine B. It also reports draw count and average wall time for CPU Engine B scanlines excluding snapshots, cache checks and GPU work. It needs no config change. Compare the fast and slow windows in the next hardware log. The full SoulSilver build passed and Azahar emitted these counters. The 600-frame [2D] report now takes deltas without resetting the totals read by [PERF3].
+
+The run 850 wait spike starts when the field Save prompt takes over the touch screen. SoulSilver stamps every VRAM page at VBlank, which was invalidating the CPU Engine B cache on all of those frames. For the field Save prompt, retain the existing byte comparison and invalidate when entering or leaving the prompt. The conservative VRAM stamp check still applies elsewhere.
+
+In matching Azahar Route 34 Save prompts, median core-2 wait fell from 20.4 to 2.1 ms/frame and CPU redraws from 26 to 3 per timing window after the prompt settled. The YES screen matched the original bottom-screen capture pixel for pixel, DOWN moved only the YES/NO selection, and B restored the Bottom Menu. Tested on a copied save. New 3DS timing is pending.
+
 # 60 fps Bottom Menu repaint
 
 Bottom Menu fills clip once per rectangle. Rounded panels compute a color and border spans per row, and Pokegear reuses the shaded source pixel across both columns at 2x zoom. The location card, overview and achievement gradients also fill one shade per row. This uses the existing output buffer and keeps the same repaint triggers.
