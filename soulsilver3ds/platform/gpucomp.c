@@ -474,25 +474,35 @@ static void gcDrawAll(C3D_RenderTarget *tgt, u32 bd, C3D_Tex *t3, unsigned q3, i
             else C3D_DrawArrays(GPU_TRIANGLES, q3 * 6, 6); }
         else { C3D_TexBind(0, &atlas); C3D_DrawArrays(GPU_TRIANGLES, bat[b].first * 6, bat[b].count * 6); } }
 }
-/* fps60 (g3gpu.c): the frame P3DS_GcComposeA just composed and left on the GPU (direct screen), drawn once more with the in-between 3D
-   picture t3 under the same 2D, into its own target. Call right after that compose (its vertices, batches and atlas are untouched: the
-   compositor is marked busy, so the next compose waits before it rewrites them). Returns the picture for gpuscale.c, or NULL. */
-static struct { int ok, b3; unsigned q3, nb; u32 bd; GV *vb; } mc;
-static C3D_Tex rtTexM[2]; static C3D_RenderTarget *rtM[2]; static int rtMOk[2] = { -1, -1 };
-C3D_Tex *P3DS_GcMidCompose(int e, C3D_Tex *t3) {
-    if (!mc.ok || !t3 || e < 0 || e > 1 || mc.nb != nb) return NULL;
-    mc.ok = 0;
-    if (rtMOk[e] < 0) { rtMOk[e] = C3D_TexInitVRAM(&rtTexM[e], 256, 256, GPU_RGBA8) && (rtM[e] = C3D_RenderTargetCreateFromTex(&rtTexM[e], GPU_TEXFACE_2D, 0, -1)) != NULL;
-        if (rtMOk[e]) { C3D_TexSetFilter(&rtTexM[e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&rtTexM[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); }
-        PSPNativeMemLog("[FPS60] in-between picture target for eye %d %s (VRAM free %lu)", e, rtMOk[e] ? "ready" : "FAILED: no in-between frames", (unsigned long)vramSpaceFree()); }
-    if (rtMOk[e] != 1) return NULL;
-    gcFrameBegin(); G3G_DirectSynced();
-    gcDrawAll(rtM[e], mc.bd, t3, mc.q3, mc.b3, mc.vb, 256.0f);
-    P3DS_FrameEnd(); gpuBusy = 1;
-    return &rtTexM[e];
+/* Each eye's midpoint has a separate target, so it can be drawn with
+   the real image in the same command list using the same 2D vertices. */
+static C3D_Tex rtTexM[2];
+static C3D_RenderTarget *rtM[2];
+static int rtMOk[2] = { -1, -1 };
+static C3D_RenderTarget *gcMidTarget(int eye) {
+    if (rtMOk[eye] < 0) {
+        // The screen scaler samples these pictures as opaque RGB. Keeping
+        // RGB8 saves 64 KiB per eye without reducing color precision.
+        const GPU_TEXCOLOR formats[] = { GPU_RGB8, GPU_RGBA8 };
+        for (unsigned i = 0; i < sizeof(formats) / sizeof(formats[0]); ++i) {
+            if (!C3D_TexInitVRAM(&rtTexM[eye], 256, 256, formats[i])) continue;
+            rtM[eye] = C3D_RenderTargetCreateFromTex(&rtTexM[eye], GPU_TEXFACE_2D, 0, -1);
+            if (rtM[eye]) {
+                C3D_TexSetFilter(&rtTexM[eye], GPU_NEAREST, GPU_NEAREST);
+                break;
+            }
+            C3D_TexDelete(&rtTexM[eye]);
+        }
+        rtMOk[eye] = rtM[eye] != NULL;
+        PSPNativeMemLog("[FPS60] in-between picture target for eye %d %s (VRAM free %lu)",
+                        eye, rtMOk[eye] ? "ready" : "FAILED: no in-between frames", (unsigned long)vramSpaceFree());
+    }
+    return rtM[eye];
 }
 /* returns 1 and fills out[256*192] (0xFFBBGGRR) on success; 0 = not composed (out untouched, caller falls back) */
-int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bgpal, const u16 *objpal, const u16 *oam, const u32 *f3d, u32 *out) {
+int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bgpal, const u16 *objpal, const u16 *oam, const u32 *f3d, u32 *out,
+                    void *mid3d, void **midOut, unsigned *midUs) {
+    if (midOut) *midOut = NULL;
     P3DS_Crumb("gc-begin", 0);
     if (!init()) return 0;
     gcTitleWide=gcEngineB&&P3DS_TitleWideRequested;if(gcTitleWide&&!titleInit())return 0;
@@ -510,7 +520,6 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     }
     const int dfEye = P3DS_GcDeferOut && fpEye && rtROk == 1;   /* right eye into its own target */
     if (gpuBusy && !fpOn()) gcIdle();   /* one vertex buffer: a still queued deferred draw must be done before it is rewritten */
-    mc.ok = 0;
     frameNo++; fail = 0; nq = 0; nb = 0; dirtyLo = ~0u; dirtyHi = 0; P3DS_GcDecoded = 0;
     P3DS_GcBeginUs = P3DS_GcEndUs = P3DS_GcSyncUs = 0;
     const int ov = fpOn(); if (ov) vb = (fpSub & 1) ? vbB : vbA;  /* the other half may still be read by the queued draw */
@@ -564,23 +573,31 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
         for (int k = 0; k < 3; k++) c[k] = eff == 2 ? c[k] + (((255 - c[k]) * blendY + 8) >> 4) : c[k] - ((c[k] * blendY + 7) >> 4);
         bd = (c[0] << 24) | (c[1] << 16) | (c[2] << 8) | 0xFF; }
     if (fpEye && !dfEye && dfPend[0]) { dfPend[0] = 0; dfFetch(0, dfOut[0]); }   /* the left eye was left in rt, which this right eye reuses */
+    const u16 mbr = rh(regs, 0x6C);
+    const int direct = P3DS_GcDeferOut && (!fpEye || dfEye) &&
+                       !(((mbr >> 14) == 1 || (mbr >> 14) == 2) && (mbr & 0x1F));
+    C3D_RenderTarget *const midTarget = direct && has3d && !gcTitleWide &&
+                                       !gcEngineB && mid3d && midOut ? gcMidTarget(dfEye) : NULL;
     P3DS_Crumb("gc-draw", 0);
     { const u64 tb = svcGetSystemTick(); gcFrameBegin(); P3DS_GcBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
     gpuBusy = 0;
     G3G_DirectSynced();   /* FrameBegin waited for every queued draw, including g3gpu's direct 3D frame */
     C3D_RenderTarget *const tgt = gcTitleWide ? titleTarget : (dfEye ? rtR : rt);
     gcDrawAll(tgt, bd, t3cur, q3, b3, vb, gcTitleWide ? 512.0f : 256.0f);
-    mc.ok = 0; if (has3d && !gcTitleWide && !gcEngineB) { mc.ok = 1; mc.q3 = q3; mc.b3 = b3; mc.bd = bd; mc.vb = vb; mc.nb = nb; }   /* fps60: P3DS_GcMidCompose may draw this again */
+    if (midTarget) {
+        const u64 started = svcGetSystemTick();
+        gcDrawAll(midTarget, bd, mid3d, q3, b3, vb, 256.0f);
+        *midOut = &rtTexM[dfEye];
+        if (midUs) *midUs += (unsigned)((svcGetSystemTick() - started) / CPU_TICKS_PER_USEC);
+    }
     u32 *const rbuf = gcTitleWide ? titleReadback : (ov && fpEye ? rbR : rb);
-    { const u16 m = rh(regs, 0x6C);
-      if (P3DS_GcDeferOut && (!fpEye || dfEye) && !(((m >> 14) == 1 || (m >> 14) == 2) && (m & 0x1F))) {   /* no master-brightness fade */
+    if (direct) {
         const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); P3DS_GcEndUs = (unsigned)((svcGetSystemTick() - te) / 268);
         if (ov) fpSub++; fpDefer = 0; fpEye = 0;
-        dfPend[dfEye] = 1; dfOut[dfEye] = out; dfMbr[dfEye] = m; gpuBusy = 1; P3DS_GcDeferN++; P3DS_GcOutUs = 0; P3DS_GcGpuUs = 0;
-        P3DS_GcCpuUs = (unsigned)((t1 - t0) / 268); P3DS_Crumb("gc-deferred", 0); return 1; } }
+        dfPend[dfEye] = 1; dfOut[dfEye] = out; dfMbr[dfEye] = mbr; gpuBusy = 1; P3DS_GcDeferN++; P3DS_GcOutUs = 0; P3DS_GcGpuUs = 0;
+        P3DS_GcCpuUs = (unsigned)((t1 - t0) / 268); P3DS_Crumb("gc-deferred", 0); return 1; }
     C3D_SyncDisplayTransfer((u32 *)(gcTitleWide ? titleTex.data : (dfEye ? rtTexR.data : rtTex.data)), GX_BUFFER_DIM(gcTitleWide?512:256, 256), rbuf, GX_BUFFER_DIM(gcTitleWide?512:256, 256), RB_FLAGS);
     { const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); P3DS_GcEndUs = (unsigned)((svcGetSystemTick() - te) / 268); }
-    const u16 mbr = rh(regs, 0x6C);
     if (ov) { gpuBusy = 1; fpSub++;
         if (fpPend.out) { gcOut(fpPend.rbuf, fpPend.mbr, fpPend.out); fpPend.out = 0; }  /* the left eye: done before this draw began (FrameBegin waited) */
         if (fpDefer) { fpPend = (GJ){ rbuf, out, mbr }; fpDefer = 0; fpOvN++;  /* converted during the right eye's draw, or by P3DS_GcFinish */
@@ -632,7 +649,7 @@ int P3DS_GcComposeB(const u8*in,const u8*bg,const u8*obj,const u16*bp,const u16*
  unsigned reject=P3DS_GcEligible((const u8*)regs,oam);if(why)*why=reject;
  if(reject){gcEngineB=0;return 0;}
  P3DS_GcEye(0,0);P3DS_GcDeferOut=0;
- int ok=P3DS_GcComposeA((const u8*)regs,bg,obj,bp,op,oam,NULL,out);
+ int ok=P3DS_GcComposeA((const u8*)regs,bg,obj,bp,op,oam,NULL,out,NULL,NULL,NULL);
  P3DS_GcFinish();gcEngineB=0;
  if(ok&&P3DS_GcBFadesCfg()){static unsigned n,e[4],m; n++;e[eff]++;m+=((mb>>14)==1||(mb>>14)==2)&&(mb&31);
   if(n%120==0)PSPNativeMemLog("[GCBFADE] accepted=%u plain=%u alpha_endpoints=%u brighten=%u darken=%u master=%u",n,e[0],e[1],e[2],e[3],m);}

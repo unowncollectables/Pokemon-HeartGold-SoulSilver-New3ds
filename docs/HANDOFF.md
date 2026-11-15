@@ -1,3 +1,9 @@
+# 60 fps midpoint compositor submissions
+
+A direct GPU compositor pass now draws each eye's ordinary image and its midpoint in one Citro3D frame. This removes one FrameBegin/FrameEnd pair per eye on an interpolated tick. Both images still use separate render targets. Midpoint textures prefer RGB8 because the screen scaler samples them as opaque, with RGBA8 as an allocation fallback. RGB8 saves 128 KiB in stereo.
+
+In forced full-stereo Azahar on Route 34, both midpoint targets were used with the new batching and RGB8. Available VRAM increased by 128 KiB. The second screen target still fell back to linear RAM in that layout. [FPS60] midpoint compose timing now measures the CPU time spent submitting the midpoint's draw within the existing frame. Full SoulSilver build passed. New 3DS timing for the stereo step-down is pending.
+
 # Cold field Pokegear initialization
 
 Patch 0276 reads one message table at a time for Pokegear names and descriptions, reuses open event and encounter archives for the progress index, and only walks the matching locations once per map. If a direct message allocation fails, it uses the original lazy reader. The map art decoder now converts each palette entry once. [PGLOAD] reports time for text, raw map and icon data, and the progress index.
