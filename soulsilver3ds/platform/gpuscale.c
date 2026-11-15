@@ -549,6 +549,7 @@ static void f60FlipNow(void) {
 static int f60Pending(void) { return gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM); }
 /* game thread, any time no GPU frame is open (per 3D draw call, at the V-blank wait, before the 3D frame ends): flip as soon as the GPU
    has finished the two pictures AND the LCD has taken the in-between one (a flip before that would land in the buffer being shown) */
+int P3DS_Fps60Pending(void) { return f60Flip; }
 void P3DS_Fps60Poll(void) {
     if (!f60Flip) return;
     const u64 now = svcGetSystemTick(); if (now - f60PollT < 268 * 300) return; f60PollT = now;
