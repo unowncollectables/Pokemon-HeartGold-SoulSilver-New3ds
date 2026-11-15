@@ -1,3 +1,9 @@
+# Cached field Bottom Menu surface
+
+An unchanged Bottom Menu can reuse the Engine B output surface from the immediately preceding field frame. This applies when the Engine B worker skipped the screen, the surface and cache slot are the same, and the marker blink state is unchanged. Repaints and transitions still write the entire picture. Each eligible frame avoids a 192 KiB copy.
+
+In Azahar on Route 34, a temporary verifier compared the retained surface with the old copy source on eligible frames while standing and walking. It found zero mismatches. Opening and canceling the native Save prompt hid and restored the menu, and surface reuse resumed afterward. The full SoulSilver build passed. New 3DS timing is pending.
+
 # 60 fps Bottom Menu repaint
 
 Bottom Menu fills clip once per rectangle. Rounded panels compute a color and border spans per row, and Pokegear reuses the shaded source pixel across both columns at 2x zoom. The location card, overview and achievement gradients also fill one shade per row. This uses the existing output buffer and keeps the same repaint triggers.
