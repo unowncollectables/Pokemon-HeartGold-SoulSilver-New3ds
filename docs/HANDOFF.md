@@ -1,3 +1,9 @@
+# 60 fps display swap wait
+
+Run 859 briefly stepped down crossing from Goldenrod into Route 34 with a 33.396 ms mean tick, 16 ticks classified as busy in the 60-tick window, and no Engine B redraws. The busy calculation had counted time spent waiting for the previous screen swap. Only a successful tear-fix display wait is now deducted from busy time. The complete elapsed tick still drives the elapsed-time and long-tick guards, and recovery still uses the game's own VBlank idle.
+
+The full SoulSilver build passed. A host replay of the guard covered pacing-only waits, sustained busy frames, the elapsed-time limit, recovery, and long-tick skips. The crossing still needs a New 3DS repeat to measure the effect.
+
 # Cached field Bottom Menu surface
 
 An unchanged Bottom Menu can reuse the Engine B output surface from the immediately preceding field frame. This applies when the Engine B worker skipped the screen, the surface and cache slot are the same, and the marker blink state is unchanged. Repaints and transitions still write the entire picture. Each eligible frame avoids a 192 KiB copy.

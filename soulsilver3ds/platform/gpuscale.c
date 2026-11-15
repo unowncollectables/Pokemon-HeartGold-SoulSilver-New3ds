@@ -62,6 +62,7 @@ void P3DS_FrameEnd(void) { P3DS_FpsTweaks(); const u64 t0 = svcGetSystemTick(); 
 void P3DS_FpsGuardClean(void) { remove(FPS_PENDING); }
 void P3DS_FpsGuardFrame(void) { if (fpsTwV > 0 && fpsOkFrames >= 0 && ++fpsOkFrames >= 600) { fpsOkFrames = -1; remove(FPS_PENDING); } }
 /* [PERF4] present stages, last frame (us): FrameBegin wait (previous GPU queue), tearfix wait, FrameEnd */
+unsigned P3DS_GpFenceIdleUs;
 unsigned P3DS_GpBeginUs, P3DS_GpTearUs, P3DS_GpEndUs, P3DS_GpUpUs, P3DS_GpDrawUs, P3DS_GpStripUs;
 int P3DS_GpuInit(void) {
     if (ready) return 1;
@@ -513,11 +514,14 @@ int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InB
 /* Measure the work between presents separately from time spent in the
    game's VBlank waits. A short/long cadence can still average 30 ticks/s. */
 int P3DS_Fps60Skip; static unsigned f60NSkip;
-void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
-    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, rN, rIdle, sinceOn, downs, ups;
+void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
+    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, wFenceIdle, rN, rIdle, sinceOn, downs, ups;
     static u64 sumUs, sumMid, sumComp, sumStrip, idleWindow;
     const int act = P3DS_Fps60Active();
-    const unsigned busyUs = frameUs > idleUs ? frameUs - idleUs : 0;
+    // A completed display swap wait is pacing time. Keep it in elapsed time
+    // and keep the recovery budget tied to the game's own VBlank idle.
+    const unsigned afterGameIdle = frameUs > idleUs ? frameUs - idleUs : 0;
+    const unsigned busyUs = afterGameIdle > fenceIdleUs ? afterGameIdle - fenceIdleUs : 0;
     const int overBudget = busyUs > 33333;
     if (P3DS_Fps60Skip) f60NSkip++;
     P3DS_Fps60Skip = act && !P3DS_Fps60Skip && (overBudget || frameUs > 50000);
@@ -526,13 +530,13 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, int shown, int why, unsig
     n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
     if (shown) { nShown++; sumMid += f60MidUs; sumComp += composeUs; sumStrip += stripUs; }
     else if (f60Pause) nPaused++; else if (act) nWhy[why & 3]++;
-    if (act) { wN++; wUs += frameUs > 100000 ? 100000 : frameUs; if (overBudget) wSlow++; sinceOn++;
+    if (act) { wN++; wFenceIdle += fenceIdleUs; wUs += frameUs > 100000 ? 100000 : frameUs; if (overBudget) wSlow++; sinceOn++;
         if (sinceOn == 600 && f60Ov > 4000) f60Ov -= 500;
         if (wN >= 60) { if (wSlow > 15 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
                 if (sinceOn < 180 && f60Ov < 14000) f60Ov += 1500;
-                PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks busy over 33.3 ms, avg tick %u us): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, f60Ov + 1500); }
-            wN = wSlow = wUs = 0; } }
-    else if (f60Pause) { wN = wSlow = wUs = 0; rN++; rIdle += idleUs > 33000 ? 33000 : idleUs;
+                PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks busy over 33.3 ms, avg tick %u us, display wait %u us/tick): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, wFenceIdle / 60, f60Ov + 1500); }
+            wN = wSlow = wUs = wFenceIdle = 0; } }
+    else if (f60Pause) { wN = wSlow = wUs = wFenceIdle = 0; rN++; rIdle += idleUs > 33000 ? 33000 : idleUs;
         if (rN % 30 == 0) { const unsigned spare = rIdle / 30; rIdle = 0;
             if (rN >= 90 && spare > f60Ov + 1500) { f60Pause = 0; sinceOn = 0; ups++; PSPNativeMemLog("[FPS60] back on (spare time %u us per tick)", spare); } } }
     f60Phase++;
@@ -612,6 +616,7 @@ void P3DS_Fps60Flush(void) {
     f60FlipLate++; f60FlipNow();
 }
 void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, const u32 *topR) {
+    P3DS_GpFenceIdleUs = 0;
     P3DS_Crumb("gp-begin", 0); /* run 65: locate the boot stall */
     if (upFmt16 < 0 && !P3DS_UpAlloc(0)) { static unsigned n; if (!n++) PSPNativeMemLog("[3DRES] scale targets missing, frame not presented"); return; }
     P3DS_GpTearUs = 0; P3DS_GpStripUs = 0;
@@ -681,10 +686,16 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
            transfer overwrites it while the LCD scans it -> the first-scanned rows lag (both screens, also 2D video).
            Wait exactly until GSP has taken the previous present, no fixed vblank guesses. */
         P3DS_Crumb("gp-tearfix", 0);
-        u64 t0 = svcGetSystemTick(); int w = 0;
-        while ((gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM)) && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) { w = 1; svcSleepThread(250000); }
-        if (w) { waits++; waitTicks += svcGetSystemTick() - t0; }
-        P3DS_GpTearUs = (unsigned)((svcGetSystemTick() - t0) / 268);
+        const u64 t0 = svcGetSystemTick(), timeout = 40 * CPU_TICKS_PER_MSEC;
+        int w = 0;
+        while ((gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM)) &&
+               svcGetSystemTick() - t0 < timeout) { w = 1; svcSleepThread(250000); }
+        const u64 elapsed = svcGetSystemTick() - t0;
+        P3DS_GpTearUs = (unsigned)(elapsed / CPU_TICKS_PER_USEC);
+        if (w) {
+            waits++; waitTicks += elapsed;
+            if (elapsed < timeout) P3DS_GpFenceIdleUs = P3DS_GpTearUs;
+        }
       } else if (tf && lastEnd) { u64 el = svcGetSystemTick() - lastEnd; if (el < (u64)(2 * 16.713 * 268111.856)) { if (el < (u64)(16.713 * 268111.856)) gspWaitForVBlank(); gspWaitForVBlank(); waits++; } }
       if (tf && ++n % 600 == 0) { PSPNativeMemLog("[3DS] tearfix=%d: waited on %u of 600 presents, avg wait %u us", tf, waits, waits ? (unsigned)(waitTicks / waits / 268) : 0); waits = 0; waitTicks = 0; }
       if (f60 && tf != 2) { const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000); }

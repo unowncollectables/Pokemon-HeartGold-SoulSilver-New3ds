@@ -286,7 +286,7 @@ static void gcAnalyze(unsigned e,bool field){
 extern "C" {void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectStrips(void);int G3G_DirectPending(void);int G3G_DirectCfg(void);void G3G_SetDirect(int);int P3DS_GcEligible(const u8*,const u16*);int P3DS_GcComposeA(const u8*,const u8*,const u8*,const u16*,const u16*,const u16*,const u32*,u32*);
  extern unsigned P3DS_GcBlendOn,P3DS_GcFxFrames,P3DS_GcBlendFrames,P3DS_GcBlendRej;extern unsigned P3DS_GcWalkUs,P3DS_GcConvUs,P3DS_GcOutUs,P3DS_GcQuads,P3DS_GcDecoded,P3DS_GcResets,P3DS_GcCpuUs,P3DS_GcGpuUs;}
 extern "C" void P3DS_GcRejLog(void);
-extern "C" {extern unsigned P3DS_GcB3Frames,P3DS_GcBeginUs,P3DS_GcEndUs,P3DS_GcSyncUs,P3DS_GcMbFrames,P3DS_GpBeginUs,P3DS_GpTearUs,P3DS_GpEndUs,P3DS_GpUpUs,P3DS_GpDrawUs,P3DS_GpStripUs,P3DS_FeN;extern unsigned long long P3DS_FeTicks;extern volatile unsigned long long P3DS_VblIdleTicks;int P3DS_FpsTweaks(void);int P3DS_FpsTweakRow(void);void P3DS_GcEye(int,int);void P3DS_GcFinish(void);void P3DS_SetFpsTweaks(int);}
+extern "C" {extern unsigned P3DS_GcB3Frames,P3DS_GcBeginUs,P3DS_GcEndUs,P3DS_GcSyncUs,P3DS_GcMbFrames,P3DS_GpBeginUs,P3DS_GpTearUs,P3DS_GpFenceIdleUs,P3DS_GpEndUs,P3DS_GpUpUs,P3DS_GpDrawUs,P3DS_GpStripUs,P3DS_FeN;extern unsigned long long P3DS_FeTicks;extern volatile unsigned long long P3DS_VblIdleTicks;int P3DS_FpsTweaks(void);int P3DS_FpsTweakRow(void);void P3DS_GcEye(int,int);void P3DS_GcFinish(void);void P3DS_SetFpsTweaks(int);}
 /* [PERF4] (2026-10-27 fps thread) per-second sums of the frame's stages, in ticks (pfT) or us (pfU) */
 enum{PF_IDLE,PF_GCL,PF_GCR,PF_CPUA,PF_BWAIT,PF_C1WAIT,PF_EARLYBWAIT,PF_OVL,PF_BMENU,PF_PRESENT,PF_WPREP,PF_DRAWS,PF_DSTRIP,PF_N};static u64 pfT[PF_N];
 enum{PU_LB,PU_LE,PU_LS,PU_RB,PU_RE,PU_RS,PU_PB,PU_PT,PU_PE,PU_UP,PU_DR,PU_ST,PU_N};static u64 pfU[PU_N];static unsigned pfR,pfBlRep;
@@ -1329,7 +1329,7 @@ extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
 enum{kGtsPickerItem=MENU_N-4,kWideLayItem=MENU_N-3,kG3ThrItem=MENU_N-2,kFps60Item=MENU_N-1};
 extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);}
 /* fps60 (g3gpu.c, gpucomp.c, gpuscale.c): in-between pictures for the overworld */
-extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);
+extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);
  void*P3DS_GcMidCompose(int,void*);u32*P3DS_GpuMidStripBuffer(int);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
 static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
@@ -2950,6 +2950,7 @@ static int Present(bool){
  if(titleCleanActive){P3DS_WideStrip[0]=P3DS_WideStrip[1]=nullptr;P3DS_WideFxOn=0;}
  if(titleWideValid){P3DS_WideStrip[0]=P3DS_WideStrip[1]=titleStrips;P3DS_WideFxOn=1;}
  if(P3DS_GcTitleWideValid&&!bGpuVerify){P3DS_WideStrip[0]=P3DS_WideStrip[1]=P3DS_GcTitleStrips;P3DS_WideFxOn=1;}
+ unsigned presentFenceIdleUs=0;
  if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=P3DS_PanelPartyOn?0:((power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty);btnDirty=false;
   /* fps60: the in-between picture goes out first, top screen only; the present below then waits for the screen to take it, so the two
      land on two V-blanks in a row. Only while this tick's own picture is still on the GPU and is what gets shown. */
@@ -2965,7 +2966,7 @@ static int Present(bool){
     }
     f60StripUs=(unsigned)((svcGetSystemTick()-ts)/CPU_TICKS_PER_USEC);
     if(!ok)f60Why=3;else f60Shown=P3DS_GpuPresentMid(f60L,stereo?f60R:nullptr,midStrips[0],midStrips[1],mode,stereo?1:0);}}
-  {const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
+  {const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;presentFenceIdleUs=P3DS_GpFenceIdleUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
  else{topTouch();present(GFX_TOP,400,top,0);if(!P3DS_ConsoleOnBottom())present(GFX_BOTTOM,320,bot,0);gfxFlushBuffers();gfxSwapBuffers();}
  P3DS_GameFramePresented();
  u64 tEnd=svcGetSystemTick();last2DUs=(unsigned)((tEnd-t0)/CPU_TICKS_PER_USEC);frames++;
@@ -2993,7 +2994,7 @@ static int Present(bool){
   const u64 idleNow=P3DS_VblIdleTicks,idleTicks=idleNow-lastIdle;
   lastIdle=idleNow;pfT[PF_IDLE]+=idleTicks;
   if(P3DS_Fps60Cfg()&&P3DS_InField&&!P3DS_InBattle&&total)
-   P3DS_Fps60Tick(total,(unsigned)(idleTicks/CPU_TICKS_PER_USEC),f60Shown,f60Why,f60CompUs,f60StripUs);
+   P3DS_Fps60Tick(total,(unsigned)(idleTicks/CPU_TICKS_PER_USEC),presentFenceIdleUs,f60Shown,f60Why,f60CompUs,f60StripUs);
   secUp+=P3DS_UploadUs;secConv+=G3G_ConvUs;
   {static unsigned w3;if(total>w3)w3=total;P3DS_Perf3Worst=w3;if(secFrames==0)w3=total;}tPrevEnd=tEnd;secFrames++;secG3+=g3us;secComp+=comp;secGpu+=gpu;secGame+=total>comp+gpu+g3us?total-comp-gpu-g3us:0;secTris+=P3DS_G3LastTris();secG3G+=G3G_LastUs();
   if(!secStart)secStart=tEnd;unsigned el=(unsigned)((tEnd-secStart)/CPU_TICKS_PER_USEC);
