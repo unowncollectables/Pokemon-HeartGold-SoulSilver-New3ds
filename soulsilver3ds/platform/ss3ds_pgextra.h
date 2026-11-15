@@ -591,7 +591,7 @@ static void pxRingDraw(uint32_t *b, const SUiText &T, bool blink) {
   const uint32_t paper = SUI_RGB(255, 251, 231), gold = SUI_RGB(248, 217, 139);
   const uint32_t lamp = blink ? SUI_RGB(255, 213, 74) : SUI_RGB(218, 151, 44);
   pxBtn(b, kPxRingX0, kPxRingY0, kPxRingX1, kPxRingY1, paper, gold, kBlNavy);
-  mmFill(b, kPxRingX0 + 1, kPxRingY0 + 1, kPxRingX0 + 4, kPxRingY1 - 1, lamp);
+  suiFill(b, kPxRingX0 + 1, kPxRingY0 + 1, kPxRingX0 + 4, kPxRingY1 - 1, lamp);
   blIcon(b, kPxRingX0 + 8, kPxRingY0 + 4, 3, kBlNavy, lamp);
 
   const int id = ring - 2;

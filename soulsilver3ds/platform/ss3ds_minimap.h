@@ -55,7 +55,6 @@ static int mmSave(SMm &m, const char *path) {
   fclose(f); if (ok) m.dirty = false; return ok; }
 static int mmCellCount(const SMm &m) { int n = 0; for (int i = 0; i < kMmGrid * kMmGrid; i++) n += m.cell[i] != 0; return n; }
 
-static void mmFill(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t c) { for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) suiPx(b, x, y, c); }
 static void mmFrame(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t c) {
   for (int x = x0; x < x1; x++) { suiPx(b, x, y0, c); suiPx(b, x, y1 - 1, c); } for (int y = y0; y < y1; y++) { suiPx(b, x0, y, c); suiPx(b, x1 - 1, y, c); } }
 static const char *mmTypeName(int t) { static const char *const n[] = { "?", "TOWN", "ROUTE", "CAVE", "INSIDE", "INSIDE", "UNDERGROUND" }; return n[t < 0 || t > 6 ? 0 : t]; }
@@ -80,7 +79,7 @@ static void mmDrawPanel(uint32_t *b, const SUiText &T, const SMm &m, int mode, b
   suiPanel(b, X0, Y0, X1, Y1, kSuiCell, kSuiCellLo, kSuiEdge, false);
   const int ix0 = X0 + 2, iy0 = Y0 + 2, ix1 = X1 - 2, iy1 = Y1 - 2; /* 244 x 78 in layout 0 */
   if (mode == kMmInfo || !m.have) {
-    mmFill(b, ix0, iy0, ix1, iy1, kSuiCell);
+    suiFill(b, ix0, iy0, ix1, iy1, kSuiCell);
     if (!m.have) { const char *t = "WALK AROUND TO LOCATE YOU"; T.draw(b, (ix0 + ix1) / 2 - T.width(t) / 2, iy0 + (iy1 - iy0) / 2 - 9, t, kSuiNote, kSuiNoteSh); return; }
     const int w = T.width(m.name); T.draw(b, (ix0 + ix1) / 2 - w / 2, iy0 + 8, m.name, kSuiName, kSuiNameSh);
     snprintf(buf, sizeof buf, "X %d   Z %d", m.px, m.pz); T.draw(b, (ix0 + ix1) / 2 - T.width(buf) / 2, iy0 + 30, buf, kSuiVal, kSuiValSh);
@@ -100,7 +99,7 @@ static void mmDrawPanel(uint32_t *b, const SUiText &T, const SMm &m, int mode, b
     int s = aw / w; const int sy = ah / h; if (sy < s) s = sy; if (s < 1) s = 1; if (s > 8) s = 8;
     const int ox = ix0 + (aw - w * s) / 2, oy = iy0 + (ah - h * s) / 2;
     for (int y = 0; y < kMmGrid; y++) for (int x = 0; x < kMmGrid; x++) { const int v = m.cell[y * kMmGrid + x]; if (!v) continue;
-      const int gx = ox + (x - x0) * s, gy = oy + (y - y0) * s; mmFill(b, gx < ix0 ? ix0 : gx, gy < iy0 ? iy0 : gy, gx + s > ix1 ? ix1 : gx + s, gy + s > iy1 ? iy1 : gy + s, mmCellColor(v));
+      const int gx = ox + (x - x0) * s, gy = oy + (y - y0) * s; suiFill(b, gx < ix0 ? ix0 : gx, gy < iy0 ? iy0 : gy, gx + s > ix1 ? ix1 : gx + s, gy + s > iy1 ? iy1 : gy + s, mmCellColor(v));
       if (s >= 3) mmFrame(b, gx, gy, gx + s, gy + s, suiMix(mmCellColor(v), kSuiEdge, 1, 3)); }
     if (pOk) { int px = ox + (m.cx - x0) * s + s / 2, py = oy + (m.cy - y0) * s + s / 2;
       if (m.onMain && s >= 4) { px = ox + (m.cx - x0) * s + (m.px % 32) * s / 32; py = oy + (m.cy - y0) * s + (m.pz % 32) * s / 32; }
@@ -114,7 +113,7 @@ static void mmDrawPanel(uint32_t *b, const SUiText &T, const SMm &m, int mode, b
     const int sx = cxp + ((gx - ((m.px % 8) + 8) % 8)) * ts, sy = cyp + ((gy - ((m.pz % 8) + 8) % 8)) * ts; if (sx >= ix0 && sx < ix1 && sy >= iy0 && sy < iy1) suiPx(b, sx, sy, SUI_RGB(120, 156, 208)); }
   for (int k = 0; k < m.tn; k++) { const int idx = (m.th - m.tn + k + kMmTrail * 2) % kMmTrail;
     const int sx = cxp + (m.tx[idx] - m.px) * ts - 1, sy = cyp + (m.tz[idx] - m.pz) * ts - 1; if (sx < ix0 || sy < iy0 || sx + ts > ix1 || sy + ts > iy1) continue;
-    mmFill(b, sx, sy, sx + ts, sy + ts, suiMix(SUI_RGB(232, 240, 255), SUI_RGB(64, 112, 208), k, m.tn)); }
+    suiFill(b, sx, sy, sx + ts, sy + ts, suiMix(SUI_RGB(232, 240, 255), SUI_RGB(64, 112, 208), k, m.tn)); }
   mmPlayer(b, cxp, cyp, blink);
   const char *t = "PATH WALKED HERE"; T.draw(b, ix0 + 4, iy1 - 12, t, kSuiNote, kSuiNoteSh); }
 
@@ -180,14 +179,15 @@ static const uint32_t kBlSilverHi = SUI_RGB(244, 247, 254), kBlSilverLo = SUI_RG
 /* the native column's button box in DS pixels: outline without its corners, top highlight row, two shade rows */
 static void blBox(uint32_t *b, int x0, int y0, int x1, int y1, bool sel) {
   const uint32_t fill = sel ? kBlPress : kBlSilverHi, top = sel ? kBlPress : SUI_RGB(252, 253, 255), shd = sel ? kBlBlue : kBlSilverLo;
-  for (int y = y0 + 1; y < y1 - 1; y++) for (int x = x0 + 1; x < x1 - 1; x++) suiPx(b, x, y, y == y0 + 1 ? top : y >= y1 - 3 ? shd : fill);
+  for (int y = y0 + 1; y < y1 - 1; y++)
+    suiFill(b, x0 + 1, y, x1 - 1, y + 1, y == y0 + 1 ? top : y >= y1 - 3 ? shd : fill);
   for (int x = x0 + 1; x < x1 - 1; x++) { suiPx(b, x, y0, kBlNavy); suiPx(b, x, y1 - 1, kBlNavy); }
   for (int y = y0 + 1; y < y1 - 1; y++) { suiPx(b, x0, y, kBlNavy); suiPx(b, x1 - 1, y, kBlNavy); } }
 static void blButtonDetails(uint32_t *b, int x0, int y0, int y1, int divider, int accent, bool selected) {
-  mmFill(b, x0 + 1, y0 + 1, divider, y1 - 1, selected ? SUI_RGB(40, 190, 142) : SUI_RGB(232, 237, 246));
-  mmFill(b, divider, y0 + 1, divider + 1, y1 - 1, selected ? SUI_RGB(26, 108, 95) : SUI_RGB(164, 176, 182));
-  mmFill(b, accent, y0 + 3, accent + 1, y1 - 3, SUI_RGB(246, 93, 77));
-  mmFill(b, accent + 1, y0 + 3, accent + 2, y1 - 3, SUI_RGB(212, 59, 60));
+  suiFill(b, x0 + 1, y0 + 1, divider, y1 - 1, selected ? SUI_RGB(40, 190, 142) : SUI_RGB(232, 237, 246));
+  suiFill(b, divider, y0 + 1, divider + 1, y1 - 1, selected ? SUI_RGB(26, 108, 95) : SUI_RGB(164, 176, 182));
+  suiFill(b, accent, y0 + 3, accent + 1, y1 - 3, SUI_RGB(246, 93, 77));
+  suiFill(b, accent + 1, y0 + 3, accent + 2, y1 - 3, SUI_RGB(212, 59, 60));
 }
 static void blIcon(uint32_t *b, int x, int y, int i, uint32_t ink, uint32_t acc) {
   for (int r = 0; r < 12; r++) for (int c = 0; c < 12 && kBlIcon[i][r][c]; c++) { const char ch = kBlIcon[i][r][c];
@@ -230,10 +230,14 @@ enum { kBlNameH = 12 };
 static inline int blNameH() { return pxOn() && pxPane() == 0 ? kBlNameH : 0; }
 /* mode -1 = the Pokegear map (run 10), 0..2 = bottom_map views */
 static void blDraw(uint32_t *b, const SUiText &T, const SMm &m, int mode, bool blink, const char *const *labels, const char *const *alts, const bool *on, int press) {
-  for (int y = 0; y < 192; y++) { const uint32_t c = suiMix(kBlBg0, kBlBg1, y, 191); for (int x = 0; x < 256; x++) b[y * 256 + x] = x >= kBlColX0 - 1 ? SUI_RGB(77, 100, 114) : c; } /* run 151: grey frame + slate column, as the sharp frame */
+  for (int y = 0; y < 192; ++y) {
+    uint32_t *row = b + y * 256;
+    std::fill(row, row + kBlColX0 - 1, suiMix(kBlBg0, kBlBg1, y, 191));
+    std::fill(row + kBlColX0 - 1, row + 256, SUI_RGB(77, 100, 114));
+  }
   /* location bar on top of the map panel */
   /* run 147: with the tabs on, the row has no silver backing bar (it made silver buttons sit in a silver box); the tabs float on the screen background like the side column's buttons */
-  if (!pxOn()) { for (int y = kBlPanY0; y < kBlPanY0 + 16; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - kBlPanY0, 16); for (int x = kBlPanX0; x < kBlPanX1; x++) suiPx(b, x, y, c); }
+  if (!pxOn()) { for (int y = kBlPanY0; y < kBlPanY0 + 16; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - kBlPanY0, 16); suiFill(b, kBlPanX0, y, kBlPanX1, y + 1, c); }
   mmFrame(b, kBlPanX0, kBlPanY0, kBlPanX1, kBlPanY0 + 16, kBlNavy); }
   if (pxOn()) pxBar(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING..."); else suiSDraw(T, b, kBlPanX0 + 5, kBlPanY0 + 2, m.have ? m.name : "LOCATING...", kBlNavy, kBlSilverHi);
   const int nh = blNameH(); if (nh) pxNameStrip(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING...");
@@ -241,4 +245,5 @@ static void blDraw(uint32_t *b, const SUiText &T, const SMm &m, int mode, bool b
   else if (mode >= 0 || !blPgDraw(b, T, kBlPanX0, kBlPanY0 + 15 + nh, kBlPanX1, kBlPanY1, blink)) /* panel rim shares the tab bar's (or name strip's) bottom row (no gap, no double border) */ mmDrawPanel(b, T, m, mode < 0 ? kMmWorld : mode, blink, kBlPanX0, kBlPanY0 + 17 + nh, kBlPanX1, kBlPanY1);
   if (mode < 0 && pxPane() == 0) ctCardDraw(b, T, kBlPanX0, kBlPanY0 + 17 + nh, kBlPanX1);
   if (mode < 0) pxRingDraw(b, T, blink);
-  for (int i = 0; i < kBlButtonCount; i++) blButton(b, T, i, labels[i], alts[i], on[i], press == i); }
+  for (int i = 0; i < kBlButtonCount; i++) blButton(b, T, i, labels[i], alts[i], on[i], press == i);
+}

@@ -3,6 +3,7 @@
    Look: SoulSilver's own menus (summary / Pokegear): light steel-blue striped background, navy header bar,
    white panels with a blue-grey rim, the selected panel in a bright blue rim, values in the game's blue. */
 #pragma once
+#include <algorithm>
 #include <stdint.h>
 #define SUI_RGB(r, g, b) ((uint32_t)(r) | (uint32_t)(g) << 8 | (uint32_t)(b) << 16)
 struct SUiText { int (*draw)(uint32_t *img, int x, int y, const char *t, uint32_t fg, uint32_t sh); int (*width)(const char *t);
@@ -22,16 +23,42 @@ static int suiClipX0 = 0, suiClipY0 = 0, suiClipX1 = 256, suiClipY1 = 192;
 static inline void suiPx(uint32_t *b, int x, int y, uint32_t c) {
   if (x < suiClipX0 || y < suiClipY0 || x >= suiClipX1 || y >= suiClipY1) return;
   if ((unsigned)x < 256u && (unsigned)y < 192u) b[y * 256 + x] = c; }
+static void suiFill(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t c) {
+  x0 = std::max({x0, suiClipX0, 0});
+  y0 = std::max({y0, suiClipY0, 0});
+  x1 = std::min({x1, suiClipX1, 256});
+  y1 = std::min({y1, suiClipY1, 192});
+  if (x0 >= x1) return;
+  for (int y = y0; y < y1; ++y) {
+    uint32_t *row = b + y * 256;
+    std::fill(row + x0, row + x1, c);
+  }
+}
+
 static inline uint32_t suiMix(uint32_t a, uint32_t c, int t, int n) { /* a..c, t of n */
   uint32_t o = 0; for (int s = 0; s < 24; s += 8) { int x = (a >> s) & 255, y = (c >> s) & 255; o |= (uint32_t)(x + (y - x) * t / n) << s; } return o; }
 /* rounded panel: 1 px rim (2 px when thick), top half `fill`, bottom half shaded towards `lo` like the game's panels */
 static void suiPanel(uint32_t *b, int x0, int y0, int x1, int y1, uint32_t fill, uint32_t lo, uint32_t edge, bool thick) {
   const int h = y1 - y0;
-  for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) {
-    const int dx = x - x0 < x1 - 1 - x ? x - x0 : x1 - 1 - x, dy = y - y0 < y1 - 1 - y ? y - y0 : y1 - 1 - y;
-    if (dx + dy < 2) continue; /* cut corners */
-    const bool rim = dx == 0 || dy == 0 || (dx + dy == 2) || (thick && (dx == 1 || dy == 1 || dx + dy == 3));
-    suiPx(b, x, y, rim ? edge : y - y0 < h / 2 ? fill : suiMix(fill, lo, y - y0 - h / 2, h - h / 2)); } }
+  for (int y = y0; y < y1; ++y) {
+    const int dy = std::min(y - y0, y1 - 1 - y);
+    const int cut = std::max(0, 2 - dy);
+    const int left = x0 + cut, right = x1 - cut;
+    if (left >= right) continue;
+
+    // The diagonal rim reaches farther inward on rows near the corners.
+    const int rim = std::max(thick ? 2 : 1, 3 - dy);
+    if (dy == 0 || (thick && dy == 1) || x0 + rim >= x1 - rim) {
+      suiFill(b, left, y, right, y + 1, edge);
+      continue;
+    }
+
+    const uint32_t c = y - y0 < h / 2 ? fill : suiMix(fill, lo, y - y0 - h / 2, h - h / 2);
+    suiFill(b, left, y, x0 + rim, y + 1, edge);
+    suiFill(b, x0 + rim, y, x1 - rim, y + 1, c);
+    suiFill(b, x1 - rim, y, right, y + 1, edge);
+  }
+}
 static void suiArrow(uint32_t *b, int x, int y, int dir, uint32_t c) {
   for (int k = 0; k < 4; k++) for (int yy = k; yy < 7 - k; yy++) suiPx(b, dir > 0 ? x + k : x + 3 - k, y + yy, c); }
 static void suiBackground(uint32_t *b) {

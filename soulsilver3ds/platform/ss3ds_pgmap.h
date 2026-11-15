@@ -204,7 +204,7 @@ static void pgDots(uint32_t *b, SPg &p, int X1, int Y0) {
 static void ctCardDraw(uint32_t *b, const SUiText &T, int X0, int Y0, int X1) {
   if (!P3DS_ContestOn() || !P3DS_Ct.active) return;
   const P3DS_ContestInfo &c = P3DS_Ct; char t[64]; const int left = 20 - c.elapsed, x0 = X0 + 2, x1 = X1 - 2, y0 = Y0 + 2;
-  mmFill(b, x0, y0, x1, y0 + 38, SUI_RGB(236, 244, 226)); mmFill(b, x0, y0, x1, y0 + 11, kBlNavy); mmFrame(b, x0, y0, x1, y0 + 38, kBlNavy);
+  suiFill(b, x0, y0, x1, y0 + 38, SUI_RGB(236, 244, 226)); suiFill(b, x0, y0, x1, y0 + 11, kBlNavy); mmFrame(b, x0, y0, x1, y0 + 38, kBlNavy);
   suiSDraw(T, b, x0 + 4, y0 + 1, "BUG-CATCHING CONTEST", kBlSilverHi, kBlNavy);
   const uint32_t ink = SUI_RGB(20, 40, 24), sh = SUI_RGB(236, 244, 226), warn = SUI_RGB(176, 40, 24);
   if (left > 0) snprintf(t, sizeof t, "TIME  %d min left", left); else snprintf(t, sizeof t, "TIME UP");
@@ -545,7 +545,7 @@ static void pgWeatherRefresh(bool kantoOpen) {
 static void pgWeatherButton(uint32_t *b, const SUiText &T, SPg &p, int x, int y, bool active) {
   p.wxX0 = x; p.wxX1 = x + 22; p.wxY0 = y;
   const uint32_t fill = active ? kBlPress : kBlSilverHi;
-  mmFill(b, x, y, p.wxX1, y + 12, fill);
+  suiFill(b, x, y, p.wxX1, y + 12, fill);
   mmFrame(b, x, y, p.wxX1, y + 12, kBlNavy);
   suiSDraw(T, b, x + (22 - suiSWidth(T, "WX")) / 2, y + 1, "WX", kBlNavy, fill);
 }
@@ -563,7 +563,7 @@ static const char *pgWeatherSeasonName() {
 }
 
 static void pgWeatherStatusBar(uint32_t *b, const SUiText &T, int x, int y, int right, unsigned visibleKinds) {
-  mmFill(b, x, y, right, y + 12, kBlNavy);
+  suiFill(b, x, y, right, y + 12, kBlNavy);
   const char *status = pgWeatherStatus(visibleKinds);
   const char *season = pgWeatherSeasonName();
   char label[48];
@@ -575,7 +575,7 @@ static void pgWeatherStatusBar(uint32_t *b, const SUiText &T, int x, int y, int 
 }
 
 static void pgWeatherLegend(uint32_t *b, const SUiText &T, int x, int y, int right, unsigned visibleKinds, bool showSeason) {
-  mmFill(b, x, y, right, y + 12, kBlNavy);
+  suiFill(b, x, y, right, y + 12, kBlNavy);
   static const char *const names[] = { "Rain", "Snow", "Mist" };
   x += 4;
   const char *season = showSeason ? pgWeatherSeasonName() : nullptr;
@@ -586,7 +586,7 @@ static void pgWeatherLegend(uint32_t *b, const SUiText &T, int x, int y, int rig
   for (int i = 0; i < 3; i++) {
     if (!(visibleKinds & (1u << (i + 1)))) continue;
     if (x + 8 + suiSWidth(T, names[i]) > right) break;
-    mmFill(b, x, y + 4, x + 5, y + 9, kPgWeatherColor[i + 1]);
+    suiFill(b, x, y + 4, x + 5, y + 9, kPgWeatherColor[i + 1]);
     suiSDraw(T, b, x + 8, y + 1, names[i], kBlSilverHi, kBlNavy);
     x += 13 + suiSWidth(T, names[i]);
   }
@@ -621,23 +621,35 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   if (weather) pgWeatherRefresh(p.kantoOpen);
   const uint32_t dimTo = SUI_RGB(0, 44, 34);
   for (int y = Y0; y < Y1; y++) {
-    for (int x = X0; x < X1; x++) {
-      int mx, my; if (z <= 1) { mx = x - X0 + p.viewX; my = y - oy; }
-      else { mx = p.viewX + (x - X0) / z; my = p.viewY + (y - Y0) / z; if (mx >= kPgW) mx = kPgW - 1; if (my >= kPgH) my = kPgH - 1; if (mx < 0) mx = 0; if (my < 0) my = 0; }
-      if (my < 0 || my >= kPgH || mx < 0 || mx >= kPgW) { suiPx(b, x, y, SUI_RGB(0, 60, 46)); continue; }
-      if (p.hide[(my / 8) * 47 + mx / 8]) { suiPx(b, x, y, SUI_RGB(0, 60, 46)); continue; }
-      uint32_t c = p.img[my * kPgW + mx];
-      if (!p.lit[(my / 8) * 47 + mx / 8]) c = suiMix(c, dimTo, 5, 8);
-      if (weather) {
-        c = suiMix(c, SUI_RGB(19, 50, 79), 1, 5);
-        const int cell = pgWeatherMask[my * kPgW + mx];
-        if (cell) {
-          const int kind = cell & 3;
-          c = suiMix(c, kPgWeatherColor[kind], cell >> 2, 7);
-          if (y >= weatherTop && y < weatherBottom) visibleWeather |= 1u << kind;
+    const int my = z == 1 ? y - oy : std::clamp(p.viewY + ((y - Y0) >> 1), 0, kPgH - 1);
+    const uint32_t sea = SUI_RGB(0, 60, 46);
+    if (my < 0 || my >= kPgH) {
+      suiFill(b, X0, y, X1, y + 1, sea);
+      continue;
+    }
+
+    const int tileRow = (my / 8) * 47;
+    const int imageRow = my * kPgW;
+    const bool countWeather = y >= weatherTop && y < weatherBottom;
+    int mx = p.viewX;
+    for (int x = X0; x < X1; x += z, ++mx) {
+      const int sourceX = z == 1 ? mx : std::clamp(mx, 0, kPgW - 1);
+      uint32_t c = sea;
+      if (sourceX >= 0 && sourceX < kPgW && !p.hide[tileRow + sourceX / 8]) {
+        c = p.img[imageRow + sourceX];
+        if (!p.lit[tileRow + sourceX / 8]) c = suiMix(c, dimTo, 5, 8);
+        if (weather) {
+          c = suiMix(c, SUI_RGB(19, 50, 79), 1, 5);
+          const int cell = pgWeatherMask[imageRow + sourceX];
+          if (cell) {
+            const int kind = cell & 3;
+            c = suiMix(c, kPgWeatherColor[kind], cell >> 2, 7);
+            if (countWeather) visibleWeather |= 1u << kind;
+          }
         }
       }
       suiPx(b, x, y, c);
+      if (z == 2 && x + 1 < X1) suiPx(b, x + 1, y, c);
     }
   }
   pxMapPins(b, p, X0, Y0, X1, oy);
