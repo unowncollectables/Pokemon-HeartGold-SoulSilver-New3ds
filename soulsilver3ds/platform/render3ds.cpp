@@ -81,6 +81,9 @@ static volatile bool bSkipB;static LightEvent c1Start,c1Done;static Thread c1Thr
    snapshot compare). The compare runs on whichever thread composes engine B (core-2 worker), off the main thread.
    Invalidated when POWCNT (enable / screen swap) changes. Saves ~9 ms of core-2 time in stereo, where the worker also
    composes the right eye. bottom_skip=0 = always recompose. */
+// Engine B jobs run serially; the main thread reads the draw totals after the existing completion waits.
+static u64 bScanTicks;
+static unsigned bScanFrames;
 static void drawEngineB();
 static void c1Worker(void*){P3DS_ThreadGuard("c1worker");for(;;){LightEvent_Wait(&c1Start);if(bQuit)break;drawEngineB();LightEvent_Signal(&c1Done);}}
 static bool c1Ready(){if(c1Mode<0){c1Mode=0;int on=0,lim=80;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f)){if(sscanf(l,"stereo_c1=%d",&x)==1)on=x!=0;if(sscanf(l,"core1_limit=%d",&x)==1)lim=x;}fclose(f);}
@@ -209,18 +212,30 @@ static void drawEngineB(){
    extern volatile unsigned P3DS_SceneGen;u32 sig[4]={P3DS_SceneGen,reg32(0x240),reg32(0x244)&0xFFFF,reg32(0)};
    if(memcmp(sig,lastSig,sizeof sig)){memcpy(lastSig,sig,sizeof sig);force=refCfg;}
    if(force>0){force--;bottomCache.valid=false;}}
-  /* run 76: Underground fix - bottom VRAM written through tracked copies (banks C/D/H/I) invalidates the reuse */
+  // SoulSilver stamps all VRAM pages at VBlank. During the field Save prompt,
+  // BottomSame can compare the actual Engine B inputs instead of treating
+  // that stamp as a change. Keep the conservative invalidation elsewhere.
+  const bool savePrompt = P3DS_InField && P3DS_StartPrompt && (pw & 0x8000) &&
+                          !P3DS_MenuOpen && !P3DS_PanelPartyWant && !P3DS_PanelPartyOn;
+  static bool wasSavePrompt;
+  if(savePrompt != wasSavePrompt) {
+   bottomCache.valid = false;
+   wasSavePrompt = savePrompt;
+  }
   {static unsigned lastG;unsigned g=0,gp=0;
    for(unsigned pg=0x40;pg<0x80;pg++)if(PSPNativeVramPageGen[pg]>g){g=PSPNativeVramPageGen[pg];gp=pg;}
    for(unsigned pg=0x98;pg<0xA4;pg++)if(PSPNativeVramPageGen[pg]>g){g=PSPNativeVramPageGen[pg];gp=pg;}
-   if(g!=lastG){lastG=g;if(bottomCache.valid&&P3DS_CfgInt("bottom_vramgen",1)){bottomCache.valid=false;static int n;if(n<20){n++;PSPNativeMemLog("[2D] bottom changed by VRAM page %u",gp);}}}}
+   if(g!=lastG){lastG=g;if(!savePrompt&&bottomCache.valid&&P3DS_CfgInt("bottom_vramgen",1)){bottomCache.valid=false;static int n;if(n<20){n++;PSPNativeMemLog("[2D] bottom changed by VRAM page %u",gp);}}}}
   if(bHideB){bottomCache.valid=false;P3DS_BottomReused=0;pfBHid++;bStale=true;return;}
   const int titleMode=P3DS_InTitle?titleCleanCfg():0;
   if(titleMode<2&&bSkipCfg&&!bGpuVerify&&BottomSame(pw)){bSkips++;P3DS_BottomReused=1;return;}
   P3DS_BottomReused=0;bDraws++;bStale=false;
   if(titleMode==2){u64 t=svcGetSystemTick();int ok=titleCompose(true);if(ok){titleCopyWide();static u64 ticks;static unsigned n;ticks+=svcGetSystemTick()-t;if(++n%300==0)PSPNativeMemLog("[TITLE2D] wide frames=%u mean=%u us",n,(unsigned)(ticks/268/n));return;}}
+  const u64 scanStart = svcGetSystemTick();
   rendererB.SetFramebuffer(raw[0],raw[1]);
   for(unsigned line=0;line<192;line++){engineB.CheckWindows(line);rendererB.DrawSprites(line,&engineB);rendererB.DrawScanline(line,&engineB);}
+  bScanTicks += svcGetSystemTick() - scanStart;
+  ++bScanFrames;
   if(bSkipCfg)SaveBottom(pw);}
 /* run 34: comp_excl=1 (opt-in, default 0). DS worker threads / the alarm thread run on the game core; with a higher
    priority (or while the main thread blocked on engine B) they could write VRAM/OAM/palettes/BG regs MID-COMPOSITE,
@@ -273,7 +288,7 @@ extern "C" {void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G
 extern "C" void P3DS_GcRejLog(void);
 extern "C" {extern unsigned P3DS_GcB3Frames,P3DS_GcBeginUs,P3DS_GcEndUs,P3DS_GcSyncUs,P3DS_GcMbFrames,P3DS_GpBeginUs,P3DS_GpTearUs,P3DS_GpEndUs,P3DS_GpUpUs,P3DS_GpDrawUs,P3DS_GpStripUs,P3DS_FeN;extern unsigned long long P3DS_FeTicks;extern volatile unsigned long long P3DS_VblIdleTicks;int P3DS_FpsTweaks(void);int P3DS_FpsTweakRow(void);void P3DS_GcEye(int,int);void P3DS_GcFinish(void);void P3DS_SetFpsTweaks(int);}
 /* [PERF4] (2026-10-27 fps thread) per-second sums of the frame's stages, in ticks (pfT) or us (pfU) */
-enum{PF_IDLE,PF_GCL,PF_GCR,PF_CPUA,PF_BWAIT,PF_OVL,PF_BMENU,PF_PRESENT,PF_WPREP,PF_DRAWS,PF_DSTRIP,PF_N};static u64 pfT[PF_N];
+enum{PF_IDLE,PF_GCL,PF_GCR,PF_CPUA,PF_BWAIT,PF_C1WAIT,PF_EARLYBWAIT,PF_OVL,PF_BMENU,PF_PRESENT,PF_WPREP,PF_DRAWS,PF_DSTRIP,PF_N};static u64 pfT[PF_N];
 enum{PU_LB,PU_LE,PU_LS,PU_RB,PU_RE,PU_RS,PU_PB,PU_PT,PU_PE,PU_UP,PU_DR,PU_ST,PU_N};static u64 pfU[PU_N];static unsigned pfR,pfBlRep;
 static unsigned gcFrames,gcUsed,gcInel,gcFail,gcVer,gcVerOk,gcVerBad;static u64 gcW,gcC,gcO,gcBadPx,gcCpu,gcGpu,gcDec,gcQ;static unsigned gcReason[16];
 static u64 gcBadBig;static u32*gcScratch;static unsigned gcMenuF,gcMenuOK,gcMenuW64[4],gcMenuOn[4];extern "C" int P3DS_InField;
@@ -2258,8 +2273,12 @@ static int Present(bool){
  P3DS_Crumb(async?(excl?"b-spin":"b-wait"):"b-none",0);
  const u64 tBw=svcGetSystemTick();
  if(async)bWaitDone(excl,earlyB?2:1,earlyB);
- if(onC1)LightEvent_Wait(&c1Done);
- pfT[PF_BWAIT]+=svcGetSystemTick()-tBw;
+ const u64 bFrameDone = svcGetSystemTick();
+ pfT[PF_BWAIT] += bFrameDone - tBw;
+ if(onC1) {
+  LightEvent_Wait(&c1Done);
+  pfT[PF_C1WAIT] += svcGetSystemTick() - bFrameDone;
+ }
  huntTick();batteryTick();
  {/* run 76 display capture (DISPCAPCNT 0x4000064): the Spear Pillar / Giratina transition captures the screen into a VRAM
      bank and shows that bank; unimplemented it was black. Minimal version: source A (engine A output, 8-bit -> RGB555); display_capture=0 restores the old ignore,
@@ -2272,7 +2291,11 @@ static int Present(bool){
    for(int y=0;y<h;y++)for(int x=0;x<w;x++){u32 c=src[y*256+x];u16 v=(u16)(((c>>3)&31)|(((c>>11)&31)<<5)|(((c>>19)&31)<<10)|0x8000);*(u16*)(vb+((off+(y*w+x)*2)&0x1FFFF))=v;}
    *capR=cap&~0x80000000u;static unsigned nc;if(!(nc++%120))PSPNativeMemLog("[CAP] display capture bank %d off %x size %d (%u)",bank,off,sz,nc);}}
  P3DS_Crumb(earlyB?"b-early":"b-noearly",0);
- {const u64 te=svcGetSystemTick();if(earlyB)LightEvent_Wait(&bEarlyDone);pfT[PF_BWAIT]+=svcGetSystemTick()-te;}
+ if(earlyB) {
+  const u64 waitStart = svcGetSystemTick();
+  LightEvent_Wait(&bEarlyDone);
+  pfT[PF_EARLYBWAIT] += svcGetSystemTick() - waitStart;
+ }
  P3DS_Crumb("b-ok",0);
  verifyGpuB();
  if(P3DS_FpsTweaks()<5){midChecks++;if(stateHash()!=hash0)midWrites++;if(midChecks>=600){PSPNativeMemLog("[2D] game state (OAM/palette/2D regs) changed DURING composite in %u of %u frames (comp_excl=%d)",midWrites,midChecks,(int)excl);midChecks=midWrites=0;}}
@@ -2909,7 +2932,7 @@ static int Present(bool){
  else{topTouch();present(GFX_TOP,400,top,0);if(!P3DS_ConsoleOnBottom())present(GFX_BOTTOM,320,bot,0);gfxFlushBuffers();gfxSwapBuffers();}
  P3DS_GameFramePresented();
  u64 tEnd=svcGetSystemTick();last2DUs=(unsigned)((tEnd-t0)/CPU_TICKS_PER_USEC);frames++;
- {static unsigned bl;if(++bl%600==0){PSPNativeMemLog("[2D] bottom_skip: reused %u, recomposed %u of last 600 | steal_b: engine B on main %u, worker %u | early_b %u | split_top %u",bSkips,bDraws,stealMain,stealWorker,earlyN,splitN);earlyN=0;splitN=0;bSkips=bDraws=0;stealMain=stealWorker=0;}}
+ {static unsigned bl,lastSkips,lastDraws;if(++bl%600==0){PSPNativeMemLog("[2D] bottom_skip: reused %u, recomposed %u of last 600 | steal_b: engine B on main %u, worker %u | early_b %u | split_top %u",bSkips-lastSkips,bDraws-lastDraws,stealMain,stealWorker,earlyN,splitN);lastSkips=bSkips;lastDraws=bDraws;earlyN=0;splitN=0;stealMain=stealWorker=0;}}
  {unsigned total=tPrevEnd?(unsigned)((tEnd-tPrevEnd)/CPU_TICKS_PER_USEC):0,comp=(unsigned)((tComp-t0)/CPU_TICKS_PER_USEC),gpu=(unsigned)((tEnd-tComp)/CPU_TICKS_PER_USEC);
   {/* run 43 [SPIKE] diag: any frame > spike_ms (default 70, 0 = off) logs where the time went (max 60 lines / session).
      g3soft time includes the game's own CPU work between frame start and the 3D flush (loads, decompression). */
@@ -2953,7 +2976,11 @@ static int Present(bool){
     auto U=[&](u64 t){return (unsigned)(t/CPU_TICKS_PER_USEC/n);};const unsigned r=pfR?pfR:1;
     PSPNativeMemLogC("[PERF4] tweaks %d | g3soft %u = VBlank idle %u + work %u | composite %u = L %u (wait %u, end %u, sync %u) + R %u x%u (wait %u, end %u, sync %u) + CPU A %u + worker wait %u",
      P3DS_FpsTweaks(),secG3/n,U(pfT[PF_IDLE]),secG3/n>U(pfT[PF_IDLE])?secG3/n-U(pfT[PF_IDLE]):0,secComp/n,U(pfT[PF_GCL]),(unsigned)(pfU[PU_LB]/n),(unsigned)(pfU[PU_LE]/n),(unsigned)(pfU[PU_LS]/n),
-     (unsigned)(pfT[PF_GCR]/CPU_TICKS_PER_USEC/r),pfR,(unsigned)(pfU[PU_RB]/r),(unsigned)(pfU[PU_RE]/r),(unsigned)(pfU[PU_RS]/r),U(pfT[PF_CPUA]),U(pfT[PF_BWAIT]));
+     (unsigned)(pfT[PF_GCR]/CPU_TICKS_PER_USEC/r),pfR,(unsigned)(pfU[PU_RB]/r),(unsigned)(pfU[PU_RE]/r),(unsigned)(pfU[PU_RS]/r),U(pfT[PF_CPUA]),U(pfT[PF_BWAIT]+pfT[PF_C1WAIT]+pfT[PF_EARLYBWAIT]));
+    PSPNativeMemLogC("[BPERF] us/frame waiting: core 2 frame job %u | core 1 Engine B %u | early Engine B %u | CPU Engine B scanlines %u draws, %u us/draw",
+     U(pfT[PF_BWAIT]),U(pfT[PF_C1WAIT]),U(pfT[PF_EARLYBWAIT]),bScanFrames,
+     bScanFrames?(unsigned)(bScanTicks/CPU_TICKS_PER_USEC/bScanFrames):0);
+    bScanTicks=0;bScanFrames=0;
     PSPNativeMemLogC("[PERF4] present %u = strips+overlays %u + bottom menu %u (%u repaints) + GPU present %u (wait %u, tearfix %u, end %u) | FrameEnd x%u avg %u us | engine B hidden-skips %u | GPU fades %u | GPU 3D blend %u",
      secGpu/n,U(pfT[PF_OVL]),U(pfT[PF_BMENU]),pfBlRep,U(pfT[PF_PRESENT]),(unsigned)(pfU[PU_PB]/n),(unsigned)(pfU[PU_PT]/n),(unsigned)(pfU[PU_PE]/n),
      P3DS_FeN,P3DS_FeN?(unsigned)(P3DS_FeTicks/CPU_TICKS_PER_USEC/P3DS_FeN):0,pfBHid,P3DS_GcMbFrames,P3DS_GcB3Frames);
