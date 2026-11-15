@@ -418,9 +418,13 @@ static const float*mdMid(const GJob&J,float*Mm){
  for(int i=mdHead[mdHash(key,J.n,sig)];i>=0;i=mdNext[i]){const MDraw&d=mdPrev[i];if(d.key!=key||d.n!=J.n||d.sig!=sig)continue;cand++;
   const float sc=fabsf(M[12]-d.M[12]-mdG[0])+fabsf(M[13]-d.M[13]-mdG[1])+fabsf(M[15]-d.M[15]-mdG[3]);if(sc<bs){bs=sc;best=&d;}}
  if(mdCurN<MD_MAX){MDraw&c=mdCur[mdCurN++];c.key=key;c.n=J.n;c.sig=sig;memcpy(c.M,M,sizeof c.M);}
- /* a partner further than about a third of the screen from where it should be is something else (a warp, another copy) */
+ /* a partner further than about a third of the screen from where it should be is something else (a warp, another copy).
+    Small draws (character sprites: every one is the same quad, so the key cannot tell them apart) only pair within about 11 px of
+    where they should be, less than one map tile: run 836 photo, a character that had just changed its quad was paired with the
+    player standing one tile away and its in-between picture sat halfway between the two ("doubled and bounced"). Unpaired, it simply
+    moves with the camera. */
  const float wr=fabsf(M[15])>1.0f?fabsf(M[15]):1.0f;
- if(best&&bs<0.6f*wr){mdMat++;bool same=true,rigid=true;
+ if(best&&bs<(J.n<24?0.09f:0.6f)*wr){mdMat++;bool same=true,rigid=true;
   for(int i=0;i<16;i++){const float d=M[i]-best->M[i];if(d!=0.0f){same=false;if(i<12&&fabsf(d)>1e-5f*(fabsf(M[i])+1.0f))rigid=false;}Mm[i]=0.5f*(M[i]+best->M[i]);}
   if(!same)mdMov++;
   if(cand==1&&rigid&&J.n>=24){mdG[0]=M[12]-best->M[12];mdG[1]=M[13]-best->M[13];mdG[2]=M[14]-best->M[14];mdG[3]=M[15]-best->M[15];}
