@@ -491,7 +491,7 @@ int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InB
 /* once per presented overworld tick while the setting is not OFF. shown: an in-between picture went out. why (when not): 1 no in-between 3D
    this tick (g3gpu.c says which), 2 the picture went through the CPU (toast, save box, fade...), 3 a held or menu picture.
    Step-down (second version): a tick that runs long no longer costs a whole extra V-blank, the pictures just come a little late. So it
-   only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or a quarter of the ticks over 36 ms), and
+   only steps down to 30 where the game could not keep up even at ~53 fps (2026-11-15, Nathan: 55 beats 30; 60-tick average over 37.5 ms, or a third of the ticks over 44 ms), and
    it comes back by measurement, not by a timer: at 30 the spare time per tick (V-blank idle) is known, and once that is back above
    what the in-between picture costs (f60Ov, learned: +1.5 ms when a comeback fails within 6 s, -0.5 ms after 20 s that hold) it is on again. */
 void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
@@ -502,15 +502,15 @@ void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, un
     n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
     if (shown) { nShown++; sumMid += f60MidUs; sumComp += composeUs; sumStrip += stripUs; }
     else if (f60Pause) nPaused++; else if (act) nWhy[why & 3]++;
-    if (act) { wN++; wUs += frameUs > 100000 ? 100000 : frameUs; if (frameUs > 36000) wSlow++; sinceOn++;
+    if (act) { wN++; wUs += frameUs > 100000 ? 100000 : frameUs; if (frameUs > 44000) wSlow++; sinceOn++;
         if (sinceOn == 600 && f60Ov > 4000) f60Ov -= 500;
-        if (wN >= 60) { if (wSlow > 15 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
+        if (wN >= 60) { if (wSlow > 20 || wUs / 60 > 37500) { f60Pause = 1; rN = rIdle = 0; downs++;
                 if (sinceOn < 180 && f60Ov < 14000) f60Ov += 1500;
-                PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks over 36 ms, avg %u us): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, f60Ov + 1500); }
+                PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks over 44 ms, avg %u us): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, f60Ov + 1500); }
             wN = wSlow = wUs = 0; } }
     else if (f60Pause) { wN = wSlow = wUs = 0; rN++; rIdle += idleUs > 33000 ? 33000 : idleUs;
         if (rN % 30 == 0) { const unsigned spare = rIdle / 30; rIdle = 0;
-            if (rN >= 90 && spare > f60Ov + 1500) { f60Pause = 0; sinceOn = 0; ups++; PSPNativeMemLog("[FPS60] back on (spare time %u us per tick)", spare); } } }
+            if (rN >= 60 && spare > f60Ov + 1500) { f60Pause = 0; sinceOn = 0; ups++; PSPNativeMemLog("[FPS60] back on (spare time %u us per tick)", spare); } } }
     f60Phase++;
     if (n >= 600 || (P3DS_Fps60Cfg() == 2 && f60Phase % 1200 == 0)) {
         const unsigned k = nShown ? nShown : 1;
