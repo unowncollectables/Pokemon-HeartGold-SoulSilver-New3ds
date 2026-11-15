@@ -437,6 +437,46 @@ static void titleStripOut(u16 mbr){
   P3DS_GcTitleStrips[y*64+side*32+x]=c;
  }P3DS_GcTitleWideValid=1;
 }
+/* the whole composed picture into tgt: every 2D batch of the frame just walked and the 3D layer quad sampling t3 */
+static void gcDrawAll(C3D_RenderTarget *tgt, u32 bd, C3D_Tex *t3, unsigned q3, int b3, GV *vbuf, float width) {
+    C3D_RenderTargetClear(tgt, C3D_CLEAR_ALL, bd, 0);
+    C3D_FrameDrawOn(tgt);
+    C3D_BindProgram(&prog);
+    C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, width, 0.0f, 256.0f, 1.0f, -1.0f, true);  /* DS y 0 -> clip -1 (= g3gpu convention, FLIP_VERT readback gives rows top-first) */
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
+    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2);
+    C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, vbuf, sizeof(GV), 2, 0x10);
+    C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR); C3D_CullFace(GPU_CULL_NONE);
+    C3D_AlphaTest(true, GPU_GREATER, 0);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+    { C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+      for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k)); }
+    int curFx = 0;
+    for (unsigned b = 0; b < nb; b++) { if (!bat[b].is3d && !bat[b].count) continue;
+        if (bat[b].fx != curFx) { curFx = bat[b].fx; setFx(curFx); }
+        if (bat[b].is3d) { C3D_TexBind(0, t3);
+            if (b3) { C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA); C3D_DrawArrays(GPU_TRIANGLES, q3 * 6, 6); curFx = -1; }
+            else C3D_DrawArrays(GPU_TRIANGLES, q3 * 6, 6); }
+        else { C3D_TexBind(0, &atlas); C3D_DrawArrays(GPU_TRIANGLES, bat[b].first * 6, bat[b].count * 6); } }
+}
+/* fps60 (g3gpu.c): the frame P3DS_GcComposeA just composed and left on the GPU (direct screen), drawn once more with the in-between 3D
+   picture t3 under the same 2D, into its own target. Call right after that compose (its vertices, batches and atlas are untouched: the
+   compositor is marked busy, so the next compose waits before it rewrites them). Returns the picture for gpuscale.c, or NULL. */
+static struct { int ok, b3; unsigned q3, nb; u32 bd; GV *vb; } mc;
+static C3D_Tex rtTexM[2]; static C3D_RenderTarget *rtM[2]; static int rtMOk[2] = { -1, -1 };
+C3D_Tex *P3DS_GcMidCompose(int e, C3D_Tex *t3) {
+    if (!mc.ok || !t3 || e < 0 || e > 1 || mc.nb != nb) return NULL;
+    mc.ok = 0;
+    if (rtMOk[e] < 0) { rtMOk[e] = C3D_TexInitVRAM(&rtTexM[e], 256, 256, GPU_RGBA8) && (rtM[e] = C3D_RenderTargetCreateFromTex(&rtTexM[e], GPU_TEXFACE_2D, 0, -1)) != NULL;
+        if (rtMOk[e]) { C3D_TexSetFilter(&rtTexM[e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&rtTexM[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); }
+        PSPNativeMemLog("[FPS60] in-between picture target for eye %d %s (VRAM free %lu)", e, rtMOk[e] ? "ready" : "FAILED: no in-between frames", (unsigned long)vramSpaceFree()); }
+    if (rtMOk[e] != 1) return NULL;
+    C3D_FrameBegin(0); G3G_DirectSynced();
+    gcDrawAll(rtM[e], mc.bd, t3, mc.q3, mc.b3, mc.vb, 256.0f);
+    P3DS_FrameEnd(); gpuBusy = 1;
+    return &rtTexM[e];
+}
 /* returns 1 and fills out[256*192] (0xFFBBGGRR) on success; 0 = not composed (out untouched, caller falls back) */
 int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bgpal, const u16 *objpal, const u16 *oam, const u32 *f3d, u32 *out) {
     P3DS_Crumb("gc-begin", 0);
@@ -449,6 +489,7 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     if (P3DS_GcDeferOut && fpEye && rtROk < 0) { rtROk = C3D_TexInitVRAM(&rtTexR, 256, 256, GPU_RGBA8) && (rtR = C3D_RenderTargetCreateFromTex(&rtTexR, GPU_TEXFACE_2D, 0, -1)) != NULL;
         PSPNativeMemLog("[GPUC] direct screen: right-eye target %s", rtROk ? "ready (VRAM)" : "failed, the right eye takes the CPU path"); }
     if (gpuBusy && !fpOn()) gcIdle();   /* one vertex buffer: a still queued deferred draw must be done before it is rewritten */
+    mc.ok = 0;
     frameNo++; fail = 0; nq = 0; nb = 0; dirtyLo = ~0u; dirtyHi = 0; P3DS_GcDecoded = 0;
     P3DS_GcBeginUs = P3DS_GcEndUs = P3DS_GcSyncUs = 0;
     const int ov = fpOn(); if (ov) vb = (fpSub & 1) ? vbB : vbA;  /* the other half may still be read by the queued draw */
@@ -507,26 +548,8 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     gpuBusy = 0;
     G3G_DirectSynced();   /* FrameBegin waited for every queued draw, including g3gpu's direct 3D frame */
     C3D_RenderTarget *const tgt = gcTitleWide ? titleTarget : (dfEye ? rtR : rt);
-    C3D_RenderTargetClear(tgt, C3D_CLEAR_ALL, bd, 0);
-    C3D_FrameDrawOn(tgt);
-    C3D_BindProgram(&prog);
-    C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, gcTitleWide?512.0f:256.0f, 0.0f, 256.0f, 1.0f, -1.0f, true);  /* DS y 0 -> clip -1 (= g3gpu convention, FLIP_VERT readback gives rows top-first) */
-    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
-    C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
-    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2);
-    C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, vb, sizeof(GV), 2, 0x10);
-    C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR); C3D_CullFace(GPU_CULL_NONE);
-    C3D_AlphaTest(true, GPU_GREATER, 0);
-    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
-    { C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
-      for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k)); }
-    int curFx = 0;
-    for (unsigned b = 0; b < nb; b++) { if (!bat[b].is3d && !bat[b].count) continue;
-        if (bat[b].fx != curFx) { curFx = bat[b].fx; setFx(curFx); }
-        if (bat[b].is3d) { C3D_TexBind(0, t3cur);
-            if (b3) { C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA); C3D_DrawArrays(GPU_TRIANGLES, q3 * 6, 6); curFx = -1; }
-            else C3D_DrawArrays(GPU_TRIANGLES, q3 * 6, 6); }
-        else { C3D_TexBind(0, &atlas); C3D_DrawArrays(GPU_TRIANGLES, bat[b].first * 6, bat[b].count * 6); } }
+    gcDrawAll(tgt, bd, t3cur, q3, b3, vb, gcTitleWide ? 512.0f : 256.0f);
+    mc.ok = 0; if (has3d && !gcTitleWide && !gcEngineB) { mc.ok = 1; mc.q3 = q3; mc.b3 = b3; mc.bd = bd; mc.vb = vb; mc.nb = nb; }   /* fps60: P3DS_GcMidCompose may draw this again */
     u32 *const rbuf = gcTitleWide ? titleReadback : (ov && fpEye ? rbR : rb);
     { const u16 m = rh(regs, 0x6C);
       if (P3DS_GcDeferOut && (!fpEye || dfEye) && !(((m >> 14) == 1 || (m >> 14) == 2) && (m & 0x1F))) {   /* no master-brightness fade */
