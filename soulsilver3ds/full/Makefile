@@ -37,7 +37,7 @@ CIA_MINOR ?= $(shell echo $$(($(CIA_RUN) % 64)))
 DEFS   := -O2 -DSDK_PORT -DSDK_X86 -DSDK_TS -DSDK_4M -DSDK_FINALROM -DNNS_FINALROM -DSDK_VERSION_MAJOR=4 -DSDL_MAIN_HANDLED -DMELONDS_PSP -DPSP_NATIVE_RGBA_OUTPUT=1 -DSS3DS -ffunction-sections -fdata-sections
 INC    := -I$(W)/native-probe/backing/include -I$(W)/native-graphics/alias-proof/include -I$(W)/native-probe/generated -I$(W)/native-graphics/libntr/include -I$(W)/../melon -I$(W)/native-render-opt -I$(W)/soulsilver-native-core/include -I$(W)/soulsilver-native-core/game-include
 PLAT   := ../platform
-POBJS  := build/g3packet.o build/g3thr.o build/main3ds.o build/logring.o build/psp_ctru.o build/sdl_ctru.o build/stubs3ds.o build/render3ds.o build/g3soft.o build/gpuscale.o build/blit_shbin.o build/g3gpu.o build/g3_shbin.o build/gpucomp.o build/par.o build/romcache3ds.o build/speedcheck.o build/p3ds_gamefont.o build/psp_ss_ctru.o build/ss3ds_glue.o build/wm_uds.o build/uds_ctru.o build/ss3ds_net.o build/widecomp.o build/wideapi.o build/ss3ds_widescreens.o build/dcskip.o build/hunt.o build/ribbons.o build/tracker.o build/celebrate.o build/achievements.o build/ss3ds_dwcstub.o build/ss3ds_pwalker.o build/ss3ds_pwalker_os.o build/ss3ds_pwalker_ir.o build/mi_compress.o
+POBJS  := build/g3packet.o build/g3thr.o build/main3ds.o build/logring.o build/psp_ctru.o build/sdl_ctru.o build/stubs3ds.o build/render3ds.o build/g3soft.o build/gpuscale.o build/blit_shbin.o build/g3gpu.o build/g3_shbin.o build/g3k_shbin.o build/gpucomp.o build/par.o build/romcache3ds.o build/speedcheck.o build/p3ds_gamefont.o build/psp_ss_ctru.o build/ss3ds_glue.o build/wm_uds.o build/uds_ctru.o build/ss3ds_net.o build/widecomp.o build/wideapi.o build/ss3ds_widescreens.o build/dcskip.o build/hunt.o build/ribbons.o build/tracker.o build/celebrate.o build/achievements.o build/ss3ds_dwcstub.o build/ss3ds_pwalker.o build/ss3ds_pwalker_os.o build/ss3ds_pwalker_ir.o build/mi_compress.o
 # wireless (docs/WIRELESS.md M3): wm_uds.o is the WM API (from the Platinum port, unchanged). It replaces the SDK's WM
 # members of libsdk-filtered-ss.a, which forward to an ARM7 that does not exist here. wireless=0 = pspoke's
 # wm_absent.c behaviour (a radio with nobody in range), as in Platinum. Its callbacks are pumped from
@@ -68,6 +68,8 @@ build/blit_shbin.h build/blit_shbin.s: $(PLAT)/shaders/blit.v.pica
 	@mkdir -p build; $(DKP)/tools/bin/picasso -o build/blit.shbin $< && cd build && $(DKP)/tools/bin/bin2s -H blit_shbin.h blit.shbin > blit_shbin.s
 build/g3_shbin.h build/g3_shbin.s: $(PLAT)/shaders/g3.v.pica
 	@mkdir -p build; $(DKP)/tools/bin/picasso -o build/g3.shbin $< && cd build && $(DKP)/tools/bin/bin2s -H g3_shbin.h g3.shbin > g3_shbin.s
+build/g3k_shbin.h build/g3k_shbin.s: $(PLAT)/shaders/g3k.v.pica
+	@mkdir -p build; $(DKP)/tools/bin/picasso -o build/g3k.shbin $< && cd build && $(DKP)/tools/bin/bin2s -H g3k_shbin.h g3k.shbin > g3k_shbin.s
 build/%_shbin.o: build/%_shbin.s
 	$(DKA)as $< -o $@
 build/gpuscale.o: $(PLAT)/gpuscale.c build/blit_shbin.h
@@ -75,7 +77,7 @@ build/gpuscale.o: $(PLAT)/gpuscale.c build/blit_shbin.h
 # As in the Platinum Makefile: the two GPU files see only libctru and the generated shader headers.
 build/gpucomp.o: $(PLAT)/gpucomp.c build/blit_shbin.h
 	$(CC) $(DEFS) -fshort-enums -Ibuild -I$(DKP)/libctru/include -c $< -o $@
-build/g3gpu.o: $(PLAT)/g3gpu.c build/g3_shbin.h
+build/g3gpu.o: $(PLAT)/g3gpu.c build/g3_shbin.h build/g3k_shbin.h
 	$(CC) $(DEFS) -fshort-enums -Ibuild -I$(DKP)/libctru/include -c $< -o $@
 build/soulsilver3ds.ld: mkld_ss.py $(W)/soulsilver-native-overlays/ranges.h
 	@mkdir -p build; python3 mkld_ss.py $(DKP)/devkitARM/arm-none-eabi/lib/3dsx.ld $(W)/soulsilver-native-overlays/ranges.h $@

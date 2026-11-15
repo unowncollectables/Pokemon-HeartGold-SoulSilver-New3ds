@@ -397,7 +397,7 @@ static unsigned sprN,sprSkip;static double sprSpread;
    whose clip matrix is nearest where the camera's move says it should be. The in-between picture transforms the same vertices with the
    average of the two matrices. A draw with no partner (it just came into view) moves with the camera: for everything standing still in
    the world the two matrices differ only in their translation row, by the same four numbers (mdG). ---- */
-extern "C"{extern int G3G_MidRec;extern const float*G3G_MidC;void G3G_MidInfo(unsigned,unsigned,unsigned);}
+extern "C"{void P3DS_Fps60Poll(void);extern int G3G_MidRec;void G3G_MidK(const float*);void G3G_MidInfo(unsigned,unsigned,unsigned);}
 static const float kMidEdge=1.06f;   /* off-screen rejects keep a 6% rim while recording: a triangle just outside this tick may be inside the in-between picture */
 struct MDraw{const void*key;unsigned n;u32 sig;float M[16];};
 enum{MD_MAX=1536,MD_H=512};
@@ -427,6 +427,32 @@ static const float*mdMid(const GJob&J,float*Mm){
   return Mm;}
  memcpy(Mm,M,16*sizeof(float));for(int i=0;i<4;i++)Mm[12+i]-=0.5f*mdG[i];
  return Mm;}
+/* K = in-between clip matrix * inverse(this tick's clip matrix): what carries this tick's clip coordinates to the in-between picture.
+   Doubles: the model part of M has big translations. false = the draw does not move (or M cannot be inverted): it stays where it is. */
+static bool mdK(const GJob&J,float*K){
+ float Mm[16];mdMid(J,Mm);const float*M=J.M;if(!memcmp(Mm,M,sizeof Mm))return false;
+ double m[16],inv[16];for(int i=0;i<16;i++)m[i]=M[i];
+ inv[0]=m[5]*m[10]*m[15]-m[5]*m[11]*m[14]-m[9]*m[6]*m[15]+m[9]*m[7]*m[14]+m[13]*m[6]*m[11]-m[13]*m[7]*m[10];
+ inv[4]=-m[4]*m[10]*m[15]+m[4]*m[11]*m[14]+m[8]*m[6]*m[15]-m[8]*m[7]*m[14]-m[12]*m[6]*m[11]+m[12]*m[7]*m[10];
+ inv[8]=m[4]*m[9]*m[15]-m[4]*m[11]*m[13]-m[8]*m[5]*m[15]+m[8]*m[7]*m[13]+m[12]*m[5]*m[11]-m[12]*m[7]*m[9];
+ inv[12]=-m[4]*m[9]*m[14]+m[4]*m[10]*m[13]+m[8]*m[5]*m[14]-m[8]*m[6]*m[13]-m[12]*m[5]*m[10]+m[12]*m[6]*m[9];
+ inv[1]=-m[1]*m[10]*m[15]+m[1]*m[11]*m[14]+m[9]*m[2]*m[15]-m[9]*m[3]*m[14]-m[13]*m[2]*m[11]+m[13]*m[3]*m[10];
+ inv[5]=m[0]*m[10]*m[15]-m[0]*m[11]*m[14]-m[8]*m[2]*m[15]+m[8]*m[3]*m[14]+m[12]*m[2]*m[11]-m[12]*m[3]*m[10];
+ inv[9]=-m[0]*m[9]*m[15]+m[0]*m[11]*m[13]+m[8]*m[1]*m[15]-m[8]*m[3]*m[13]-m[12]*m[1]*m[11]+m[12]*m[3]*m[9];
+ inv[13]=m[0]*m[9]*m[14]-m[0]*m[10]*m[13]-m[8]*m[1]*m[14]+m[8]*m[2]*m[13]+m[12]*m[1]*m[10]-m[12]*m[2]*m[9];
+ inv[2]=m[1]*m[6]*m[15]-m[1]*m[7]*m[14]-m[5]*m[2]*m[15]+m[5]*m[3]*m[14]+m[13]*m[2]*m[7]-m[13]*m[3]*m[6];
+ inv[6]=-m[0]*m[6]*m[15]+m[0]*m[7]*m[14]+m[4]*m[2]*m[15]-m[4]*m[3]*m[14]-m[12]*m[2]*m[7]+m[12]*m[3]*m[6];
+ inv[10]=m[0]*m[5]*m[15]-m[0]*m[7]*m[13]-m[4]*m[1]*m[15]+m[4]*m[3]*m[13]+m[12]*m[1]*m[7]-m[12]*m[3]*m[5];
+ inv[14]=-m[0]*m[5]*m[14]+m[0]*m[6]*m[13]+m[4]*m[1]*m[14]-m[4]*m[2]*m[13]-m[12]*m[1]*m[6]+m[12]*m[2]*m[5];
+ inv[3]=-m[1]*m[6]*m[11]+m[1]*m[7]*m[10]+m[5]*m[2]*m[11]-m[5]*m[3]*m[10]-m[9]*m[2]*m[7]+m[9]*m[3]*m[6];
+ inv[7]=m[0]*m[6]*m[11]-m[0]*m[7]*m[10]-m[4]*m[2]*m[11]+m[4]*m[3]*m[10]+m[8]*m[2]*m[7]-m[8]*m[3]*m[6];
+ inv[11]=-m[0]*m[5]*m[11]+m[0]*m[7]*m[9]+m[4]*m[1]*m[11]-m[4]*m[3]*m[9]-m[8]*m[1]*m[7]+m[8]*m[3]*m[5];
+ inv[15]=m[0]*m[5]*m[10]-m[0]*m[6]*m[9]-m[4]*m[1]*m[10]+m[4]*m[2]*m[9]+m[8]*m[1]*m[6]-m[8]*m[2]*m[5];
+ const double det=m[0]*inv[0]+m[1]*inv[4]+m[2]*inv[8]+m[3]*inv[12];if(det==0.0||det!=det)return false;const double id=1.0/det;
+ /* trust the inverse only if M * inverse really is the identity (a nearly flat model matrix is not worth a wrong picture) */
+ for(int c=0;c<4;c++)for(int r=0;r<4;r++){double a=0;for(int k=0;k<4;k++)a+=m[4*k+r]*inv[4*c+k];a*=id;if(fabs(a-(r==c?1.0:0.0))>1e-6)return false;}
+ for(int c=0;c<4;c++)for(int r=0;r<4;r++){double a=0;for(int k=0;k<4;k++)a+=(double)Mm[4*k+r]*inv[4*c+k];a*=id;if(!(fabs(a)<64.0))return false;K[4*c+r]=(float)a;}
+ return true;}
 /* 2026-11-04 g3_batchcull (Settings > 3D "Off-screen skip", default ON, remove once tested; log [G3CULL]): in towns most raw
    triangles the game sends are off screen (Goldenrod run 148: ~7,200 trivially rejected per frame against ~770 drawn), and each one
    was transformed (16 multiply-adds per vertex) before the per-triangle reject below. Each batch, and then each run of 16 triangles
@@ -496,7 +522,7 @@ static void GpuRawJ(const GJob&J){
  const GuVertex*v=J.v;const unsigned n=J.n;jM=J.M;jReplayV=J.replay?J.v:nullptr;const float qwK=qwKNow();
  bool chunked=J.chunked;const u8*cmask=J.cmask;
  if(!J.pre){if(CullBatch(J,chunked))return;cmask=chunkOff;}
- float midM[16];const float*MM=(G3G_MidRec&&n>=3)?mdMid(J,midM):nullptr;if(J.wbuf)MM=nullptr;const float yK=G3G_MidRec?kMidEdge:1.0f;
+ if(G3G_MidRec){float K[16];G3G_MidK(n>=3&&!J.wbuf&&mdK(J,K)?K:nullptr);}const float yK=G3G_MidRec?kMidEdge:1.0f;
  G3G_CurFog=J.fog;const int cullMode3d=cull3dCfg();const G3SIM_TexImageParam_t tp=J.tp;
  bool translucent=(v[0].color>>24)<250||(J.hasTex&&(tp.textureFormat==1||tp.textureFormat==6));
  bool dw=!translucent||J.tdw;unsigned dtest=J.depthTest;
@@ -535,14 +561,11 @@ static void GpuRawJ(const GJob&J){
    float area=(x1-x0)*(y2-y0)-(x2-x0)*(y1-y0);if(cullMode3d==1)area=-area;/* run 26: the old sign culled ~all field tris (36 left) */
    if((J.cullFace==1&&area>0)||(J.cullFace==2&&area<0)){culledTris++;continue;}}
   drawnTris++;
-  float cm[12];if(MM){for(int k=0;k<3;k++){const GuVertex&p=v[i+k];float*q=cm+4*k;
-    q[0]=p.x*MM[0]+p.y*MM[4]+p.z*MM[8]+MM[12];q[1]=p.x*MM[1]+p.y*MM[5]+p.z*MM[9]+MM[13];q[2]=p.x*MM[2]+p.y*MM[6]+p.z*MM[10]+MM[14];q[3]=p.x*MM[3]+p.y*MM[7]+p.z*MM[11]+MM[15];}
-   G3G_MidC=cm;}
-  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);G3G_MidC=nullptr;continue;}
+  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
   /* 2026-11-04: zf and the parallax once per vertex, both eyes written in one G3G_TriClip2 pass (was: all of it per eye) */
   float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=c[4*k+3];zf3[k]=w>1e-6f?0.5f*c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
   float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
-  G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);G3G_MidC=nullptr;
+  G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);
  }
 }
 static GuVertex scrBuf[8192];
@@ -612,7 +635,7 @@ static void Draw(const GuVertex*v,unsigned n,bool deferOk){
   for(unsigned i=0;i<n;i++){GuVertex o=v[i];const float d=((o.z-32768.0f)*(1.0f/32767.0f)+1.0f)*0.5f,w=d*wmax;
    float zn=w>=ff?1.0f:w>1e-6f?A-B/w:-1.0f;if(zn<-1)zn=-1;if(zn>1)zn=1;o.z=zn*32767.0f+32768.0f;scrBuf[i]=o;}
   DrawScreen(scrBuf,n,deferOk);return;}
- if(rawMode&&n&&gpuOn==1){u64 t=svcGetSystemTick();GJob J;gtSnapshot(J,v,n);if(gtCfg)gtSubmit(J);else if(!J.cullAll){bool ch=false;if(!CullBatch(J,ch)){gtResolveTex(J);J.pre=true;J.chunked=ch;J.cmask=chunkOff;GpuRawJ(J);}}prRaw+=svcGetSystemTick()-t;return;}
+ if(rawMode&&n&&gpuOn==1){P3DS_Fps60Poll();u64 t=svcGetSystemTick();GJob J;gtSnapshot(J,v,n);if(gtCfg)gtSubmit(J);else if(!J.cullAll){bool ch=false;if(!CullBatch(J,ch)){gtResolveTex(J);J.pre=true;J.chunked=ch;J.cmask=chunkOff;GpuRawJ(J);}}prRaw+=svcGetSystemTick()-t;return;}
  if(rawMode&&n){if(gtBusy())gtDrain(0);GJob J;gtSnapshot(J,v,n);unsigned m=RawToScreen(J,v,n);DrawScreen(rawOut,m,deferOk);return;}
  DrawScreen(v,n,deferOk);
 }

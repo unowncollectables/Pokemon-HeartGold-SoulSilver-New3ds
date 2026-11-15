@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "g3_shbin.h"
+#include "g3k_shbin.h"
 extern int P3DS_GpuInit(void);
 extern void PSPNativeMemLog(const char *, ...);
 extern void P3DS_FrameEnd(void);  /* gpuscale.c: C3D_FrameEnd, lean flush with fps_tweaks >= 1 */
@@ -20,26 +21,54 @@ static unsigned vn[2];
 static V *vb[2]; static B bt[2][MAXB]; static unsigned bn[2];
 /* fps60 (2026-11-15, Settings > Display > 60 fps field, default OFF): in-between 3D frames, like pokeplatinum-3ds's 60 fps field.
    The game still runs 30 ticks a second. For every raw draw call g3soft.cpp pairs this tick's clip matrix with the same draw's matrix of
-   the tick before and hands G3G_TriClip a second set of clip coordinates made with the average of the two (G3G_MidC): every vertex
-   exactly halfway, no polygon matching. Those go into vm[] at the same index as vb[], with the same batches. G3G_End draws vm[] first
-   into the eye target, copies it out to midTex[] (and the wide strips to rbM[]), then draws the real frame as before, all in one GPU
-   queue. render3ds.cpp composes the same 2D over midTex (gpucomp.c P3DS_GcMidCompose) and presents it one V-blank before the real
-   picture. Only direct 1x frames (gpu_direct3d + direct screen); anything else simply shows no in-between picture. Log: [FPS60]. */
-#define MIDV (3 * 8192)
-int G3G_MidRec; const float *G3G_MidC;
-static V *vm[2]; static C3D_Tex midTex[2]; static u32 *rbM[2]; static int midHave[2], midFail, midOver, midValid, midEyes, midWide;
-static unsigned midTot, midMat, midMov; unsigned G3G_MidWhy[6];   /* why no in-between 3D: 0 not direct, 1 too many vertices, 2 CPU fog, 3 nothing moved, 4 too few draws paired, 5 no memory */
+   the tick before and hands G3G_MidK the matrix K that carries this tick's clip coordinates halfway back (K = average * inverse(now)).
+   Nothing is transformed twice on the CPU: G3G_End draws the SAME vertex buffer a second time through shaders/g3k.v.pica, which puts
+   K in front of the position, one uniform change per run of draw calls that share K (the whole static world shares one). That picture
+   goes to midTex[] (and the wide strips to rbM[]), then the real frame is drawn as before, all in one GPU queue. render3ds.cpp composes
+   the same 2D over midTex (gpucomp.c P3DS_GcMidCompose) and presents it one V-blank before the real picture. Only direct 1x frames
+   (gpu_direct3d + direct screen) with a depth that is linear in clip space (not g3_wmode 1); anything else shows no in-between
+   picture. Log: [FPS60]. */
+#define KR_MAX 1024
+int G3G_MidRec;
+typedef struct { unsigned v0[2]; int id; float k[16]; } KR;   /* a run of vertices sharing K; k = K in vertex-buffer space, column-major */
+static KR kr[KR_MAX]; static unsigned krN; static float kWant[16]; static int kWantId = 1, kCurWant = 1;
+static DVLB_s *dvlbK; static shaderProgram_s progK; static int uK = -1;
+static C3D_Tex midTex[2]; static u32 *rbM[2]; static int midHave[2], midFail, midOver, midValid, midEyes, midWide;
+static unsigned midTot, midMat, midMov; unsigned G3G_MidWhy[6];   /* why no in-between 3D: 0 not direct, 1 too many matrix runs, 2 CPU fog, 3 nothing moved, 4 too few draws paired, 5 no memory */
 extern int P3DS_Fps60Active(void); extern int P3DS_Fps60Cfg(void);
 static int midAlloc(int n) {
     if (midFail) return 0;
     for (int e = 0; e < n; e++) { if (midHave[e]) continue;
-        vm[e] = linearAlloc(MIDV * sizeof(V)); rbM[e] = linearAlloc(320 * 256 * 4);
-        if (!vm[e] || !rbM[e] || !C3D_TexInit(&midTex[e], 256, 256, GPU_RGBA8)) { midFail = 1; G3G_MidWhy[5]++;
-            PSPNativeMemLog("[FPS60] no linear memory for the in-between 3D frame (eye %d, linear free %lu): 60 fps field stays off", e, (unsigned long)linearSpaceFree()); return 0; }
+        if (!dvlbK) { dvlbK = DVLB_ParseFile((u32 *)g3k_shbin, g3k_shbin_size);
+            if (dvlbK) { shaderProgramInit(&progK); shaderProgramSetVsh(&progK, &dvlbK->DVLE[0]); uK = shaderInstanceGetUniformLocation(progK.vertexShader, "kmtx"); } }
+        rbM[e] = linearAlloc(320 * 256 * 4);
+        if (uK < 0 || !rbM[e] || !C3D_TexInit(&midTex[e], 256, 256, GPU_RGBA8)) { midFail = 1; G3G_MidWhy[5]++;
+            PSPNativeMemLog("[FPS60] no linear memory or shader for the in-between 3D frame (eye %d, linear free %lu): 60 fps field stays off", e, (unsigned long)linearSpaceFree()); return 0; }
         C3D_TexSetFilter(&midTex[e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&midTex[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); midHave[e] = 1;
         PSPNativeMemLog("[FPS60] in-between 3D buffers ready for eye %d (linear free %lu)", e, (unsigned long)linearSpaceFree()); }
     return 1;
 }
+extern int G3G_FlipY, G3G_ZInv;
+static const float kIdent[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+static int wideFrame, hiFrame;
+/* K (clip space, column-major, NULL = identity) -> A * K * inverse(A), A = what G3G_TriClip does to a clip coordinate on its way into vb[] */
+static void krStart(const float *K) {
+    float k[16]; int id = !K;
+    if (id) memcpy(k, kIdent, sizeof k);
+    else { const float ws = wideFrame ? 0.8f : 1.0f, sy = hiFrame ? (G3G_FlipY ? 1.0f : -1.0f) : (G3G_FlipY ? 0.75f : -0.75f), ty = hiFrame ? 0.0f : (G3G_FlipY ? 0.25f : -0.25f), sz = G3G_ZInv ? 0.5f : -0.5f;
+        float t[16];   /* t = K * inverse(A): columns of K combined */
+        for (int r = 0; r < 4; r++) { t[r] = K[r] / ws; t[4 + r] = K[4 + r] / sy; t[8 + r] = K[8 + r] / sz; t[12 + r] = K[12 + r] - K[4 + r] * ty / sy + K[8 + r] * 0.5f / sz; }
+        for (int c = 0; c < 4; c++) { const float x = t[4 * c], y = t[4 * c + 1], z = t[4 * c + 2], w = t[4 * c + 3];   /* A * t: rows */
+            k[4 * c] = ws * x; k[4 * c + 1] = sy * y + ty * w; k[4 * c + 2] = sz * z - 0.5f * w; k[4 * c + 3] = w; } }
+    if (krN && kr[krN - 1].v0[0] == vn[0] && kr[krN - 1].v0[1] == vn[1]) krN--;   /* the run before got no vertex */
+    if (krN) { const KR *p = &kr[krN - 1]; int same = p->id == id;
+        if (same && !id) for (int i = 0; i < 16; i++) { const float d = p->k[i] - k[i]; if (d > 2e-4f || d < -2e-4f) { same = 0; break; } }
+        if (same) return; }
+    if (krN >= KR_MAX) { midOver = 1; return; }
+    KR *q = &kr[krN++]; q->v0[0] = vn[0]; q->v0[1] = vn[1]; q->id = id; memcpy(q->k, k, sizeof k);
+}
+/* g3soft.cpp, before the triangles of one raw draw call: K = in-between clip matrix * inverse(this tick's), NULL = stays where it is */
+void G3G_MidK(const float *K) { if (!G3G_MidRec) return; kWantId = !K; if (K) memcpy(kWant, K, sizeof kWant); krStart(K); kCurWant = 1; }
 void G3G_MidInfo(unsigned tot, unsigned mat, unsigned mov) { midTot = tot; midMat = mat; midMov = mov; }
 int G3G_MidReady(void) { return midValid; }
 C3D_Tex *G3G_MidTex(int e) { return midValid && e >= 0 && e < midEyes ? &midTex[e] : NULL; }
@@ -360,7 +389,7 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
     unsigned r = nativeClear & 63, g = (nativeClear >> 8) & 63, b = (nativeClear >> 16) & 63, a = (nativeClear >> 24) & 31;
     clearRGBA = ((r << 2 | r >> 4) << 24) | ((g << 2 | g >> 4) << 16) | ((b << 2 | b >> 4) << 8) | (a * 255 / 31);
     clearD = clearDepth16 / 65535.0f; eyes = stereo ? 2 : 1; vn[0] = vn[1] = bn[0] = bn[1] = 0;
-    G3G_MidRec = 0; G3G_MidC = NULL; midOver = 0; midValid = 0; midTot = midMat = midMov = 0;
+    G3G_MidRec = 0; krN = 0; kWantId = kCurWant = 1; midOver = 0; midValid = 0; midTot = midMat = midMov = 0;
     { static int stLast = -1; if (stereo != stLast) { if (stLast >= 0 && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the 3D slider changed"); } stLast = stereo; }
       /* run 141: while a panel app (party/bag/summary in the JOHTO panel) is opening or open, keep the current eye targets: it draws no 3D the player
          sees (the held field is on top), and re-making the targets (VRAM free + alloc + the 2x scale-target dance) cost a ~100 ms frame at every open. */
@@ -442,7 +471,7 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
         if (dance && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the VRAM change"); } }
       if (sh && curHi == 1 && depth16 && !sm) { res3dFail = 1; PSPNativeMemLog("[3DRES] sharp 3D: only 16-bit depth fitted (the run 48 stripes), back to 1x"); { extern void P3DS_Toast(const char *); P3DS_Toast("SHARP 3D: NO MEMORY"); } setTargets(want, 0); { extern int P3DS_UpAlloc(int); P3DS_UpAlloc(0); } }
       wideFrame = curW == 320; hiFrame = curHi == 1; }
-    if (P3DS_Fps60Active() && ok == 1 && curHi == 0 && !G3G_Async && midAlloc(eyes)) G3G_MidRec = 1;
+    if (P3DS_Fps60Active() && ok == 1 && curHi == 0 && !G3G_Async && G3G_WDepthOn() != 2 && midAlloc(eyes)) { G3G_MidRec = 1; krStart(NULL); }
 }
 static int wrapMode(int rep, int flip) { return !rep ? GPU_CLAMP_TO_EDGE : flip ? GPU_MIRRORED_REPEAT : GPU_REPEAT; }
 static B *batchFor(int eye, void *tex, int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, int late) {
@@ -461,19 +490,9 @@ static B *batchFor(int eye, void *tex, int repS, int repT, int flipS, int flipT,
    were a visible part of GpuRaw; the table holds exactly the same floats, so the vertices are bit-identical. */
 static float k255[256];
 static inline const float *lut255(void) { if (k255[255] == 0.0f) for (int i = 0; i < 256; i++) k255[i] = i / 255.0f; return k255; }
-/* fps60: the triangle just written at vb[eye][i0..i0+2] again in vm[], at G3G_MidC's clip coordinates (same uv, colour and stereo shift) */
-static inline void midPut(int eye, unsigned i0, const float *shiftPx) {
-    if (i0 + 3 > MIDV) { midOver = 1; return; }
-    const float *m = G3G_MidC;
-    for (int k = 0; k < 3; k++) { V *o = &vm[eye][i0 + k]; *o = vb[eye][i0 + k]; if (!m) continue;
-        const float x = m[4 * k], y = m[4 * k + 1], z = m[4 * k + 2], w = m[4 * k + 3];
-        o->x = x + (shiftPx ? shiftPx[k] / 128.0f * w : 0); if (wideFrame) o->x *= 0.8f;
-        o->y = hiFrame ? (G3G_FlipY ? y : -y) : G3G_FlipY ? (0.25f * w + 0.75f * y) : (-0.25f * w - 0.75f * y);
-        o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
-        if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w; }
-}
 void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                  int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shiftPx) {
+    if (G3G_MidRec && !kCurWant) { krStart(kWantId ? NULL : kWant); kCurWant = 1; }
     B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend); if (!last) return;
     const float *L = lut255();
     for (int k = 0; k < 3; k++) {
@@ -486,12 +505,12 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
         u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
     }
     last->count += 3;
-    if (G3G_MidRec) midPut(eye, vn[eye] - 3, shiftPx);
 }
 /* 2026-11-04 (solid-30 fps thread): both eyes of a stereo raw triangle in one pass. Same values as two G3G_TriClip calls (only x
    differs between the eyes), but y, z, uv and colour are worked out once instead of twice. */
 void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                   int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shL, const float *shR) {
+    if (G3G_MidRec && !kCurWant) { krStart(kWantId ? NULL : kWant); kCurWant = 1; }
     B *l0 = batchFor(0, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend), *l1 = batchFor(1, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend);
     if (!l0 || !l1) { if (l0) { G3G_TriClip(0, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shL); } if (l1) G3G_TriClip(1, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shR); return; }
     const float *L = lut255();
@@ -506,11 +525,11 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
         q->y = o->y; q->z = o->z; q->w = w; q->s = o->s; q->t = o->t; q->r = o->r; q->g = o->g; q->b = o->b; q->a = o->a;
     }
     l0->count += 3; l1->count += 3;
-    if (G3G_MidRec) { midPut(0, vn[0] - 3, shL); midPut(1, vn[1] - 3, shR); }
 }
 /* v: 3 x {sx, sy, z(0..65535), u(texels), v(texels), color RGBA8 as u32 R|G<<8|B<<16|A<<24} */
 void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const float *su, const float *sv, const u32 *col,
              void *tex, unsigned tw, unsigned th, int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest) {
+    if (G3G_MidRec && !kWantId && kCurWant) { krStart(NULL); kCurWant = 0; }   /* screen-space triangle (CPU-clipped): same place in both pictures */
     B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, 0); if (!last) return;
     float itw = tw ? 1.0f / tw : 0, ith = th ? 1.0f / th : 0; const float *L = lut255();
     for (int k = 0; k < 3; k++) {
@@ -520,7 +539,6 @@ void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const f
         u32 c = col[k]; o->r = L[c & 255]; o->g = L[(c >> 8) & 255]; o->b = L[(c >> 16) & 255]; o->a = L[c >> 24];
     }
     last->count += 3;
-    if (G3G_MidRec) { const float *k = G3G_MidC; G3G_MidC = NULL; midPut(eye, vn[eye] - 3, NULL); G3G_MidC = k; }   /* screen-space triangle (CPU-clipped): same place in both pictures */
 }
 static unsigned lastUs;
 unsigned G3G_LastUs(void) { return lastUs; }
@@ -678,6 +696,7 @@ const u32 *G3G_CrispHi(const u32 **nf) {
     if (!crispValid || curHi != 1 || wideFrame || P3DS_CfgInt("g3_sharp", 0) != 4) return NULL;
     *nf = crispNF; return crispBuf; }
 void G3G_End(u32 *outL, u32 *outR) {
+    { extern void P3DS_Fps60Poll(void); P3DS_Fps60Poll(); }
     if (ok != 1) return;
     fps60Probe();
     u64 t0 = svcGetSystemTick();
@@ -724,7 +743,6 @@ void G3G_End(u32 *outL, u32 *outR) {
     if (G3G_MidRec) {
         if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
         else if (!midTot || !midMov) G3G_MidWhy[3]++; else if (midMat * 4 < midTot * 3) G3G_MidWhy[4]++; else mid = 1;
-        if (mid) for (int e = 0; e < eyes; e++) GSPGPU_FlushDataCache(vm[e], vn[e] * sizeof(V));
     }
     if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
         const unsigned tot = vn[0] + vn[1];
@@ -782,15 +800,18 @@ void G3G_End(u32 *outL, u32 *outR) {
         const int f = (int)fogDens((u32)(clearD * 0xFFFFFF)); const int fc3[3] = { (int)((fc & 31) * 255 / 31), (int)(((fc >> 5) & 31) * 255 / 31), (int)(((fc >> 10) & 31) * 255 / 31) };
         fogClr = clearRGBA & 255; for (int c = 0; c < 3; c++) { int v = (clearRGBA >> (24 - 8 * c)) & 255; v = (fc3[c] * f + v * (128 - f)) >> 7; fogClr |= (u32)v << (24 - 8 * c); } }
     int decalOn = 0;
-    for (int ph = mid ? 0 : 1; ph < 2; ph++)   /* fps60: ph 0 = the in-between frame (vm[]), copied out before ph 1 draws the real one over it */
+    for (int ph = mid ? 0 : 1; ph < 2; ph++)   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
     for (int e = 0; e < eyes; e++) {
+        if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
+        if (!ph) for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]);
         if (!depthLin) C3D_RenderTargetClear(tgt[e], C3D_CLEAR_ALL, fogFrame == 1 ? fogClr : clearRGBA, depth16 ? (u32)(clearD * 0xFFFF) : ((u32)(clearD * 0xFFFFFF) | (fogFrame == 2 && (*(const u16 *)(PSPNative_GfxRegisters + 0x350) & 0x8000) ? 0x01000000u : 0)));
         C3D_FrameDrawOn(tgt[e]);   /* viewport = whole target (256/320 x 256, or 2x x 384) */
         const int small = r1xFrame && e == 1;   /* FAST 3D right eye: 1x viewport in the corner of the 2x target */
         if (small) C3D_SetViewport(0, 0, curW, 192);
         const int hx = curHi == 1 && !small;
         if (depthLin) clearQuad();
-        C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, ph ? vb[e] : vm[e], sizeof(V), 3, 0x210);
+        C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, vb[e], sizeof(V), 3, 0x210);
+        int kSet = -1;
         for (int pass = 0; pass < 2; pass++) for (unsigned i = 0; i < bn[e]; i++) {
             B *b = &bt[e][i]; if (!b->count || b->late != pass) continue;
             C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
@@ -806,7 +827,15 @@ void G3G_End(u32 *outL, u32 *outR) {
             { const int dec = hx && b->dfunc == GPU_EQUAL;
               if (dec != decalOn) { decalOn = dec; C3D_DepthMap(G3G_WDepthOn() != 2, -1.0f, dec ? -3e-5f : 0.0f); } }
             C3D_DepthTest(true, (hx && b->dfunc == GPU_EQUAL) ? GPU_LEQUAL : b->dfunc, b->dwrite ? GPU_WRITE_ALL : GPU_WRITE_COLOR);
-            C3D_DrawArrays(GPU_TRIANGLES, b->first, b->count);
+            if (ph) { C3D_DrawArrays(GPU_TRIANGLES, b->first, b->count); continue; }
+            /* in-between picture: the batch in pieces, one per run of vertices that share K */
+            unsigned a = b->first; const unsigned end = b->first + b->count;
+            unsigned lo = 0, hi = krN - 1; while (lo < hi) { const unsigned m = (lo + hi + 1) / 2; if (kr[m].v0[e] <= a) lo = m; else hi = m - 1; }
+            for (unsigned r = lo; a < end; r++) {
+                while (r + 1 < krN && kr[r + 1].v0[e] <= a) r++;
+                const unsigned stop = (r + 1 < krN && kr[r + 1].v0[e] < end) ? kr[r + 1].v0[e] : end;
+                if ((int)r != kSet) { kSet = (int)r; const float *k = kr[r].k; for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, k[i], k[4 + i], k[8 + i], k[12 + i]); }
+                C3D_DrawArrays(GPU_TRIANGLES, a, stop - a); a = stop; }
         }
         if (fogFrame == 1) C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
         if (!ph) {   /* in-between frame: out of the target before the real frame clears it (same copies as the direct path below) */
