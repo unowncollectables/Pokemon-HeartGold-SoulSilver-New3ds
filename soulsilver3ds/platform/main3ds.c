@@ -538,7 +538,7 @@ extern void __real_OS_WaitVBlankIntr(void); void __wrap_OS_WaitVBlankIntr(void) 
 /* [PERF4] (2026-10-27): time the game thread spends idle in its VBlank waits. The game paces itself at 30 per second with
    these waits, and they fall inside the [PERF] "g3soft" share, which therefore is not all CPU work. */
 volatile unsigned long long P3DS_VblIdleTicks;
-extern void P3DS_Fps60Poll(void), P3DS_Fps60AfterVBlank(void);
+extern void P3DS_Fps60Poll(void), P3DS_Fps60AfterVBlankWait(void);
 extern void __real_OS_WaitIrq(int c, u32 m); void __wrap_OS_WaitIrq(int c, u32 m) { CRUMB("waitirq");
     P3DS_Fps60Poll();
 #ifdef SS3DS
@@ -551,13 +551,13 @@ extern void __real_OS_WaitIrq(int c, u32 m); void __wrap_OS_WaitIrq(int c, u32 m
     if (m & 1u) { static int pr = -1; static u64 t0, idle; static unsigned waits; extern int P3DS_CfgInt(const char *, int); extern int P3DS_InField; extern int P3DS_FpsTweaks(void);
         if (pr < 0) { { pr = 0 /* fps60_probe: debug option removed */ != 0; } PSPNativeMemLog("[FPS] fps60_probe=%d (busy/idle time per second in the overworld, triangle order stability)", pr); }
         if ((pr || P3DS_FpsTweaks() >= 5) && P3DS_InField) { u64 a = svcGetSystemTick(); if (!t0) t0 = a; __real_OS_WaitIrq(c, m); u64 b = svcGetSystemTick(); idle += b - a; waits++; P3DS_VblIdleTicks += b - a;
-            P3DS_Fps60AfterVBlank();
+            P3DS_Fps60AfterVBlankWait();
             if (b - t0 >= 10 * 268111856ull) { double el = (double)(b - t0) / 268111.856, id = (double)idle / 268111.856;
                 PSPNativeMemLog("[FPS] field 10 s: %u VBlank waits (%.1f/s), idle %.0f ms, busy %.0f ms = %.1f ms per 33.3 ms tick (%.0f%% busy)", waits, waits * 1000.0 / el, id, el - id, (el - id) * 2.0 / (waits ? waits : 1), 100.0 * (el - id) / el);
                 t0 = b; idle = 0; waits = 0; }
             return; }
         t0 = 0; idle = 0; waits = 0; }
-    if (m & 1u) { const u64 a = svcGetSystemTick(); __real_OS_WaitIrq(c, m); P3DS_VblIdleTicks += svcGetSystemTick() - a; P3DS_Fps60AfterVBlank(); return; }
+    if (m & 1u) { const u64 a = svcGetSystemTick(); __real_OS_WaitIrq(c, m); P3DS_VblIdleTicks += svcGetSystemTick() - a; P3DS_Fps60AfterVBlankWait(); return; }
     __real_OS_WaitIrq(c, m); }
 extern void __real_MI_WaitDma(u32 ch); void __wrap_MI_WaitDma(u32 ch) { CRUMB("waitdma"); __real_MI_WaitDma(ch); }
 /* Texture-load call chain breadcrumbs (run-8 stall: endless GX_EndLoadTex/Pltt on the main thread). */
