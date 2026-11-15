@@ -531,13 +531,29 @@ void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, un
 #define DISP_FLAGS_B (GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
     GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 static C3D_RenderTarget *tgtTopB, *tgtTopRB; static int f60BFail;
+/* Second screen target. VRAM is two 3 MB banks and one target must sit inside one bank: log of 2026-11-15 had 471808 bytes free in total
+   but not 288000 in a single bank (stereo, right eye). Then the colour buffer goes to linear RAM (the PICA renders to FCRAM; same trick as
+   the res3d linear target in g3gpu.c: target made from a tiny VRAM texture, colour pointer replaced). */
+static C3D_RenderTarget *f60MakeB(void) {
+    C3D_RenderTarget *t = C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1);
+    if (t) return t;
+    static C3D_Tex dumTex; static int dumOk = -1;
+    if (dumOk < 0) dumOk = C3D_TexInitVRAM(&dumTex, 8, 8, GPU_RGBA8) ? 1 : 0;
+    void *col = dumOk ? linearMemAlign(240 * 400 * 3, 0x80) : NULL;
+    if (col && (t = C3D_RenderTargetCreateFromTex(&dumTex, GPU_TEXFACE_2D, 0, -1))) {
+        C3D_FrameBufColor(&t->frameBuf, col, GPU_RB_RGB8); C3D_FrameBufAttrib(&t->frameBuf, 240, 400, false);
+        PSPNativeMemLog("[FPS60] second screen target in linear RAM (VRAM free %lu, no single bank block of 288000)", (unsigned long)vramSpaceFree());
+        return t; }
+    if (col) linearFree(col);
+    return NULL;
+}
 static struct { int on, mode, st; C3D_Tex *l, *r; const u32 *sl, *sr; } f60Arg;
 static int f60Flip, f60FlipSt; static u64 f60FlipT0, f60PollT;
 int P3DS_GpuPresentMid(C3D_Tex *l, C3D_Tex *r, const u32 *sl, const u32 *sr, int mode, int st) {
     f60Arg.on = 0;
     if (!ready || upFmt16 < 0 || !l || (st && !r) || (mode == 2 && !gZoomSet) || f60BFail) return 0;
-    if (!tgtTopB) tgtTopB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1);
-    if (st && !tgtTopRB) tgtTopRB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1);
+    if (!tgtTopB) tgtTopB = f60MakeB();
+    if (st && !tgtTopRB) tgtTopRB = f60MakeB();
     if (!tgtTopB || (st && !tgtTopRB)) { f60BFail = 1; PSPNativeMemLog("[FPS60] no VRAM for the second screen target (free %lu): no in-between frames", (unsigned long)vramSpaceFree()); return 0; }
     f60Arg.on = 1; f60Arg.mode = mode; f60Arg.st = st; f60Arg.l = l; f60Arg.r = st ? r : NULL; f60Arg.sl = sl; f60Arg.sr = sr;
     return 1;
