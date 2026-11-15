@@ -321,7 +321,7 @@ void G3SIM_FlushArray();
    can change between draw calls (matrix, cull state, polygon attributes, texture) is captured here at submit time, so the same code runs unchanged on the
    game thread (g3_thread OFF) or on a worker thread (ON). ---- */
 struct GJob{const GuVertex*v;unsigned n;float M[16];bool cullAll;int cullFace;int fog;unsigned depthTest;G3SIM_TexImageParam_t tp;bool tdw;bool wbuf;bool replay;
- Tex*tex;void*gt;bool hasTex;unsigned tw,th;bool pre,chunked;const u8*cmask;};
+ Tex*tex;void*gt;bool hasTex;unsigned tw,th;bool pre,chunked;const u8*cmask;bool screen,deferOk;};
 static bool rawMode=false;static float rawM[16];
 struct CV{float x,y,z,w,u,v;float c[4];};
 static GuVertex rawOut[6144*3];
@@ -522,7 +522,7 @@ static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0
 static void gtMain(void*){P3DS_ThreadGuard("g3thread");gtInWorker=true;
  for(;;){unsigned h=gtHead;
   if(h==gtTail){gtSleep=1;__sync_synchronize();if(h!=gtTail){gtSleep=0;continue;}G3T_Wait();continue;}
-  const u64 t0=svcGetSystemTick();GpuRawJ(gtRing[h&GT_MASK]);gtBusyTicks+=svcGetSystemTick()-t0;
+  const u64 t0=svcGetSystemTick();{const GJob&J=gtRing[h&GT_MASK];if(J.screen)DrawScreenJ(J,J.v,J.n,J.deferOk);else GpuRawJ(J);}gtBusyTicks+=svcGetSystemTick()-t0;
   __sync_synchronize();gtHead=h+1;}}
 static bool gtStart(){
  if(gtThreadOk)return true;if(gtThreadOk<0)return false;
@@ -539,13 +539,16 @@ static void gtDrain(int why){
 static void gtDrainIfBusy(int why){if(gtBusy())gtDrain(why);}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  J.v=v;J.n=n;J.replay=(v==replayV);memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
- J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.pre=false;J.chunked=false;J.cmask=nullptr;}
+ J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.pre=false;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;}
 static void gtResolveTex(GJob&J){Tex*t=GetTexture();if(t&&!t->gt)t->gt=G3SIM_GpuTex(t);J.tex=t;J.hasTex=t!=nullptr;J.gt=t?t->gt:nullptr;J.tw=t?t->w:0;J.th=t?t->h:0;}
+static void gtPush(GJob&J,bool chunked);
 static void gtSubmit(GJob&J){
  /* the batch-level reject runs here (same code, same counters); a rejected batch never costs a copy, a texture fetch or a queue slot */
  if(J.cullAll)return;
  bool chunked=false;if(CullBatch(J,chunked))return;
  gtResolveTex(J);J.pre=true;J.chunked=chunked;
+ gtPush(J,chunked);}
+static void gtPush(GJob&J,bool chunked){
  if(!J.replay){if(gtArenaPos+J.n>GT_ARENA)gtDrain(5);GuVertex*d=gtArena+gtArenaPos;memcpy(d,J.v,J.n*sizeof(GuVertex));gtArenaPos+=J.n;J.v=d;}
  if(chunked){const unsigned nc=(J.n+kChunkV-1)/kChunkV;if(gtCmPos+nc>64*1024)gtDrain(5);u8*d=gtCmArena+gtCmPos;memcpy(d,chunkOff,nc);gtCmPos+=nc;J.cmask=d;}
  if(gtTail-gtHead>=GT_N)gtDrain(4);
@@ -580,6 +583,9 @@ static void DrawScreenJ(const GJob&J,const GuVertex*v,unsigned n,bool deferOk){
  for(unsigned i=0;i+2<n;i+=3)Tri(v[i],v[i+1],v[i+2],tex,tp,translucent,!translucent||J.tdw,dtest);
 }
 static void DrawScreen(const GuVertex*v,unsigned n,bool deferOk){   /* game thread */
+ if(gtCfg&&gpuOn==1){ /* screen-space draws go through the same queue, in order, so the game thread never waits here */
+  GJob J;gtSnapshot(J,v,n);if(!n||J.cullAll)return;J.tex=GetTexture();if(J.tex&&!J.tex->gt)J.tex->gt=G3G_TexCreate(J.tex->px,J.tex->w,J.tex->h);
+  J.screen=true;J.deferOk=deferOk;gtPush(J,false);return;}
  if(gtBusy())gtDrain(0);
  GJob J;gtSnapshot(J,v,n);if(n&&!J.cullAll){J.tex=GetTexture();}DrawScreenJ(J,v,n,deferOk);}
 extern "C" {
