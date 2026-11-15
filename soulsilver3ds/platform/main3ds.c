@@ -539,6 +539,7 @@ extern void __real_OS_WaitVBlankIntr(void); void __wrap_OS_WaitVBlankIntr(void) 
    these waits, and they fall inside the [PERF] "g3soft" share, which therefore is not all CPU work. */
 volatile unsigned long long P3DS_VblIdleTicks;
 extern void __real_OS_WaitIrq(int c, u32 m); void __wrap_OS_WaitIrq(int c, u32 m) { CRUMB("waitirq");
+    { extern void P3DS_Fps60Poll(void); P3DS_Fps60Poll(); }   /* fps60: hand the waiting real picture to the LCD if it is time (never waits) */
 #ifdef SS3DS
     if (m & 1u) { static int on = -1; static unsigned n; extern int P3DS_CfgInt(const char *, int);
         if (on < 0) { on = P3DS_CfgInt("vram_frame_gen", 1) != 0; PSPNativeMemLog("[G3] vram_frame_gen=%d (texture cache rechecks VRAM every VBlank wait)", on); }

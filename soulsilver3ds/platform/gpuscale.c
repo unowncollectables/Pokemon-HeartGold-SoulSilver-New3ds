@@ -252,6 +252,7 @@ static void quad(C3D_RenderTarget *t, float sw, int i, float x0, float y0, float
    at x 0..40 and 360..400 (1.25x, LINEAR) after the centred picture. P3DS_WideStrip[eye] = NULL: not drawn. */
 const u32 *P3DS_WideStrip[2];
 static C3D_Tex stripTex[2]; static u32 *stripLin[2]; static int stripOk = -1;
+static C3D_Tex stripTexM[2]; static u32 *stripLinM[2]; static int stripMid;
 /* run 52 wide_fadefix=1 (default): the strips get the CURRENT top-screen fade at draw time: MASTER_BRIGHT (0x6C),
    BLDCNT brighten/darken on BG0 (3D) with BLDY, forced blank / BG0 off / display off = black. A fade seen in the last
    3 presents is held (strongest), so the strips never show the new area before the centre has faded in. */
@@ -283,25 +284,31 @@ static void strips(C3D_RenderTarget *t, int eye) {
     static int hDir; static unsigned hAmt, hLeft; int fDir = 0; unsigned fAmt = 0;
     extern int P3DS_WideFxOn; /* run 54: wide_fx already matched the strips to the centre picture */
     if (P3DS_WideFadeFix() && !P3DS_WideFxOn) { static u64 lastT; u64 now = svcGetSystemTick();
-        if (eye == 0 || now - lastT > 268111 * 8) { int d; unsigned a; fadeNow(&d, &a); lastT = now;
+        if (!stripMid && (eye == 0 || now - lastT > 268111 * 8)) { int d; unsigned a; fadeNow(&d, &a); lastT = now;
             if (d && a) { hDir = d; hAmt = a; hLeft = 3; } else if (hLeft) { hLeft--; if (!hLeft) hAmt = 0; } }
         if (hAmt) { fDir = hDir; fAmt = hAmt; } }
     if (stripOk < 0) { stripOk = 1; for (int e = 0; e < 2; e++) { if (!C3D_TexInit(&stripTex[e], 64, 256, GPU_RGBA8) || !(stripLin[e] = linearAlloc(64 * 256 * 4))) { stripOk = 0; break; }
         C3D_TexSetFilter(&stripTex[e], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&stripTex[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(stripLin[e], 0, 64 * 256 * 4); }
         PSPNativeMemLog("[WIDE] strip textures %s", stripOk ? "ok" : "FAILED"); }
     if (!stripOk) return;
-    if (!fAmt) memcpy(stripLin[eye], src, 64 * 192 * 4);
-    else if (fAmt >= 16) { const u32 c = fDir == 1 ? 0xFFFFFFFFu : 0x000000FFu; for (unsigned i = 0; i < 64 * 192; i++) stripLin[eye][i] = c; }
+    /* fps60: the in-between picture's strips are queued in the same GPU frame as the real ones, so they need their own buffer and texture */
+    if (stripMid && !stripLinM[eye]) { stripLinM[eye] = linearAlloc(64 * 256 * 4);
+        if (stripLinM[eye] && !C3D_TexInit(&stripTexM[eye], 64, 256, GPU_RGBA8)) { linearFree(stripLinM[eye]); stripLinM[eye] = NULL; }
+        if (stripLinM[eye]) { C3D_TexSetFilter(&stripTexM[eye], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&stripTexM[eye], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(stripLinM[eye], 0, 64 * 256 * 4); } }
+    const int own = stripMid && stripLinM[eye];
+    u32 *const sLin = own ? stripLinM[eye] : stripLin[eye]; C3D_Tex *const sTx = own ? &stripTexM[eye] : &stripTex[eye];
+    if (!fAmt) memcpy(sLin, src, 64 * 192 * 4);
+    else if (fAmt >= 16) { const u32 c = fDir == 1 ? 0xFFFFFFFFu : 0x000000FFu; for (unsigned i = 0; i < 64 * 192; i++) sLin[i] = c; }
     else for (unsigned i = 0; i < 64 * 192; i++) { u32 c = src[i]; unsigned r = c >> 24, g = (c >> 16) & 255, b = (c >> 8) & 255;
         if (fDir == 1) { r += (255 - r) * fAmt / 16; g += (255 - g) * fAmt / 16; b += (255 - b) * fAmt / 16; } else { r -= r * fAmt / 16; g -= g * fAmt / 16; b -= b * fAmt / 16; }
-        stripLin[eye][i] = (r << 24) | (g << 16) | (b << 8) | 0xFF; }
-    { extern u32 P3DS_WeatherObj[]; extern int P3DS_WeatherOn; if (P3DS_WeatherOn && !fAmt) for (unsigned i = 0; i < 64 * 192; i++) if (P3DS_WeatherObj[i]) stripLin[eye][i] = P3DS_WeatherObj[i]; } /* run 70 wide_weather */
-    GSPGPU_FlushDataCache(stripLin[eye], 64 * 192 * 4);
-    C3D_SyncDisplayTransfer(stripLin[eye], GX_BUFFER_DIM(64, 256), stripTex[eye].data, GX_BUFFER_DIM(64, 256), TEX_FLAGS);
+        sLin[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF; }
+    { extern u32 P3DS_WeatherObj[]; extern int P3DS_WeatherOn; if (P3DS_WeatherOn && !fAmt) for (unsigned i = 0; i < 64 * 192; i++) if (P3DS_WeatherObj[i]) sLin[i] = P3DS_WeatherObj[i]; } /* run 70 wide_weather */
+    GSPGPU_FlushDataCache(sLin, 64 * 192 * 4);
+    C3D_SyncDisplayTransfer(sLin, GX_BUFFER_DIM(64, 256), sTx->data, GX_BUFFER_DIM(64, 256), TEX_FLAGS);
     C3D_FrameDrawOn(t);
     C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
-    C3D_TexBind(0, &stripTex[eye]);
+    C3D_TexBind(0, sTx);
     const int haze = P3DS_HazeOn && !fAmt;
     if (haze) { C3D_TexEnv *e0 = C3D_GetTexEnv(0), *e1 = C3D_GetTexEnv(1); C3D_TexEnvInit(e0); C3D_TexEnvInit(e1);
         C3D_TexEnvSrc(e0, C3D_RGB, GPU_TEXTURE0, GPU_CONSTANT, 0); C3D_TexEnvFunc(e0, C3D_RGB, GPU_MODULATE); C3D_TexEnvColor(e0, P3DS_HazeK);
@@ -471,73 +478,98 @@ static void pnDraw(C3D_RenderTarget *t) {
    (GPU 3D direct + direct screen); any other tick is presented exactly as before. If ticks keep taking longer than two V-blanks with it
    on, it rests for a while by itself (longer each time) and says so in the log. ---- */
 extern int P3DS_InField, P3DS_InBattle; extern volatile unsigned long long P3DS_VblIdleTicks; extern unsigned G3G_MidWhy[6];
-static int f60Cfg = -1; static unsigned f60Phase, f60Pause, f60PauseLen = 300, f60MidUs, f60MidTearUs;
+static int f60Cfg = -1, f60Did; static unsigned f60Phase, f60Pause, f60Ov = 6000, f60MidUs;
+static unsigned f60FlipLate, f60FlipN, f60FlipUs;
 static int gZoomSet; static float gFill[4];
 int P3DS_Fps60Cfg(void) {
     if (f60Cfg < 0) { f60Cfg = P3DS_CfgInt("fps60", 0); if (f60Cfg < 0 || f60Cfg > 2) f60Cfg = 0;
         PSPNativeMemLog("[FPS60] fps60=%d (0 off, 1 = in-between 3D frames in the overworld, 2 = A/B test: off and on by turns every 1200 ticks)", f60Cfg); }
     return f60Cfg; }
-void P3DS_SetFps60(int v) { f60Cfg = v < 0 ? 0 : v > 2 ? 2 : v; f60Phase = 0; f60Pause = 0; f60PauseLen = 300; PSPNativeMemLog("[FPS60] fps60=%d from settings", f60Cfg); }
+void P3DS_SetFps60(int v) { f60Cfg = v < 0 ? 0 : v > 2 ? 2 : v; f60Phase = 0; f60Pause = 0; f60Ov = 6000; PSPNativeMemLog("[FPS60] fps60=%d from settings", f60Cfg); }
 static int f60PhaseOn(void) { const int c = P3DS_Fps60Cfg(); return c == 1 || (c == 2 && ((f60Phase / 1200) & 1)); }
 int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InBattle && !f60Pause && f60PhaseOn(); }
 /* once per presented overworld tick while the setting is not OFF. shown: an in-between picture went out. why (when not): 1 no in-between 3D
-   this tick (g3gpu.c says which), 2 the picture went through the CPU (toast, save box, fade...), 3 a held or menu picture. */
+   this tick (g3gpu.c says which), 2 the picture went through the CPU (toast, save box, fade...), 3 a held or menu picture.
+   Step-down (second version): a tick that runs long no longer costs a whole extra V-blank, the pictures just come a little late. So it
+   only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or a quarter of the ticks over 36 ms), and
+   it comes back by measurement, not by a timer: at 30 the spare time per tick (V-blank idle) is known, and once that is back above
+   what the in-between picture costs (f60Ov, learned: +1.5 ms when a comeback fails within 6 s, -0.5 ms after 20 s that hold) it is on again. */
 void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
-    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow; static u64 sumUs, sumMid, sumTear, sumComp, sumStrip, idle0;
+    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, rN, rIdle, sinceOn, downs, ups; static u64 sumUs, sumMid, sumComp, sumStrip, idle0, idleL;
     const int act = P3DS_Fps60Active();
+    if (shown && !f60Did) { shown = 0; why = 3; }
+    const u64 idlNow = P3DS_VblIdleTicks; const unsigned idleUs = (unsigned)((idlNow - idleL) / 268); idleL = idlNow;
     n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
-    if (shown) { nShown++; sumMid += f60MidUs; sumTear += f60MidTearUs; sumComp += composeUs; sumStrip += stripUs; }
+    if (shown) { nShown++; sumMid += f60MidUs; sumComp += composeUs; sumStrip += stripUs; }
     else if (f60Pause) nPaused++; else if (act) nWhy[why & 3]++;
-    if (act) { wN++; if (frameUs > 36000) wSlow++;
-        if (wN >= 60) { if (wSlow > 24) { f60Pause = f60PauseLen; PSPNativeMemLog("[FPS60] %u of the last 60 ticks took over 36 ms with in-between frames on: resting for %u ticks", wSlow, f60PauseLen); if (f60PauseLen < 3600) f60PauseLen *= 2; }
-            else if (wSlow < 6) f60PauseLen = 300;
-            wN = wSlow = 0; } }
-    else if (f60Pause) { if (!--f60Pause) PSPNativeMemLog("[FPS60] trying in-between frames again"); wN = wSlow = 0; }
+    if (act) { wN++; wUs += frameUs > 100000 ? 100000 : frameUs; if (frameUs > 36000) wSlow++; sinceOn++;
+        if (sinceOn == 600 && f60Ov > 4000) f60Ov -= 500;
+        if (wN >= 60) { if (wSlow > 15 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
+                if (sinceOn < 180 && f60Ov < 14000) f60Ov += 1500;
+                PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks over 36 ms, avg %u us): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, f60Ov + 1500); }
+            wN = wSlow = wUs = 0; } }
+    else if (f60Pause) { wN = wSlow = wUs = 0; rN++; rIdle += idleUs > 33000 ? 33000 : idleUs;
+        if (rN % 30 == 0) { const unsigned spare = rIdle / 30; rIdle = 0;
+            if (rN >= 90 && spare > f60Ov + 1500) { f60Pause = 0; sinceOn = 0; ups++; PSPNativeMemLog("[FPS60] back on (spare time %u us per tick)", spare); } } }
     f60Phase++;
     if (n >= 600 || (P3DS_Fps60Cfg() == 2 && f60Phase % 1200 == 0)) {
-        const u64 idl = P3DS_VblIdleTicks; const unsigned k = nShown ? nShown : 1;
-        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between frames %u (%u%%) | tick avg %u.%02u ms, %u over 36 ms | VBlank idle %u us/tick | per in-between frame: compose %u + strips %u + present %u us (of that waiting for the screen %u) | none because: no in-between 3D %u (not direct %u, too big %u, CPU fog %u, nothing moved %u, unpaired %u, no memory %u), picture on the CPU %u, held/menu %u, resting %u",
+        const unsigned k = nShown ? nShown : 1;
+        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between frames %u (%u%%) | tick avg %u.%02u ms, %u over 36 ms | VBlank idle %u us/tick | per in-between frame: compose %u + strips %u + draw %u us | real picture handed over: %u in time (avg %u us after its frame), %u waited for | stepped down %u, back %u, cost estimate %u us | none because: no in-between 3D %u (not direct %u, too many runs %u, CPU fog %u, nothing moved %u, unpaired %u, no memory %u), picture on the CPU %u, held/menu %u, at 30 %u",
             (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B test block)" : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
-            (unsigned)((idl - idle0) / 268 / n), (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k), (unsigned)(sumTear / k),
+            (unsigned)((idlNow - idle0) / 268 / n), (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
+            f60FlipN - f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, f60FlipLate, downs, ups, f60Ov,
             nWhy[1], G3G_MidWhy[0], G3G_MidWhy[1], G3G_MidWhy[2], G3G_MidWhy[3], G3G_MidWhy[4], G3G_MidWhy[5], nWhy[2], nWhy[3], nPaused);
-        idle0 = idl; n = nShown = nSlow = nPaused = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumTear = sumComp = sumStrip = 0; }
+        idle0 = idlNow; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
 }
-/* the in-between picture on the top screen only (the touch screen keeps its last picture), one V-blank ahead of the P3DS_GpuPresent that
-   follows: that call's own wait for the screen to take this picture is what spaces the two. l / r: the compositor's in-between targets;
-   sl / sr: the in-between side strips (NULL = this tick's). Top overlays are drawn and left set for the real present. */
+/* The in-between picture and the real one are drawn in ONE GPU frame by P3DS_GpuPresent: the in-between goes into the screen targets
+   and out to the LCD at that frame's end; the real picture goes into a second pair of targets (tgtTopB / tgtTopRB, not linked to a
+   screen) and is only handed to the LCD ("flipped") one V-blank later, by P3DS_Fps60Poll from the game thread while the next tick
+   is already running. So the game never sits waiting between the two pictures (first version, run 835 log: the 2.3 ms wait for the
+   GPU plus the wait for the V-blank between them made a 30 ms tick take 50). P3DS_GpuPresentMid only notes what to draw. */
+static C3D_RenderTarget *tgtTopB, *tgtTopRB; static int f60BFail;
+static struct { int on, mode, st; C3D_Tex *l, *r; const u32 *sl, *sr; } f60Arg;
+static int f60Flip, f60FlipSt; static u64 f60FlipT0, f60PollT;
 int P3DS_GpuPresentMid(C3D_Tex *l, C3D_Tex *r, const u32 *sl, const u32 *sr, int mode, int st) {
-    if (!ready || upFmt16 < 0 || !l || (st && !r) || (mode == 2 && !gZoomSet)) return 0;
-    const u64 t0 = svcGetSystemTick();
-    if (st != stereoOn) { stereoOn = st; gfxSet3D(st); }
-    C3D_FrameBegin(0);
-    dirTop = l; dirTopR = st ? r : NULL;
-    C3D_BindProgram(&prog);
-    C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
-    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2);
-    C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR); C3D_CullFace(GPU_CULL_NONE); C3D_AlphaTest(false, GPU_ALWAYS, 0);
-    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
-    tevPlain();
-    prescale(0); if (st) prescale(2);
-    const u32 *k0 = P3DS_WideStrip[0], *k1 = P3DS_WideStrip[1];
-    if (k0 && sl) P3DS_WideStrip[0] = sl; if (k1 && sr) P3DS_WideStrip[1] = sr;
-    const float fx = gFill[0], fy = gFill[1], fw = gFill[2], fh = gFill[3];
-    if (mode == 2) quad(tgtTop, 400.0f, 0, fx, fy, fx + fw, fy + fh); else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); strips(tgtTop, 0); }
-    if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); strips(tgtTopR, 1); } }
-    P3DS_WideStrip[0] = k0; P3DS_WideStrip[1] = k1;
-    if (P3DS_TopOvOn) { topOvDraw(tgtTop); if (st) topOvDraw(tgtTopR); }
-    if (P3DS_TopOv2On) { topOv2Draw(tgtTop); if (st) topOv2Draw(tgtTopR); }
-    /* the same rule as P3DS_GpuPresent's tearfix: the screen must have taken the last picture before this one's transfer starts */
-    const u64 tw = svcGetSystemTick();
-    while ((gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM)) && svcGetSystemTick() - tw < (u64)(40 * 268111.856)) svcSleepThread(250000);
-    const u64 te = svcGetSystemTick();
-    P3DS_FrameEnd();
-    f60MidTearUs = (unsigned)((te - tw) / 268); f60MidUs = (unsigned)((svcGetSystemTick() - t0) / 268);
+    f60Arg.on = 0;
+    if (!ready || upFmt16 < 0 || !l || (st && !r) || (mode == 2 && !gZoomSet) || f60BFail) return 0;
+    if (!tgtTopB) tgtTopB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
+    if (st && !tgtTopRB) tgtTopRB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
+    if (!tgtTopB || (st && !tgtTopRB)) { f60BFail = 1; PSPNativeMemLog("[FPS60] no VRAM for the second screen target (free %lu): no in-between frames", (unsigned long)vramSpaceFree()); return 0; }
+    f60Arg.on = 1; f60Arg.mode = mode; f60Arg.st = st; f60Arg.l = l; f60Arg.r = st ? r : NULL; f60Arg.sl = sl; f60Arg.sr = sr;
     return 1;
+}
+/* inside a begun frame: the real picture waiting in tgtTopB (and tgtTopRB) goes to the LCD */
+static void f60FlipNow(void) {
+    C3D_RenderTargetSetOutput(tgtTopB, GFX_TOP, GFX_LEFT, DISP_FLAGS); C3D_FrameDrawOn(tgtTopB);
+    if (f60Flip == 2) { C3D_RenderTargetSetOutput(tgtTopRB, GFX_TOP, GFX_RIGHT, DISP_FLAGS); C3D_FrameDrawOn(tgtTopRB); }
+    P3DS_FrameEnd();
+    C3D_RenderTargetSetOutput(tgtTop, GFX_TOP, GFX_LEFT, DISP_FLAGS); C3D_RenderTargetSetOutput(tgtTopR, GFX_TOP, GFX_RIGHT, DISP_FLAGS);
+    f60FlipUs += (unsigned)((svcGetSystemTick() - f60FlipT0) / 268); f60FlipN++; f60Flip = 0;
+}
+static int f60Pending(void) { return gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM); }
+/* game thread, any time no GPU frame is open (per 3D draw call, at the V-blank wait, before the 3D frame ends): flip as soon as the GPU
+   has finished the two pictures AND the LCD has taken the in-between one (a flip before that would land in the buffer being shown) */
+void P3DS_Fps60Poll(void) {
+    if (!f60Flip) return;
+    const u64 now = svcGetSystemTick(); if (now - f60PollT < 268 * 300) return; f60PollT = now;
+    if (f60FlipSt == 0) { if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) return; f60FlipSt = 1;
+        if (f60Pending()) { C3D_FrameEnd(GX_CMDLIST_FLUSH); return; }
+        f60FlipNow(); return; }
+    if (f60Pending()) return;
+    C3D_FrameBegin(0); f60FlipNow();
+}
+/* before anything else is presented: the flip that no poll got to (a short tick), waited for */
+void P3DS_Fps60Flush(void) {
+    if (!f60Flip) return;
+    C3D_FrameBegin(0);
+    const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
+    f60FlipLate++; f60FlipNow();
 }
 void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, const u32 *topR) {
     P3DS_Crumb("gp-begin", 0); /* run 65: locate the boot stall */
     if (upFmt16 < 0 && !P3DS_UpAlloc(0)) { static unsigned n; if (!n++) PSPNativeMemLog("[3DRES] scale targets missing, frame not presented"); return; }
     P3DS_GpTearUs = 0; P3DS_GpStripUs = 0;
+    P3DS_Fps60Flush();
     int st = topR != NULL; if (st != stereoOn) { stereoOn = st; gfxSet3D(st); }
     static int vs = -1; if (vs < 0) { vs = 0; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "vsync=%d", &x) == 1) vs = x != 0; fclose(f); } PSPNativeMemLog("[3DS] vsync (tear-free present) %d", vs); }
     { const u64 tb = svcGetSystemTick(); C3D_FrameBegin(vs ? C3D_FRAME_SYNCDRAW : 0); P3DS_GpBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
@@ -558,6 +590,24 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
     C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
     for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k));
+    /* fps60: the in-between picture first, into the screen targets; the real one then goes into the second pair */
+    const int f60 = f60Arg.on && dirTop && (!st || dirTopR) && st == f60Arg.st && mode == f60Arg.mode && !crisp; f60Arg.on = 0; f60MidUs = 0; f60Did = f60;
+    if (f60) { const u64 tm = svcGetSystemTick();
+        C3D_Tex *const kt = dirTop, *const ktR = dirTopR; dirTop = f60Arg.l; dirTopR = f60Arg.r;
+        prescale(0); if (st) prescale(2);
+        const u32 *k0 = P3DS_WideStrip[0], *k1 = P3DS_WideStrip[1];
+        if (k0 && f60Arg.sl) P3DS_WideStrip[0] = f60Arg.sl; if (k1 && f60Arg.sr) P3DS_WideStrip[1] = f60Arg.sr;
+        const float gx = gFill[0], gy = gFill[1], gw = gFill[2], gh = gFill[3];
+        stripMid = 1;
+        if (mode == 2) quad(tgtTop, 400.0f, 0, gx, gy, gx + gw, gy + gh); else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); strips(tgtTop, 0); }
+        if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, gx, gy, gx + gw, gy + gh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); strips(tgtTopR, 1); } }
+        stripMid = 0;
+        P3DS_WideStrip[0] = k0; P3DS_WideStrip[1] = k1;
+        if (P3DS_TopOvOn) { topOvDraw(tgtTop); if (st) topOvDraw(tgtTopR); }
+        if (P3DS_TopOv2On) { topOv2Draw(tgtTop); if (st) topOv2Draw(tgtTopR); }
+        dirTop = kt; dirTopR = ktR; tevPlain();
+        f60MidUs = (unsigned)((svcGetSystemTick() - tm) / 268); }
+    C3D_RenderTarget *const tT = f60 ? tgtTopB : tgtTop, *const tTR = f60 ? tgtTopRB : tgtTopR;
     P3DS_Crumb("gp-prescale", 0); const u64 tDr0 = svcGetSystemTick();
     prescale(0); if (drawBottom && botFresh) { prescale(1); botValid = 1; } if (st) prescale(2);
     { static unsigned n; if (++n % 600 == 0) { PSPNativeMemLog("[3DS] present_skipbot: skipped bottom upload %u of 600", botSkips); botSkips = 0; } }
@@ -567,10 +617,10 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     float fw = (float)(int)(256 * zoom + 0.5f), fh = (float)(int)(192 * zoom + 0.5f), fx = (float)(int)((400 - fw) / 2), fy = (float)(int)((240 - fh) / 2);
     gFill[0] = fx; gFill[1] = fy; gFill[2] = fw; gFill[3] = fh;
     u64 stT = 0;
-    if (mode == 2) { quad(tgtTop, 400.0f, 0, fx, fy, fx + fw, fy + fh); if (crisp) crispDraw(tgtTop, 400.0f, fx, fy, fx + fw, fy + fh); } else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); if (crisp) crispDraw(tgtTop, 400.0f, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTop, 0); stT += svcGetSystemTick() - a; }
-    if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTopR, 1); stT += svcGetSystemTick() - a; } }
-    if (P3DS_TopOvOn) { P3DS_TopOvOn = 0; topOvDraw(tgtTop); if (st) topOvDraw(tgtTopR); }
-    if (P3DS_TopOv2On) { P3DS_TopOv2On = 0; topOv2Draw(tgtTop); if (st) topOv2Draw(tgtTopR); }
+    if (mode == 2) { quad(tT, 400.0f, 0, fx, fy, fx + fw, fy + fh); if (crisp) crispDraw(tT, 400.0f, fx, fy, fx + fw, fy + fh); } else { quad(tT, 400.0f, 0, 40, 0, 360, 240); if (crisp) crispDraw(tT, 400.0f, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tT, 0); stT += svcGetSystemTick() - a; }
+    if (st) { if (mode == 2) quad(tTR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tTR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tTR, 1); stT += svcGetSystemTick() - a; } }
+    if (P3DS_TopOvOn) { P3DS_TopOvOn = 0; topOvDraw(tT); if (st) topOvDraw(tTR); }
+    if (P3DS_TopOv2On) { P3DS_TopOv2On = 0; topOv2Draw(tT); if (st) topOv2Draw(tTR); }
     if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); pnDraw(tgtBot); ovDraw(tgtBot); botFadeDraw(tgtBot); } else P3DS_PnOn = 0;
     if (crN >= 600) { if (crOn) PSPNativeMemLog("[CRISP] %u of %u presents drew the 3D at final size, avg plain-3D cover %u%%, avg prep %u us", crOn, crN, (unsigned)(crMask / crOn * 100 / (256 * 192)), (unsigned)(crTicks / crOn / 268)); crN = crOn = 0; crMask = 0; crTicks = 0; }
     P3DS_GpStripUs = (unsigned)(stT / 268); P3DS_GpDrawUs = (unsigned)((svcGetSystemTick() - tDr0 - stT) / 268);
@@ -591,5 +641,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
         P3DS_GpTearUs = (unsigned)((svcGetSystemTick() - t0) / 268);
       } else if (tf && lastEnd) { u64 el = svcGetSystemTick() - lastEnd; if (el < (u64)(2 * 16.713 * 268111.856)) { if (el < (u64)(16.713 * 268111.856)) gspWaitForVBlank(); gspWaitForVBlank(); waits++; } }
       if (tf && ++n % 600 == 0) { PSPNativeMemLog("[3DS] tearfix=%d: waited on %u of 600 presents, avg wait %u us", tf, waits, waits ? (unsigned)(waitTicks / waits / 268) : 0); waits = 0; waitTicks = 0; }
-      P3DS_FpsGuardFrame(); P3DS_Crumb("gp-end", 0); { const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); lastEnd = svcGetSystemTick(); P3DS_GpEndUs = (unsigned)((lastEnd - te) / 268); } P3DS_Crumb("gp-done", 0); }
+      if (f60 && tf != 2) { const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000); }
+      P3DS_FpsGuardFrame(); P3DS_Crumb("gp-end", 0); { const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); lastEnd = svcGetSystemTick(); P3DS_GpEndUs = (unsigned)((lastEnd - te) / 268); } P3DS_Crumb("gp-done", 0);
+      if (f60) { f60Flip = st ? 2 : 1; f60FlipSt = 0; f60FlipT0 = lastEnd; f60PollT = 0; } }
 }
