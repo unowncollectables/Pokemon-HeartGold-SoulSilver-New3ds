@@ -414,14 +414,9 @@ static const float*mdMid(const GJob&J,float*Mm){
  const float*M=J.M;const void*key=J.replay?(const void*)J.v:nullptr;u32 sig=0;
  if(!J.replay){const GuVertex&a=J.v[0],&b=J.v[J.n-1];u32 w[6];memcpy(w,&a.x,12);memcpy(w+3,&b.x,12);sig=2166136261u;for(int i=0;i<6;i++)sig=(sig^w[i])*16777619u;}
  mdTot++;
- /* one walk over the candidates (same key) for both hypotheses: sc = the thing stands in the world (predicted by the camera step mdG),
-    scA = the thing is fixed to the camera (did not move on the screen). Same order, same strict "<", same float expressions as the two
-    separate walks before, so the pair chosen is bit for bit the same. */
- const MDraw*best=nullptr,*bestA=nullptr;float bs=1e30f,bsA=1e30f;unsigned cand=0;
+ const MDraw*best=nullptr;float bs=1e30f;unsigned cand=0;
  for(int i=mdHead[mdHash(key,J.n,sig)];i>=0;i=mdNext[i]){const MDraw&d=mdPrev[i];if(d.key!=key||d.n!=J.n||d.sig!=sig)continue;cand++;
-  const float dx=M[12]-d.M[12],dy=M[13]-d.M[13],dw=M[15]-d.M[15];
-  const float sc=fabsf(dx-mdG[0])+fabsf(dy-mdG[1])+fabsf(dw-mdG[3]);if(sc<bs){bs=sc;best=&d;}
-  const float scA=fabsf(dx)+fabsf(dy)+fabsf(dw);if(scA<bsA){bsA=scA;bestA=&d;}}
+  const float sc=fabsf(M[12]-d.M[12]-mdG[0])+fabsf(M[13]-d.M[13]-mdG[1])+fabsf(M[15]-d.M[15]-mdG[3]);if(sc<bs){bs=sc;best=&d;}}
  if(mdCurN<MD_MAX){MDraw&c=mdCur[mdCurN++];c.key=key;c.n=J.n;c.sig=sig;memcpy(c.M,M,sizeof c.M);}
  const float wr=fabsf(M[15])>1.0f?fabsf(M[15]):1.0f;
  /* Limits (run 838 photo and log; #458 tightened every draw and the jumping got worse, so only what is proven needed stays tight):
@@ -432,6 +427,9 @@ static const float*mdMid(const GJob&J,float*Mm){
       whose camera step alone is more than the limit; glass and reflections drawn over the view), and a small draw (a character sprite,
       all the same quad) pairs within 0.15 (19 px) of either place. Unpaired draws move with the camera (mdG/2), which is wrong for the player, so he must pair. */
  const float lim=J.n<24?0.15f:(cand>1?0.1f:0.6f);
+ float bsA=1e30f;const MDraw*bestA=nullptr;
+ for(int i=mdHead[mdHash(key,J.n,sig)];i>=0;i=mdNext[i]){const MDraw&d=mdPrev[i];if(d.key!=key||d.n!=J.n||d.sig!=sig)continue;
+  const float sc=fabsf(M[12]-d.M[12])+fabsf(M[13]-d.M[13])+fabsf(M[15]-d.M[15]);if(sc<bsA){bsA=sc;bestA=&d;}}
  if(bestA&&bsA<bs){best=bestA;bs=bsA;}
  if(best&&bs<lim*wr){mdMat++;bool same=true,rigid=true;
   for(int i=0;i<16;i++){const float d=M[i]-best->M[i];if(d!=0.0f){same=false;if(i<12&&fabsf(d)>1e-5f*(fabsf(M[i])+1.0f))rigid=false;}Mm[i]=0.5f*(M[i]+best->M[i]);}

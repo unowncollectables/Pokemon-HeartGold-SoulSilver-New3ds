@@ -84,6 +84,17 @@ unsigned P3DS_GcMbFrames;  /* fps_tweaks 3: frames composed with a master-bright
 static int gpuBusy, fpEye, fpDefer; static unsigned fpSub, fpOvN, fpWaitN, fpFinN;
 static GV *vbA, *vbB; static u32 *rbR;
 typedef struct { u32 *rbuf, *out; u16 mbr; } GJ; static GJ fpPend;
+/* fps60: C3D_FrameBegin that does not leave the real picture of the last tick waiting for its hand-over to the LCD. The GPU wait here
+   (the 3D frame, both pictures: 4 ms, with the CPU idle) is exactly when the LCD has taken the in-between picture (about one V-blank
+   after the last present), so the hand-over is tried before and during it (P3DS_Fps60Poll never waits). Without a waiting hand-over
+   this is plain C3D_FrameBegin(0). Run 840 log: the hand-over was missed (polls only at 3D draw calls, which come before the LCD had
+   taken the in-between picture) in about half the ticks and the next present then idled 5-9 ms (tearfix) for it. */
+extern int P3DS_Fps60Pending(void); extern void P3DS_Fps60Poll(void);
+static void gcFrameBegin(void) {
+    if (!P3DS_Fps60Pending()) { C3D_FrameBegin(0); return; }
+    P3DS_Fps60Poll();
+    while (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) { P3DS_Fps60Poll(); svcSleepThread(100000); }
+}
 static void gcIdle(void) { if (gpuBusy) { C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH); gpuBusy = 0; } }
 static int fpOn(void) {
     if (P3DS_FpsTweaks() < 6) return 0;
@@ -472,7 +483,7 @@ C3D_Tex *P3DS_GcMidCompose(int e, C3D_Tex *t3) {
         if (rtMOk[e]) { C3D_TexSetFilter(&rtTexM[e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&rtTexM[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); }
         PSPNativeMemLog("[FPS60] in-between picture target for eye %d %s (VRAM free %lu)", e, rtMOk[e] ? "ready" : "FAILED: no in-between frames", (unsigned long)vramSpaceFree()); }
     if (rtMOk[e] != 1) return NULL;
-    C3D_FrameBegin(0); G3G_DirectSynced();
+    gcFrameBegin(); G3G_DirectSynced();
     gcDrawAll(rtM[e], mc.bd, t3, mc.q3, mc.b3, mc.vb, 256.0f);
     P3DS_FrameEnd(); gpuBusy = 1;
     return &rtTexM[e];
@@ -544,7 +555,7 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
         bd = (c[0] << 24) | (c[1] << 16) | (c[2] << 8) | 0xFF; }
     if (fpEye && !dfEye && dfPend[0]) { dfPend[0] = 0; dfFetch(0, dfOut[0]); }   /* the left eye was left in rt, which this right eye reuses */
     P3DS_Crumb("gc-draw", 0);
-    { const u64 tb = svcGetSystemTick(); C3D_FrameBegin(0); P3DS_GcBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
+    { const u64 tb = svcGetSystemTick(); gcFrameBegin(); P3DS_GcBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
     gpuBusy = 0;
     G3G_DirectSynced();   /* FrameBegin waited for every queued draw, including g3gpu's direct 3D frame */
     C3D_RenderTarget *const tgt = gcTitleWide ? titleTarget : (dfEye ? rtR : rt);
