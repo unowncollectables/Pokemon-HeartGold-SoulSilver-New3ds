@@ -212,11 +212,20 @@ static void drawEngineB(){
    extern volatile unsigned P3DS_SceneGen;u32 sig[4]={P3DS_SceneGen,reg32(0x240),reg32(0x244)&0xFFFF,reg32(0)};
    if(memcmp(sig,lastSig,sizeof sig)){memcpy(lastSig,sig,sizeof sig);force=refCfg;}
    if(force>0){force--;bottomCache.valid=false;}}
-  /* run 76: Underground fix - bottom VRAM written through tracked copies (banks C/D/H/I) invalidates the reuse */
+  // SoulSilver stamps all VRAM pages at VBlank. During the field Save prompt,
+  // BottomSame can compare the actual Engine B inputs instead of treating
+  // that stamp as a change. Keep the conservative invalidation elsewhere.
+  const bool savePrompt = P3DS_InField && P3DS_StartPrompt && (pw & 0x8000) &&
+                          !P3DS_MenuOpen && !P3DS_PanelPartyWant && !P3DS_PanelPartyOn;
+  static bool wasSavePrompt;
+  if(savePrompt != wasSavePrompt) {
+   bottomCache.valid = false;
+   wasSavePrompt = savePrompt;
+  }
   {static unsigned lastG;unsigned g=0,gp=0;
    for(unsigned pg=0x40;pg<0x80;pg++)if(PSPNativeVramPageGen[pg]>g){g=PSPNativeVramPageGen[pg];gp=pg;}
    for(unsigned pg=0x98;pg<0xA4;pg++)if(PSPNativeVramPageGen[pg]>g){g=PSPNativeVramPageGen[pg];gp=pg;}
-   if(g!=lastG){lastG=g;if(bottomCache.valid&&P3DS_CfgInt("bottom_vramgen",1)){bottomCache.valid=false;static int n;if(n<20){n++;PSPNativeMemLog("[2D] bottom changed by VRAM page %u",gp);}}}}
+   if(g!=lastG){lastG=g;if(!savePrompt&&bottomCache.valid&&P3DS_CfgInt("bottom_vramgen",1)){bottomCache.valid=false;static int n;if(n<20){n++;PSPNativeMemLog("[2D] bottom changed by VRAM page %u",gp);}}}}
   if(bHideB){bottomCache.valid=false;P3DS_BottomReused=0;pfBHid++;bStale=true;return;}
   const int titleMode=P3DS_InTitle?titleCleanCfg():0;
   if(titleMode<2&&bSkipCfg&&!bGpuVerify&&BottomSame(pw)){bSkips++;P3DS_BottomReused=1;return;}
@@ -2923,7 +2932,7 @@ static int Present(bool){
  else{topTouch();present(GFX_TOP,400,top,0);if(!P3DS_ConsoleOnBottom())present(GFX_BOTTOM,320,bot,0);gfxFlushBuffers();gfxSwapBuffers();}
  P3DS_GameFramePresented();
  u64 tEnd=svcGetSystemTick();last2DUs=(unsigned)((tEnd-t0)/CPU_TICKS_PER_USEC);frames++;
- {static unsigned bl;if(++bl%600==0){PSPNativeMemLog("[2D] bottom_skip: reused %u, recomposed %u of last 600 | steal_b: engine B on main %u, worker %u | early_b %u | split_top %u",bSkips,bDraws,stealMain,stealWorker,earlyN,splitN);earlyN=0;splitN=0;bSkips=bDraws=0;stealMain=stealWorker=0;}}
+ {static unsigned bl,lastSkips,lastDraws;if(++bl%600==0){PSPNativeMemLog("[2D] bottom_skip: reused %u, recomposed %u of last 600 | steal_b: engine B on main %u, worker %u | early_b %u | split_top %u",bSkips-lastSkips,bDraws-lastDraws,stealMain,stealWorker,earlyN,splitN);lastSkips=bSkips;lastDraws=bDraws;earlyN=0;splitN=0;stealMain=stealWorker=0;}}
  {unsigned total=tPrevEnd?(unsigned)((tEnd-tPrevEnd)/CPU_TICKS_PER_USEC):0,comp=(unsigned)((tComp-t0)/CPU_TICKS_PER_USEC),gpu=(unsigned)((tEnd-tComp)/CPU_TICKS_PER_USEC);
   {/* run 43 [SPIKE] diag: any frame > spike_ms (default 70, 0 = off) logs where the time went (max 60 lines / session).
      g3soft time includes the game's own CPU work between frame start and the 3D flush (loads, decompression). */
