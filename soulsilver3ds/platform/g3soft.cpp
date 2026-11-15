@@ -402,12 +402,12 @@ static const float kMidEdge=1.06f;   /* off-screen rejects keep a 6% rim while r
 struct MDraw{const void*key;unsigned n;u32 sig;float M[16];};
 enum{MD_MAX=1536,MD_H=512};
 static MDraw mdA[MD_MAX],mdB[MD_MAX];static MDraw*mdCur=mdA,*mdPrev=mdB;static unsigned mdCurN,mdPrevN;static bool mdPrevOk;
-static short mdHead[MD_H],mdNext[MD_MAX];static float mdG[4];static bool mdGSet;static unsigned mdTot,mdMat,mdMov;
+static short mdHead[MD_H],mdNext[MD_MAX];static float mdG[4];static unsigned mdTot,mdMat,mdMov;
 static inline unsigned mdHash(const void*key,unsigned n,u32 sig){return (unsigned)((((uintptr_t)key>>3)^(n*40503u)^sig)*2654435761u)>>23;}
 static void mdFrameBegin(bool rec){
  /* the table just filled becomes "the tick before" only if that tick recorded (else nothing may be paired with stale matrices) */
  MDraw*t=mdCur;mdCur=mdPrev;mdPrev=t;mdPrevN=mdPrevOk?mdCurN:0;mdCurN=0;mdPrevOk=rec;mdTot=mdMat=mdMov=0;
- if(!rec){mdPrevN=0;mdGSet=false;return;}
+ if(!rec){mdPrevN=0;return;}
  memset(mdHead,0xFF,sizeof mdHead);
  for(unsigned i=0;i<mdPrevN;i++){const unsigned h=mdHash(mdPrev[i].key,mdPrev[i].n,mdPrev[i].sig);mdNext[i]=mdHead[h];mdHead[h]=(short)i;}}
 static const float*mdMid(const GJob&J,float*Mm){
@@ -418,32 +418,23 @@ static const float*mdMid(const GJob&J,float*Mm){
  for(int i=mdHead[mdHash(key,J.n,sig)];i>=0;i=mdNext[i]){const MDraw&d=mdPrev[i];if(d.key!=key||d.n!=J.n||d.sig!=sig)continue;cand++;
   const float sc=fabsf(M[12]-d.M[12]-mdG[0])+fabsf(M[13]-d.M[13]-mdG[1])+fabsf(M[15]-d.M[15]-mdG[3]);if(sc<bs){bs=sc;best=&d;}}
  if(mdCurN<MD_MAX){MDraw&c=mdCur[mdCurN++];c.key=key;c.n=J.n;c.sig=sig;memcpy(c.M,M,sizeof c.M);}
- /* a partner further than about a third of the screen from where it should be is something else (a warp, another copy).
-    Small draws (character sprites: every one is the same quad, so the key cannot tell them apart) only pair within about 11 px of
-    where they should be, less than one map tile: run 836 photo, a character that had just changed its quad was paired with the
-    player standing one tile away and its in-between picture sat halfway between the two ("doubled and bounced"). Unpaired, it simply
-    moves with the camera. */
  const float wr=fabsf(M[15])>1.0f?fabsf(M[15]):1.0f;
- /* audit (after the doubled-character photo): ONE tight limit for every draw, 0.1 of the half screen = 12.8 px, under one map tile (16 px).
-    A repeated model (trees, fences, hedges) that has just come into view used to pair with its neighbour one or two tiles away and sat
-    halfway between the two for a picture; a draw that jumps (warp, scripted teleport, a character that changed places) did the same.
-    A draw that does not pair is not lost: it moves with the camera (mdG/2), which is exactly right for everything that stands still. */
- if(best&&bs<0.1f*wr){
-  /* the 3x3 part must be (nearly) the same: a turning camera or a spinning object averaged matrix by matrix would shrink and skew. Not paired = stays. */
-  float mx=0,dm=0;for(int i=0;i<12;i++){const float a=fabsf(M[i]);if(a>mx)mx=a;const float d=fabsf(M[i]-best->M[i]);if(d>dm)dm=d;}
-  if(dm>0.08f*mx)best=nullptr;}
- if(best){mdMat++;bool same=true,rigid=true;
+ /* Limits (run 838 photo and log; #458 tightened every draw and the jumping got worse, so only what is proven needed stays tight):
+    - a unique draw (cand==1: a building, the ground, a big model) keeps the loose limit of a third of the screen;
+    - a repeated model (several candidates with the same key: trees, fences) may only pair within 0.1 of the half screen, 12.8 px, under
+      a tile, so one that has just come into view does not pair with its neighbour and sit halfway between them;
+    - every draw also pairs with a partner that has not moved on the screen at all (fixed to the camera: the player, the player on the bike,
+      whose camera step alone is more than the limit; glass and reflections drawn over the view), and a small draw (a character sprite,
+      all the same quad) pairs within 0.15 (19 px) of either place. Unpaired draws move with the camera (mdG/2), which is wrong for the player, so he must pair. */
+ const float lim=J.n<24?0.15f:(cand>1?0.1f:0.6f);
+ float bsA=1e30f;const MDraw*bestA=nullptr;
+ for(int i=mdHead[mdHash(key,J.n,sig)];i>=0;i=mdNext[i]){const MDraw&d=mdPrev[i];if(d.key!=key||d.n!=J.n||d.sig!=sig)continue;
+  const float sc=fabsf(M[12]-d.M[12])+fabsf(M[13]-d.M[13])+fabsf(M[15]-d.M[15]);if(sc<bsA){bsA=sc;bestA=&d;}}
+ if(bestA&&bsA<bs){best=bestA;bs=bsA;}
+ if(best&&bs<lim*wr){mdMat++;bool same=true,rigid=true;
   for(int i=0;i<16;i++){const float d=M[i]-best->M[i];if(d!=0.0f){same=false;if(i<12&&fabsf(d)>1e-5f*(fabsf(M[i])+1.0f))rigid=false;}Mm[i]=0.5f*(M[i]+best->M[i]);}
   if(!same)mdMov++;
-  if(cand==1&&rigid&&J.n>=24){
-   /* the camera step is taken from big, unique, rigid draws only; a step that disagrees with the last one (something big and unique that
-      moves by itself, a boat) must repeat on the next draw before it is believed, so one odd draw cannot send every unpaired draw the wrong way */
-   const float nx=M[12]-best->M[12],ny=M[13]-best->M[13],nz=M[14]-best->M[14],nw=M[15]-best->M[15];
-   const float dev=fabsf(nx-mdG[0])+fabsf(ny-mdG[1])+fabsf(nw-mdG[3]);
-   static float pend[4];static int pendN;
-   if(dev<0.1f*wr||!mdGSet){mdG[0]=nx;mdG[1]=ny;mdG[2]=nz;mdG[3]=nw;mdGSet=true;pendN=0;}
-   else if(pendN&&fabsf(nx-pend[0])+fabsf(ny-pend[1])+fabsf(nw-pend[3])<0.02f*wr){mdG[0]=nx;mdG[1]=ny;mdG[2]=nz;mdG[3]=nw;pendN=0;}
-   else{pend[0]=nx;pend[1]=ny;pend[2]=nz;pend[3]=nw;pendN=1;}}
+  if(cand==1&&rigid&&J.n>=24){mdG[0]=M[12]-best->M[12];mdG[1]=M[13]-best->M[13];mdG[2]=M[14]-best->M[14];mdG[3]=M[15]-best->M[15];}
   return Mm;}
  memcpy(Mm,M,16*sizeof(float));for(int i=0;i<4;i++)Mm[12+i]-=0.5f*mdG[i];
  return Mm;}
