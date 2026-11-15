@@ -2486,6 +2486,9 @@ static int Present(bool){
     game's own touch path, so Pokemon / Bag / Save etc. run the unchanged game code. Hidden while the real menu is open. */
  const u64 tBm0=svcGetSystemTick();pfT[PF_OVL]+=tBm0-tComp;pfT[PF_DRAWS]+=tBm0-tOv0;
  static bool bmShow;static bool bmGrace;blSameFrame=false;
+ static const u32 *lastMenuSurface;
+ const u32 *previousMenuSurface = lastMenuSurface;
+ lastMenuSurface = nullptr;
  {static const char*const kNm[7]={"POKEDEX","POKEMON","BAG","POKEGEAR","TRAINER CARD","SAVE","OPTIONS"};
   static const int kAct[7]={0,1,2,11,3,4,5}; /* StartMenuAction ids */
   static unsigned bmTick,bmHold,bmAge;static int bmDown=-1;static bool bmPrev;
@@ -2773,11 +2776,20 @@ static int Present(bool){
      /* fps_tweaks >= 2: the unchanged picture was force-repainted every 60 frames (idle log: 4 to 6 repaints per 300 at ~10.7 ms, a hitch every 2 s). Input and state changes already bump blGen/key, so the safety refresh is now every 20 s. */
      static const u32*blShown; /* the cached picture presented last frame: only that one lets the GPU present skip the bottom upload */
      static bool mkBlink,mkShown;static int mkN,mkX[4],mkY[4];static unsigned rpLog; /* mkBlink = blink state drawn into the cached picture, mkShown = state last presented */
-     if(cc&&cGen==blGen&&cKey==key&&++cAge<(P3DS_FpsTweaks()>=2?600:60)){memcpy(b,cc,256*192*4);blReuse++;blSameFrame=cc==blShown;blShown=cc;}
+     const bool fieldSurface = (power & 0x8000) && P3DS_InField && !P3DS_InBattle && !ppChrome;
+     if(cc&&cGen==blGen&&cKey==key&&++cAge<(P3DS_FpsTweaks()>=2?600:60)){
+      blSameFrame=cc==blShown;
+      // The worker left Engine B untouched when the Bottom Menu covered it.
+      const bool keepSurface = fieldSurface && async && bHideB && bStale &&
+                               b == previousMenuSurface && blSameFrame && mkShown == blink;
+      if(!keepSurface) memcpy(b,cc,256*192*4);
+      blReuse++;blShown=cc;
+     }
      else{if(rpLog<24){rpLog++;PSPNativeMemLog("[BMENU] repaint %u: %s (last BLINV at render3ds.cpp:%u, blink %d)",rpLog,!cc?"no cache":cGen!=blGen?"overlay state changed":cKey!=key?"key changed (button/mode/icons/pane)":"safety refresh",blLine,(int)blink);}
       blShown=cc;const u64 t0b=svcGetSystemTick();cAge=0;cGen=blGen;cKey=key;gPg.moving=false;gMkRec=true;gMkN=0;blDraw(b,kSuiText,mm,blMode<0?-1:blMode,blink,lb,al,on,buttonPress);gMkRec=false;mkN=gMkN;for(int i=0;i<mkN;i++){mkX[i]=gMkX[i];mkY[i]=gMkY[i];}mkBlink=blink;if(gPg.moving){static unsigned mvT;if(P3DS_FpsTweaks()<5||(mvT++&1)==0)BLINV;}if(cc)memcpy(cc,b,256*192*4);blRedraw++;pfBlRep++;blUs+=(svcGetSystemTick()-t0b)/CPU_TICKS_PER_USEC;}
      if(mkBlink!=blink)for(int i=0;i<mkN;i++)mmPlayer(b,mkX[i],mkY[i],blink); /* the cached picture has the other blink state: redraw just the marker */
      if(mkShown!=blink){mkShown=blink;blSameFrame=false;}
+     if(fieldSurface) lastMenuSurface=b;
      {static unsigned lg;if(++lg%300==0){PSPNativeMemLog("[BMENU] overlay cache: reused %u, repainted %u of last 300 (%u us per repaint)",blReuse,blRedraw,blRedraw?(unsigned)(blUs/blRedraw):0);blReuse=blRedraw=0;blUs=0;}}} /* run 16: map still sliding to the new location */
     /* run 18 bottom_hd=1 (default): the button column at native 320x240 (ss3ds_blnative.h, after GabeSud0's port_lowermenu.c); 0 = the run 17 stretched column */
     static int bnX[kBlButtonCount],bnY[kBlButtonCount];static unsigned bnKey=~0u;const int bhd=bottomHdCfg()&&P3DS_ScaleMode()!=0;static int bhdPrev=-1;if(bhd!=bhdPrev){bhdPrev=bhd;bnKey=~0u;gBlHd=bhd;BLINV;}
