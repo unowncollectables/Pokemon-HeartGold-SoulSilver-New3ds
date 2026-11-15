@@ -464,14 +464,37 @@ static void gcDrawAll(C3D_RenderTarget *tgt, u32 bd, C3D_Tex *t3, unsigned q3, i
    picture t3 under the same 2D, into its own target. Call right after that compose (its vertices, batches and atlas are untouched: the
    compositor is marked busy, so the next compose waits before it rewrites them). Returns the picture for gpuscale.c, or NULL. */
 static struct { int ok, b3; unsigned q3, nb; u32 bd; GV *vb; } mc;
-static C3D_Tex rtTexM[2]; static C3D_RenderTarget *rtM[2]; static int rtMOk[2] = { -1, -1 };
+static C3D_Tex rtTexM[2];
+static C3D_RenderTarget *rtM[2];
+
+int P3DS_GcMidStereoReady(void) { return rtROk == 1; }
+
+int P3DS_GcPrepareMid(int stereo) {
+    const int hadLeft = rtM[0] != NULL;
+    for (int eye = 0; eye <= stereo; eye++) {
+        if (rtM[eye]) continue;
+        /* The final composite needs only RGB, leaving VRAM for the LCD targets. */
+        if (C3D_TexInitVRAM(&rtTexM[eye], 256, 256, GPU_RGB8)) {
+            rtM[eye] = C3D_RenderTargetCreateFromTex(&rtTexM[eye], GPU_TEXFACE_2D, 0, -1);
+            if (!rtM[eye]) C3D_TexDelete(&rtTexM[eye]);
+        }
+        if (!rtM[eye]) {
+            if (eye == 1 && !hadLeft) {
+                C3D_RenderTargetDelete(rtM[0]);
+                C3D_TexDelete(&rtTexM[0]);
+                rtM[0] = NULL;
+            }
+            return 0;
+        }
+        C3D_TexSetFilter(&rtTexM[eye], GPU_NEAREST, GPU_NEAREST);
+        C3D_TexSetWrap(&rtTexM[eye], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    }
+    return 1;
+}
+
 C3D_Tex *P3DS_GcMidCompose(int e, C3D_Tex *t3) {
-    if (!mc.ok || !t3 || e < 0 || e > 1 || mc.nb != nb) return NULL;
+    if (!mc.ok || !t3 || e < 0 || e > 1 || !rtM[e] || mc.nb != nb) return NULL;
     mc.ok = 0;
-    if (rtMOk[e] < 0) { rtMOk[e] = C3D_TexInitVRAM(&rtTexM[e], 256, 256, GPU_RGBA8) && (rtM[e] = C3D_RenderTargetCreateFromTex(&rtTexM[e], GPU_TEXFACE_2D, 0, -1)) != NULL;
-        if (rtMOk[e]) { C3D_TexSetFilter(&rtTexM[e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&rtTexM[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); }
-        PSPNativeMemLog("[FPS60] in-between picture target for eye %d %s (VRAM free %lu)", e, rtMOk[e] ? "ready" : "FAILED: no in-between frames", (unsigned long)vramSpaceFree()); }
-    if (rtMOk[e] != 1) return NULL;
     C3D_FrameBegin(0); G3G_DirectSynced();
     gcDrawAll(rtM[e], mc.bd, t3, mc.q3, mc.b3, mc.vb, 256.0f);
     P3DS_FrameEnd(); gpuBusy = 1;

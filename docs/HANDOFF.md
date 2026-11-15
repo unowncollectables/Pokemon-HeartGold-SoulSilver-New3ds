@@ -2,6 +2,8 @@
 
 Run 835 on New 3DS displayed in-between frames with mono Wide, but the deferred real picture frequently reached the blocking fallback. The renderer retries immediately after a VBlank wait. Both poll paths use nonblocking frame acquisition. The first FPS60 window now measures idle only during its sampled field ticks, and skip reasons have their own log line. New 3DS validation of the timing change is pending. See [the 60 fps field notes](FPS60_INBETWEEN.md) for the comparison route.
 
+With the emulated slider at 100%, Goldenrod reproduced a VRAM allocation failure even though the normal stereo path was rendering. The 60 fps path now reserves the two deferred LCD targets first and uses RGB8 for those targets and the final in-between composites. An unsuccessful stereo allocation releases the new buffers and leaves mono eligible.
+
 # Missing screens round 3 (patches 0271 to 0275, 2026-11-12)
 
 - 0271 seeds overlay 108: Safari Zone area customizer and decoration (6 stubs gone, 154 functions).

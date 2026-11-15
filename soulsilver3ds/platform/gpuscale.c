@@ -25,6 +25,9 @@ static C3D_Tex up[3]; static C3D_RenderTarget *upTgt[3];
 static int upFmt16 = -1, botValid;   /* upFmt16: up[] format, 0 RGBA8, 1 RGB565 (sharp 3D), -1 not allocated; botValid: see run 40 below */
 #define DISP_FLAGS (GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
     GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
+/* Deferred pictures only need the LCD's RGB channels. */
+#define FPS60_DISP_FLAGS (GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
+    GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 #define TEX_FLAGS (GX_TRANSFER_FLIP_VERT(1) | GX_TRANSFER_OUT_TILED(1) | GX_TRANSFER_RAW_COPY(0) | \
     GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 /* 2026-10-27 fps thread: fps_tweaks (Debug tab "Speed tweaks", default 0 = OFF), cumulative: 2 = engine B skipped while the
@@ -527,22 +530,43 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, int shown, int why, unsig
    screen) and is only handed to the LCD ("flipped") one V-blank later, by P3DS_Fps60Poll from the game thread while the next tick
    is already running. So the game never sits waiting between the two pictures (first version, run 835 log: the 2.3 ms wait for the
    GPU plus the wait for the V-blank between them made a 30 ms tick take 50). P3DS_GpuPresentMid only notes what to draw. */
-static C3D_RenderTarget *tgtTopB, *tgtTopRB; static int f60BFail;
+static C3D_RenderTarget *tgtTopB, *tgtTopRB; static int f60BFail, f60StereoFail;
 static struct { int on, mode, st; C3D_Tex *l, *r; const u32 *sl, *sr; } f60Arg;
 static int f60Flip, f60FlipSt; static u64 f60FlipT0, f60PollT;
+extern int P3DS_GcMidStereoReady(void), P3DS_GcPrepareMid(int stereo);
+int P3DS_Fps60PreparePresent(int st) {
+    if (!ready || upFmt16 < 0 || f60BFail || (st && f60StereoFail)) return 0;
+    if (st && !P3DS_GcMidStereoReady()) return 0;
+    if (tgtTopB && (!st || tgtTopRB)) return 1;
+
+    /* Reserve the larger LCD targets before allocating the mid-compose textures. */
+    C3D_RenderTarget *left = tgtTopB;
+    if (!left) left = C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1);
+    C3D_RenderTarget *right = st && left ? C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1) : NULL;
+    if (left && (!st || right) && P3DS_GcPrepareMid(st)) {
+        tgtTopB = left;
+        tgtTopRB = right;
+        PSPNativeMemLog("[FPS60] RGB8 targets ready for %s (VRAM free %lu)",
+                        st ? "both eyes" : "mono", (unsigned long)vramSpaceFree());
+        return 1;
+    }
+    if (right) C3D_RenderTargetDelete(right);
+    if (left && !tgtTopB) C3D_RenderTargetDelete(left);
+    if (st) f60StereoFail = 1; else f60BFail = 1;
+    PSPNativeMemLog("[FPS60] RGB8 targets unavailable for %s (VRAM free %lu)",
+                    st ? "stereo" : "mono", (unsigned long)vramSpaceFree());
+    return 0;
+}
 int P3DS_GpuPresentMid(C3D_Tex *l, C3D_Tex *r, const u32 *sl, const u32 *sr, int mode, int st) {
     f60Arg.on = 0;
-    if (!ready || upFmt16 < 0 || !l || (st && !r) || (mode == 2 && !gZoomSet) || f60BFail) return 0;
-    if (!tgtTopB) tgtTopB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
-    if (st && !tgtTopRB) tgtTopRB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
-    if (!tgtTopB || (st && !tgtTopRB)) { f60BFail = 1; PSPNativeMemLog("[FPS60] no VRAM for the second screen target (free %lu): no in-between frames", (unsigned long)vramSpaceFree()); return 0; }
+    if (!l || !tgtTopB || (st && (!r || !tgtTopRB)) || (mode == 2 && !gZoomSet)) return 0;
     f60Arg.on = 1; f60Arg.mode = mode; f60Arg.st = st; f60Arg.l = l; f60Arg.r = st ? r : NULL; f60Arg.sl = sl; f60Arg.sr = sr;
     return 1;
 }
 /* inside a begun frame: the real picture waiting in tgtTopB (and tgtTopRB) goes to the LCD */
 static void f60FlipNow(void) {
-    C3D_RenderTargetSetOutput(tgtTopB, GFX_TOP, GFX_LEFT, DISP_FLAGS); C3D_FrameDrawOn(tgtTopB);
-    if (f60Flip == 2) { C3D_RenderTargetSetOutput(tgtTopRB, GFX_TOP, GFX_RIGHT, DISP_FLAGS); C3D_FrameDrawOn(tgtTopRB); }
+    C3D_RenderTargetSetOutput(tgtTopB, GFX_TOP, GFX_LEFT, FPS60_DISP_FLAGS); C3D_FrameDrawOn(tgtTopB);
+    if (f60Flip == 2) { C3D_RenderTargetSetOutput(tgtTopRB, GFX_TOP, GFX_RIGHT, FPS60_DISP_FLAGS); C3D_FrameDrawOn(tgtTopRB); }
     P3DS_FrameEnd();
     C3D_RenderTargetSetOutput(tgtTop, GFX_TOP, GFX_LEFT, DISP_FLAGS); C3D_RenderTargetSetOutput(tgtTopR, GFX_TOP, GFX_RIGHT, DISP_FLAGS);
     f60FlipUs += (unsigned)((svcGetSystemTick() - f60FlipT0) / 268); f60FlipN++; f60Flip = 0;
