@@ -1,3 +1,9 @@
+# 60 fps Bottom Menu repaint
+
+Bottom Menu fills clip once per rectangle. Rounded panels compute a color and border spans per row, and Pokegear reuses the shaded source pixel across both columns at 2x zoom. The location card, overview and achievement gradients also fill one shade per row. This uses the existing output buffer and keeps the same repaint triggers.
+
+Compared the old and new draw loops on 2,000 map cases with clipping, both zooms and weather, and 10,000 rounded panel cases including narrow panels and clipped edges. Pixel output and the visible weather mask matched. A full SoulSilver build passed. On a warmed Route 34 repaint the instrumented Azahar build spent about 13 ms in the draw, down from about 29 ms on main. New 3DS timing is pending. Compare the bottom-menu stage on the next Route 34 safety refresh using the existing log.
+
 # 60 fps Wide strip memory
 
 The in-between renderer packs the two side strips before detiling the readback. It reads back 64 columns per eye instead of 320. Both eyes share one tiled scratch buffer. Strip conversion writes directly into the upload buffer, including the existing fade and weather rules. Stereo peak storage for this path drops by 544 KiB and each Wide stereo midpoint avoids copying 96 KiB of converted pixels. A low-memory boot can still use the old full-width readback. If the separate midpoint upload buffer cannot be reserved, the game presents its ordinary frame.
