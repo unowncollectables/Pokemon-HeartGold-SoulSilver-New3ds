@@ -1290,7 +1290,7 @@ enum{kGtsPickerItem=MENU_N-4,kWideLayItem=MENU_N-3,kG3ThrItem=MENU_N-2,kFps60Ite
 extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);}
 /* fps60 (g3gpu.c, gpucomp.c, gpuscale.c): in-between pictures for the overworld */
 extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);
- void*P3DS_GcMidCompose(int,void*);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
+ void*P3DS_GcMidCompose(int,void*);u32*P3DS_GpuMidStripBuffer(int);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
 static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
 enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-26&&kPgFindItem==MENU_N-25&&kBreedItem==MENU_N-24&&kBatchCullItem==MENU_N-23&&kGcDirectItem==MENU_N-22&&kWildAliveItem==MENU_N-21&&kEventAnyItem==MENU_N-20&&kSteadyItem==MENU_N-19&&kEvenItem==MENU_N-18&&kFlyTapItem==MENU_N-17&&kContestItem==MENU_N-16,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
@@ -2896,11 +2896,15 @@ static int Present(bool){
   if(f60L){const u32*tp0=stereo?eyeL:top;
    if(tp0!=display[0]||(stereo&&eyeR!=rawR)||P3DS_MenuOpen)f60Why=3;
    else if(!P3DS_GcPendTex(tp0)||(stereo&&(!f60R||!P3DS_GcPendTex(eyeR))))f60Why=2;
-   else{static u32 f60Strip[2][64*192];const u32*sl=nullptr,*sr=nullptr;const u64 ts=svcGetSystemTick();bool ok=true;
-    if(P3DS_WideStrip[0]){if(P3DS_WideStrip[0]==G3G_Strip[0]&&G3G_MidStrip(0,f60Strip[0]))sl=f60Strip[0];else ok=false;}
-    if(stereo&&P3DS_WideStrip[1]){if(P3DS_WideStrip[1]==G3G_Strip[1]&&G3G_MidStrip(1,f60Strip[1]))sr=f60Strip[1];else ok=false;}
+   else{u32*midStrips[2]={};const u64 ts=svcGetSystemTick();bool ok=true;
+    for(int eye=0;eye<(stereo?2:1);eye++){
+     if(!P3DS_WideStrip[eye])continue;
+     if(P3DS_WideStrip[eye]!=G3G_Strip[eye]){ok=false;break;}
+     midStrips[eye]=P3DS_GpuMidStripBuffer(eye);
+     if(!midStrips[eye]||!G3G_MidStrip(eye,midStrips[eye])){ok=false;break;}
+    }
     f60StripUs=(unsigned)((svcGetSystemTick()-ts)/CPU_TICKS_PER_USEC);
-    if(!ok)f60Why=3;else f60Shown=P3DS_GpuPresentMid(f60L,stereo?f60R:nullptr,sl,sr,mode,stereo?1:0);}}
+    if(!ok)f60Why=3;else f60Shown=P3DS_GpuPresentMid(f60L,stereo?f60R:nullptr,midStrips[0],midStrips[1],mode,stereo?1:0);}}
   {const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
  else{topTouch();present(GFX_TOP,400,top,0);if(!P3DS_ConsoleOnBottom())present(GFX_BOTTOM,320,bot,0);gfxFlushBuffers();gfxSwapBuffers();}
  P3DS_GameFramePresented();

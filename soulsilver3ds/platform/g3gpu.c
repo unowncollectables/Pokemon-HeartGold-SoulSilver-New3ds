@@ -33,6 +33,8 @@ int G3G_MidRec; extern int P3DS_Fps60Skip;
 typedef struct { unsigned v0[2]; int id; float k[16]; } KR;   /* a run of vertices sharing K; k = K in vertex-buffer space, column-major */
 static KR kr[KR_MAX]; static unsigned krN; static float kWant[16]; static int kWantId = 1, kCurWant = 1;
 static DVLB_s *dvlbK; static shaderProgram_s progK; static int uK = -1;
+enum { MID_STRIP_WIDTH = 64, MID_TEXTURE_HEIGHT = 256 };
+static u32 *midStripTiles;
 static C3D_Tex midTex[2]; static u32 *rbM[2]; static int midHave[2], midFail, midOver, midValid, midEyes, midWide;
 static unsigned midTot, midMat, midMov; unsigned G3G_MidWhy[6];   /* why no in-between 3D: 0 not direct, 1 too many matrix runs, 2 CPU fog, 3 nothing moved, 4 too few draws paired, 5 no memory */
 extern int P3DS_Fps60Active(void); extern int P3DS_Fps60Cfg(void);
@@ -41,7 +43,13 @@ static int midAlloc(int n) {
     for (int e = 0; e < n; e++) { if (midHave[e]) continue;
         if (!dvlbK) { dvlbK = DVLB_ParseFile((u32 *)g3k_shbin, g3k_shbin_size);
             if (dvlbK) { shaderProgramInit(&progK); shaderProgramSetVsh(&progK, &dvlbK->DVLE[0]); uK = shaderInstanceGetUniformLocation(progK.vertexShader, "kmtx"); } }
-        rbM[e] = linearAlloc(320 * 256 * 4);
+        static int tileAllocTried;
+        if (!tileAllocTried) {
+            tileAllocTried = 1;
+            midStripTiles = linearAlloc(MID_STRIP_WIDTH * MID_TEXTURE_HEIGHT * sizeof(u32));
+        }
+        const unsigned readWidth = midStripTiles ? MID_STRIP_WIDTH : 320;
+        rbM[e] = linearAlloc(readWidth * MID_TEXTURE_HEIGHT * sizeof(u32));
         if (uK < 0 || !rbM[e] || !C3D_TexInit(&midTex[e], 256, 256, GPU_RGBA8)) { midFail = 1; G3G_MidWhy[5]++;
             PSPNativeMemLog("[FPS60] no linear memory or shader for the in-between 3D frame (eye %d, linear free %lu): 60 fps field stays off", e, (unsigned long)linearSpaceFree()); return 0; }
         C3D_TexSetFilter(&midTex[e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&midTex[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); midHave[e] = 1;
@@ -166,9 +174,9 @@ static void rbQueue(int e) {
     else C3D_SyncDisplayTransfer((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS); } /* inFrame: queued only */
 extern unsigned char PSPNative_GfxRegisters[];
 int P3DS_MapOutdoor = 1; int P3DS_CurMap = -1; /* run 76: current map header (field), for Distortion World effects */ /* run 73: set by the follower frame (MapHeader_IsOutdoors) */
-static void stripConv(const u32 *s, unsigned rst, u32 *d);
-static void stripConvert(int e) { stripConv(rb[e], rbStride(e), G3G_Strip[e]); }
-static void stripConv(const u32 *s, const unsigned rst, u32 *d) {
+static void stripConv(const u32 *s, unsigned rst, unsigned right, u32 *d);
+static void stripConvert(int e) { stripConv(rb[e], rbStride(e), 288, G3G_Strip[e]); }
+static void stripConv(const u32 *s, const unsigned rst, unsigned right, u32 *d) {
     u16 mb = *(u16 *)(PSPNative_GfxRegisters + 0x6C); unsigned mm = (mb >> 14) & 3, f = mb & 31; if (f > 16) f = 16;
     { extern int P3DS_WideFadeFix(void); extern int P3DS_WideFxCfg(void); if (P3DS_WideFadeFix() || P3DS_WideFxCfg()) f = 0; }  /* run 54: wide_fx fits the strips to the centre */  /* run 52: fade applied when drawing (gpuscale) */
     /* The old edge search required a second sample 32 periods (1024 pixels)
@@ -177,7 +185,7 @@ static void stripConv(const u32 *s, const unsigned rst, u32 *d) {
     for (unsigned y = 0; y < 192; y++) {
         const u32 *row = s + y * rst;
         for (unsigned side = 0; side < 2; side++) {
-            const int start = side ? 288 : 0;
+            const unsigned start = side ? right : 0;
             u32 *out = d + y * 64 + side * 32;
             if (!fade) {
                 for (int x = 0; x < 32; x++) {
@@ -650,10 +658,34 @@ void G3G_DirectStrips(void) {
     for (int e = 0; e < dirEyes; e++) { GSPGPU_InvalidateDataCache(rb[e], 320 * 256 * 4); stripConvert(e); }
     dirStripN++; dirStripUs += (unsigned long long)(svcGetSystemTick() - t0) / 268;
 }
+/* A PICA tile row holds eight scanlines. Copy the first and last four
+   tiles from each row, then use the normal display-transfer detile/Y flip. */
+static void midStripQueue(const void *color, int eye) {
+    const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
+    const u32 *source = color;
+    if (midStripTiles) {
+        enum { SIDE_BYTES = 32 * 8 * sizeof(u32), WIDE_ROW = 320 * 8 * sizeof(u32) };
+        for (unsigned side = 0; side < 2; side++) {
+            const unsigned from = side ? WIDE_ROW - SIDE_BYTES : 0;
+            C3D_SyncTextureCopy((u32 *)((const u8 *)color + from),
+                                GX_BUFFER_DIM(SIDE_BYTES / 16, (WIDE_ROW - SIDE_BYTES) / 16),
+                                (u32 *)((u8 *)midStripTiles + side * SIDE_BYTES),
+                                GX_BUFFER_DIM(SIDE_BYTES / 16, SIDE_BYTES / 16),
+                                SIDE_BYTES * (MID_TEXTURE_HEIGHT / 8), GX_TRANSFER_RAW_COPY(1));
+        }
+        source = midStripTiles;
+    }
+    C3D_SyncDisplayTransfer((u32 *)source, GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT),
+                            rbM[eye], GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT), RB_FLAGS);
+}
 /* fps60: the in-between frame's side strips (64x192 like G3G_Strip) from the readback G3G_End queued. Call after a FrameBegin has waited. */
 int G3G_MidStrip(int e, u32 *dst) {
     if (!midValid || !midWide || e < 0 || e >= midEyes || !dst) return 0;
-    dirSync(); GSPGPU_InvalidateDataCache(rbM[e], 320 * 256 * 4); stripConv(rbM[e], 320, dst); return 1;
+    const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
+    dirSync();
+    GSPGPU_InvalidateDataCache(rbM[e], width * 192 * sizeof(u32));
+    stripConv(rbM[e], width, midStripTiles ? 32 : 288, dst);
+    return 1;
 }
 static void dirLog(void) {
     static unsigned n; if (++n % 600 != 0) return;
@@ -851,7 +883,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         if (fogFrame == 1) C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
         if (!ph) {   /* in-between frame: out of the target before the real frame clears it (same copies as the direct path below) */
             if (wideFrame) { C3D_SyncTextureCopy((u32 *)((u8 *)tgt[e]->frameBuf.colorBuf + 4 * 256), GX_BUFFER_DIM(8192 >> 4, 2048 >> 4), (u32 *)midTex[e].data, GX_BUFFER_DIM(8192 >> 4, 0), 8192 * 32, GX_TRANSFER_RAW_COPY(1));
-                C3D_SyncDisplayTransfer((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(320, 256), rbM[e], GX_BUFFER_DIM(320, 256), RB_FLAGS); }
+                midStripQueue(tgt[e]->frameBuf.colorBuf, e); }
             else C3D_SyncTextureCopy((u32 *)rt[e].data, GX_BUFFER_DIM(8192 >> 4, 0), (u32 *)midTex[e].data, GX_BUFFER_DIM(8192 >> 4, 0), 256 * 256 * 4, GX_TRANSFER_RAW_COPY(1));
             continue; }
         if (fogFrame == 2) { C3D_StencilTest(false, GPU_ALWAYS, 0, 0xFF, 0xFF);

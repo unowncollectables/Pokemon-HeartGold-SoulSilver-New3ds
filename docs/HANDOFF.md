@@ -1,3 +1,9 @@
+# 60 fps Wide strip memory
+
+The in-between renderer packs the two side strips before detiling the readback. It reads back 64 columns per eye instead of 320. Both eyes share one tiled scratch buffer. Strip conversion writes directly into the upload buffer, including the existing fade and weather rules. Stereo peak storage for this path drops by 544 KiB and each Wide stereo midpoint avoids copying 96 KiB of converted pixels. A low-memory boot can still use the old full-width readback. If the separate midpoint upload buffer cannot be reserved, the game presents its ordinary frame.
+
+The packed transfer matched the original in 240 eye captures on Route 34 in Azahar. The in-place upload preparation matched all 68 tested fade/weather combinations. In a warmed Route 34 stereo window the Azahar midpoint draw and upload stage went from 1.82 ms to 1.53 ms. Hardware timing is pending.
+
 # 60 fps matrix reuse
 
 The in-between renderer keeps four exact pairs of source and midpoint matrices and reuses their solved transforms. Draw pairing still runs for every draw so its history and camera estimate advance. Route 34 in Azahar reused roughly two thirds of solves. The old and new solvers returned the same status and matrix bits in 160,000 host cases. A separate host benchmark with repeated matrices timed the solver work at roughly 19 ms before and 8 ms with the cache. New 3DS frame timing remains to be measured.
