@@ -440,8 +440,7 @@ static const float*mdMid(const GJob&J,float*Mm){
  return Mm;}
 /* K = in-between clip matrix * inverse(this tick's clip matrix): what carries this tick's clip coordinates to the in-between picture.
    Doubles: the model part of M has big translations. false = the draw does not move (or M cannot be inverted): it stays where it is. */
-static bool mdK(const GJob&J,float*K){
- float Mm[16];mdMid(J,Mm);const float*M=J.M;if(!memcmp(Mm,M,sizeof Mm))return false;
+static bool mdSolveK(const float *M,const float *Mm,float*K){
  double m[16],inv[16];for(int i=0;i<16;i++)m[i]=M[i];
  inv[0]=m[5]*m[10]*m[15]-m[5]*m[11]*m[14]-m[9]*m[6]*m[15]+m[9]*m[7]*m[14]+m[13]*m[6]*m[11]-m[13]*m[7]*m[10];
  inv[4]=-m[4]*m[10]*m[15]+m[4]*m[11]*m[14]+m[8]*m[6]*m[15]-m[8]*m[7]*m[14]-m[12]*m[6]*m[11]+m[12]*m[7]*m[10];
@@ -464,6 +463,37 @@ static bool mdK(const GJob&J,float*K){
  for(int c=0;c<4;c++)for(int r=0;r<4;r++){double a=0;for(int k=0;k<4;k++)a+=m[4*k+r]*inv[4*c+k];a*=id;if(fabs(a-(r==c?1.0:0.0))>1e-6)return false;}
  for(int c=0;c<4;c++)for(int r=0;r<4;r++){double a=0;for(int k=0;k<4;k++)a+=(double)Mm[4*k+r]*inv[4*c+k];a*=id;if(!(fabs(a)<64.0))return false;K[4*c+r]=(float)a;}
  return true;}
+/* Cache exact matrix pairs. Pairing still runs for every draw so its
+   motion estimate and records advance even when a transform can be reused. */
+static bool mdK(const GJob& job,float *out){
+ float midpoint[16];
+ mdMid(job,midpoint);
+ if(!memcmp(midpoint,job.M,sizeof midpoint))return false;
+
+ struct Entry{float source[16],midpoint[16],transform[16];bool usable;};
+ static Entry recent[4];
+ static unsigned count,next,hits,misses;
+ bool usable;
+ for(unsigned i=0;i<count;i++){
+  const Entry& item=recent[(next+3-i)%4];
+  if(memcmp(job.M,item.source,sizeof item.source)||
+     memcmp(midpoint,item.midpoint,sizeof item.midpoint))continue;
+  hits++;
+  if(item.usable)memcpy(out,item.transform,sizeof item.transform);
+  return item.usable;
+ }
+ if(++misses%1024==0)
+  PSPNativeMemLog("[FPS60K] matrix solves %u, reused %u",misses,hits);
+ Entry& item=recent[next];
+ memcpy(item.source,job.M,sizeof item.source);
+ memcpy(item.midpoint,midpoint,sizeof item.midpoint);
+ usable=mdSolveK(job.M,midpoint,item.transform);
+ item.usable=usable;
+ if(usable)memcpy(out,item.transform,sizeof item.transform);
+ next=(next+1)%4;
+ if(count<4)count++;
+ return usable;
+}
 /* 2026-11-04 g3_batchcull (Settings > 3D "Off-screen skip", default ON, remove once tested; log [G3CULL]): in towns most raw
    triangles the game sends are off screen (Goldenrod run 148: ~7,200 trivially rejected per frame against ~770 drawn), and each one
    was transformed (16 multiply-adds per vertex) before the per-triangle reject below. Each batch, and then each run of 16 triangles
