@@ -253,6 +253,24 @@ static void quad(C3D_RenderTarget *t, float sw, int i, float x0, float y0, float
 const u32 *P3DS_WideStrip[2];
 static C3D_Tex stripTex[2]; static u32 *stripLin[2]; static int stripOk = -1;
 static C3D_Tex stripTexM[2]; static u32 *stripLinM[2]; static int stripMid;
+
+/* The midpoint conversion writes into the display-transfer source directly.
+   Call after the compositor has acquired the GPU for this picture. */
+u32 *P3DS_GpuMidStripBuffer(int eye) {
+    if (!stripLinM[eye]) {
+        u32 *buf = linearAlloc(64 * 256 * sizeof(u32));
+        if (!buf) return NULL;
+        if (!C3D_TexInit(&stripTexM[eye], 64, 256, GPU_RGBA8)) {
+            linearFree(buf);
+            return NULL;
+        }
+        C3D_TexSetFilter(&stripTexM[eye], GPU_LINEAR, GPU_LINEAR);
+        C3D_TexSetWrap(&stripTexM[eye], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+        memset(buf, 0, 64 * 256 * sizeof(u32));
+        stripLinM[eye] = buf;
+    }
+    return stripLinM[eye];
+}
 /* run 52 wide_fadefix=1 (default): the strips get the CURRENT top-screen fade at draw time: MASTER_BRIGHT (0x6C),
    BLDCNT brighten/darken on BG0 (3D) with BLDY, forced blank / BG0 off / display off = black. A fade seen in the last
    3 presents is held (strongest), so the strips never show the new area before the centre has faded in. */
@@ -291,13 +309,11 @@ static void strips(C3D_RenderTarget *t, int eye) {
         C3D_TexSetFilter(&stripTex[e], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&stripTex[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(stripLin[e], 0, 64 * 256 * 4); }
         PSPNativeMemLog("[WIDE] strip textures %s", stripOk ? "ok" : "FAILED"); }
     if (!stripOk) return;
-    /* fps60: the in-between picture's strips are queued in the same GPU frame as the real ones, so they need their own buffer and texture */
-    if (stripMid && !stripLinM[eye]) { stripLinM[eye] = linearAlloc(64 * 256 * 4);
-        if (stripLinM[eye] && !C3D_TexInit(&stripTexM[eye], 64, 256, GPU_RGBA8)) { linearFree(stripLinM[eye]); stripLinM[eye] = NULL; }
-        if (stripLinM[eye]) { C3D_TexSetFilter(&stripTexM[eye], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&stripTexM[eye], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(stripLinM[eye], 0, 64 * 256 * 4); } }
-    const int own = stripMid && stripLinM[eye];
-    u32 *const sLin = own ? stripLinM[eye] : stripLin[eye]; C3D_Tex *const sTx = own ? &stripTexM[eye] : &stripTex[eye];
-    if (!fAmt) memcpy(sLin, src, 64 * 192 * 4);
+    u32 *const sLin = stripMid ? stripLinM[eye] : stripLin[eye];
+    C3D_Tex *const sTx = stripMid ? &stripTexM[eye] : &stripTex[eye];
+    if (!fAmt) {
+        if (sLin != src) memcpy(sLin, src, 64 * 192 * sizeof(u32));
+    }
     else if (fAmt >= 16) { const u32 c = fDir == 1 ? 0xFFFFFFFFu : 0x000000FFu; for (unsigned i = 0; i < 64 * 192; i++) sLin[i] = c; }
     else for (unsigned i = 0; i < 64 * 192; i++) { u32 c = src[i]; unsigned r = c >> 24, g = (c >> 16) & 255, b = (c >> 8) & 255;
         if (fDir == 1) { r += (255 - r) * fAmt / 16; g += (255 - g) * fAmt / 16; b += (255 - b) * fAmt / 16; } else { r -= r * fAmt / 16; g -= g * fAmt / 16; b -= b * fAmt / 16; }
