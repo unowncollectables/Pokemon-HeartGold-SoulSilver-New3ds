@@ -1,3 +1,7 @@
+# 60 fps matrix reuse
+
+The in-between renderer keeps four exact pairs of source and midpoint matrices and reuses their solved transforms. Draw pairing still runs for every draw so its history and camera estimate advance. Route 34 in Azahar reused roughly two thirds of solves. The old and new solvers returned the same status and matrix bits in 160,000 host cases. A separate host benchmark with repeated matrices timed the solver work at roughly 19 ms before and 8 ms with the cache. New 3DS frame timing remains to be measured.
+
 # 60 fps field headroom
 
 - Run 840 on New 3DS (5302082) repeatedly stepped down with 60-tick averages near 33.3 ms. The sustained guard now counts ticks whose elapsed time minus VBlank idle exceeds one game-tick budget. It still steps down when the elapsed average exceeds 34.5 ms and skips one in-between picture after a large stall or an over-budget tick.
