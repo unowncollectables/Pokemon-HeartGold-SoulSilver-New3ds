@@ -21,6 +21,7 @@ static unsigned vn[2];
 static V *vb[2]; static B bt[2][MAXB]; static unsigned bn[2];
 /* fps60 (2026-11-15, Settings > Display > 60 fps field, default OFF): in-between 3D frames, like pokeplatinum-3ds's 60 fps field.
    The game still runs 30 ticks a second. For every raw draw call g3soft.cpp pairs this tick's clip matrix with the same draw's matrix of
+<<<<<<< HEAD
    the tick before and hands G3G_MidK the matrix K that carries this tick's clip coordinates halfway back (K = average * inverse(now)).
    Nothing is transformed twice on the CPU: G3G_End draws the SAME vertex buffer a second time through shaders/g3k.v.pica, which puts
    K in front of the position, one uniform change per run of draw calls that share K (the whole static world shares one). That picture
@@ -35,19 +36,37 @@ static KR kr[KR_MAX]; static unsigned krN; static float kWant[16]; static int kW
 static DVLB_s *dvlbK; static shaderProgram_s progK; static int uK = -1;
 static C3D_Tex midTex[2]; static u32 *rbM[2]; static int midHave[2], midFail, midOver, midValid, midEyes, midWide;
 static unsigned midTot, midMat, midMov; unsigned G3G_MidWhy[6];   /* why no in-between 3D: 0 not direct, 1 too many matrix runs, 2 CPU fog, 3 nothing moved, 4 too few draws paired, 5 no memory */
+=======
+   the tick before and hands G3G_TriClip a second set of clip coordinates made with the average of the two (G3G_MidC): every vertex
+   exactly halfway, no polygon matching. Those go into vm[] at the same index as vb[], with the same batches. G3G_End draws vm[] first
+   into the eye target, copies it out to midTex[] (and the wide strips to rbM[]), then draws the real frame as before, all in one GPU
+   queue. render3ds.cpp composes the same 2D over midTex (gpucomp.c P3DS_GcMidCompose) and presents it one V-blank before the real
+   picture. Only direct 1x frames (gpu_direct3d + direct screen); anything else simply shows no in-between picture. Log: [FPS60]. */
+#define MIDV (3 * 8192)
+int G3G_MidRec; const float *G3G_MidC;
+static V *vm[2]; static C3D_Tex midTex[2]; static u32 *rbM[2]; static int midHave[2], midFail, midOver, midValid, midEyes, midWide;
+static unsigned midTot, midMat, midMov; unsigned G3G_MidWhy[6];   /* why no in-between 3D: 0 not direct, 1 too many vertices, 2 CPU fog, 3 nothing moved, 4 too few draws paired, 5 no memory */
+>>>>>>> origin/main
 extern int P3DS_Fps60Active(void); extern int P3DS_Fps60Cfg(void);
 static int midAlloc(int n) {
     if (midFail) return 0;
     for (int e = 0; e < n; e++) { if (midHave[e]) continue;
+<<<<<<< HEAD
         if (!dvlbK) { dvlbK = DVLB_ParseFile((u32 *)g3k_shbin, g3k_shbin_size);
             if (dvlbK) { shaderProgramInit(&progK); shaderProgramSetVsh(&progK, &dvlbK->DVLE[0]); uK = shaderInstanceGetUniformLocation(progK.vertexShader, "kmtx"); } }
         rbM[e] = linearAlloc(320 * 256 * 4);
         if (uK < 0 || !rbM[e] || !C3D_TexInit(&midTex[e], 256, 256, GPU_RGBA8)) { midFail = 1; G3G_MidWhy[5]++;
             PSPNativeMemLog("[FPS60] no linear memory or shader for the in-between 3D frame (eye %d, linear free %lu): 60 fps field stays off", e, (unsigned long)linearSpaceFree()); return 0; }
+=======
+        vm[e] = linearAlloc(MIDV * sizeof(V)); rbM[e] = linearAlloc(320 * 256 * 4);
+        if (!vm[e] || !rbM[e] || !C3D_TexInit(&midTex[e], 256, 256, GPU_RGBA8)) { midFail = 1; G3G_MidWhy[5]++;
+            PSPNativeMemLog("[FPS60] no linear memory for the in-between 3D frame (eye %d, linear free %lu): 60 fps field stays off", e, (unsigned long)linearSpaceFree()); return 0; }
+>>>>>>> origin/main
         C3D_TexSetFilter(&midTex[e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&midTex[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); midHave[e] = 1;
         PSPNativeMemLog("[FPS60] in-between 3D buffers ready for eye %d (linear free %lu)", e, (unsigned long)linearSpaceFree()); }
     return 1;
 }
+<<<<<<< HEAD
 extern int G3G_FlipY, G3G_ZInv;
 static const float kIdent[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 static int wideFrame, hiFrame;
@@ -69,6 +88,8 @@ static void krStart(const float *K) {
 }
 /* g3soft.cpp, before the triangles of one raw draw call: K = in-between clip matrix * inverse(this tick's), NULL = stays where it is */
 void G3G_MidK(const float *K) { if (!G3G_MidRec) return; kWantId = !K; if (K) memcpy(kWant, K, sizeof kWant); krStart(K); kCurWant = 1; }
+=======
+>>>>>>> origin/main
 void G3G_MidInfo(unsigned tot, unsigned mat, unsigned mov) { midTot = tot; midMat = mat; midMov = mov; }
 int G3G_MidReady(void) { return midValid; }
 C3D_Tex *G3G_MidTex(int e) { return midValid && e >= 0 && e < midEyes ? &midTex[e] : NULL; }
@@ -389,7 +410,11 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
     unsigned r = nativeClear & 63, g = (nativeClear >> 8) & 63, b = (nativeClear >> 16) & 63, a = (nativeClear >> 24) & 31;
     clearRGBA = ((r << 2 | r >> 4) << 24) | ((g << 2 | g >> 4) << 16) | ((b << 2 | b >> 4) << 8) | (a * 255 / 31);
     clearD = clearDepth16 / 65535.0f; eyes = stereo ? 2 : 1; vn[0] = vn[1] = bn[0] = bn[1] = 0;
+<<<<<<< HEAD
     G3G_MidRec = 0; krN = 0; kWantId = kCurWant = 1; midOver = 0; midValid = 0; midTot = midMat = midMov = 0;
+=======
+    G3G_MidRec = 0; G3G_MidC = NULL; midOver = 0; midValid = 0; midTot = midMat = midMov = 0;
+>>>>>>> origin/main
     { static int stLast = -1; if (stereo != stLast) { if (stLast >= 0 && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the 3D slider changed"); } stLast = stereo; }
       /* run 141: while a panel app (party/bag/summary in the JOHTO panel) is opening or open, keep the current eye targets: it draws no 3D the player
          sees (the held field is on top), and re-making the targets (VRAM free + alloc + the 2x scale-target dance) cost a ~100 ms frame at every open. */
@@ -471,7 +496,11 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
         if (dance && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the VRAM change"); } }
       if (sh && curHi == 1 && depth16 && !sm) { res3dFail = 1; PSPNativeMemLog("[3DRES] sharp 3D: only 16-bit depth fitted (the run 48 stripes), back to 1x"); { extern void P3DS_Toast(const char *); P3DS_Toast("SHARP 3D: NO MEMORY"); } setTargets(want, 0); { extern int P3DS_UpAlloc(int); P3DS_UpAlloc(0); } }
       wideFrame = curW == 320; hiFrame = curHi == 1; }
+<<<<<<< HEAD
     if (P3DS_Fps60Active() && ok == 1 && curHi == 0 && !G3G_Async && G3G_WDepthOn() != 2 && midAlloc(eyes)) { G3G_MidRec = 1; krStart(NULL); }
+=======
+    if (P3DS_Fps60Active() && ok == 1 && curHi == 0 && !G3G_Async && midAlloc(eyes)) G3G_MidRec = 1;
+>>>>>>> origin/main
 }
 static int wrapMode(int rep, int flip) { return !rep ? GPU_CLAMP_TO_EDGE : flip ? GPU_MIRRORED_REPEAT : GPU_REPEAT; }
 static B *batchFor(int eye, void *tex, int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, int late) {
@@ -490,6 +519,17 @@ static B *batchFor(int eye, void *tex, int repS, int repT, int flipS, int flipT,
    were a visible part of GpuRaw; the table holds exactly the same floats, so the vertices are bit-identical. */
 static float k255[256];
 static inline const float *lut255(void) { if (k255[255] == 0.0f) for (int i = 0; i < 256; i++) k255[i] = i / 255.0f; return k255; }
+/* fps60: the triangle just written at vb[eye][i0..i0+2] again in vm[], at G3G_MidC's clip coordinates (same uv, colour and stereo shift) */
+static inline void midPut(int eye, unsigned i0, const float *shiftPx) {
+    if (i0 + 3 > MIDV) { midOver = 1; return; }
+    const float *m = G3G_MidC;
+    for (int k = 0; k < 3; k++) { V *o = &vm[eye][i0 + k]; *o = vb[eye][i0 + k]; if (!m) continue;
+        const float x = m[4 * k], y = m[4 * k + 1], z = m[4 * k + 2], w = m[4 * k + 3];
+        o->x = x + (shiftPx ? shiftPx[k] / 128.0f * w : 0); if (wideFrame) o->x *= 0.8f;
+        o->y = hiFrame ? (G3G_FlipY ? y : -y) : G3G_FlipY ? (0.25f * w + 0.75f * y) : (-0.25f * w - 0.75f * y);
+        o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
+        if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w; }
+}
 void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                  int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shiftPx) {
     if (G3G_MidRec && !kCurWant) { krStart(kWantId ? NULL : kWant); kCurWant = 1; }
@@ -505,6 +545,7 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
         u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
     }
     last->count += 3;
+    if (G3G_MidRec) midPut(eye, vn[eye] - 3, shiftPx);
 }
 /* 2026-11-04 (solid-30 fps thread): both eyes of a stereo raw triangle in one pass. Same values as two G3G_TriClip calls (only x
    differs between the eyes), but y, z, uv and colour are worked out once instead of twice. */
@@ -525,6 +566,7 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
         q->y = o->y; q->z = o->z; q->w = w; q->s = o->s; q->t = o->t; q->r = o->r; q->g = o->g; q->b = o->b; q->a = o->a;
     }
     l0->count += 3; l1->count += 3;
+    if (G3G_MidRec) { midPut(0, vn[0] - 3, shL); midPut(1, vn[1] - 3, shR); }
 }
 /* v: 3 x {sx, sy, z(0..65535), u(texels), v(texels), color RGBA8 as u32 R|G<<8|B<<16|A<<24} */
 void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const float *su, const float *sv, const u32 *col,
@@ -539,6 +581,7 @@ void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const f
         u32 c = col[k]; o->r = L[c & 255]; o->g = L[(c >> 8) & 255]; o->b = L[(c >> 16) & 255]; o->a = L[c >> 24];
     }
     last->count += 3;
+    if (G3G_MidRec) { const float *k = G3G_MidC; G3G_MidC = NULL; midPut(eye, vn[eye] - 3, NULL); G3G_MidC = k; }   /* screen-space triangle (CPU-clipped): same place in both pictures */
 }
 static unsigned lastUs;
 unsigned G3G_LastUs(void) { return lastUs; }
@@ -743,6 +786,10 @@ void G3G_End(u32 *outL, u32 *outR) {
     if (G3G_MidRec) {
         if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
         else if (!midTot || !midMov) G3G_MidWhy[3]++; else if (midMat * 4 < midTot * 3) G3G_MidWhy[4]++; else mid = 1;
+<<<<<<< HEAD
+=======
+        if (mid) for (int e = 0; e < eyes; e++) GSPGPU_FlushDataCache(vm[e], vn[e] * sizeof(V));
+>>>>>>> origin/main
     }
     if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
         const unsigned tot = vn[0] + vn[1];
@@ -800,7 +847,11 @@ void G3G_End(u32 *outL, u32 *outR) {
         const int f = (int)fogDens((u32)(clearD * 0xFFFFFF)); const int fc3[3] = { (int)((fc & 31) * 255 / 31), (int)(((fc >> 5) & 31) * 255 / 31), (int)(((fc >> 10) & 31) * 255 / 31) };
         fogClr = clearRGBA & 255; for (int c = 0; c < 3; c++) { int v = (clearRGBA >> (24 - 8 * c)) & 255; v = (fc3[c] * f + v * (128 - f)) >> 7; fogClr |= (u32)v << (24 - 8 * c); } }
     int decalOn = 0;
+<<<<<<< HEAD
     for (int ph = mid ? 0 : 1; ph < 2; ph++)   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
+=======
+    for (int ph = mid ? 0 : 1; ph < 2; ph++)   /* fps60: ph 0 = the in-between frame (vm[]), copied out before ph 1 draws the real one over it */
+>>>>>>> origin/main
     for (int e = 0; e < eyes; e++) {
         if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
         if (!ph) for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]);
@@ -810,8 +861,12 @@ void G3G_End(u32 *outL, u32 *outR) {
         if (small) C3D_SetViewport(0, 0, curW, 192);
         const int hx = curHi == 1 && !small;
         if (depthLin) clearQuad();
+<<<<<<< HEAD
         C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, vb[e], sizeof(V), 3, 0x210);
         int kSet = -1;
+=======
+        C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, ph ? vb[e] : vm[e], sizeof(V), 3, 0x210);
+>>>>>>> origin/main
         for (int pass = 0; pass < 2; pass++) for (unsigned i = 0; i < bn[e]; i++) {
             B *b = &bt[e][i]; if (!b->count || b->late != pass) continue;
             C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
