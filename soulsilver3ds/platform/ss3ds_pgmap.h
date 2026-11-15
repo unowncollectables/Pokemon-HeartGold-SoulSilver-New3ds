@@ -242,7 +242,8 @@ static int pgTracker(uint32_t *b, const SUiText &T, int X0, int Y, int X1, uint3
 /* the overview: whole-map totals, then every visited location with its stats (drag scrolls, tap opens its card) */
 static void pgOverview(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1) {
   const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(236, 240, 248);
-  for (int y = Y0; y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(244, 246, 252), SUI_RGB(212, 232, 224), y - Y0, Y1 - Y0));
+  for (int y = Y0; y < Y1; ++y)
+    suiFill(b, X0, y, X1, y + 1, suiMix(SUI_RGB(244, 246, 252), SUI_RGB(212, 232, 224), y - Y0, Y1 - Y0));
   char t[64]; int n = 0; for (int i = 0; i < kPgN; i++) n += pgVis(p, i);
   T.draw(b, X0 + 4, Y0 + 2, "PROGRESS", ink, sh); snprintf(t, sizeof t, "%d/%d VISITED", n, kPgN); T.draw(b, X1 - 24 - T.width(t), Y0 + 2, t, SUI_RGB(18, 26, 38), sh);
   if (!P3DS_PsReady) { T.draw(b, X0 + 4, Y0 + 16, "Take a step to count.", SUI_RGB(18, 26, 38), sh); p.ovN = 0; return; }
@@ -440,10 +441,12 @@ static int pgAchWrap(const SUiText &T, const char *s, int room, char out[][64]) 
 static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1) {
   const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(236, 240, 248), dim = SUI_RGB(100, 116, 112), gold = SUI_RGB(226, 168, 36), green = SUI_RGB(60, 170, 80);
   const uint32_t wh = SUI_RGB(255, 255, 255);
-  for (int y = Y0; y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(252, 250, 240), SUI_RGB(226, 218, 190), y - Y0, Y1 - Y0));
+  for (int y = Y0; y < Y1; ++y)
+    suiFill(b, X0, y, X1, y + 1, suiMix(SUI_RGB(252, 250, 240), SUI_RGB(226, 218, 190), y - Y0, Y1 - Y0));
   int mx = 0; const int tot = P3DS_AchTotal(-1, &mx); char t[64], nm[64];
   /* title row: words stop before the corner buttons. The glyph is 16px, so the totals band starts under it. */
-  for (int y = Y0; y < Y0 + 17; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(40, 170, 128), SUI_RGB(20, 140, 104), y - Y0, 17));
+  for (int y = Y0; y < Y0 + 17; ++y)
+    suiFill(b, X0, y, X1, y + 1, suiMix(SUI_RGB(40, 170, 128), SUI_RGB(20, 140, 104), y - Y0, 17));
   pgFit(T, nm, sizeof nm, "ACHIEVEMENTS", (X1 - kPgAchCtrl) - (X0 + 4) - 4);
   T.draw(b, X0 + 4, Y0 + 1, nm, wh, SUI_RGB(7, 33, 54));
   /* totals band, full width, under the buttons */
@@ -472,7 +475,8 @@ static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
     char left[48], right[32]; snprintf(left, sizeof left, "%s  %d/%d", P3DS_AchCatName(c), got, cnt); snprintf(right, sizeof right, "%dG of %dG", cs, cm);
     const int hy = top + off - p.achScroll; off += kPgAchLine;
     if (hy + kPgAchLine > top && hy < Y1) {
-      for (int y = hy; y < hy + kPgAchLine; y++) for (int x = X0 + 2; x < X1 - 2; x++) suiPx(b, x, y, suiMix(SUI_RGB(218, 240, 232), SUI_RGB(190, 226, 212), y - hy, kPgAchLine));
+      for (int y = hy; y < hy + kPgAchLine; ++y)
+        suiFill(b, X0 + 2, y, X1 - 2, y + 1, suiMix(SUI_RGB(218, 240, 232), SUI_RGB(190, 226, 212), y - hy, kPgAchLine));
       const int rw = T.width(right), room = textR - (X0 + 5) - 8;
       if (rw + 8 < room) { pgFit(T, nm, sizeof nm, left, room - rw - 8); T.draw(b, X0 + 5, hy, nm, ink, SUI_RGB(218, 240, 232)); T.draw(b, textR - rw, hy, right, dim, SUI_RGB(206, 232, 222)); }
       else { pgFit(T, nm, sizeof nm, left, room); T.draw(b, X0 + 5, hy, nm, ink, SUI_RGB(218, 240, 232)); } }
@@ -673,7 +677,8 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   /* info card for the tapped location */
   p.flyX0 = p.flyY0 = p.flyX1 = p.flyY1 = 0;
   if (p.sel >= 0) { const int ch = pgCardH(p), cy0 = Y1 - ch; char ln[4][64];
-    for (int y = cy0; y < Y1; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, suiMix(SUI_RGB(236, 240, 248), SUI_RGB(196, 228, 214), y - cy0, ch));
+    for (int y = cy0; y < Y1; ++y)
+      suiFill(b, X0, y, X1, y + 1, suiMix(SUI_RGB(236, 240, 248), SUI_RGB(196, 228, 214), y - cy0, ch));
     for (int x = X0; x < X1; x++) suiPx(b, x, cy0, SUI_RGB(7, 33, 54));
     T.draw(b, X0 + 4, cy0 + 3, P3DS_PgName[p.sel][0] ? P3DS_PgName[p.sel] : "?", SUI_RGB(7, 33, 54), SUI_RGB(236, 240, 248));
     const uint32_t sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(18, 26, 38);

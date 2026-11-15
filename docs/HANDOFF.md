@@ -1,6 +1,6 @@
 # 60 fps Bottom Menu repaint
 
-Bottom Menu fills clip once per rectangle. Rounded panels compute a color and border spans per row, and Pokegear reuses the shaded source pixel across both columns at 2x zoom. This uses the existing output buffer and keeps the same repaint triggers.
+Bottom Menu fills clip once per rectangle. Rounded panels compute a color and border spans per row, and Pokegear reuses the shaded source pixel across both columns at 2x zoom. The location card, overview and achievement gradients also fill one shade per row. This uses the existing output buffer and keeps the same repaint triggers.
 
 Compared the old and new draw loops on 2,000 map cases with clipping, both zooms and weather, and 10,000 rounded panel cases including narrow panels and clipped edges. Pixel output and the visible weather mask matched. A full SoulSilver build passed. On a warmed Route 34 repaint the instrumented Azahar build spent about 13 ms in the draw, down from about 29 ms on main. New 3DS timing is pending. Compare the bottom-menu stage on the next Route 34 safety refresh using the existing log.
 
