@@ -1280,7 +1280,7 @@ static const MItem mItems[]={
  {"GTS SERVER PICKER","gts_picker",2,{"OFF","ON"}},
  /* wide_layouts (2026-11-12): real wide layouts for 2D screens (wideapi.c + widecomp.c WC_Compose); experimental, default OFF */
  {"WIDE LAYOUTS","wide_layouts",2,{"OFF","ON"}},
- {"3D WORKER THREAD","g3_thread",2,{"OFF","ON"}},
+ {"3D WORKER THREAD","g3_thread",3,{"OFF","ON","A/B TEST"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
@@ -1605,7 +1605,7 @@ static const SAppTab kTabs[7]={
       {87,"Audio stall fade","Fades sound out when the game stops making any, instead of buzzing."},
       {94,"Speed tweaks","Experimental speed-ups, each level adds more. +PARALLEL splits the 3D pixel passes over two cores (for 3D slider on). Leave OFF if unsure."},
       {96,"Skip cache flushes","Experimental: ignores the game's own cache flushes. Leave OFF."},
-      {kG3ThrItem,"3D worker thread","Experimental: does the 3D vertex work on a second core. Try ON; if the game hangs or looks wrong, turn it OFF."}}},
+      {kG3ThrItem,"3D worker thread","Experimental: does the 3D vertex work on a second core. A/B TEST switches it OFF and ON every ~40 s so one log compares both. If the game hangs or looks wrong, turn it OFF."}}},
 };
 static void prettyLab(char*d,const char*s,int n){/* run 64: "WIDE VIEW FX" -> "Wide view FX" (acronyms kept) */
  static const char*const acr[]={"FPS","GPU","ZL","ZR","FX","3D","1X","2X","25X","5X","ROM","IV","EV","TM","HM","LED","UI","OK","KB","MB","Y","X","A","B","L","R"};
