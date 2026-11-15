@@ -43,7 +43,7 @@ static bool Gather(unsigned address,unsigned size,bool palette,u8*dst){
 }
 static inline u32 c555(u16 c,unsigned a){unsigned r=c&31,g=(c>>5)&31,b=(c>>10)&31;return (r<<3|r>>2)|((g<<3|g>>2)<<8)|((b<<3|b>>2)<<16)|(a<<24);}
 struct Tex{unsigned off,pal,fmt,w,h,c0,gen;u32*px;unsigned lru;u8*raw;unsigned rawN;void*gt;u64 cnt;unsigned useF;};
-static bool gtInWorker=false;static void gtDrainIfBusy(int why);
+static bool gtInWorker=false;static void gtDrainIfBusy(int why);extern "C" {static void ListFreeNow(void*p);}static void*gtPendFree[512];static unsigned gtPendN;
 extern "C" {int G3G_Init(void);void*G3G_TexCreate(const u32*,unsigned,unsigned);void G3G_TexFree(void*);void G3G_Begin(u32,unsigned,int);
  void G3G_Tri(int,const float*,const float*,const float*,const float*,const float*,const u32*,void*,unsigned,unsigned,int,int,int,int,int,int,int);
  void G3G_End(u32*,u32*);void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectInvalidate(void);void G3G_TexUpdate(void*,const u32*,unsigned,unsigned);int G3G_RbSyncOn(void);void G3G_TriClip(int,const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*);void G3G_TriClip2(const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*,const float*);unsigned G3G_LastUs(void);extern int G3G_TexFlip,G3G_FlipY,G3G_ZInv,G3G_Async,G3G_Wide,G3G_CurFog,G3G_FogNoW;}
@@ -535,7 +535,8 @@ static void gtDrain(int why){
  if(gtBusy()){gtWake();const u64 t0=svcGetSystemTick();unsigned spins=0;
   while(gtHead!=gtTail){if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWake();}else __asm__ volatile("yield");}
   gtWaitTicks+=svcGetSystemTick()-t0;gtDrains[why]++;}
- gtArenaPos=0;gtCmPos=0;gtKicked=gtTail;}   /* queue empty: nothing references the arena */
+ gtArenaPos=0;gtCmPos=0;gtKicked=gtTail;
+ for(unsigned i=0;i<gtPendN;i++)ListFreeNow(gtPendFree[i]);gtPendN=0;}   /* queue empty: nothing references the arena */
 static void gtDrainIfBusy(int why){if(gtBusy())gtDrain(why);}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  J.v=v;J.n=n;J.replay=(v==replayV);memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
@@ -594,7 +595,8 @@ int G3ListRecordEnd(unsigned*count,const GuVertex**verts){recActive=false;*count
 void G3ListReplay(const GuVertex*v,unsigned n){if(n>g3ChunkLeft)G3SIM_ChunkAlloc();memcpy(g3ChunkPtr,v,n*sizeof(GuVertex));g3ChunkPtr+=n;g3ChunkLeft-=n;}
 void G3SIM_FlushArray();
 void G3ListDrawDirect(const GuVertex*v,unsigned n){G3SIM_FlushArray();replayV=v;Draw(v,n,true);replayV=nullptr;}
-void G3ListDeferFree(void*p){gtDrainIfBusy(2);if(p){BBox*b=bbSlot(p);if(b->p==p){b->p=nullptr;free(b->cb);b->cb=nullptr;}}free(p);}
+static void ListFreeNow(void*p){if(p){BBox*b=bbSlot(p);if(b->p==p){b->p=nullptr;free(b->cb);b->cb=nullptr;}}free(p);}
+void G3ListDeferFree(void*p){if(gtBusy()){if(gtPendN<512){gtPendFree[gtPendN++]=p;return;}gtDrain(2);}ListFreeNow(p);}
 void G3ListPendingFreeDrain(){}
 unsigned G3ListPendingFreeHigh(){return 0;}
 u8 s_SIM_useWBuffer=0;
