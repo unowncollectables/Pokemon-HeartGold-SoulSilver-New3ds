@@ -29,7 +29,7 @@ static V *vb[2]; static B bt[2][MAXB]; static unsigned bn[2];
    (gpu_direct3d + direct screen) with a depth that is linear in clip space (not g3_wmode 1); anything else shows no in-between
    picture. Log: [FPS60]. */
 #define KR_MAX 1024
-int G3G_MidRec;
+int G3G_MidRec; extern int P3DS_Fps60Skip;
 typedef struct { unsigned v0[2]; int id; float k[16]; } KR;   /* a run of vertices sharing K; k = K in vertex-buffer space, column-major */
 static KR kr[KR_MAX]; static unsigned krN; static float kWant[16]; static int kWantId = 1, kCurWant = 1;
 static DVLB_s *dvlbK; static shaderProgram_s progK; static int uK = -1;
@@ -471,7 +471,7 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
         if (dance && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the VRAM change"); } }
       if (sh && curHi == 1 && depth16 && !sm) { res3dFail = 1; PSPNativeMemLog("[3DRES] sharp 3D: only 16-bit depth fitted (the run 48 stripes), back to 1x"); { extern void P3DS_Toast(const char *); P3DS_Toast("SHARP 3D: NO MEMORY"); } setTargets(want, 0); { extern int P3DS_UpAlloc(int); P3DS_UpAlloc(0); } }
       wideFrame = curW == 320; hiFrame = curHi == 1; }
-    if (P3DS_Fps60Active() && ok == 1 && curHi == 0 && !G3G_Async && G3G_WDepthOn() != 2 && midAlloc(eyes)) { G3G_MidRec = 1; krStart(NULL); }
+    if (P3DS_Fps60Active() && !P3DS_Fps60Skip && ok == 1 && curHi == 0 && !G3G_Async && G3G_WDepthOn() != 2 && midAlloc(eyes)) { G3G_MidRec = 1; krStart(NULL); }
 }
 static int wrapMode(int rep, int flip) { return !rep ? GPU_CLAMP_TO_EDGE : flip ? GPU_MIRRORED_REPEAT : GPU_REPEAT; }
 static B *batchFor(int eye, void *tex, int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, int late) {
