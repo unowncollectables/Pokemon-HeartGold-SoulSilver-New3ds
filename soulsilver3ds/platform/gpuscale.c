@@ -477,7 +477,7 @@ static void pnDraw(C3D_RenderTarget *t) {
    shows an in-between picture one V-blank before the real one. Only in the overworld, only when the tick's picture stays on the GPU
    (GPU 3D direct + direct screen); any other tick is presented exactly as before. If ticks keep taking longer than two V-blanks with it
    on, it rests for a while by itself (longer each time) and says so in the log. ---- */
-extern int P3DS_InField, P3DS_InBattle; extern volatile unsigned long long P3DS_VblIdleTicks; extern unsigned G3G_MidWhy[6];
+extern int P3DS_InField, P3DS_InBattle; extern unsigned G3G_MidWhy[6];
 static int f60Cfg = -1, f60Did; static unsigned f60Phase, f60Pause, f60Ov = 6000, f60MidUs;
 static unsigned f60FlipLate, f60FlipN, f60FlipUs;
 static int gZoomSet; static float gFill[4];
@@ -494,11 +494,11 @@ int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InB
    only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or a quarter of the ticks over 36 ms), and
    it comes back by measurement, not by a timer: at 30 the spare time per tick (V-blank idle) is known, and once that is back above
    what the in-between picture costs (f60Ov, learned: +1.5 ms when a comeback fails within 6 s, -0.5 ms after 20 s that hold) it is on again. */
-void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
-    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, rN, rIdle, sinceOn, downs, ups; static u64 sumUs, sumMid, sumComp, sumStrip, idle0, idleL;
+void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
+    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, rN, rIdle, sinceOn, downs, ups; static u64 sumUs, sumMid, sumComp, sumStrip, idleWindow;
     const int act = P3DS_Fps60Active();
     if (shown && !f60Did) { shown = 0; why = 3; }
-    const u64 idlNow = P3DS_VblIdleTicks; const unsigned idleUs = (unsigned)((idlNow - idleL) / 268); idleL = idlNow;
+    idleWindow += idleUs;
     n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
     if (shown) { nShown++; sumMid += f60MidUs; sumComp += composeUs; sumStrip += stripUs; }
     else if (f60Pause) nPaused++; else if (act) nWhy[why & 3]++;
@@ -514,12 +514,13 @@ void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, un
     f60Phase++;
     if (n >= 600 || (P3DS_Fps60Cfg() == 2 && f60Phase % 1200 == 0)) {
         const unsigned k = nShown ? nShown : 1;
-        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between frames %u (%u%%) | tick avg %u.%02u ms, %u over 36 ms | VBlank idle %u us/tick | per in-between frame: compose %u + strips %u + draw %u us | real picture handed over: %u in time (avg %u us after its frame), %u waited for | stepped down %u, back %u, cost estimate %u us | none because: no in-between 3D %u (not direct %u, too many runs %u, CPU fog %u, nothing moved %u, unpaired %u, no memory %u), picture on the CPU %u, held/menu %u, at 30 %u",
+        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between frames %u (%u%%) | tick avg %u.%02u ms, %u over 36 ms | VBlank idle %u us/tick | per in-between frame: compose %u + strips %u + draw %u us | real picture submitted: %u without waiting, %u via fallback (avg %u us after in-between submit) | stepped down %u, back %u, cost estimate %u us",
             (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B test block)" : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
-            (unsigned)((idlNow - idle0) / 268 / n), (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
-            f60FlipN - f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, f60FlipLate, downs, ups, f60Ov,
+            (unsigned)(idleWindow / n), (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
+            f60FlipN - f60FlipLate, f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, downs, ups, f60Ov);
+        PSPNativeMemLog("[FPS60] skipped: no in-between 3D %u (not direct %u, too many runs %u, CPU fog %u, nothing moved %u, unpaired %u, no memory %u), picture on the CPU %u, held/menu %u, at 30 %u",
             nWhy[1], G3G_MidWhy[0], G3G_MidWhy[1], G3G_MidWhy[2], G3G_MidWhy[3], G3G_MidWhy[4], G3G_MidWhy[5], nWhy[2], nWhy[3], nPaused);
-        idle0 = idlNow; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
+        idleWindow = 0; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
 }
 /* The in-between picture and the real one are drawn in ONE GPU frame by P3DS_GpuPresent: the in-between goes into the screen targets
    and out to the LCD at that frame's end; the real picture goes into a second pair of targets (tgtTopB / tgtTopRB, not linked to a
@@ -549,15 +550,18 @@ static void f60FlipNow(void) {
 static int f60Pending(void) { return gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM); }
 /* game thread, any time no GPU frame is open (per 3D draw call, at the V-blank wait, before the 3D frame ends): flip as soon as the GPU
    has finished the two pictures AND the LCD has taken the in-between one (a flip before that would land in the buffer being shown) */
-void P3DS_Fps60Poll(void) {
+static void f60Poll(int afterVBlank) {
     if (!f60Flip) return;
-    const u64 now = svcGetSystemTick(); if (now - f60PollT < 268 * 300) return; f60PollT = now;
+    const u64 now = svcGetSystemTick(); if (!afterVBlank && now - f60PollT < 268 * 300) return; f60PollT = now;
     if (f60FlipSt == 0) { if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) return; f60FlipSt = 1;
         if (f60Pending()) { C3D_FrameEnd(GX_CMDLIST_FLUSH); return; }
         f60FlipNow(); return; }
     if (f60Pending()) return;
-    C3D_FrameBegin(0); f60FlipNow();
+    if (C3D_FrameBegin(C3D_FRAME_NONBLOCK)) f60FlipNow();
 }
+void P3DS_Fps60Poll(void) { f60Poll(0); }
+/* The LCD may have just accepted the in-between image, even on ticks with no further 3D calls. */
+void P3DS_Fps60AfterVBlank(void) { f60Poll(1); }
 /* before anything else is presented: the flip that no poll got to (a short tick), waited for */
 void P3DS_Fps60Flush(void) {
     if (!f60Flip) return;
