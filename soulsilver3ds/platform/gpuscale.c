@@ -526,22 +526,26 @@ void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, un
    screen) and is only handed to the LCD ("flipped") one V-blank later, by P3DS_Fps60Poll from the game thread while the next tick
    is already running. So the game never sits waiting between the two pictures (first version, run 835 log: the 2.3 ms wait for the
    GPU plus the wait for the V-blank between them made a 30 ms tick take 50). P3DS_GpuPresentMid only notes what to draw. */
+/* RGB8 (288000 bytes each, the LCD is 24 bit anyway) instead of RGBA8 (384000): Nathan's hardware log with the 3D slider up had 375808 bytes of VRAM free
+   for the right eye's second target, 8 KB short, so stereo never got an in-between picture. */
+#define DISP_FLAGS_B (GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
+    GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 static C3D_RenderTarget *tgtTopB, *tgtTopRB; static int f60BFail;
 static struct { int on, mode, st; C3D_Tex *l, *r; const u32 *sl, *sr; } f60Arg;
 static int f60Flip, f60FlipSt; static u64 f60FlipT0, f60PollT;
 int P3DS_GpuPresentMid(C3D_Tex *l, C3D_Tex *r, const u32 *sl, const u32 *sr, int mode, int st) {
     f60Arg.on = 0;
     if (!ready || upFmt16 < 0 || !l || (st && !r) || (mode == 2 && !gZoomSet) || f60BFail) return 0;
-    if (!tgtTopB) tgtTopB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
-    if (st && !tgtTopRB) tgtTopRB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
+    if (!tgtTopB) tgtTopB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1);
+    if (st && !tgtTopRB) tgtTopRB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1);
     if (!tgtTopB || (st && !tgtTopRB)) { f60BFail = 1; PSPNativeMemLog("[FPS60] no VRAM for the second screen target (free %lu): no in-between frames", (unsigned long)vramSpaceFree()); return 0; }
     f60Arg.on = 1; f60Arg.mode = mode; f60Arg.st = st; f60Arg.l = l; f60Arg.r = st ? r : NULL; f60Arg.sl = sl; f60Arg.sr = sr;
     return 1;
 }
 /* inside a begun frame: the real picture waiting in tgtTopB (and tgtTopRB) goes to the LCD */
 static void f60FlipNow(void) {
-    C3D_RenderTargetSetOutput(tgtTopB, GFX_TOP, GFX_LEFT, DISP_FLAGS); C3D_FrameDrawOn(tgtTopB);
-    if (f60Flip == 2) { C3D_RenderTargetSetOutput(tgtTopRB, GFX_TOP, GFX_RIGHT, DISP_FLAGS); C3D_FrameDrawOn(tgtTopRB); }
+    C3D_RenderTargetSetOutput(tgtTopB, GFX_TOP, GFX_LEFT, DISP_FLAGS_B); C3D_FrameDrawOn(tgtTopB);
+    if (f60Flip == 2) { C3D_RenderTargetSetOutput(tgtTopRB, GFX_TOP, GFX_RIGHT, DISP_FLAGS_B); C3D_FrameDrawOn(tgtTopRB); }
     P3DS_FrameEnd();
     C3D_RenderTargetSetOutput(tgtTop, GFX_TOP, GFX_LEFT, DISP_FLAGS); C3D_RenderTargetSetOutput(tgtTopR, GFX_TOP, GFX_RIGHT, DISP_FLAGS);
     f60FlipUs += (unsigned)((svcGetSystemTick() - f60FlipT0) / 268); f60FlipN++; f60Flip = 0;
