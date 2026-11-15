@@ -172,8 +172,8 @@ static unsigned reg32(unsigned off){return *(volatile u32*)(PSPNative_GfxRegiste
 extern "C" { volatile unsigned P3DS_SceneGen; int P3DS_LandFast; }
 /* run 121: dropped saveJohtoChrome (stale 256x192 snapshot with short DEX/PKMN alts; panel uses live ppChrome + bottom_hd) */
 /* ss3ds run 17: BLINV = bottomCache.valid=false + a generation bump, so the JOHTO/tiles overlay image (blCache) is redrawn only when something it shows changed */
-static unsigned blGen;static bool blSameFrame;
-#define BLINV (bottomCache.valid=false,blGen++)
+static unsigned blGen,blLine;static bool blSameFrame;
+#define BLINV (bottomCache.valid=false,blGen++,blLine=__LINE__)
 /* fps_tweaks >= 2 (2026-10-27): the Bottom menu covered the whole bottom screen last frame (it paints all 256x192 of it),
    so engine B's picture would be thrown away: drawEngineB skips the compose and forces a full one on the next shown frame */
 static volatile bool bHideB;static unsigned pfBHid;
@@ -2705,17 +2705,21 @@ static int Present(bool){
     else{
     {/* run 17: the overlay was repainted (gradient, map, 10 buttons, text) and re-uploaded 30x/s = +10.4 ms present (log 2026-10-26: 22 fps with tiles, 30 without). Paint into blCache only when an input changed, copy it otherwise, and tell the GPU path the bottom texture is unchanged. */
      static u32*blCache;static unsigned blSeenGen=~0u,blKey,blRedraw,blReuse,blAge;static u64 blUs;
-     unsigned key=(unsigned)pressShow+16u*blink+64u*(unsigned)(blMode+1)+512u*P3DS_StartAvail+0x40000000u*(P3DS_PgShoes==1)+0x20000000u*(runNow!=0);for(int i=0;i<kBlButtonCount;i++)key=key*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;key=key*31u+icMask;key=key*31u+(unsigned)native;key=key*31u+(unsigned)pxPane();key=key*31u+(unsigned)pgMapZoomIdx()+4u*(unsigned)pgRoamSpr();key=key*31u+(P3DS_PanelPartyWant?1u:0u)+(P3DS_PanelPartyOn?2u:0u);key=key*31u+(unsigned)pxRingShown(); /* run 139: panel Want/On in the key (pxBag/pxParty draw a plain header while set); the blink cache pair flipped between a stale ITEMS (5) header and BAG */ /* run 118: pane + sticky ring so ANSWER banner is never stuck in the overlay cache */
+     unsigned key=(unsigned)pressShow+16u*(unsigned)(blink&&pxRinging())+64u*(unsigned)(blMode+1)+512u*P3DS_StartAvail+0x40000000u*(P3DS_PgShoes==1)+0x20000000u*(runNow!=0);for(int i=0;i<kBlButtonCount;i++)key=key*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;key=key*31u+icMask;key=key*31u+(unsigned)native;key=key*31u+(unsigned)pxPane();key=key*31u+(unsigned)pgMapZoomIdx()+4u*(unsigned)pgRoamSpr();key=key*31u+(P3DS_PanelPartyWant?1u:0u)+(P3DS_PanelPartyOn?2u:0u);key=key*31u+(unsigned)pxRingShown(); /* run 139: panel Want/On in the key (pxBag/pxParty draw a plain header while set); the blink cache pair flipped between a stale ITEMS (5) header and BAG */ /* run 118: pane + sticky ring so ANSWER banner is never stuck in the overlay cache */
      if(!blCache)blCache=(u32*)malloc(256*192*4);
      /* fps_tweaks >= 2 (2026-10-27): the blink flips twice a second and each flip repainted the whole overlay (~10.7 ms,
         log run 24: 20 of ~25 repaints per 300 frames, a dropped frame each). Keep one cached picture per blink state. */
-     static u32*blCacheB;static unsigned blSeenGenB=~0u,blKeyB,blAgeB;const bool twB=P3DS_FpsTweaks()>=2&&blink;
+     static u32*blCacheB;static unsigned blSeenGenB=~0u,blKeyB,blAgeB;const bool twB=P3DS_FpsTweaks()>=2&&blink&&pxRinging();
      if(twB&&!blCacheB)blCacheB=(u32*)malloc(256*192*4);
      u32*const cc=twB?blCacheB:blCache;unsigned&cGen=twB?blSeenGenB:blSeenGen,&cKey=twB?blKeyB:blKey,&cAge=twB?blAgeB:blAge;
      /* fps_tweaks >= 2: the unchanged picture was force-repainted every 60 frames (idle log: 4 to 6 repaints per 300 at ~10.7 ms, a hitch every 2 s). Input and state changes already bump blGen/key, so the safety refresh is now every 20 s. */
      static const u32*blShown; /* the cached picture presented last frame: only that one lets the GPU present skip the bottom upload */
+     static bool mkBlink,mkShown;static int mkN,mkX[4],mkY[4];static unsigned rpLog; /* mkBlink = blink state drawn into the cached picture, mkShown = state last presented */
      if(cc&&cGen==blGen&&cKey==key&&++cAge<(P3DS_FpsTweaks()>=2?600:60)){memcpy(b,cc,256*192*4);blReuse++;blSameFrame=cc==blShown;blShown=cc;}
-     else{blShown=cc;const u64 t0b=svcGetSystemTick();cAge=0;cGen=blGen;cKey=key;gPg.moving=false;blDraw(b,kSuiText,mm,blMode<0?-1:blMode,blink,lb,al,on,buttonPress);if(gPg.moving){static unsigned mvT;if(P3DS_FpsTweaks()<5||(mvT++&1)==0)BLINV;}if(cc)memcpy(cc,b,256*192*4);blRedraw++;pfBlRep++;blUs+=(svcGetSystemTick()-t0b)/CPU_TICKS_PER_USEC;}
+     else{if(rpLog<24){rpLog++;PSPNativeMemLog("[BMENU] repaint %u: %s (last BLINV at render3ds.cpp:%u, blink %d)",rpLog,!cc?"no cache":cGen!=blGen?"overlay state changed":cKey!=key?"key changed (button/mode/icons/pane)":"safety refresh",blLine,(int)blink);}
+      blShown=cc;const u64 t0b=svcGetSystemTick();cAge=0;cGen=blGen;cKey=key;gPg.moving=false;gMkRec=true;gMkN=0;blDraw(b,kSuiText,mm,blMode<0?-1:blMode,blink,lb,al,on,buttonPress);gMkRec=false;mkN=gMkN;for(int i=0;i<mkN;i++){mkX[i]=gMkX[i];mkY[i]=gMkY[i];}mkBlink=blink;if(gPg.moving){static unsigned mvT;if(P3DS_FpsTweaks()<5||(mvT++&1)==0)BLINV;}if(cc)memcpy(cc,b,256*192*4);blRedraw++;pfBlRep++;blUs+=(svcGetSystemTick()-t0b)/CPU_TICKS_PER_USEC;}
+     if(mkBlink!=blink)for(int i=0;i<mkN;i++)mmPlayer(b,mkX[i],mkY[i],blink); /* the cached picture has the other blink state: redraw just the marker */
+     if(mkShown!=blink){mkShown=blink;blSameFrame=false;}
      {static unsigned lg;if(++lg%300==0){PSPNativeMemLog("[BMENU] overlay cache: reused %u, repainted %u of last 300 (%u us per repaint)",blReuse,blRedraw,blRedraw?(unsigned)(blUs/blRedraw):0);blReuse=blRedraw=0;blUs=0;}}} /* run 16: map still sliding to the new location */
     /* run 18 bottom_hd=1 (default): the button column at native 320x240 (ss3ds_blnative.h, after GabeSud0's port_lowermenu.c); 0 = the run 17 stretched column */
     static int bnX[kBlButtonCount],bnY[kBlButtonCount];static unsigned bnKey=~0u;const int bhd=bottomHdCfg()&&P3DS_ScaleMode()!=0;static int bhdPrev=-1;if(bhd!=bhdPrev){bhdPrev=bhd;bnKey=~0u;gBlHd=bhd;BLINV;}
