@@ -465,6 +465,75 @@ static void pnDraw(C3D_RenderTarget *t) {
     C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
     C3D_ImmDrawEnd();
 }
+/* ---- fps60 (2026-11-15; see g3gpu.c): Settings > Display > 60 fps field. 0 OFF (default), 1 ON, 2 A/B TEST = OFF and ON by turns, 1200
+   field ticks (~40 s) each, so one log compares both. The game still runs 30 ticks a second; while it is on, every tick whose 3D moved
+   shows an in-between picture one V-blank before the real one. Only in the overworld, only when the tick's picture stays on the GPU
+   (GPU 3D direct + direct screen); any other tick is presented exactly as before. If ticks keep taking longer than two V-blanks with it
+   on, it rests for a while by itself (longer each time) and says so in the log. ---- */
+extern int P3DS_InField, P3DS_InBattle; extern volatile unsigned long long P3DS_VblIdleTicks; extern unsigned G3G_MidWhy[6];
+static int f60Cfg = -1; static unsigned f60Phase, f60Pause, f60PauseLen = 300, f60MidUs, f60MidTearUs;
+static int gZoomSet; static float gFill[4];
+int P3DS_Fps60Cfg(void) {
+    if (f60Cfg < 0) { f60Cfg = P3DS_CfgInt("fps60", 0); if (f60Cfg < 0 || f60Cfg > 2) f60Cfg = 0;
+        PSPNativeMemLog("[FPS60] fps60=%d (0 off, 1 = in-between 3D frames in the overworld, 2 = A/B test: off and on by turns every 1200 ticks)", f60Cfg); }
+    return f60Cfg; }
+void P3DS_SetFps60(int v) { f60Cfg = v < 0 ? 0 : v > 2 ? 2 : v; f60Phase = 0; f60Pause = 0; f60PauseLen = 300; PSPNativeMemLog("[FPS60] fps60=%d from settings", f60Cfg); }
+static int f60PhaseOn(void) { const int c = P3DS_Fps60Cfg(); return c == 1 || (c == 2 && ((f60Phase / 1200) & 1)); }
+int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InBattle && !f60Pause && f60PhaseOn(); }
+/* once per presented overworld tick while the setting is not OFF. shown: an in-between picture went out. why (when not): 1 no in-between 3D
+   this tick (g3gpu.c says which), 2 the picture went through the CPU (toast, save box, fade...), 3 a held or menu picture. */
+void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
+    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow; static u64 sumUs, sumMid, sumTear, sumComp, sumStrip, idle0;
+    const int act = P3DS_Fps60Active();
+    n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
+    if (shown) { nShown++; sumMid += f60MidUs; sumTear += f60MidTearUs; sumComp += composeUs; sumStrip += stripUs; }
+    else if (f60Pause) nPaused++; else if (act) nWhy[why & 3]++;
+    if (act) { wN++; if (frameUs > 36000) wSlow++;
+        if (wN >= 60) { if (wSlow > 24) { f60Pause = f60PauseLen; PSPNativeMemLog("[FPS60] %u of the last 60 ticks took over 36 ms with in-between frames on: resting for %u ticks", wSlow, f60PauseLen); if (f60PauseLen < 3600) f60PauseLen *= 2; }
+            else if (wSlow < 6) f60PauseLen = 300;
+            wN = wSlow = 0; } }
+    else if (f60Pause) { if (!--f60Pause) PSPNativeMemLog("[FPS60] trying in-between frames again"); wN = wSlow = 0; }
+    f60Phase++;
+    if (n >= 600 || (P3DS_Fps60Cfg() == 2 && f60Phase % 1200 == 0)) {
+        const u64 idl = P3DS_VblIdleTicks; const unsigned k = nShown ? nShown : 1;
+        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between frames %u (%u%%) | tick avg %u.%02u ms, %u over 36 ms | VBlank idle %u us/tick | per in-between frame: compose %u + strips %u + present %u us (of that waiting for the screen %u) | none because: no in-between 3D %u (not direct %u, too big %u, CPU fog %u, nothing moved %u, unpaired %u, no memory %u), picture on the CPU %u, held/menu %u, resting %u",
+            (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B test block)" : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
+            (unsigned)((idl - idle0) / 268 / n), (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k), (unsigned)(sumTear / k),
+            nWhy[1], G3G_MidWhy[0], G3G_MidWhy[1], G3G_MidWhy[2], G3G_MidWhy[3], G3G_MidWhy[4], G3G_MidWhy[5], nWhy[2], nWhy[3], nPaused);
+        idle0 = idl; n = nShown = nSlow = nPaused = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumTear = sumComp = sumStrip = 0; }
+}
+/* the in-between picture on the top screen only (the touch screen keeps its last picture), one V-blank ahead of the P3DS_GpuPresent that
+   follows: that call's own wait for the screen to take this picture is what spaces the two. l / r: the compositor's in-between targets;
+   sl / sr: the in-between side strips (NULL = this tick's). Top overlays are drawn and left set for the real present. */
+int P3DS_GpuPresentMid(C3D_Tex *l, C3D_Tex *r, const u32 *sl, const u32 *sr, int mode, int st) {
+    if (!ready || upFmt16 < 0 || !l || (st && !r) || (mode == 2 && !gZoomSet)) return 0;
+    const u64 t0 = svcGetSystemTick();
+    if (st != stereoOn) { stereoOn = st; gfxSet3D(st); }
+    C3D_FrameBegin(0);
+    dirTop = l; dirTopR = st ? r : NULL;
+    C3D_BindProgram(&prog);
+    C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
+    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2);
+    C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR); C3D_CullFace(GPU_CULL_NONE); C3D_AlphaTest(false, GPU_ALWAYS, 0);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+    tevPlain();
+    prescale(0); if (st) prescale(2);
+    const u32 *k0 = P3DS_WideStrip[0], *k1 = P3DS_WideStrip[1];
+    if (k0 && sl) P3DS_WideStrip[0] = sl; if (k1 && sr) P3DS_WideStrip[1] = sr;
+    const float fx = gFill[0], fy = gFill[1], fw = gFill[2], fh = gFill[3];
+    if (mode == 2) quad(tgtTop, 400.0f, 0, fx, fy, fx + fw, fy + fh); else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); strips(tgtTop, 0); }
+    if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); strips(tgtTopR, 1); } }
+    P3DS_WideStrip[0] = k0; P3DS_WideStrip[1] = k1;
+    if (P3DS_TopOvOn) { topOvDraw(tgtTop); if (st) topOvDraw(tgtTopR); }
+    if (P3DS_TopOv2On) { topOv2Draw(tgtTop); if (st) topOv2Draw(tgtTopR); }
+    /* the same rule as P3DS_GpuPresent's tearfix: the screen must have taken the last picture before this one's transfer starts */
+    const u64 tw = svcGetSystemTick();
+    while ((gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM)) && svcGetSystemTick() - tw < (u64)(40 * 268111.856)) svcSleepThread(250000);
+    const u64 te = svcGetSystemTick();
+    P3DS_FrameEnd();
+    f60MidTearUs = (unsigned)((te - tw) / 268); f60MidUs = (unsigned)((svcGetSystemTick() - t0) / 268);
+    return 1;
+}
 void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, const u32 *topR) {
     P3DS_Crumb("gp-begin", 0); /* run 65: locate the boot stall */
     if (upFmt16 < 0 && !P3DS_UpAlloc(0)) { static unsigned n; if (!n++) PSPNativeMemLog("[3DRES] scale targets missing, frame not presented"); return; }
@@ -494,8 +563,9 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     { static unsigned n; if (++n % 600 == 0) { PSPNativeMemLog("[3DS] present_skipbot: skipped bottom upload %u of 600", botSkips); botSkips = 0; } }
     /* run 33: mode 2 (fill) zoom from config gpuscale_zoom (1.25..1.5625, default 1.40625 = 360x270: 20px bars, 15 rows
        cropped top/bottom). Aspect always 4:3; edges snapped to whole pixels. */
-    static float zoom = -1; if (zoom < 0) { zoom = 1.40625f; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; float z; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "gpuscale_zoom=%f", &z) == 1) zoom = z; fclose(f); } if (zoom < 1.25f) zoom = 1.25f; if (zoom > 1.5625f) zoom = 1.5625f; PSPNativeMemLog("[3DS] gpuscale_zoom=%.5f -> fill mode %dx%d", zoom, (int)(256 * zoom + 0.5f), (int)(192 * zoom + 0.5f)); }
+    static float zoom = -1; if (zoom < 0) { gZoomSet = 1; zoom = 1.40625f; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; float z; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "gpuscale_zoom=%f", &z) == 1) zoom = z; fclose(f); } if (zoom < 1.25f) zoom = 1.25f; if (zoom > 1.5625f) zoom = 1.5625f; PSPNativeMemLog("[3DS] gpuscale_zoom=%.5f -> fill mode %dx%d", zoom, (int)(256 * zoom + 0.5f), (int)(192 * zoom + 0.5f)); }
     float fw = (float)(int)(256 * zoom + 0.5f), fh = (float)(int)(192 * zoom + 0.5f), fx = (float)(int)((400 - fw) / 2), fy = (float)(int)((240 - fh) / 2);
+    gFill[0] = fx; gFill[1] = fy; gFill[2] = fw; gFill[3] = fh;
     u64 stT = 0;
     if (mode == 2) { quad(tgtTop, 400.0f, 0, fx, fy, fx + fw, fy + fh); if (crisp) crispDraw(tgtTop, 400.0f, fx, fy, fx + fw, fy + fh); } else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); if (crisp) crispDraw(tgtTop, 400.0f, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTop, 0); stT += svcGetSystemTick() - a; }
     if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tgtTopR, 1); stT += svcGetSystemTick() - a; } }

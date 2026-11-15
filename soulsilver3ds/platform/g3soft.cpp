@@ -392,6 +392,41 @@ static int gpuCpuClip(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soul
 static int sprDepthV=-1;extern "C" int P3DS_SpriteDepthCfg(void){if(sprDepthV<0){sprDepthV=P3DS_CfgInt("sprite_depth",0)!=0;PSPNativeMemLog("[SPRDEPTH] sprite_depth=%d",sprDepthV);}return sprDepthV;}
 extern "C" void P3DS_SetSpriteDepth(int v){sprDepthV=v!=0;}
 static unsigned sprN,sprSkip;static double sprSpread;
+/* ---- fps60 (g3gpu.c): pair every raw draw call with the same draw of the tick before, by what it draws (the list-cache array for replayed
+   display lists, else the vertex count and the first/last vertex) and, where one thing is drawn several times (trees, people), by the one
+   whose clip matrix is nearest where the camera's move says it should be. The in-between picture transforms the same vertices with the
+   average of the two matrices. A draw with no partner (it just came into view) moves with the camera: for everything standing still in
+   the world the two matrices differ only in their translation row, by the same four numbers (mdG). ---- */
+extern "C"{extern int G3G_MidRec;extern const float*G3G_MidC;void G3G_MidInfo(unsigned,unsigned,unsigned);}
+static const float kMidEdge=1.06f;   /* off-screen rejects keep a 6% rim while recording: a triangle just outside this tick may be inside the in-between picture */
+struct MDraw{const void*key;unsigned n;u32 sig;float M[16];};
+enum{MD_MAX=1536,MD_H=512};
+static MDraw mdA[MD_MAX],mdB[MD_MAX];static MDraw*mdCur=mdA,*mdPrev=mdB;static unsigned mdCurN,mdPrevN;static bool mdPrevOk;
+static short mdHead[MD_H],mdNext[MD_MAX];static float mdG[4];static unsigned mdTot,mdMat,mdMov;
+static inline unsigned mdHash(const void*key,unsigned n,u32 sig){return (unsigned)((((uintptr_t)key>>3)^(n*40503u)^sig)*2654435761u)>>23;}
+static void mdFrameBegin(bool rec){
+ /* the table just filled becomes "the tick before" only if that tick recorded (else nothing may be paired with stale matrices) */
+ MDraw*t=mdCur;mdCur=mdPrev;mdPrev=t;mdPrevN=mdPrevOk?mdCurN:0;mdCurN=0;mdPrevOk=rec;mdTot=mdMat=mdMov=0;
+ if(!rec){mdPrevN=0;return;}
+ memset(mdHead,0xFF,sizeof mdHead);
+ for(unsigned i=0;i<mdPrevN;i++){const unsigned h=mdHash(mdPrev[i].key,mdPrev[i].n,mdPrev[i].sig);mdNext[i]=mdHead[h];mdHead[h]=(short)i;}}
+static const float*mdMid(const GJob&J,float*Mm){
+ const float*M=J.M;const void*key=J.replay?(const void*)J.v:nullptr;u32 sig=0;
+ if(!J.replay){const GuVertex&a=J.v[0],&b=J.v[J.n-1];u32 w[6];memcpy(w,&a.x,12);memcpy(w+3,&b.x,12);sig=2166136261u;for(int i=0;i<6;i++)sig=(sig^w[i])*16777619u;}
+ mdTot++;
+ const MDraw*best=nullptr;float bs=1e30f;unsigned cand=0;
+ for(int i=mdHead[mdHash(key,J.n,sig)];i>=0;i=mdNext[i]){const MDraw&d=mdPrev[i];if(d.key!=key||d.n!=J.n||d.sig!=sig)continue;cand++;
+  const float sc=fabsf(M[12]-d.M[12]-mdG[0])+fabsf(M[13]-d.M[13]-mdG[1])+fabsf(M[15]-d.M[15]-mdG[3]);if(sc<bs){bs=sc;best=&d;}}
+ if(mdCurN<MD_MAX){MDraw&c=mdCur[mdCurN++];c.key=key;c.n=J.n;c.sig=sig;memcpy(c.M,M,sizeof c.M);}
+ /* a partner further than about a third of the screen from where it should be is something else (a warp, another copy) */
+ const float wr=fabsf(M[15])>1.0f?fabsf(M[15]):1.0f;
+ if(best&&bs<0.6f*wr){mdMat++;bool same=true,rigid=true;
+  for(int i=0;i<16;i++){const float d=M[i]-best->M[i];if(d!=0.0f){same=false;if(i<12&&fabsf(d)>1e-5f*(fabsf(M[i])+1.0f))rigid=false;}Mm[i]=0.5f*(M[i]+best->M[i]);}
+  if(!same)mdMov++;
+  if(cand==1&&rigid&&J.n>=24){mdG[0]=M[12]-best->M[12];mdG[1]=M[13]-best->M[13];mdG[2]=M[14]-best->M[14];mdG[3]=M[15]-best->M[15];}
+  return Mm;}
+ memcpy(Mm,M,16*sizeof(float));for(int i=0;i<4;i++)Mm[12+i]-=0.5f*mdG[i];
+ return Mm;}
 /* 2026-11-04 g3_batchcull (Settings > 3D "Off-screen skip", default ON, remove once tested; log [G3CULL]): in towns most raw
    triangles the game sends are off screen (Goldenrod run 148: ~7,200 trivially rejected per frame against ~770 drawn), and each one
    was transformed (16 multiply-adds per vertex) before the per-triangle reject below. Each batch, and then each run of 16 triangles
@@ -447,11 +482,12 @@ static unsigned BoxOut(const float*B,float qwK,bool zp){
  return fastBox(B,qwK,zp);
 }
 static float qwKNow(){static int edgeFix=-1;if(edgeFix<0){edgeFix=P3DS_CfgInt("stereo_edgefix",1)!=0;PSPNativeMemLog("[G3] stereo_edgefix=%d",edgeFix);}
- return (G3G_Wide?1.25f:1.0f)+(edgeFix&&stereoSd?stereoSd*(1.0f/128.0f):0.0f);}
+ return ((G3G_Wide?1.25f:1.0f)+(edgeFix&&stereoSd?stereoSd*(1.0f/128.0f):0.0f))*(G3G_MidRec?kMidEdge:1.0f);}
 /* batch-level off-screen reject (g3_batchcull). Returns 1 if the whole batch is outside one clip plane. Fills chunkOff / chunked for the per-chunk skip. */
 static int CullBatch(const GJob&J,bool&chunked){
  const GuVertex*v=J.v;const unsigned n=J.n;jM=J.M;jReplayV=J.replay?J.v:nullptr;const float qwK=qwKNow();chunked=false;
- if(n>=(J.replay?9u:24u)&&P3DS_BatchCullCfg()){float(*cb)[6]=BoxesFor(v,n);const bool zp=!J.wbuf;bcTested++;fastBatchOn=P3DS_FastBoundsCfg()!=0;if(fastBatchOn)fastPlanes.prepare(J.M,qwK,zp);
+ static float mcM[16];if(G3G_MidRec){memcpy(mcM,J.M,sizeof mcM);for(int k=0;k<4;k++)mcM[4*k+1]*=1.0f/kMidEdge;jM=mcM;}   /* fps60: clip y shrunk = the same rim top and bottom as qwK gives left and right */
+ if(n>=(J.replay?9u:24u)&&P3DS_BatchCullCfg()){float(*cb)[6]=BoxesFor(v,n);const bool zp=!J.wbuf;bcTested++;fastBatchOn=P3DS_FastBoundsCfg()!=0;if(fastBatchOn)fastPlanes.prepare(jM,qwK,zp);
   const unsigned m=BoxOut(cb[0],qwK,zp);if(m){bcSkipB++;bcSkipT+=n/3;rejOut+=n/3;rejMask|=m;return 1;}
   if(n>kChunkV){const unsigned nc=(n+kChunkV-1)/kChunkV;for(unsigned c=0;c<nc;c++){const unsigned mc=BoxOut(cb[1+c],qwK,zp);chunkOff[c]=mc!=0;rejMask|=mc;}chunked=true;}}
  return 0;}
@@ -460,6 +496,7 @@ static void GpuRawJ(const GJob&J){
  const GuVertex*v=J.v;const unsigned n=J.n;jM=J.M;jReplayV=J.replay?J.v:nullptr;const float qwK=qwKNow();
  bool chunked=J.chunked;const u8*cmask=J.cmask;
  if(!J.pre){if(CullBatch(J,chunked))return;cmask=chunkOff;}
+ float midM[16];const float*MM=(G3G_MidRec&&n>=3)?mdMid(J,midM):nullptr;if(J.wbuf)MM=nullptr;const float yK=G3G_MidRec?kMidEdge:1.0f;
  G3G_CurFog=J.fog;const int cullMode3d=cull3dCfg();const G3SIM_TexImageParam_t tp=J.tp;
  bool translucent=(v[0].color>>24)<250||(J.hasTex&&(tp.textureFormat==1||tp.textureFormat==6));
  bool dw=!translucent||J.tdw;unsigned dtest=J.depthTest;
@@ -482,7 +519,7 @@ static void GpuRawJ(const GJob&J){
   if(chunked&&i%kChunkV==0&&cmask[i/kChunkV]){const unsigned t=((i+kChunkV<n?i+kChunkV:n)-i)/3;rejOut+=t;bcSkipC++;bcSkipT+=t;i+=3*t-3;continue;}
   for(int k=0;k<3;k++){const GuVertex&p=v[i+k];float*q=c+4*k;
    q[0]=p.x*M[0]+p.y*M[4]+p.z*M[8]+M[12];q[1]=p.x*M[1]+p.y*M[5]+p.z*M[9]+M[13];q[2]=p.x*M[2]+p.y*M[6]+p.z*M[10]+M[14];q[3]=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];
-   unsigned o=0;const float qw=qwK*q[3];/* run 43 wideview: keep tris in the side strips */if(q[0]>qw)o|=1;if(q[0]<-qw)o|=2;if(q[1]>q[3])o|=4;if(q[1]<-q[3])o|=8;if(q[2]>q[3])o|=16;if(q[2]<-q[3])o|=32;out&=o;
+   unsigned o=0;const float qw=qwK*q[3];/* run 43 wideview: keep tris in the side strips */const float qy=yK*q[3];if(q[0]>qw)o|=1;if(q[0]<-qw)o|=2;if(q[1]>qy)o|=4;if(q[1]<-qy)o|=8;if(q[2]>q[3])o|=16;if(q[2]<-q[3])o|=32;out&=o;
    col[k]=p.color;su[k]=p.u;sv[k]=p.v;}
   if(J.wbuf){/* run 31: DS W-buffer (SwapBuffers bit1): depth = w, linear. With z-buffer depth the title's projection
      gave z==w for every vertex (all depth ~1.0), so Giratina's body lost the depth test. */
@@ -498,11 +535,14 @@ static void GpuRawJ(const GJob&J){
    float area=(x1-x0)*(y2-y0)-(x2-x0)*(y1-y0);if(cullMode3d==1)area=-area;/* run 26: the old sign culled ~all field tris (36 left) */
    if((J.cullFace==1&&area>0)||(J.cullFace==2&&area<0)){culledTris++;continue;}}
   drawnTris++;
-  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
+  float cm[12];if(MM){for(int k=0;k<3;k++){const GuVertex&p=v[i+k];float*q=cm+4*k;
+    q[0]=p.x*MM[0]+p.y*MM[4]+p.z*MM[8]+MM[12];q[1]=p.x*MM[1]+p.y*MM[5]+p.z*MM[9]+MM[13];q[2]=p.x*MM[2]+p.y*MM[6]+p.z*MM[10]+MM[14];q[3]=p.x*MM[3]+p.y*MM[7]+p.z*MM[11]+MM[15];}
+   G3G_MidC=cm;}
+  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);G3G_MidC=nullptr;continue;}
   /* 2026-11-04: zf and the parallax once per vertex, both eyes written in one G3G_TriClip2 pass (was: all of it per eye) */
   float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=c[4*k+3];zf3[k]=w>1e-6f?0.5f*c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
   float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
-  G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);
+  G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);G3G_MidC=nullptr;
  }
 }
 static GuVertex scrBuf[8192];
@@ -638,7 +678,7 @@ void G3SIM_FlushDeferred(){
    if(!f){k+=snprintf(b+k,sizeof b-k," -%x/%x/%x",prv[j].off,prv[j].pal,prv[j].wh);if(k>140)fl();}}
   fl();memcpy(prv,cur,cn*sizeof(E));pn=cn;}}
  usedN=0;
- if(gpuOn==1){u64 t=svcGetSystemTick();G3G_FogNoW=!wbufOn();G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);prEnd+=svcGetSystemTick()-t;prN++;}
+ if(gpuOn==1){u64 t=svcGetSystemTick();G3G_FogNoW=!wbufOn();G3G_MidInfo(mdTot,mdMat,mdMov);G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);prEnd+=svcGetSystemTick()-t;prN++;}
  /* debug g3_shot=N: dump the finished 3D layer (256x192 RGBA, 6-bit) of 3D frames N, N+60, ... (8 files) to
     sdmc:/3ds/soulsilver3ds/g3shot_<frame>.bin, to compare renderers on the exact same game frame. Off (0) by default. */
  {static int shotF=-1;if(shotF<0)shotF=0 /* g3_shot: debug option removed */;if(shotF>0&&g3FrameNo>=(unsigned)shotF&&(g3FrameNo-shotF)%60==0&&g3FrameNo<(unsigned)shotF+480){G3G_DirectResolveWhy(7);char fn[64];snprintf(fn,sizeof fn,"sdmc:/3ds/soulsilver3ds/g3shot_%u.bin",g3FrameNo);FILE*f=fopen(fn,"wb");if(f){fwrite(GPU3D::NativeFrame,4,256*192,f);fclose(f);PSPNativeMemLog("[G3SHOT] %s (gpu %d)",fn,gpuOn);}}}
@@ -667,7 +707,7 @@ void P3DS_G3BeginFrame(void){CRUMB("g3-begin");g3FrameNo++;usedN=0;frameTicks=sv
  if(gpuReq>=0){gpuOn=gpuReq&&G3G_Init()?1:0;gpuReq=-1;PSPNativeMemLog("[GPU3D] L+R+Y: gpu3d=%d",gpuOn);}
  /* CPU renderer (GPU 3D init failed or turned off with L+R+Y): DS W-buffer frames (title Lugia) use the perspective-correct raster TriWPersp */
  wPerspFrame=gpuOn!=1&&s_SIM_useWBuffer&&wbufOn()&&G3G_WDepthOn()!=3;
- if(gpuOn==1){gtDrain(1);const int cw=P3DS_G3ThreadCfg();const int ab=cw==2?(int)((gtAbN++/1200)&1):cw;const int want=ab&&gtStart();if(want!=gtCfg){gtCfg=want;PSPNativeMemLog("[G3THR] now %s%s",gtCfg?"ON":"OFF",cw==2?" (A/B test block)":"");}u16 dz=(u16)(((cd&0x7FFF)*2)|1);G3G_Begin(v,dz?dz:0xFFFF,stereoSd);transN=transVN=0;return;}
+ if(gpuOn==1){gtDrain(1);const int cw=P3DS_G3ThreadCfg();const int ab=cw==2?(int)((gtAbN++/1200)&1):cw;const int want=ab&&gtStart();if(want!=gtCfg){gtCfg=want;PSPNativeMemLog("[G3THR] now %s%s",gtCfg?"ON":"OFF",cw==2?" (A/B test block)":"");}u16 dz=(u16)(((cd&0x7FFF)*2)|1);G3G_Begin(v,dz?dz:0xFFFF,stereoSd);mdFrameBegin(G3G_MidRec!=0);transN=transVN=0;return;}
  if(gtCfg){gtDrain(1);gtCfg=0;}
  G3G_DirectInvalidate();/* gpu_direct3d: this frame is CPU-rendered, NativeFrame is the truth again */
  for(unsigned i=0;i<256*192;i++)GPU3D::NativeFrame[i]=v;
