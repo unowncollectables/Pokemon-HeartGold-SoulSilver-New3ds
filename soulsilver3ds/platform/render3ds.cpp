@@ -317,20 +317,45 @@ static void bindRegisters(GPU2D::Unit&u,unsigned base){
  }
  u.Write16(0x6c,reg16(base+0x6c));
 }
+static void syncExtPalette(u8 *dst, const u8 *src, size_t size, bool &wasMapped) {
+ if (src) memcpy(dst, src, size);
+ else if (wasMapped) memset(dst, 0, size);
+ wasMapped = src != nullptr;
+}
+static void mapExtPalettes() {
+ // These flat palettes start zero-filled. Only an unmapped span that
+ // previously had a source needs clearing.
+ static bool bgALowMapped, bgAHighMapped, objAMapped, bgBMapped, objBMapped;
+ constexpr size_t bgHalfSize = sizeof(GPU::VRAMFlat_ABGExtPal) / 2;
+ const u8 *bgA[2] = {};
+ const u8 *objA = nullptr;
+ if ((*(volatile u8 *)(PSPNative_GfxRegisters + 0x244) & 0x87) == 0x84) {
+  bgA[0] = s_HW_LCDC_VRAM + 0x80000;
+  bgA[1] = bgA[0] + bgHalfSize;
+ }
+ // Bank F overlays E, and G overlays both when targeting the same span.
+ for (unsigned i = 0; i < 2; ++i) {
+  const unsigned c = *(volatile u8 *)(PSPNative_GfxRegisters + 0x245 + i);
+  const u8 *src = s_HW_LCDC_VRAM + 0x90000 + i * 0x4000;
+  if ((c & 0x87) == 0x84) bgA[(c >> 3) & 1] = src;
+  if ((c & 0x87) == 0x85) objA = src;
+ }
+ const unsigned h = *(volatile u8 *)(PSPNative_GfxRegisters + 0x248);
+ const unsigned i = *(volatile u8 *)(PSPNative_GfxRegisters + 0x249);
+ const u8 *bgB = (h & 0x87) == 0x82 ? s_HW_LCDC_VRAM + 0x98000 : nullptr;
+ const u8 *objB = (i & 0x87) == 0x83 ? s_HW_LCDC_VRAM + 0xA0000 : nullptr;
+ syncExtPalette(GPU::VRAMFlat_ABGExtPal, bgA[0], bgHalfSize, bgALowMapped);
+ syncExtPalette(GPU::VRAMFlat_ABGExtPal + bgHalfSize, bgA[1], bgHalfSize, bgAHighMapped);
+ syncExtPalette(GPU::VRAMFlat_AOBJExtPal, objA, sizeof(GPU::VRAMFlat_AOBJExtPal), objAMapped);
+ syncExtPalette(GPU::VRAMFlat_BBGExtPal, bgB, sizeof(GPU::VRAMFlat_BBGExtPal), bgBMapped);
+ syncExtPalette(GPU::VRAMFlat_BOBJExtPal, objB, sizeof(GPU::VRAMFlat_BOBJExtPal), objBMapped);
+}
 static void mapMemory(){
  memcpy(GPU::Palette,s_HW_BG_PLTT,512);memcpy(GPU::Palette+512,s_HW_OBJ_PLTT,512);
  memcpy(GPU::Palette+1024,s_HW_DB_BG_PLTT,512);memcpy(GPU::Palette+1536,s_HW_DB_OBJ_PLTT,512);
  memcpy(GPU::OAM,s_HW_OAM,1024);memcpy(GPU::OAM+1024,s_HW_DB_OAM,1024);
  GPU::VRAMMap_LCDC=0;for(unsigned i=0;i<4;i++){GPU::VRAM[i]=s_HW_LCDC_VRAM+i*0x20000;if((*(volatile u8*)(PSPNative_GfxRegisters+0x240+i)&0x87)==0x80)GPU::VRAMMap_LCDC|=1u<<i;}
- memset(GPU::VRAMFlat_ABGExtPal,0,32768);memset(GPU::VRAMFlat_BBGExtPal,0,32768);memset(GPU::VRAMFlat_AOBJExtPal,0,8192);memset(GPU::VRAMFlat_BOBJExtPal,0,8192);
- unsigned e=*(volatile u8*)(PSPNative_GfxRegisters+0x244);
- if((e&0x87)==0x84)memcpy(GPU::VRAMFlat_ABGExtPal,s_HW_LCDC_VRAM+0x80000,32768);
- for(unsigned i=0;i<2;i++){unsigned c=*(volatile u8*)(PSPNative_GfxRegisters+0x245+i);const u8*src=s_HW_LCDC_VRAM+0x90000+i*0x4000;
-  if((c&0x87)==0x84)memcpy(GPU::VRAMFlat_ABGExtPal+((c&8)?16384:0),src,16384);
-  if((c&0x87)==0x85)memcpy(GPU::VRAMFlat_AOBJExtPal,src,8192);
- }
- if((*(volatile u8*)(PSPNative_GfxRegisters+0x248)&0x87)==0x82)memcpy(GPU::VRAMFlat_BBGExtPal,s_HW_LCDC_VRAM+0x98000,32768);
- if((*(volatile u8*)(PSPNative_GfxRegisters+0x249)&0x87)==0x83)memcpy(GPU::VRAMFlat_BOBJExtPal,s_HW_LCDC_VRAM+0xa0000,8192);
+ mapExtPalettes();
 }
 #include "../native-render-opt/top_cache.h"
 /* ---- platinum3ds present path: melonDS software 2D -> 3DS framebuffers (no GPU yet). ---- */

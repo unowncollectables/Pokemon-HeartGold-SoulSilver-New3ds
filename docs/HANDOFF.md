@@ -1,3 +1,9 @@
+# Extended palette transfers
+
+The 2D compositor keeps unmapped extended palette spans zeroed and clears each span when it loses its mapping. Mapped spans still copy the latest VRAM bytes every frame. This removes up to 80 KiB of redundant clears per frame and keeps the existing bank E/F/G overlay order. No new palette buffers.
+
+A host comparison matched every byte across 18,000 frames with bank remaps and writes, including overlapping bank priorities. Full SoulSilver build passed. New 3DS timing is pending.
+
 # Engine B timing and field Save prompt
 
 Run 850 on New 3DS confirmed Bottom Menu repaints around 6.1–6.2 ms (previously about 12.2 ms). Its mono Route 34 run also had windows with 3.5–6.4 ms/frame in compositor worker waits while Engine B drew again.
