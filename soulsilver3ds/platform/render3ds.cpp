@@ -2564,7 +2564,14 @@ static int Present(bool){
    if(!mm.have&&show&&!mmNoDataLogged&&P3DS_InField){static unsigned n;if(++n>300){mmNoDataLogged=1;PSPNativeMemLog("[MINIMAP] no data from the game after 300 frames in the overworld: hook 0080 is not in this build (the panel stays on LOCATING)");}}
   }
   {static bool pgLogged;
-   if(!gPg.decoded&&pgDecode(gPg)){BLINV;PSPNativeMemLog("[PGMAP] Pokegear map decoded from the ROM (%dx%d)",kPgW,kPgH);}
+   if (!gPg.decoded && !gPg.failed && P3DS_PgReady) {
+    const u64 started = svcGetSystemTick();
+    if (pgDecode(gPg)) {
+     BLINV;
+     PSPNativeMemLog("[PGMAP] Pokegear map decoded from the ROM (%dx%d, %u us)", kPgW, kPgH,
+                     (unsigned)((svcGetSystemTick() - started) / CPU_TICKS_PER_USEC));
+    }
+   }
    if(gPg.failed&&!pgLogged){pgLogged=true;PSPNativeMemLog("[PGMAP] Pokegear map data not usable: JOHTO layout shows the explored-cell map");}
    {static unsigned lastCt;if(P3DS_ContestTick!=lastCt){lastCt=P3DS_ContestTick;BLINV;}static unsigned lastTrk;if(P3DS_TrkTick!=lastTrk){lastTrk=P3DS_TrkTick;BLINV;}static unsigned lastTrkStep;if(P3DS_TrkStepTick!=lastTrkStep){lastTrkStep=P3DS_TrkStepTick;if(gPg.ov)BLINV;}} /* run 45: tracker data changed */
    const uint32_t tid=P3DS_PgTid;

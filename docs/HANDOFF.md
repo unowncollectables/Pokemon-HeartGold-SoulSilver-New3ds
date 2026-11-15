@@ -1,3 +1,9 @@
+# Cold field Pokegear initialization
+
+Patch 0276 reads one message table at a time for Pokegear names and descriptions, reuses open event and encounter archives for the progress index, and only walks the matching locations once per map. If a direct message allocation fails, it uses the original lazy reader. The map art decoder now converts each palette entry once. [PGLOAD] reports time for text, raw map and icon data, and the progress index.
+
+The native field object and full SoulSilver build passed. The bootstrap patch reverse-check passed and the staged hook was idempotent. A host comparison matched the old decoder's pixels across 500 maps. In mono Azahar, a copied Goldenrod save with matching boot-prefetch zone and zero ROM misses on the measured frame produced identical logged progress counts. The first field setup frame fell from 612 to 577 ms in one matched pair, and its game/3D portion fell from 388 to 332 ms. New 3DS cold-entry timing is pending.
+
 # 60 fps display swap wait
 
 Run 859 briefly stepped down crossing from Goldenrod into Route 34 with a 33.396 ms mean tick, 16 ticks classified as busy in the 60-tick window, and no Engine B redraws. The busy calculation had counted time spent waiting for the previous screen swap. Only a successful tear-fix display wait is now deducted from busy time. The complete elapsed tick still drives the elapsed-time and long-tick guards, and recovery still uses the game's own VBlank idle.

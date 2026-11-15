@@ -118,13 +118,19 @@ static bool pgDecode(SPg &p) {
   const int sw = pgU16(scr + 8) / 8; const uint8_t *S = scr + 20;
   const uint8_t *P = pal + 8 + pgU32(pal + 20); const uint32_t pn = pgU32(pal + 16) / 2;
   if (sw < 47 || cn < 64 || pn < 16 || C + cn > pgRaw[10] + pgRawSz[10]) { p.failed = true; return false; }
+  uint32_t colors[256];
+  colors[0] = SUI_RGB(0, 60, 46); /* index 0 = transparent map backdrop */
+  for (unsigned i = 1; i < 256; ++i) {
+    if (i < pn) {
+      const uint16_t c = pgU16(P + 2 * i);
+      colors[i] = SUI_RGB((c & 31) * 255 / 31, (c >> 5 & 31) * 255 / 31, (c >> 10 & 31) * 255 / 31);
+    } else colors[i] = colors[0];
+  }
   for (int ty = 0; ty < 20; ty++) for (int tx = 0; tx < 47; tx++) {
     const uint16_t e = pgU16(S + 2 * (ty * sw + tx)); const uint32_t t = e & 1023; const bool fx = e >> 10 & 1, fy = e >> 11 & 1;
     for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) {
       const int sx = fx ? 7 - x : x, sy = fy ? 7 - y : y; const uint32_t o = t * 64 + sy * 8 + sx; const int v = o < cn ? C[o] : 0;
-      uint32_t c = SUI_RGB(0, 60, 46); /* index 0 = clear: the Pokegear's dark backdrop */
-      if (v && (uint32_t)v < pn) { const uint16_t k = pgU16(P + 2 * v); c = SUI_RGB((k & 31) * 255 / 31, (k >> 5 & 31) * 255 / 31, (k >> 10 & 31) * 255 / 31); }
-      p.img[(ty * 8 + y) * kPgW + tx * 8 + x] = c; } }
+      p.img[(ty * 8 + y) * kPgW + tx * 8 + x] = colors[v]; } }
   p.decoded = true; return true; }
 
 static void pgRelight(SPg &p) {
