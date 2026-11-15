@@ -283,7 +283,7 @@ static void gcAnalyze(unsigned e,bool field){
 }
 /* run 60 gpu_compose=2/3: GPU compositor (platform/gpucomp.c) for engine A on simple frames; 3 = verify (melonDS output is
    shown, the GPU result is composed too and compared pixel by pixel, [GPUC] verify log, first mismatch dumped). */
-extern "C" {void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectStrips(void);int G3G_DirectPending(void);int G3G_DirectCfg(void);void G3G_SetDirect(int);int P3DS_GcEligible(const u8*,const u16*);int P3DS_GcComposeA(const u8*,const u8*,const u8*,const u16*,const u16*,const u16*,const u32*,u32*);
+extern "C" {void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectStrips(void);int G3G_DirectPending(void);int G3G_DirectCfg(void);void G3G_SetDirect(int);int P3DS_GcEligible(const u8*,const u16*);int P3DS_GcComposeA(const u8*,const u8*,const u8*,const u16*,const u16*,const u16*,const u32*,u32*,void* = nullptr,void** = nullptr,unsigned* = nullptr);
  extern unsigned P3DS_GcBlendOn,P3DS_GcFxFrames,P3DS_GcBlendFrames,P3DS_GcBlendRej;extern unsigned P3DS_GcWalkUs,P3DS_GcConvUs,P3DS_GcOutUs,P3DS_GcQuads,P3DS_GcDecoded,P3DS_GcResets,P3DS_GcCpuUs,P3DS_GcGpuUs;}
 extern "C" void P3DS_GcRejLog(void);
 extern "C" {extern unsigned P3DS_GcB3Frames,P3DS_GcBeginUs,P3DS_GcEndUs,P3DS_GcSyncUs,P3DS_GcMbFrames,P3DS_GpBeginUs,P3DS_GpTearUs,P3DS_GpFenceIdleUs,P3DS_GpEndUs,P3DS_GpUpUs,P3DS_GpDrawUs,P3DS_GpStripUs,P3DS_FeN;extern unsigned long long P3DS_FeTicks;extern volatile unsigned long long P3DS_VblIdleTicks;int P3DS_FpsTweaks(void);int P3DS_FpsTweakRow(void);void P3DS_GcEye(int,int);void P3DS_GcFinish(void);void P3DS_SetFpsTweaks(int);}
@@ -292,7 +292,7 @@ enum{PF_IDLE,PF_GCL,PF_GCR,PF_CPUA,PF_BWAIT,PF_C1WAIT,PF_EARLYBWAIT,PF_OVL,PF_BM
 enum{PU_LB,PU_LE,PU_LS,PU_RB,PU_RE,PU_RS,PU_PB,PU_PT,PU_PE,PU_UP,PU_DR,PU_ST,PU_N};static u64 pfU[PU_N];static unsigned pfR,pfBlRep;
 static unsigned gcFrames,gcUsed,gcInel,gcFail,gcVer,gcVerOk,gcVerBad;static u64 gcW,gcC,gcO,gcBadPx,gcCpu,gcGpu,gcDec,gcQ;static unsigned gcReason[16];
 static u64 gcBadBig;static u32*gcScratch;static unsigned gcMenuF,gcMenuOK,gcMenuW64[4],gcMenuOn[4];extern "C" int P3DS_InField;
-static bool gcCompose(u32*out){const int r=P3DS_GcComposeA((const u8*)PSPNative_GfxRegisters,GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,GPU3D::NativeFrame,out);
+static bool gcCompose(u32*out,void* mid3d=nullptr,void** midOut=nullptr,unsigned* midUs=nullptr){const int r=P3DS_GcComposeA((const u8*)PSPNative_GfxRegisters,GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,GPU3D::NativeFrame,out,mid3d,midOut,midUs);
  if(r){gcW+=P3DS_GcWalkUs;gcC+=P3DS_GcConvUs;gcO+=P3DS_GcOutUs;gcCpu+=P3DS_GcCpuUs;gcGpu+=P3DS_GcGpuUs;gcDec+=P3DS_GcDecoded;gcQ+=P3DS_GcQuads;}else gcFail++;return r!=0;}
 extern "C" {extern unsigned P3DS_GcDeferN,P3DS_GcResolveN;}
 static void gcLog(){if(gcFrames<300)return;const unsigned u=(gcUsed+gcVer)?(gcUsed+gcVer):1;
@@ -1330,7 +1330,7 @@ enum{kGtsPickerItem=MENU_N-4,kWideLayItem=MENU_N-3,kG3ThrItem=MENU_N-2,kFps60Ite
 extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);}
 /* fps60 (g3gpu.c, gpucomp.c, gpuscale.c): in-between pictures for the overworld */
 extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);
- void*P3DS_GcMidCompose(int,void*);u32*P3DS_GpuMidStripBuffer(int);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
+ u32*P3DS_GpuMidStripBuffer(int);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
 static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
 enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-26&&kPgFindItem==MENU_N-25&&kBreedItem==MENU_N-24&&kBatchCullItem==MENU_N-23&&kGcDirectItem==MENU_N-22&&kWildAliveItem==MENU_N-21&&kEventAnyItem==MENU_N-20&&kSteadyItem==MENU_N-19&&kEvenItem==MENU_N-18&&kFlyTapItem==MENU_N-17&&kContestItem==MENU_N-16,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
@@ -2275,8 +2275,8 @@ static int Present(bool){
  if(gcOK){if(!async&&!bGpuFrame)for(unsigned line=0;line<192;line++){GPU::VCount=line;engineB.CheckWindows(line);renderer.DrawSprites(line,&engineB);renderer.DrawScanline(line,&engineB);}
   {if(gHoldLazy){if(P3DS_PanelPartyWant||P3DS_PanelPartyOn)holdSync();gHoldLazy=0;}
    gDfDec=gcDirectCfg()&&(!stereo||gcSt)&&(P3DS_InField||P3DS_InBattle)&&(power&0x8000)&&P3DS_ScaleMode()!=0&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!P3DS_MenuOpen&&P3DS_CfgInt("g3_sharp",0)!=4;P3DS_GcDeferOut=gDfDec;
-   const u64 tq=svcGetSystemTick();P3DS_GcEye(0,gcSt);gcDone=gcCompose(display[0]);P3DS_GcDeferOut=0;pfT[PF_GCL]+=svcGetSystemTick()-tq;pfU[PU_LB]+=P3DS_GcBeginUs;pfU[PU_LE]+=P3DS_GcEndUs;pfU[PU_LS]+=P3DS_GcSyncUs;
-   if(gcDone&&G3G_MidReady()&&P3DS_GcPendTex(display[0])){const u64 tm=svcGetSystemTick();f60L=P3DS_GcMidCompose(0,G3G_MidTex(0));f60CompUs+=(unsigned)((svcGetSystemTick()-tm)/CPU_TICKS_PER_USEC);}}if(gcDone)gcUsed++;line0Done=true;
+   const u64 tq=svcGetSystemTick();P3DS_GcEye(0,gcSt);gcDone=gcCompose(display[0],G3G_MidReady()?G3G_MidTex(0):nullptr,&f60L,&f60CompUs);P3DS_GcDeferOut=0;pfT[PF_GCL]+=svcGetSystemTick()-tq;pfU[PU_LB]+=P3DS_GcBeginUs;pfU[PU_LE]+=P3DS_GcEndUs;pfU[PU_LS]+=P3DS_GcSyncUs;
+  }if(gcDone)gcUsed++;line0Done=true;
   if(gcDone&&gcSt){const u8*regsR=(const u8*)PSPNative_GfxRegisters;
    /* run 17: outside the overworld the right eye's BG layers get depth by priority (stereo_2d, same rule as the CPU path above): shift their H scroll in a register copy */
    static u8 regsCopy[0x100] __attribute__((aligned(4)));if(!P3DS_InField&&stereo2dCfg()){memcpy(regsCopy,regsR,sizeof regsCopy);regsR=regsCopy;
@@ -2285,9 +2285,9 @@ static int Present(bool){
      const int pr=reg16(8+i*2)&3,d=cfg==1?(pr==3?2*sd2:pr==2?(3*sd2)/2:0):(pr==3?(sd2+1)/2:pr==2?(sd2+2)/4:0);
      if(d)*(u16*)(regsCopy+0x10+i*4)=(u16)((reg16(0x10+i*4)-d)&0x1FF);}}
    {static unsigned nfN;if(!P3DS_InField&&++nfN%300==1)PSPNativeMemLog("[GPUC] stereo outside the overworld: both eyes GPU-composed (%u frames so far, battle %d)",nfN,P3DS_InBattle);}
-   {const u64 tq=svcGetSystemTick();P3DS_GcEye(1,0);P3DS_GcDeferOut=gDfDec;gcStR=P3DS_GcComposeA(regsR,GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,rightEye,rawR)!=0;P3DS_GcDeferOut=0;
+   {const u64 tq=svcGetSystemTick();P3DS_GcEye(1,0);P3DS_GcDeferOut=gDfDec;gcStR=P3DS_GcComposeA(regsR,GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,rightEye,rawR,f60L?G3G_MidTex(1):nullptr,&f60R,&f60CompUs)!=0;P3DS_GcDeferOut=0;
     pfT[PF_GCR]+=svcGetSystemTick()-tq;pfU[PU_RB]+=P3DS_GcBeginUs;pfU[PU_RE]+=P3DS_GcEndUs;pfU[PU_RS]+=P3DS_GcSyncUs;pfR++;
-    if(gcStR&&f60L&&P3DS_GcPendTex(rawR)){const u64 tm=svcGetSystemTick();f60R=P3DS_GcMidCompose(1,G3G_MidTex(1));f60CompUs+=(unsigned)((svcGetSystemTick()-tm)/CPU_TICKS_PER_USEC);}}if(gcStR)gcStN++;}}
+   }if(gcStR)gcStN++;}}
  P3DS_GcFinish();  /* fps_tweaks 6 overlap: a left eye still pending is converted before anything reads display[0] */
  if(!gcDone||(gcSt&&!gcStR))G3G_DirectResolveWhy(4);  /* gpu_direct3d: GPU compose rejected the frame, fall back to the CPU pixels */
  {const u64 ta=svcGetSystemTick();
