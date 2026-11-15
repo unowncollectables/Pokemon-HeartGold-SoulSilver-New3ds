@@ -1,0 +1,651 @@
+#include <stdio.h>
+extern void PSPNativeMemLog(const char *, ...);
+/* platinum3ds GPU screen scaling (citro3d): each DS screen is nearest-upscaled 2x on the CPU into a 512x384
+ * (v2: no CPU prescale) 256x192 RGBA8 into a 256x256 texture via GX display transfer, drawn as one
+ * NEAREST-filtered quad scaled by the GPU (crisp).
+ * Modes: 1 = bottom 320x240, top 320x240 pillarboxed; 2 = bottom 320x240, top stretched 400x240. */
+#include <3ds.h>
+#include <citro3d.h>
+#include <string.h>
+#include "blit_shbin.h"
+#define TEXW 256
+#define TEXH 256
+static int ready;
+static DVLB_s *dvlb; static shaderProgram_s prog; static int uProj;
+static C3D_RenderTarget *tgtTop, *tgtBot, *tgtTopR; static int stereoOn;
+static C3D_Tex texS[2][3]; static u32 *linS[2][3]; /* 0 top(left eye) 1 bottom 2 top right eye; [set] */
+/* run 37: scalesrc_dbl=1 (default): ping-pong two source-texture/staging sets per screen, so a frame never writes the
+   set the previous (possibly still queued) present samples. citro3d already serialises this (FrameBegin waits for the
+   whole previous queue; the in-frame transfer is queued before the draw), so this is belt-and-braces; 0 = single set. */
+static int srcSet, srcDbl = -1;
+#define tex texS[srcSet]
+#define lin linS[srcSet]
+/* sharp bilinear: pass 1 nearest 2x into up[i] (512x512 render-target texture, 512x384 used), pass 2 linear down */
+static C3D_Tex up[3]; static C3D_RenderTarget *upTgt[3];
+static int upFmt16 = -1, botValid;   /* upFmt16: up[] format, 0 RGBA8, 1 RGB565 (sharp 3D), -1 not allocated; botValid: see run 40 below */
+#define DISP_FLAGS (GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
+    GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
+#define TEX_FLAGS (GX_TRANSFER_FLIP_VERT(1) | GX_TRANSFER_OUT_TILED(1) | GX_TRANSFER_RAW_COPY(0) | \
+    GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
+/* 2026-10-27 fps thread: fps_tweaks (Debug tab "Speed tweaks", default 0 = OFF), cumulative: 2 = engine B skipped while the
+   Bottom menu covers the bottom screen and both blink states of the Bottom menu cached (render3ds.cpp), 3 = + master-brightness
+   fades composed on the GPU (gpucomp.c). Level 1 (lean GPU flush) HUNG the game at frame 4 on hardware (compose FrameBegin never
+   returned, 2026-10-27): it now lives only behind the config.txt key fps_leanflush=1 (default 0, not in the menu) and level 1 is
+   treated as 0. [PERF4] times every stage with the tweaks on or off.
+   Boot guard: a non-zero level writes fps_tweaks.pending before it is used and deletes it after 600 presented frames; a boot that
+   finds the file (the last boot with the tweaks never got that far: hang, crash, power-off) forces fps_tweaks=0 in config.txt and
+   says so in the log, so a bad level can never lock the game out. */
+#define FPS_PENDING "sdmc:/3ds/soulsilver3ds/fps_tweaks.pending"
+static int fpsTwV = -1, fpsLean = -1, fpsOkFrames; static unsigned fpsGuardMsg;
+extern int P3DS_CfgInt(const char *, int); extern void P3DS_CfgWrite(const char *, int);
+static void fpsArm(void) { FILE *f = fopen(FPS_PENDING, "w"); if (f) { fputs("fps_tweaks was switched on; removed after 600 good frames\n", f); fclose(f); } fpsOkFrames = 0; }
+int P3DS_FpsTweaks(void) {
+    if (fpsTwV < 0) {
+        fpsTwV = P3DS_CfgInt("fps_tweaks", 0); if (fpsTwV < 2 || fpsTwV > 7) fpsTwV = 0;
+        FILE *g = fopen(FPS_PENDING, "r");
+        if (g) { fclose(g); remove(FPS_PENDING);
+            if (fpsTwV) { fpsTwV = 0; fpsGuardMsg = 1; PSPNativeMemLog("[PERF4] SAFE BOOT: the last boot with Speed tweaks on never reached 600 frames; tweaks are OFF for THIS boot only, config.txt keeps its fps_tweaks level"); } }
+        else if (fpsTwV) fpsArm();
+        fpsLean = P3DS_CfgInt("fps_leanflush", 0) != 0;
+        PSPNativeMemLog("[PERF4] fps_tweaks=%d (0 off, 2 hidden bottom skip / blink cache, 3 + GPU fades, 4 + GPU 3D translucency, 5 + CPU trims, 6 + stereo compose overlap, 7 + pixel passes on two cores), fps_leanflush=%d", fpsTwV, fpsLean);
+    }
+    return fpsTwV;
+}
+void P3DS_SetFpsTweaks(int v) { P3DS_FpsTweaks(); fpsTwV = (v < 2 || v > 7) ? 0 : v; if (fpsTwV) fpsArm(); else remove(FPS_PENDING); PSPNativeMemLog("[PERF4] fps_tweaks=%d from settings", fpsTwV); }
+/* menu row: 0 OFF, 1 BOTTOM (level 2), 2 +FADES (level 3) */
+int P3DS_FpsTweakRow(void) { int l = P3DS_FpsTweaks(); return l >= 2 ? l - 1 : 0; }
+unsigned long long P3DS_FeTicks; unsigned P3DS_FeN;
+/* C3D_FrameEnd(0) also flushes the whole linear heap from the cache on every call; fps_leanflush=1 ends frames with GX_CMDLIST_FLUSH only (hung on hardware, see above) */
+void P3DS_FrameEnd(void) { P3DS_FpsTweaks(); const u64 t0 = svcGetSystemTick(); C3D_FrameEnd(fpsLean > 0 ? GX_CMDLIST_FLUSH : 0); P3DS_FeTicks += svcGetSystemTick() - t0; P3DS_FeN++; }
+/* called once per presented frame */
+/* clean exit: a short healthy session must not count as a failed boot (it used to reset fps_tweaks=7 to 0 after any quick test or unrelated crash) */
+void P3DS_FpsGuardClean(void) { remove(FPS_PENDING); }
+void P3DS_FpsGuardFrame(void) { if (fpsTwV > 0 && fpsOkFrames >= 0 && ++fpsOkFrames >= 600) { fpsOkFrames = -1; remove(FPS_PENDING); } }
+/* [PERF4] present stages, last frame (us): FrameBegin wait (previous GPU queue), tearfix wait, FrameEnd */
+unsigned P3DS_GpBeginUs, P3DS_GpTearUs, P3DS_GpEndUs, P3DS_GpUpUs, P3DS_GpDrawUs, P3DS_GpStripUs;
+int P3DS_GpuInit(void) {
+    if (ready) return 1;
+    if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE)) return 0;
+    tgtTop = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
+    tgtBot = C3D_RenderTargetCreate(240, 320, GPU_RB_RGBA8, -1);
+    if (!tgtTop || !tgtBot) return 0;
+    C3D_RenderTargetSetOutput(tgtTop, GFX_TOP, GFX_LEFT, DISP_FLAGS);
+    C3D_RenderTargetSetOutput(tgtBot, GFX_BOTTOM, GFX_LEFT, DISP_FLAGS);
+    tgtTopR = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1); if (!tgtTopR) return 0;
+    C3D_RenderTargetSetOutput(tgtTopR, GFX_TOP, GFX_RIGHT, DISP_FLAGS);
+    dvlb = DVLB_ParseFile((u32 *)blit_shbin, blit_shbin_size);
+    shaderProgramInit(&prog); shaderProgramSetVsh(&prog, &dvlb->DVLE[0]);
+    uProj = shaderInstanceGetUniformLocation(prog.vertexShader, "projection");
+    if (srcDbl < 0) { srcDbl = 1; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "scalesrc_dbl=%d", &x) == 1) srcDbl = x != 0; fclose(f); } }
+    for (int k = 0; k < (srcDbl ? 2 : 1); k++) for (int i = 0; i < 3; i++) {
+        if (!C3D_TexInit(&texS[k][i], TEXW, TEXH, GPU_RGBA8)) { if (k) { srcDbl = 0; break; } return 0; }
+        C3D_TexSetFilter(&texS[k][i], GPU_NEAREST, GPU_NEAREST);
+        C3D_TexSetWrap(&texS[k][i], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+        linS[k][i] = linearAlloc(TEXW * TEXH * 4); if (!linS[k][i]) { if (k) { srcDbl = 0; break; } return 0; } memset(linS[k][i], 0, TEXW * TEXH * 4);
+    }
+    PSPNativeMemLog("[3DS] scalesrc_dbl=%d (scale source texture sets: %d)", srcDbl, srcDbl ? 2 : 1);
+    for (int i = 0; i < 3; i++) {
+        if (!C3D_TexInitVRAM(&up[i], 512, 512, GPU_RGBA8)) return 0;
+        C3D_TexSetFilter(&up[i], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&up[i], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+        upTgt[i] = C3D_RenderTargetCreateFromTex(&up[i], GPU_TEXFACE_2D, 0, -1); if (!upTgt[i]) return 0;
+    }
+    upFmt16 = 0; ready = 1; return 1;
+}
+/* 2026-10-28 sharp 3D VRAM: the three 512x512 RGBA8 prescale targets take 3 MiB of the 6 MiB VRAM, and the 2x 3D target
+   (512x384 or 640x384 colour + 24-bit depth, 1.5-2 MiB) only fits in VRAM (linear-RAM targets drew garbage at 50 ms, run 49).
+   While a 2x 3D target is wanted, g3gpu frees these (P3DS_UpFree), makes its target, then gets them back as RGB565 (half the
+   size; R/B lose their lowest bit, the DS 2D is 5-bit anyway). Fallback if even that fails: g3gpu drops to 1x, RGBA8 again. */
+void P3DS_UpFree(void) {
+    if (!ready || upFmt16 < 0) return;
+    C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH);   /* GPU idle: nothing may still sample or draw into them */
+    for (int i = 0; i < 3; i++) { if (upTgt[i]) C3D_RenderTargetDelete(upTgt[i]); upTgt[i] = NULL; if (up[i].data) C3D_TexDelete(&up[i]); memset(&up[i], 0, sizeof up[i]); }
+    upFmt16 = -1; botValid = 0;
+}
+int P3DS_UpAlloc(int fmt16) {
+    if (!ready) return 1;   /* GPU scaling not set up (mode 0): nothing to do */
+    if (upFmt16 == fmt16) return 1;
+    if (upFmt16 >= 0) P3DS_UpFree();
+    const GPU_TEXCOLOR f = fmt16 ? GPU_RGB565 : GPU_RGBA8; int ok = 1;
+    for (int i = 0; i < 3 && ok; i++) {
+        if (!C3D_TexInitVRAM(&up[i], 512, 512, f)) { ok = 0; break; }
+        C3D_TexSetFilter(&up[i], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&up[i], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+        upTgt[i] = C3D_RenderTargetCreateFromTex(&up[i], GPU_TEXFACE_2D, 0, -1); if (!upTgt[i]) ok = 0; }
+    upFmt16 = fmt16; botValid = 0;
+    PSPNativeMemLog("[3DRES] scale targets now %s: %s (VRAM free after %lu)", fmt16 ? "RGB565" : "RGBA8", ok ? "ok" : "FAILED", (unsigned long)vramSpaceFree());
+    if (!ok) { P3DS_UpFree();
+        /* never leave the screen without scale targets: the other format (16-bit is half the size) */
+        static int depth; if (depth) return 0;
+        depth = 1; const int alt = P3DS_UpAlloc(!fmt16); depth = 0;
+        return alt ? 2 : 0; }
+    return 1;
+}
+/* DS pixel (compositor output: R bits 0-7, G 8-15, B 16-23) -> RGBA8 (0xRRGGBBAA); 256x192 into a 256x256 texture. */
+/* run 57 gpu_swizzle=1: the compositor buffers live in linear memory (render3ds allocBufs), so the transfer reads them
+   directly; the raw word R|G<<8|B<<16 then samples as texel (r,g,b,a) = (0,B,G,R) and the prescale pass rebuilds RGB
+   with 3 texture-combiner stages (a*(1,0,0) + b*(0,1,0) + g*(0,0,1)). No CPU pass over the frame. 0 = old byte swap. */
+extern u32 __ctru_linear_heap, __ctru_linear_heap_size;
+static int swzCfg = -1, swz[3]; unsigned P3DS_UploadUs; static u64 upTicks;
+int P3DS_GpuSwizzle(void) { if (swzCfg < 0) { swzCfg = 1; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "gpu_swizzle=%d", &x) == 1) swzCfg = x != 0; fclose(f); } PSPNativeMemLog("[3DS] gpu_swizzle=%d", swzCfg); } return swzCfg; }
+void P3DS_SetGpuSwizzle(int v) { swzCfg = v != 0; }
+static int isLinear(const void *p) { u32 a = (u32)p; return a >= __ctru_linear_heap && a + 256 * 192 * 4 <= __ctru_linear_heap + __ctru_linear_heap_size; }
+static void upload(int i, const u32 *src) {
+    u64 t0 = svcGetSystemTick();
+    if (P3DS_GpuSwizzle() && isLinear(src)) { swz[i] = 1;
+        GSPGPU_FlushDataCache(src, TEXW * 192 * 4);
+        C3D_SyncDisplayTransfer((u32 *)src, GX_BUFFER_DIM(TEXW, TEXH), tex[i].data, GX_BUFFER_DIM(TEXW, TEXH), TEX_FLAGS);
+        upTicks += svcGetSystemTick() - t0; return; }
+    swz[i] = 0;
+    u32 *d = lin[i];
+    for (int k = 0; k < 256 * 192; k++) { u32 c = src[k]; d[k] = __builtin_bswap32(c) | 0xFF;  /* == R<<24|G<<16|B<<8|FF (box-verified), one REV */ }
+    GSPGPU_FlushDataCache(d, TEXW * 192 * 4);
+    C3D_SyncDisplayTransfer(d, GX_BUFFER_DIM(TEXW, TEXH), tex[i].data, GX_BUFFER_DIM(TEXW, TEXH), TEX_FLAGS);
+    upTicks += svcGetSystemTick() - t0;
+}
+/* 2026-10-29 CRISP 3D (g3gpu.c G3G_CrispHi): the unscaled 2x 3D picture, alpha = "this DS pixel is still the plain 3D pixel", drawn over the
+   normal picture at the final size. */
+extern const u32 *G3G_CrispHi(const u32 **nf);
+static C3D_Tex hiTex; static int hiTexOk = -1; static unsigned crN, crOn, crMask; static u64 crTicks;
+static int crispPrepare(const u32 *top) {
+    const u32 *nf = NULL; u32 *buf = (u32 *)G3G_CrispHi(&nf);
+    if (!buf || !nf || !top) return 0;
+    if (hiTexOk < 0) { hiTexOk = C3D_TexInit(&hiTex, 512, 512, GPU_RGBA8) ? 1 : 0;
+        if (hiTexOk) { C3D_TexSetFilter(&hiTex, GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&hiTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); }
+        PSPNativeMemLog("[CRISP] 512x512 texture %s", hiTexOk ? "ok" : "FAILED (CRISP 3D off)"); }
+    if (hiTexOk != 1) return 0;
+    const u64 t0 = svcGetSystemTick();
+    GSPGPU_InvalidateDataCache(buf, 512 * 384 * 4);
+    unsigned cnt = 0;
+    for (int y = 0; y < 192; y++) for (int x = 0; x < 256; x++) {
+        const u32 t = top[y * 256 + x], n = nf[y * 256 + x]; int m = (n >> 24) >= 31;
+        for (int c = 0; c < 24 && m; c += 8) { const int nc = (n >> c) & 63, d = (int)((t >> c) & 255) - ((nc << 2) | (nc >> 4)); if (d < -6 || d > 6) m = 0; }
+        cnt += m; u32 *p = buf + (2 * y) * 512 + 2 * x; const u32 a = m ? 0xFFu : 0;
+        p[0] = (p[0] & ~0xFFu) | a; p[1] = (p[1] & ~0xFFu) | a; p[512] = (p[512] & ~0xFFu) | a; p[513] = (p[513] & ~0xFFu) | a; }
+    GSPGPU_FlushDataCache(buf, 512 * 384 * 4);
+    C3D_SyncDisplayTransfer(buf, GX_BUFFER_DIM(512, 384), hiTex.data, GX_BUFFER_DIM(512, 384), TEX_FLAGS);
+    crOn++; crMask += cnt; crTicks += svcGetSystemTick() - t0; return 1;
+}
+static void crispDraw(C3D_RenderTarget *t, float sw, float x0, float y0, float x1, float y1) {
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, sw, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &hiTex);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
+    const float t1 = 384.0f / 512.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(1, 0, 0, 0);
+    C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+}
+static void tevPlain(void) { C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
+    C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+    for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k)); }
+static void tevSwizzle(void) { static const GPU_TEVOP_RGB op[3] = { GPU_TEVOP_RGB_SRC_ALPHA, GPU_TEVOP_RGB_SRC_B, GPU_TEVOP_RGB_SRC_G };
+    static const u32 cc[3] = { 0xFF0000FF, 0xFF00FF00, 0xFFFF0000 };   /* ABGR: R, G, B */
+    for (int k = 0; k < 3; k++) { C3D_TexEnv *env = C3D_GetTexEnv(k); C3D_TexEnvInit(env);
+        if (!k) { C3D_TexEnvSrc(env, C3D_RGB, GPU_TEXTURE0, GPU_CONSTANT, 0); C3D_TexEnvFunc(env, C3D_RGB, GPU_MODULATE); }
+        else { C3D_TexEnvSrc(env, C3D_RGB, GPU_TEXTURE0, GPU_CONSTANT, GPU_PREVIOUS); C3D_TexEnvFunc(env, C3D_RGB, GPU_MULTIPLY_ADD); }
+        C3D_TexEnvOpRgb(env, op[k], GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_COLOR);
+        C3D_TexEnvSrc(env, C3D_Alpha, GPU_CONSTANT, 0, 0); C3D_TexEnvFunc(env, C3D_Alpha, GPU_REPLACE); C3D_TexEnvColor(env, cc[k]); }
+    for (int k = 3; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k)); }
+/* Pass 1: DS texture -> up[i] at exactly 2x with NEAREST. Positions = texcoords * 512 (GL-style texture target,
+   no tilt), so the image keeps the same s/t layout as the DS texture (top row t = 0, bottom t = 0.75). */
+/* 2026-11-04 direct screen (gpucomp.c P3DS_GcPendTex): the top picture can come straight from the compositor's GPU target. Its
+   memory layout is the uploaded texture's (both are RGBA8 written through a FLIP_VERT transfer), so the same quad samples it;
+   alpha is forced to 255 like the upload does. The fps counter is then drawn here (P3DS_GpTextMask: 0 none, 1 black, 2 white). */
+extern C3D_Tex *P3DS_GcPendTex(const u32 *buf); extern void P3DS_GcPresented(void);
+unsigned char P3DS_GpTextMask[8][64]; int P3DS_GpTextOn;
+static C3D_Tex *dirTop, *dirTopR;
+static C3D_Tex *dirOf(int i) { return i == 0 ? dirTop : i == 2 ? dirTopR : NULL; }
+static void tevOpaque(void) { C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
+    C3D_TexEnvSrc(env, C3D_RGB, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(env, C3D_RGB, GPU_REPLACE);
+    C3D_TexEnvSrc(env, C3D_Alpha, GPU_CONSTANT, 0, 0); C3D_TexEnvFunc(env, C3D_Alpha, GPU_REPLACE); C3D_TexEnvColor(env, 0xFFFFFFFF);
+    for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k)); }
+static void textMaskDraw(void) {   /* into upTgt[0] (2x DS pixels, top row y = 0) */
+    for (int pass = 1; pass <= 2; pass++) {
+        C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_CONSTANT, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+        C3D_TexEnvColor(env, pass == 2 ? 0xFFFFFFFF : 0xFF000000);
+        C3D_ImmDrawBegin(GPU_TRIANGLES);
+        for (int y = 0; y < 8; y++) for (int x = 0; x < 64; x++) { if (P3DS_GpTextMask[y][x] != pass) continue; int e = x; while (e + 1 < 64 && P3DS_GpTextMask[y][e + 1] == pass) e++;
+            const float x0 = 2.0f * x, x1 = 2.0f * (e + 1), y0 = 2.0f * y, y1 = y0 + 2.0f;
+            const float v[6][2] = { { x0, y0 }, { x1, y0 }, { x0, y1 }, { x1, y0 }, { x1, y1 }, { x0, y1 } };
+            for (int k = 0; k < 6; k++) { C3D_ImmSendAttrib(v[k][0], v[k][1], 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0); } x = e; }
+        C3D_ImmDrawEnd(); }
+    tevPlain(); }
+static void prescale(int i) {
+    if (dirOf(i)) { tevOpaque(); } else
+    if (swz[i]) tevSwizzle();
+    C3D_RenderTargetClear(upTgt[i], C3D_CLEAR_ALL, 0x000000FF, 0);
+    C3D_FrameDrawOn(upTgt[i]);
+    C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, 512.0f, 0.0f, 512.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, dirOf(i) ? dirOf(i) : &tex[i]);
+    const float t1 = 192.0f / TEXH;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(512, 0, 0, 0); C3D_ImmSendAttrib(1, 0, 0, 0);
+    C3D_ImmSendAttrib(0, 512 * t1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(512, 512 * t1, 0, 0); C3D_ImmSendAttrib(1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+    if (dirOf(i)) { tevPlain(); if (P3DS_GpTextOn) textMaskDraw(); }
+    else if (swz[i]) tevPlain();
+}
+static void quad(C3D_RenderTarget *t, float sw, int i, float x0, float y0, float x1, float y1) {
+    C3D_RenderTargetClear(t, C3D_CLEAR_ALL, 0x000000FF, 0);
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, sw, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &up[i]);
+    /* Hardware run: the DS image's top row lands at t = 0 and its last row at t = 192/256 (the earlier
+       t = 1 .. 0.25 mapping showed the picture upside down and shifted). */
+    const float t0 = 0.0f, t1 = 384.0f / 512.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, t0, 0, 0);
+    C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(1, t0, 0, 0);
+    C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+}
+/* run 43 wideview: side strips of the wide 3D pass (g3gpu G3G_Strip, 64x192 RGBA8: left 32 | right 32 DS px), drawn
+   at x 0..40 and 360..400 (1.25x, LINEAR) after the centred picture. P3DS_WideStrip[eye] = NULL: not drawn. */
+const u32 *P3DS_WideStrip[2];
+static C3D_Tex stripTex[2]; static u32 *stripLin[2]; static int stripOk = -1;
+static C3D_Tex stripTexM[2]; static u32 *stripLinM[2]; static int stripMid;
+/* run 52 wide_fadefix=1 (default): the strips get the CURRENT top-screen fade at draw time: MASTER_BRIGHT (0x6C),
+   BLDCNT brighten/darken on BG0 (3D) with BLDY, forced blank / BG0 off / display off = black. A fade seen in the last
+   3 presents is held (strongest), so the strips never show the new area before the centre has faded in. */
+static int fadeCfg = -1;
+int P3DS_WideFadeFix(void) {
+    if (fadeCfg < 0) { fadeCfg = 1; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "wide_fadefix=%d", &x) == 1) fadeCfg = x != 0; fclose(f); } PSPNativeMemLog("[WIDE] wide_fadefix=%d", fadeCfg); }
+    return fadeCfg; }
+extern unsigned char PSPNative_GfxRegisters[];
+static void fadeNow(int *dir, unsigned *amt) {   /* dir 1 = white, 2 = black; amt 0..16 */
+    const unsigned char *R = PSPNative_GfxRegisters; u32 dc = *(const u32 *)R; u16 mb = *(const u16 *)(R + 0x6C), bc = *(const u16 *)(R + 0x50), by = *(const u16 *)(R + 0x54);
+    *dir = 0; *amt = 0;
+    if ((dc & 0x80) || !(dc & 0x100) || !((dc >> 16) & 3)) { *dir = 2; *amt = 16; return; }
+    unsigned mm = (mb >> 14) & 3, f = mb & 31; if (f > 16) f = 16;
+    if ((mm == 1 || mm == 2) && f) { *dir = (int)mm; *amt = f; }
+    unsigned eff = (bc >> 6) & 3, y = by & 31; if (y > 16) y = 16;
+    if ((bc & 1) && (eff == 2 || eff == 3) && y) { int d2 = eff == 2 ? 1 : 2;
+        if (!*dir) { *dir = d2; *amt = y; } else if (d2 == *dir) *amt = *amt + y * (16 - *amt) / 16; }
+}
+/* run 61 wide_haze=1 (default; only while wide-view strips are drawn): a 2D haze/fog layer alpha-blended over the 3D
+   (BLDCNT effect 1, BG0 = 2nd target) only exists in the 256-px centre, so the strips looked clear. render3ds fits it
+   per frame as C = k*3D + b (k = EVB/16 from BLDALPHA, b = median of the centre's own residual over sparse samples of
+   both edge bands, ~0.1 ms) and the strips get it in the texture combiner (tex*k + b): no CPU pass over pixels. */
+int P3DS_HazeOn; unsigned P3DS_HazeK, P3DS_HazeB; /* ABGR constants for the combiner */
+static int hazeCfg = -1;
+int P3DS_WideHazeCfg(void) { if (hazeCfg < 0) { hazeCfg = 1; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "wide_haze=%d", &x) == 1) hazeCfg = x != 0; fclose(f); } PSPNativeMemLog("[WIDE] wide_haze=%d", hazeCfg); } return hazeCfg; }
+void P3DS_SetWideHazeCfg(int v) { hazeCfg = v != 0; }
+static void strips(C3D_RenderTarget *t, int eye) {
+    const u32 *src = P3DS_WideStrip[eye]; if (!src) return;
+    static int hDir; static unsigned hAmt, hLeft; int fDir = 0; unsigned fAmt = 0;
+    extern int P3DS_WideFxOn; /* run 54: wide_fx already matched the strips to the centre picture */
+    if (P3DS_WideFadeFix() && !P3DS_WideFxOn) { static u64 lastT; u64 now = svcGetSystemTick();
+        if (!stripMid && (eye == 0 || now - lastT > 268111 * 8)) { int d; unsigned a; fadeNow(&d, &a); lastT = now;
+            if (d && a) { hDir = d; hAmt = a; hLeft = 3; } else if (hLeft) { hLeft--; if (!hLeft) hAmt = 0; } }
+        if (hAmt) { fDir = hDir; fAmt = hAmt; } }
+    if (stripOk < 0) { stripOk = 1; for (int e = 0; e < 2; e++) { if (!C3D_TexInit(&stripTex[e], 64, 256, GPU_RGBA8) || !(stripLin[e] = linearAlloc(64 * 256 * 4))) { stripOk = 0; break; }
+        C3D_TexSetFilter(&stripTex[e], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&stripTex[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(stripLin[e], 0, 64 * 256 * 4); }
+        PSPNativeMemLog("[WIDE] strip textures %s", stripOk ? "ok" : "FAILED"); }
+    if (!stripOk) return;
+    /* fps60: the in-between picture's strips are queued in the same GPU frame as the real ones, so they need their own buffer and texture */
+    if (stripMid && !stripLinM[eye]) { stripLinM[eye] = linearAlloc(64 * 256 * 4);
+        if (stripLinM[eye] && !C3D_TexInit(&stripTexM[eye], 64, 256, GPU_RGBA8)) { linearFree(stripLinM[eye]); stripLinM[eye] = NULL; }
+        if (stripLinM[eye]) { C3D_TexSetFilter(&stripTexM[eye], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&stripTexM[eye], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(stripLinM[eye], 0, 64 * 256 * 4); } }
+    const int own = stripMid && stripLinM[eye];
+    u32 *const sLin = own ? stripLinM[eye] : stripLin[eye]; C3D_Tex *const sTx = own ? &stripTexM[eye] : &stripTex[eye];
+    if (!fAmt) memcpy(sLin, src, 64 * 192 * 4);
+    else if (fAmt >= 16) { const u32 c = fDir == 1 ? 0xFFFFFFFFu : 0x000000FFu; for (unsigned i = 0; i < 64 * 192; i++) sLin[i] = c; }
+    else for (unsigned i = 0; i < 64 * 192; i++) { u32 c = src[i]; unsigned r = c >> 24, g = (c >> 16) & 255, b = (c >> 8) & 255;
+        if (fDir == 1) { r += (255 - r) * fAmt / 16; g += (255 - g) * fAmt / 16; b += (255 - b) * fAmt / 16; } else { r -= r * fAmt / 16; g -= g * fAmt / 16; b -= b * fAmt / 16; }
+        sLin[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF; }
+    { extern u32 P3DS_WeatherObj[]; extern int P3DS_WeatherOn; if (P3DS_WeatherOn && !fAmt) for (unsigned i = 0; i < 64 * 192; i++) if (P3DS_WeatherObj[i]) sLin[i] = P3DS_WeatherObj[i]; } /* run 70 wide_weather */
+    GSPGPU_FlushDataCache(sLin, 64 * 192 * 4);
+    C3D_SyncDisplayTransfer(sLin, GX_BUFFER_DIM(64, 256), sTx->data, GX_BUFFER_DIM(64, 256), TEX_FLAGS);
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, sTx);
+    const int haze = P3DS_HazeOn && !fAmt;
+    if (haze) { C3D_TexEnv *e0 = C3D_GetTexEnv(0), *e1 = C3D_GetTexEnv(1); C3D_TexEnvInit(e0); C3D_TexEnvInit(e1);
+        C3D_TexEnvSrc(e0, C3D_RGB, GPU_TEXTURE0, GPU_CONSTANT, 0); C3D_TexEnvFunc(e0, C3D_RGB, GPU_MODULATE); C3D_TexEnvColor(e0, P3DS_HazeK);
+        C3D_TexEnvSrc(e0, C3D_Alpha, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(e0, C3D_Alpha, GPU_REPLACE);
+        C3D_TexEnvSrc(e1, C3D_RGB, GPU_PREVIOUS, GPU_CONSTANT, 0); C3D_TexEnvFunc(e1, C3D_RGB, GPU_ADD); C3D_TexEnvColor(e1, P3DS_HazeB);
+        C3D_TexEnvSrc(e1, C3D_Alpha, GPU_PREVIOUS, 0, 0); C3D_TexEnvFunc(e1, C3D_Alpha, GPU_REPLACE); }
+    const float t1 = 192.0f / 256.0f, hx = 0.5f / 64.0f; /* half-texel inset so LINEAR does not bleed across the 32|32 seam */
+    for (int side = 0; side < 2; side++) { float x0 = side ? 360 : 0, x1 = side ? 400 : 40, s0 = side ? 0.5f + hx : 0.0f, s1 = side ? 1.0f : 0.5f - hx;
+        C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+        C3D_ImmSendAttrib(x0, 0, 0, 0); C3D_ImmSendAttrib(s0, 0, 0, 0);
+        C3D_ImmSendAttrib(x0, 240, 0, 0); C3D_ImmSendAttrib(s0, t1, 0, 0);
+        C3D_ImmSendAttrib(x1, 0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
+        C3D_ImmSendAttrib(x1, 240, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+        C3D_ImmDrawEnd(); }
+    if (haze) tevPlain();
+}
+/* run 38: called when leaving the GPU-scaled path (mode 0): wait until citro3d's queue (last transfer + its async
+   gfxScreenSwapBuffers) is done, and turn 3D off so the never-written right-eye buffer isn't shown. */
+/* run 40: present_skipbot=1 (default): when engine B reused its last image (bottom_skip) skip the bottom screen's
+   byte-swap upload + 2x prescale and draw from the persistent up[1] (VRAM) texture. Forced after init, mode-0 visits
+   and console/bottom toggles. 0 = always upload. */
+int P3DS_GpuBotSame; static int skipBotCfg = -1; static unsigned botSkips;
+void P3DS_GpuInvalidateBot(void) { botValid = 0; } /* run 64: settings app drew its own bottom picture */
+void P3DS_GpuQuiesce(void) { botValid = 0;
+    if (ready) { C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH); gspWaitForVBlank(); }
+    stereoOn = 0; gfxSet3D(false);
+}
+/* topR != NULL: stereo (slider > 0): left eye = top, right eye = topR. NULL: 2D mode, no right-eye cost. */
+extern void P3DS_Crumb(const char *tag, void *caller);
+/* run 11: native-resolution icon overlay for the bottom screen (JOHTO layout). The platform fills P3DS_OvAtlas (512x256 since run 18; was 256x128,
+   words R<<24|G<<16|B<<8|A, row 0 = top), sets P3DS_OvDirty when it changed, and lists P3DS_OvN rectangles in 320x240
+   bottom-screen pixels with their atlas source (same size: drawn 1:1, NEAREST, alpha-blended after the scaled DS
+   picture), so the icons are not resampled by the 256x192 -> 320x240 stretch. N = 0: nothing drawn. */
+typedef struct { short dx, dy, w, h, sx, sy; } P3DS_OvRect;
+u32 *P3DS_OvAtlas; volatile int P3DS_OvDirty, P3DS_OvN; P3DS_OvRect P3DS_OvRects[96];
+static C3D_Tex ovTex; static int ovOk = -1;
+u32 *P3DS_OvAtlasGet(void) { if (!P3DS_OvAtlas) { P3DS_OvAtlas = linearAlloc(512 * 256 * 4); if (P3DS_OvAtlas) memset(P3DS_OvAtlas, 0, 512 * 256 * 4); } return P3DS_OvAtlas; }
+/* 2026-11-04 (Nathan: transitions must be seamless): while the Bottom menu covers the touch screen, the game's own fade of that
+   screen (MASTER_BRIGHT of the engine on the bottom) never reached it, so the menu stayed bright while the top faded out and the
+   next screen faded in. P3DS_BotFade (-16..16: down = black, up = white, set by render3ds.cpp only while our picture is there)
+   is drawn as one blended quad over the finished bottom screen. */
+int P3DS_BotFade;
+static void botFadeDraw(C3D_RenderTarget *t) {
+    const int f = P3DS_BotFade; if (!f) return; const unsigned a = (unsigned)((f < 0 ? -f : f) * 255 / 16);
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 320.0f, 240.0f, 0.0f, 1.0f, -1.0f, true); C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_CONSTANT, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+    C3D_TexEnvColor(env, (a << 24) | (f > 0 ? 0xFFFFFF : 0));
+    for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k));
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ZERO, GPU_ONE);
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 240, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(320, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(320, 240, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmDrawEnd();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO); tevPlain(); }
+static void ovDraw(C3D_RenderTarget *t) {
+    const int n = P3DS_OvN; if (n <= 0 || !P3DS_OvAtlas) return;
+    if (ovOk < 0) { ovOk = C3D_TexInit(&ovTex, 512, 256, GPU_RGBA8) ? 1 : 0; if (ovOk) { C3D_TexSetFilter(&ovTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&ovTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_OvDirty = 1; }
+        PSPNativeMemLog("[ICONS] native overlay texture %s", ovOk ? "ready" : "FAILED (icons stay in the DS picture)"); }
+    if (!ovOk) return;
+    if (P3DS_OvDirty) { P3DS_OvDirty = 0; GSPGPU_FlushDataCache(P3DS_OvAtlas, 512 * 256 * 4);
+        C3D_SyncDisplayTransfer(P3DS_OvAtlas, GX_BUFFER_DIM(512, 256), ovTex.data, GX_BUFFER_DIM(512, 256), TEX_FLAGS); }
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 320.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &ovTex);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
+    for (int i = 0; i < n && i < 96; i++) { const P3DS_OvRect *r = &P3DS_OvRects[i];
+        const float x0 = r->dx, y0 = r->dy, x1 = r->dx + r->w, y1 = r->dy + r->h, s0 = r->sx / 512.0f, s1 = (r->sx + r->w) / 512.0f, t0 = r->sy / 256.0f, t1 = (r->sy + r->h) / 256.0f;
+        C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+        C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(s0, t0, 0, 0);
+        C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(s0, t1, 0, 0);
+        C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(s1, t0, 0, 0);
+        C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+        C3D_ImmDrawEnd(); }
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+}
+/* 2026-11-05 (Nathan: the achievement toast looked blocky): one port picture for the TOP screen at the final 400x240 resolution.
+   The platform draws it into P3DS_TopOvBuf (512x64 words R<<24|G<<16|B<<8|A, stride 512), sets P3DS_TopOvX/Y/W/H in 400x240 px and
+   P3DS_TopOvOn for that present (consumed); drawn 1:1 NEAREST, alpha-blended, on both eyes at screen depth, after the strips. */
+u32 *P3DS_TopOvBuf; volatile int P3DS_TopOvOn, P3DS_TopOvDirty; int P3DS_TopOvX, P3DS_TopOvY, P3DS_TopOvW, P3DS_TopOvH;
+static C3D_Tex tovTex; static int tovOk = -1;
+u32 *P3DS_TopOvBufGet(void) { if (!P3DS_TopOvBuf) { P3DS_TopOvBuf = linearAlloc(512 * 64 * 4); if (P3DS_TopOvBuf) memset(P3DS_TopOvBuf, 0, 512 * 64 * 4); } return P3DS_TopOvBuf; }
+static void tovEnsure(void) {
+    if (tovOk < 0) { tovOk = C3D_TexInit(&tovTex, 512, 64, GPU_RGBA8) ? 1 : 0; if (tovOk) { C3D_TexSetFilter(&tovTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&tovTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_TopOvDirty = 1; }
+        PSPNativeMemLog("[TOPOV] native top overlay texture %s", tovOk ? "ready" : "FAILED (toast stays in the DS picture)"); }
+}
+static void tov2Ensure(void); u32 *P3DS_TopOv2BufGet(void);
+void P3DS_TopOvInit(void) { P3DS_TopOvBufGet(); P3DS_TopOv2BufGet(); tovEnsure(); tov2Ensure(); }
+static void topOvDraw(C3D_RenderTarget *t) {
+    if (!P3DS_TopOvBuf || P3DS_TopOvW < 1 || P3DS_TopOvH < 1 || P3DS_TopOvW > 512 || P3DS_TopOvH > 64) return;
+    P3DS_TopOvInit();
+    if (!tovOk) return;
+    if (P3DS_TopOvDirty) { P3DS_TopOvDirty = 0; GSPGPU_FlushDataCache(P3DS_TopOvBuf, 512 * 64 * 4);
+        C3D_SyncDisplayTransfer(P3DS_TopOvBuf, GX_BUFFER_DIM(512, 64), tovTex.data, GX_BUFFER_DIM(512, 64), TEX_FLAGS); }
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &tovTex);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ZERO, GPU_ONE);
+    const float x0 = P3DS_TopOvX, y0 = P3DS_TopOvY, x1 = P3DS_TopOvX + P3DS_TopOvW, y1 = P3DS_TopOvY + P3DS_TopOvH, s1 = P3DS_TopOvW / 512.0f, t1 = P3DS_TopOvH / 64.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
+    C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+}
+/* 2026-11-06: a second, small native top overlay (64x32) for port-drawn list cursors; same rules as P3DS_TopOv above. */
+u32 *P3DS_TopOv2Buf; volatile int P3DS_TopOv2On, P3DS_TopOv2Dirty; int P3DS_TopOv2X, P3DS_TopOv2Y, P3DS_TopOv2W, P3DS_TopOv2H;
+static C3D_Tex tov2Tex; static int tov2Ok = -1;
+u32 *P3DS_TopOv2BufGet(void) { if (!P3DS_TopOv2Buf) { P3DS_TopOv2Buf = linearAlloc(64 * 32 * 4); if (P3DS_TopOv2Buf) memset(P3DS_TopOv2Buf, 0, 64 * 32 * 4); } return P3DS_TopOv2Buf; }
+static void tov2Ensure(void) {
+    if (tov2Ok < 0) { tov2Ok = C3D_TexInit(&tov2Tex, 64, 32, GPU_RGBA8) ? 1 : 0; if (tov2Ok) { C3D_TexSetFilter(&tov2Tex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&tov2Tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_TopOv2Dirty = 1; }
+        PSPNativeMemLog("[TOPOV] small top overlay texture %s", tov2Ok ? "ready" : "FAILED"); }
+}
+static void topOv2Draw(C3D_RenderTarget *t) {
+    if (!P3DS_TopOv2Buf || P3DS_TopOv2W < 1 || P3DS_TopOv2H < 1 || P3DS_TopOv2W > 64 || P3DS_TopOv2H > 32) return;
+    P3DS_TopOvInit();
+    if (!tov2Ok) return;
+    if (P3DS_TopOv2Dirty) { P3DS_TopOv2Dirty = 0; GSPGPU_FlushDataCache(P3DS_TopOv2Buf, 64 * 32 * 4);
+        C3D_SyncDisplayTransfer(P3DS_TopOv2Buf, GX_BUFFER_DIM(64, 32), tov2Tex.data, GX_BUFFER_DIM(64, 32), TEX_FLAGS); }
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &tov2Tex);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ZERO, GPU_ONE);
+    const float x0 = P3DS_TopOv2X, y0 = P3DS_TopOv2Y, x1 = P3DS_TopOv2X + P3DS_TopOv2W, y1 = P3DS_TopOv2Y + P3DS_TopOv2H, s1 = P3DS_TopOv2W / 64.0f, t1 = P3DS_TopOv2H / 32.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
+    C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+}
+/* run 138: the panel app picture (party / bag / summary in the JOHTO panel) at the final bottom-screen resolution. The platform resamples the DS 256x192
+   picture ONCE to P3DS_PnW x P3DS_PnH words (R<<24|G<<16|B<<8|A) in P3DS_PnBuf (stride 256, up to 256x256); drawn 1:1 NEAREST at P3DS_PnX,P3DS_PnY (320x240 px)
+   over the stretched DS bottom, so it is not resampled a second time by the 1.25x stretch. P3DS_PnOn is consumed (cleared) by each present. */
+u32 *P3DS_PnBuf; volatile int P3DS_PnOn, P3DS_PnDirty; int P3DS_PnX, P3DS_PnY, P3DS_PnW, P3DS_PnH;
+static C3D_Tex pnTex; static int pnOk = -1;
+u32 *P3DS_PnBufGet(void) { if (!P3DS_PnBuf) { P3DS_PnBuf = linearAlloc(256 * 256 * 4); if (P3DS_PnBuf) memset(P3DS_PnBuf, 0, 256 * 256 * 4); } return P3DS_PnBuf; }
+static void pnDraw(C3D_RenderTarget *t) {
+    const int on = P3DS_PnOn; P3DS_PnOn = 0;
+    if (!on || !P3DS_PnBuf || P3DS_PnW < 1 || P3DS_PnH < 1 || P3DS_PnW > 256 || P3DS_PnH > 256) return;
+    if (pnOk < 0) { pnOk = C3D_TexInit(&pnTex, 256, 256, GPU_RGBA8) ? 1 : 0; if (pnOk) { C3D_TexSetFilter(&pnTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&pnTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_PnDirty = 1; }
+        PSPNativeMemLog("[PANEL] final-res panel texture %s", pnOk ? "ready" : "FAILED (panel picture stays in the DS bottom)"); }
+    if (!pnOk) return;
+    if (P3DS_PnDirty) { P3DS_PnDirty = 0; GSPGPU_FlushDataCache(P3DS_PnBuf, 256 * 256 * 4);
+        C3D_SyncDisplayTransfer(P3DS_PnBuf, GX_BUFFER_DIM(256, 256), pnTex.data, GX_BUFFER_DIM(256, 256), TEX_FLAGS); }
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 320.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &pnTex);
+    const float x0 = P3DS_PnX, y0 = P3DS_PnY, x1 = P3DS_PnX + P3DS_PnW, y1 = P3DS_PnY + P3DS_PnH, s1 = P3DS_PnW / 256.0f, t1 = P3DS_PnH / 256.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(x0, y0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(x0, y1, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(x1, y0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
+    C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+}
+/* ---- fps60 (2026-11-15; see g3gpu.c): Settings > Display > 60 fps field. 0 OFF (default), 1 ON, 2 A/B TEST = OFF and ON by turns, 1200
+   field ticks (~40 s) each, so one log compares both. The game still runs 30 ticks a second; while it is on, every tick whose 3D moved
+   shows an in-between picture one V-blank before the real one. Only in the overworld, only when the tick's picture stays on the GPU
+   (GPU 3D direct + direct screen); any other tick is presented exactly as before. If ticks keep taking longer than two V-blanks with it
+   on, it rests for a while by itself (longer each time) and says so in the log. ---- */
+extern int P3DS_InField, P3DS_InBattle; extern unsigned G3G_MidWhy[6];
+static int f60Cfg = -1, f60Did; static unsigned f60Phase, f60Pause, f60Ov = 6000, f60MidUs;
+static unsigned f60FlipLate, f60FlipN, f60FlipUs;
+static int gZoomSet; static float gFill[4];
+int P3DS_Fps60Cfg(void) {
+    if (f60Cfg < 0) { f60Cfg = P3DS_CfgInt("fps60", 0); if (f60Cfg < 0 || f60Cfg > 2) f60Cfg = 0;
+        PSPNativeMemLog("[FPS60] fps60=%d (0 off, 1 = in-between 3D frames in the overworld, 2 = A/B test: off and on by turns every 1200 ticks)", f60Cfg); }
+    return f60Cfg; }
+void P3DS_SetFps60(int v) { f60Cfg = v < 0 ? 0 : v > 2 ? 2 : v; f60Phase = 0; f60Pause = 0; f60Ov = 6000; PSPNativeMemLog("[FPS60] fps60=%d from settings", f60Cfg); }
+static int f60PhaseOn(void) { const int c = P3DS_Fps60Cfg(); return c == 1 || (c == 2 && ((f60Phase / 1200) & 1)); }
+int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InBattle && !f60Pause && f60PhaseOn(); }
+/* once per presented overworld tick while the setting is not OFF. shown: an in-between picture went out. why (when not): 1 no in-between 3D
+   this tick (g3gpu.c says which), 2 the picture went through the CPU (toast, save box, fade...), 3 a held or menu picture.
+   Step-down (second version): a tick that runs long no longer costs a whole extra V-blank, the pictures just come a little late. So it
+   only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or a quarter of the ticks over 36 ms), and
+   it comes back by measurement, not by a timer: at 30 the spare time per tick (V-blank idle) is known, and once that is back above
+   what the in-between picture costs (f60Ov, learned: +1.5 ms when a comeback fails within 6 s, -0.5 ms after 20 s that hold) it is on again. */
+void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
+    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, rN, rIdle, sinceOn, downs, ups; static u64 sumUs, sumMid, sumComp, sumStrip, idleWindow;
+    const int act = P3DS_Fps60Active();
+    if (shown && !f60Did) { shown = 0; why = 3; }
+    idleWindow += idleUs;
+    n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
+    if (shown) { nShown++; sumMid += f60MidUs; sumComp += composeUs; sumStrip += stripUs; }
+    else if (f60Pause) nPaused++; else if (act) nWhy[why & 3]++;
+    if (act) { wN++; wUs += frameUs > 100000 ? 100000 : frameUs; if (frameUs > 36000) wSlow++; sinceOn++;
+        if (sinceOn == 600 && f60Ov > 4000) f60Ov -= 500;
+        if (wN >= 60) { if (wSlow > 15 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
+                if (sinceOn < 180 && f60Ov < 14000) f60Ov += 1500;
+                PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks over 36 ms, avg %u us): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, f60Ov + 1500); }
+            wN = wSlow = wUs = 0; } }
+    else if (f60Pause) { wN = wSlow = wUs = 0; rN++; rIdle += idleUs > 33000 ? 33000 : idleUs;
+        if (rN % 30 == 0) { const unsigned spare = rIdle / 30; rIdle = 0;
+            if (rN >= 90 && spare > f60Ov + 1500) { f60Pause = 0; sinceOn = 0; ups++; PSPNativeMemLog("[FPS60] back on (spare time %u us per tick)", spare); } } }
+    f60Phase++;
+    if (n >= 600 || (P3DS_Fps60Cfg() == 2 && f60Phase % 1200 == 0)) {
+        const unsigned k = nShown ? nShown : 1;
+        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between frames %u (%u%%) | tick avg %u.%02u ms, %u over 36 ms | VBlank idle %u us/tick | per in-between frame: compose %u + strips %u + draw %u us | real picture submitted: %u without waiting, %u via fallback (avg %u us after in-between submit) | stepped down %u, back %u, cost estimate %u us",
+            (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B test block)" : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
+            (unsigned)(idleWindow / n), (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
+            f60FlipN - f60FlipLate, f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, downs, ups, f60Ov);
+        PSPNativeMemLog("[FPS60] skipped: no in-between 3D %u (not direct %u, too many runs %u, CPU fog %u, nothing moved %u, unpaired %u, no memory %u), picture on the CPU %u, held/menu %u, at 30 %u",
+            nWhy[1], G3G_MidWhy[0], G3G_MidWhy[1], G3G_MidWhy[2], G3G_MidWhy[3], G3G_MidWhy[4], G3G_MidWhy[5], nWhy[2], nWhy[3], nPaused);
+        idleWindow = 0; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
+}
+/* The in-between picture and the real one are drawn in ONE GPU frame by P3DS_GpuPresent: the in-between goes into the screen targets
+   and out to the LCD at that frame's end; the real picture goes into a second pair of targets (tgtTopB / tgtTopRB, not linked to a
+   screen) and is only handed to the LCD ("flipped") one V-blank later, by P3DS_Fps60Poll from the game thread while the next tick
+   is already running. So the game never sits waiting between the two pictures (first version, run 835 log: the 2.3 ms wait for the
+   GPU plus the wait for the V-blank between them made a 30 ms tick take 50). P3DS_GpuPresentMid only notes what to draw. */
+static C3D_RenderTarget *tgtTopB, *tgtTopRB; static int f60BFail;
+static struct { int on, mode, st; C3D_Tex *l, *r; const u32 *sl, *sr; } f60Arg;
+static int f60Flip, f60FlipSt; static u64 f60FlipT0, f60PollT;
+int P3DS_GpuPresentMid(C3D_Tex *l, C3D_Tex *r, const u32 *sl, const u32 *sr, int mode, int st) {
+    f60Arg.on = 0;
+    if (!ready || upFmt16 < 0 || !l || (st && !r) || (mode == 2 && !gZoomSet) || f60BFail) return 0;
+    if (!tgtTopB) tgtTopB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
+    if (st && !tgtTopRB) tgtTopRB = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
+    if (!tgtTopB || (st && !tgtTopRB)) { f60BFail = 1; PSPNativeMemLog("[FPS60] no VRAM for the second screen target (free %lu): no in-between frames", (unsigned long)vramSpaceFree()); return 0; }
+    f60Arg.on = 1; f60Arg.mode = mode; f60Arg.st = st; f60Arg.l = l; f60Arg.r = st ? r : NULL; f60Arg.sl = sl; f60Arg.sr = sr;
+    return 1;
+}
+/* inside a begun frame: the real picture waiting in tgtTopB (and tgtTopRB) goes to the LCD */
+static void f60FlipNow(void) {
+    C3D_RenderTargetSetOutput(tgtTopB, GFX_TOP, GFX_LEFT, DISP_FLAGS); C3D_FrameDrawOn(tgtTopB);
+    if (f60Flip == 2) { C3D_RenderTargetSetOutput(tgtTopRB, GFX_TOP, GFX_RIGHT, DISP_FLAGS); C3D_FrameDrawOn(tgtTopRB); }
+    P3DS_FrameEnd();
+    C3D_RenderTargetSetOutput(tgtTop, GFX_TOP, GFX_LEFT, DISP_FLAGS); C3D_RenderTargetSetOutput(tgtTopR, GFX_TOP, GFX_RIGHT, DISP_FLAGS);
+    f60FlipUs += (unsigned)((svcGetSystemTick() - f60FlipT0) / 268); f60FlipN++; f60Flip = 0;
+}
+static int f60Pending(void) { return gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM); }
+/* game thread, any time no GPU frame is open (per 3D draw call, at the V-blank wait, before the 3D frame ends): flip as soon as the GPU
+   has finished the two pictures AND the LCD has taken the in-between one (a flip before that would land in the buffer being shown) */
+static void f60Poll(int afterVBlank) {
+    if (!f60Flip) return;
+    const u64 now = svcGetSystemTick(); if (!afterVBlank && now - f60PollT < 268 * 300) return; f60PollT = now;
+    if (f60FlipSt == 0) { if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) return; f60FlipSt = 1;
+        if (f60Pending()) { C3D_FrameEnd(GX_CMDLIST_FLUSH); return; }
+        f60FlipNow(); return; }
+    if (f60Pending()) return;
+    if (C3D_FrameBegin(C3D_FRAME_NONBLOCK)) f60FlipNow();
+}
+void P3DS_Fps60Poll(void) { f60Poll(0); }
+/* The LCD may have just accepted the in-between image, even on ticks with no further 3D calls. */
+void P3DS_Fps60AfterVBlankWait(void) { f60Poll(1); }
+/* before anything else is presented: the flip that no poll got to (a short tick), waited for */
+void P3DS_Fps60Flush(void) {
+    if (!f60Flip) return;
+    C3D_FrameBegin(0);
+    const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
+    f60FlipLate++; f60FlipNow();
+}
+void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, const u32 *topR) {
+    P3DS_Crumb("gp-begin", 0); /* run 65: locate the boot stall */
+    if (upFmt16 < 0 && !P3DS_UpAlloc(0)) { static unsigned n; if (!n++) PSPNativeMemLog("[3DRES] scale targets missing, frame not presented"); return; }
+    P3DS_GpTearUs = 0; P3DS_GpStripUs = 0;
+    P3DS_Fps60Flush();
+    int st = topR != NULL; if (st != stereoOn) { stereoOn = st; gfxSet3D(st); }
+    static int vs = -1; if (vs < 0) { vs = 0; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "vsync=%d", &x) == 1) vs = x != 0; fclose(f); } PSPNativeMemLog("[3DS] vsync (tear-free present) %d", vs); }
+    { const u64 tb = svcGetSystemTick(); C3D_FrameBegin(vs ? C3D_FRAME_SYNCDRAW : 0); P3DS_GpBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
+    dirTop = P3DS_GcPendTex(top); dirTopR = topR ? P3DS_GcPendTex(topR) : NULL; P3DS_GcPresented();
+    if (srcDbl) srcSet ^= 1;  /* game already paces on vblank; SYNCDRAW added a 2nd vblank wait (30 fps cap) */
+    /* run 25: upload AFTER FrameBegin. Before, the sync transfer raced the previous frame's queued
+       render/transfer (PPF event from that job ended our wait early) and the GPU sampled a half-updated texture: tearing on both screens. */
+    if (skipBotCfg < 0) { skipBotCfg = 1; /* run 47: default 1 again (safe: only skips when engine B was really reused) */ FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "present_skipbot=%d", &x) == 1) skipBotCfg = x != 0; fclose(f); } PSPNativeMemLog("[3DS] present_skipbot=%d", skipBotCfg); }
+    const int botFresh = !(skipBotCfg && botValid && P3DS_GpuBotSame);
+    if (!drawBottom) botValid = 0; else if (!botFresh) botSkips++;
+    P3DS_Crumb("gp-upload", 0);
+    upTicks = 0; if (!dirTop) upload(0, top); const int crisp = !topR && !dirTop && crispPrepare(top); crN++; if (drawBottom && botFresh) upload(1, bot); if (st && !dirTopR) upload(2, topR); P3DS_UploadUs = (unsigned)(upTicks / 268); P3DS_GpUpUs = P3DS_UploadUs;
+    C3D_BindProgram(&prog);
+    C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
+    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2);
+    C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR); C3D_CullFace(GPU_CULL_NONE); C3D_AlphaTest(false, GPU_ALWAYS, 0);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+    C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
+    C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+    for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k));
+    /* fps60: the in-between picture first, into the screen targets; the real one then goes into the second pair */
+    const int f60 = f60Arg.on && dirTop && (!st || dirTopR) && st == f60Arg.st && mode == f60Arg.mode && !crisp; f60Arg.on = 0; f60MidUs = 0; f60Did = f60;
+    if (f60) { const u64 tm = svcGetSystemTick();
+        C3D_Tex *const kt = dirTop, *const ktR = dirTopR; dirTop = f60Arg.l; dirTopR = f60Arg.r;
+        prescale(0); if (st) prescale(2);
+        const u32 *k0 = P3DS_WideStrip[0], *k1 = P3DS_WideStrip[1];
+        if (k0 && f60Arg.sl) P3DS_WideStrip[0] = f60Arg.sl; if (k1 && f60Arg.sr) P3DS_WideStrip[1] = f60Arg.sr;
+        const float gx = gFill[0], gy = gFill[1], gw = gFill[2], gh = gFill[3];
+        stripMid = 1;
+        if (mode == 2) quad(tgtTop, 400.0f, 0, gx, gy, gx + gw, gy + gh); else { quad(tgtTop, 400.0f, 0, 40, 0, 360, 240); strips(tgtTop, 0); }
+        if (st) { if (mode == 2) quad(tgtTopR, 400.0f, 2, gx, gy, gx + gw, gy + gh); else { quad(tgtTopR, 400.0f, 2, 40, 0, 360, 240); strips(tgtTopR, 1); } }
+        stripMid = 0;
+        P3DS_WideStrip[0] = k0; P3DS_WideStrip[1] = k1;
+        if (P3DS_TopOvOn) { topOvDraw(tgtTop); if (st) topOvDraw(tgtTopR); }
+        if (P3DS_TopOv2On) { topOv2Draw(tgtTop); if (st) topOv2Draw(tgtTopR); }
+        dirTop = kt; dirTopR = ktR; tevPlain();
+        f60MidUs = (unsigned)((svcGetSystemTick() - tm) / 268); }
+    C3D_RenderTarget *const tT = f60 ? tgtTopB : tgtTop, *const tTR = f60 ? tgtTopRB : tgtTopR;
+    P3DS_Crumb("gp-prescale", 0); const u64 tDr0 = svcGetSystemTick();
+    prescale(0); if (drawBottom && botFresh) { prescale(1); botValid = 1; } if (st) prescale(2);
+    { static unsigned n; if (++n % 600 == 0) { PSPNativeMemLog("[3DS] present_skipbot: skipped bottom upload %u of 600", botSkips); botSkips = 0; } }
+    /* run 33: mode 2 (fill) zoom from config gpuscale_zoom (1.25..1.5625, default 1.40625 = 360x270: 20px bars, 15 rows
+       cropped top/bottom). Aspect always 4:3; edges snapped to whole pixels. */
+    static float zoom = -1; if (zoom < 0) { gZoomSet = 1; zoom = 1.40625f; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; float z; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "gpuscale_zoom=%f", &z) == 1) zoom = z; fclose(f); } if (zoom < 1.25f) zoom = 1.25f; if (zoom > 1.5625f) zoom = 1.5625f; PSPNativeMemLog("[3DS] gpuscale_zoom=%.5f -> fill mode %dx%d", zoom, (int)(256 * zoom + 0.5f), (int)(192 * zoom + 0.5f)); }
+    float fw = (float)(int)(256 * zoom + 0.5f), fh = (float)(int)(192 * zoom + 0.5f), fx = (float)(int)((400 - fw) / 2), fy = (float)(int)((240 - fh) / 2);
+    gFill[0] = fx; gFill[1] = fy; gFill[2] = fw; gFill[3] = fh;
+    u64 stT = 0;
+    if (mode == 2) { quad(tT, 400.0f, 0, fx, fy, fx + fw, fy + fh); if (crisp) crispDraw(tT, 400.0f, fx, fy, fx + fw, fy + fh); } else { quad(tT, 400.0f, 0, 40, 0, 360, 240); if (crisp) crispDraw(tT, 400.0f, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tT, 0); stT += svcGetSystemTick() - a; }
+    if (st) { if (mode == 2) quad(tTR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tTR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tTR, 1); stT += svcGetSystemTick() - a; } }
+    if (P3DS_TopOvOn) { P3DS_TopOvOn = 0; topOvDraw(tT); if (st) topOvDraw(tTR); }
+    if (P3DS_TopOv2On) { P3DS_TopOv2On = 0; topOv2Draw(tT); if (st) topOv2Draw(tTR); }
+    if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); pnDraw(tgtBot); ovDraw(tgtBot); botFadeDraw(tgtBot); } else P3DS_PnOn = 0;
+    if (crN >= 600) { if (crOn) PSPNativeMemLog("[CRISP] %u of %u presents drew the 3D at final size, avg plain-3D cover %u%%, avg prep %u us", crOn, crN, (unsigned)(crMask / crOn * 100 / (256 * 192)), (unsigned)(crTicks / crOn / 268)); crN = crOn = 0; crMask = 0; crTicks = 0; }
+    P3DS_GpStripUs = (unsigned)(stT / 268); P3DS_GpDrawUs = (unsigned)((svcGetSystemTick() - tDr0 - stT) / 268);
+    { /* tearfix: citro3d requests the screen swap at the first vblank after the transfer and GSP latches it one vblank
+         later. A new transfer inside that window lands in the buffer still being scanned out: the first rows show the
+         new frame, the rest the old (run 27 report, both screens). Make sure ~2 vblanks passed since the last present. */
+      static int tf = -1; if (tf < 0) { tf = 2; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "tearfix=%d", &x) == 1) tf = x < 0 ? 0 : x > 2 ? 2 : x; fclose(f); } PSPNativeMemLog("[3DS] tearfix=%d", tf); }
+      static u64 lastEnd; static unsigned waits, n; static u64 waitTicks;
+      if (tf == 2) { /* run 32: tearfix=2 (default). C3D_FrameBegin above waited for the previous queue, so citro3d has
+           requested the previous swap (gfxScreenSwapBuffers -> gspPresentBuffer); GSP applies it only at the next
+           vblank. Until then the "back" buffer that this frame's display transfer writes is STILL ON SCREEN: the
+           transfer overwrites it while the LCD scans it -> the first-scanned rows lag (both screens, also 2D video).
+           Wait exactly until GSP has taken the previous present, no fixed vblank guesses. */
+        P3DS_Crumb("gp-tearfix", 0);
+        u64 t0 = svcGetSystemTick(); int w = 0;
+        while ((gspIsPresentPending(GFX_TOP) || gspIsPresentPending(GFX_BOTTOM)) && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) { w = 1; svcSleepThread(250000); }
+        if (w) { waits++; waitTicks += svcGetSystemTick() - t0; }
+        P3DS_GpTearUs = (unsigned)((svcGetSystemTick() - t0) / 268);
+      } else if (tf && lastEnd) { u64 el = svcGetSystemTick() - lastEnd; if (el < (u64)(2 * 16.713 * 268111.856)) { if (el < (u64)(16.713 * 268111.856)) gspWaitForVBlank(); gspWaitForVBlank(); waits++; } }
+      if (tf && ++n % 600 == 0) { PSPNativeMemLog("[3DS] tearfix=%d: waited on %u of 600 presents, avg wait %u us", tf, waits, waits ? (unsigned)(waitTicks / waits / 268) : 0); waits = 0; waitTicks = 0; }
+      if (f60 && tf != 2) { const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000); }
+      P3DS_FpsGuardFrame(); P3DS_Crumb("gp-end", 0); { const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); lastEnd = svcGetSystemTick(); P3DS_GpEndUs = (unsigned)((lastEnd - te) / 268); } P3DS_Crumb("gp-done", 0);
+      if (f60) { f60Flip = st ? 2 : 1; f60FlipSt = 0; f60FlipT0 = lastEnd; f60PollT = 0; } }
+}
