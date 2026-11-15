@@ -1289,7 +1289,7 @@ extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
 enum{kGtsPickerItem=MENU_N-4,kWideLayItem=MENU_N-3,kG3ThrItem=MENU_N-2,kFps60Item=MENU_N-1};
 extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);}
 /* fps60 (g3gpu.c, gpucomp.c, gpuscale.c): in-between pictures for the overworld */
-extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);
+extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);
  void*P3DS_GcMidCompose(int,void*);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
 static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
@@ -2925,10 +2925,13 @@ static int Present(bool){
     if(spkPr)PSPNativeMemLog("[SPIKE] f=%u stages ms: composite L %u R %u CPU-A %u | strips prep %u overlays %u bottom menu %u GPU present %u | VBlank idle %u",frames,(unsigned)(dl[PF_GCL]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_GCR]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_CPUA]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_WPREP]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_OVL]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_BMENU]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_PRESENT]/CPU_TICKS_PER_MSEC),(unsigned)(dl[PF_IDLE]/CPU_TICKS_PER_MSEC));}
    P3DS_SpkRomTicks=P3DS_SpkTexTicks=P3DS_SpkGetTexTicks=0;P3DS_SpkRomBlocks=P3DS_SpkTexN=0;}
   static unsigned f60SecN;f60SecN+=f60Shown;   /* in-between pictures count as shown frames in the fps figure */
-  if(P3DS_Fps60Cfg()&&P3DS_InField&&!P3DS_InBattle&&total)P3DS_Fps60Tick(total,f60Shown,f60Why,f60CompUs,f60StripUs);
+  static u64 lastIdle;
+  const u64 idleNow=P3DS_VblIdleTicks,idleTicks=idleNow-lastIdle;
+  lastIdle=idleNow;pfT[PF_IDLE]+=idleTicks;
+  if(P3DS_Fps60Cfg()&&P3DS_InField&&!P3DS_InBattle&&total)
+   P3DS_Fps60Tick(total,(unsigned)(idleTicks/CPU_TICKS_PER_USEC),f60Shown,f60Why,f60CompUs,f60StripUs);
   secUp+=P3DS_UploadUs;secConv+=G3G_ConvUs;
   {static unsigned w3;if(total>w3)w3=total;P3DS_Perf3Worst=w3;if(secFrames==0)w3=total;}tPrevEnd=tEnd;secFrames++;secG3+=g3us;secComp+=comp;secGpu+=gpu;secGame+=total>comp+gpu+g3us?total-comp-gpu-g3us:0;secTris+=P3DS_G3LastTris();secG3G+=G3G_LastUs();
-  {static u64 lastIdle;const u64 idl=P3DS_VblIdleTicks;pfT[PF_IDLE]+=idl-lastIdle;lastIdle=idl;}
   if(!secStart)secStart=tEnd;unsigned el=(unsigned)((tEnd-secStart)/CPU_TICKS_PER_USEC);
   if(el>=1000000){unsigned n=secFrames;fpsShown=(unsigned)((u64)(n+f60SecN)*1000000/el);f60SecN=0;msShown=(unsigned)((u64)el/n/100);
    /* perf pass 2026-11-14: mallinfo() walks every heap chunk (it showed as ~3% of guest samples in the cloud profile, all of it in one frame per second);
