@@ -230,6 +230,12 @@ LOGGING
   gpu_direct3d_wide=1  with gpu_direct3d=1: 0 = Wide view frames use the old path (config.txt only, for diagnosis).
   dc_flush_skip=0   EXPERIMENTAL (default 0 = OFF; Debug tab: SKIP GAME CACHE FLUSHES). 1 = the game's own DC_FlushRange calls are ignored (each is a GSP
                     IPC call); audio and platform GPU/DSP flushes are untouched. Log: `[HEAP] dc_flush` lines show calls, KB and (OFF) time spent.
+  fps60=0          Display > 60 fps field. 0 = Off (default), 1 = On, 2 = A/B Test.
+                    A/B Test starts Off and alternates every 1200 field ticks (about 40 seconds).
+                    For a comparison, repeat the same walk in each block and keep the 3D slider
+                    and Wide view settings fixed. See [FPS60] in log.txt for in-between frame
+                    coverage, game tick time, and deferred pictures submitted via fallback.
+
   fps_tweaks=0      EXPERIMENTAL (default 0 = OFF; Debug tab: SPEED TWEAKS = OFF / BOTTOM / +FADES / +3D BLEND / +TRIM / +OVERLAP / +PARALLEL, values 0 / 2 / 3 / 4 / 5 / 6 / 7;
                     6 = + OVERLAP (Platinum frame_pacing, overlap part only): with the 3D slider up the left eye's GPU compose is not waited for;
                     the CPU prepares the right eye meanwhile. Log: [GPUC] overlap. 7 = + PARALLEL: the 3D convert / texture swizzle / compose byte-swap passes are split over the game core and a helper on core 2 (par.c; log: [PAR]). 1 is treated as 0).
