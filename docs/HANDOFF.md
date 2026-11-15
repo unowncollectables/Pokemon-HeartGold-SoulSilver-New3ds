@@ -1,3 +1,9 @@
+# Extended palette transfers
+
+The 2D compositor keeps unmapped extended palette spans zeroed and clears each span when it loses its mapping. Mapped spans still copy the latest VRAM bytes every frame. This removes up to 80 KiB of redundant clears per frame and keeps the existing bank E/F/G overlay order. No new palette buffers.
+
+A host comparison matched every byte across 18,000 frames with bank remaps and writes, including overlapping bank priorities. Full SoulSilver build passed. New 3DS timing is pending.
+
 # 60 fps Bottom Menu repaint
 
 Bottom Menu fills clip once per rectangle. Rounded panels compute a color and border spans per row, and Pokegear reuses the shaded source pixel across both columns at 2x zoom. The location card, overview and achievement gradients also fill one shade per row. This uses the existing output buffer and keeps the same repaint triggers.
