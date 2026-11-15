@@ -65,7 +65,12 @@ static uint32_t mmCellColor(int v) {
 static const uint32_t kMmSea = SUI_RGB(168, 204, 240), kMmSeaLo = SUI_RGB(148, 188, 232), kMmPlayer = SUI_RGB(232, 48, 40), kMmPlayerIn = SUI_RGB(255, 255, 255);
 
 /* red player marker (blinks between red and white), 5x5 diamond-ish dot centred on (x,y) */
+/* 2026-11-15 (fps thread): the player marker is the only blinking part of the Bottom menu picture (besides the phone ring lamp). While the overlay is repainted its
+   positions are noted here, so render3ds.cpp can keep ONE cached picture and just redraw the 7x7 marker each frame, instead of repainting the whole overlay (12 ms)
+   again at the next blink flip. */
+static bool gMkRec; static int gMkN, gMkX[4], gMkY[4];
 static void mmPlayer(uint32_t *b, int x, int y, bool blink) {
+  if (gMkRec && gMkN < 4) { gMkX[gMkN] = x; gMkY[gMkN] = y; gMkN++; }
   const uint32_t c = blink ? kMmPlayerIn : kMmPlayer, e = blink ? kMmPlayer : kMmPlayerIn;
   for (int dy = -3; dy <= 3; dy++) for (int dx = -3; dx <= 3; dx++) { const int d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy); if (d == 4) suiPx(b, x + dx, y + dy, e); else if (d < 4) suiPx(b, x + dx, y + dy, c); } }
 
