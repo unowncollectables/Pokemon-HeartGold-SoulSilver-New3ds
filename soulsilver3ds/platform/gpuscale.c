@@ -494,9 +494,15 @@ int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InB
    only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or a quarter of the ticks over 36 ms), and
    it comes back by measurement, not by a timer: at 30 the spare time per tick (V-blank idle) is known, and once that is back above
    what the in-between picture costs (f60Ov, learned: +1.5 ms when a comeback fails within 6 s, -0.5 ms after 20 s that hold) it is on again. */
+/* 2026-11-15 (Nathan: keep frames high, game logic untouched): after a tick that ran over 35 ms the NEXT tick makes no in-between picture
+   (no recording, no second pass), so a busy stretch alternates instead of falling off the cliff to 30. Only drawing is skipped; the game
+   logic and the step-down limits are unchanged. */
+int P3DS_Fps60Skip; static unsigned f60NSkip;
 void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
     static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, rN, rIdle, sinceOn, downs, ups; static u64 sumUs, sumMid, sumComp, sumStrip, idle0, idleL;
     const int act = P3DS_Fps60Active();
+    if (P3DS_Fps60Skip) f60NSkip++;
+    P3DS_Fps60Skip = (act && !f60Pause && frameUs > 35000 && !P3DS_Fps60Skip) ? 1 : 0;
     if (shown && !f60Did) { shown = 0; why = 3; }
     const u64 idlNow = P3DS_VblIdleTicks; const unsigned idleUs = (unsigned)((idlNow - idleL) / 268); idleL = idlNow;
     n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
@@ -514,12 +520,13 @@ void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, un
     f60Phase++;
     if (n >= 600 || (P3DS_Fps60Cfg() == 2 && f60Phase % 1200 == 0)) {
         const unsigned k = nShown ? nShown : 1;
-        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between frames %u (%u%%) | tick avg %u.%02u ms, %u over 36 ms | VBlank idle %u us/tick | per in-between frame: compose %u + strips %u + draw %u us | real picture handed over: %u in time (avg %u us after its frame), %u waited for | stepped down %u, back %u, cost estimate %u us | none because: no in-between 3D %u (not direct %u, too many runs %u, CPU fog %u, nothing moved %u, unpaired %u, no memory %u), picture on the CPU %u, held/menu %u, at 30 %u",
-            (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B test block)" : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
-            (unsigned)((idlNow - idle0) / 268 / n), (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
-            f60FlipN - f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, f60FlipLate, downs, ups, f60Ov,
-            nWhy[1], G3G_MidWhy[0], G3G_MidWhy[1], G3G_MidWhy[2], G3G_MidWhy[3], G3G_MidWhy[4], G3G_MidWhy[5], nWhy[2], nWhy[3], nPaused);
-        idle0 = idlNow; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
+        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between %u (%u%%) | avg %u.%02u ms, %u>36 | idle %u us | why not: no3D %u, unpaired %u, nomem %u, nothingmoved %u, runs %u, fog %u, notdirect %u, cpu %u, menu %u, at30 %u | skipped %u | stepdown %u back %u cost %u | per frame: comp %u strips %u draw %u us | handed over: %u in time (avg %u us), %u late",
+            (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B)" : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
+            (unsigned)((idlNow - idle0) / 268 / n),
+            nWhy[1], G3G_MidWhy[4], G3G_MidWhy[5], G3G_MidWhy[3], G3G_MidWhy[1], G3G_MidWhy[2], G3G_MidWhy[0], nWhy[2], nWhy[3], nPaused,
+            f60NSkip, downs, ups, f60Ov, (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
+            f60FlipN - f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, f60FlipLate);
+        f60NSkip = 0; idle0 = idlNow; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
 }
 /* The in-between picture and the real one are drawn in ONE GPU frame by P3DS_GpuPresent: the in-between goes into the screen targets
    and out to the LCD at that frame's end; the real picture goes into a second pair of targets (tgtTopB / tgtTopRB, not linked to a
