@@ -469,6 +469,11 @@ static C3D_RenderTarget *rtM[2];
 
 int P3DS_GcMidStereoReady(void) { return rtROk == 1; }
 
+void P3DS_GcRetryRightTarget(void) {
+    /* A failed allocation was for the previous VRAM layout. */
+    if (rtROk == 0) rtROk = -1;
+}
+
 int P3DS_GcPrepareMid(int stereo) {
     const int hadLeft = rtM[0] != NULL;
     for (int eye = 0; eye <= stereo; eye++) {
@@ -509,7 +514,12 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     /* a picture left on the GPU by the last compose is replaced now (its CPU buffer is written by this compose or the CPU fallback) */
     if (!fpEye) dfPend[0] = dfPend[1] = 0; else dfPend[1] = 0;
     const int dfEye = P3DS_GcDeferOut && fpEye && rtROk == 1;   /* right eye into its own target */
-    if (P3DS_GcDeferOut && fpEye && rtROk < 0) { rtROk = C3D_TexInitVRAM(&rtTexR, 256, 256, GPU_RGBA8) && (rtR = C3D_RenderTargetCreateFromTex(&rtTexR, GPU_TEXFACE_2D, 0, -1)) != NULL;
+    if (P3DS_GcDeferOut && fpEye && rtROk < 0) {
+        if (C3D_TexInitVRAM(&rtTexR, 256, 256, GPU_RGBA8)) {
+            rtR = C3D_RenderTargetCreateFromTex(&rtTexR, GPU_TEXFACE_2D, 0, -1);
+            if (!rtR) C3D_TexDelete(&rtTexR);
+        }
+        rtROk = rtR != NULL;
         PSPNativeMemLog("[GPUC] direct screen: right-eye target %s", rtROk ? "ready (VRAM)" : "failed, the right eye takes the CPU path"); }
     if (gpuBusy && !fpOn()) gcIdle();   /* one vertex buffer: a still queued deferred draw must be done before it is rewritten */
     mc.ok = 0;

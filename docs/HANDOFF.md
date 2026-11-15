@@ -4,6 +4,8 @@ Run 835 on New 3DS displayed in-between frames with mono Wide, but the deferred 
 
 With the emulated slider at 100%, Goldenrod reproduced a VRAM allocation failure even though the normal stereo path was rendering. The 60 fps path now reserves the two deferred LCD targets first and uses RGB8 for those targets and the final in-between composites. An unsuccessful stereo allocation releases the new buffers and leaves mono eligible.
 
+A forced 1x startup reproduced two separate VRAM issues. When 60 fps Wide first needs 320-pixel eye targets, the renderer releases its scale targets before sizing the eyes. A cached right-eye failure can retry after the new VRAM layout. Azahar confirmed the retry and both RGB8 interpolation targets. The strip converter also has a direct two-side loop for frames with no edge fill or CPU fade. A host comparison with the previous converter matched 18,874,368 output pixels across 32 setting combinations.
+
 # Missing screens round 3 (patches 0271 to 0275, 2026-11-12)
 
 - 0271 seeds overlay 108: Safari Zone area customizer and decoration (6 stubs gone, 154 functions).
