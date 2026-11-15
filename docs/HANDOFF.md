@@ -1,3 +1,10 @@
+# 60 fps field headroom
+
+- Run 840 on New 3DS (5302082) repeatedly stepped down with 60-tick averages near 33.3 ms. The sustained guard now counts ticks whose elapsed time minus VBlank idle exceeds one game-tick budget. It still steps down when the elapsed average exceeds 34.5 ms and skips one in-between picture after a large stall or an over-budget tick.
+- Wide strip conversion now walks contiguous side pixels and skips the old outdoor search. Its second sample was 1024 pixels away in a 320-pixel row, so it could never fill any pixel. An old versus new comparison matched 18,874,368 pixels across 32 settings.
+- With 60 fps enabled, the first Wide field target can reallocate after releasing scale targets even when the title ran at 1x. After the layout changes the compositor retries a previously failed right-eye allocation. Azahar reproduced both allocation failures on main and verified stereo recovery on the new path.
+- New 3DS timing with this patch is pending. For the worker comparison hold the route, Wide, slider, and 60 fps setting fixed and alternate only the raw 3D transform worker.
+
 # Missing screens round 3 (patches 0271 to 0275, 2026-11-12)
 
 - 0271 seeds overlay 108: Safari Zone area customizer and decoration (6 stubs gone, 154 functions).

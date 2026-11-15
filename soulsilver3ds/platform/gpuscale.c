@@ -477,7 +477,7 @@ static void pnDraw(C3D_RenderTarget *t) {
    shows an in-between picture one V-blank before the real one. Only in the overworld, only when the tick's picture stays on the GPU
    (GPU 3D direct + direct screen); any other tick is presented exactly as before. If ticks keep taking longer than two V-blanks with it
    on, it rests for a while by itself (longer each time) and says so in the log. ---- */
-extern int P3DS_InField, P3DS_InBattle; extern volatile unsigned long long P3DS_VblIdleTicks; extern unsigned G3G_MidWhy[6];
+extern int P3DS_InField, P3DS_InBattle; extern unsigned G3G_MidWhy[6];
 static int f60Cfg = -1, f60Did; static unsigned f60Phase, f60Pause, f60Ov = 6000, f60MidUs;
 static unsigned f60FlipLate, f60FlipN, f60FlipUs;
 static int gZoomSet; static float gFill[4];
@@ -491,28 +491,30 @@ int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InB
 /* once per presented overworld tick while the setting is not OFF. shown: an in-between picture went out. why (when not): 1 no in-between 3D
    this tick (g3gpu.c says which), 2 the picture went through the CPU (toast, save box, fade...), 3 a held or menu picture.
    Step-down (second version): a tick that runs long no longer costs a whole extra V-blank, the pictures just come a little late. So it
-   only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or a quarter of the ticks over 36 ms), and
+   only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or a quarter of the ticks doing over 33.3 ms of work), and
    it comes back by measurement, not by a timer: at 30 the spare time per tick (V-blank idle) is known, and once that is back above
    what the in-between picture costs (f60Ov, learned: +1.5 ms when a comeback fails within 6 s, -0.5 ms after 20 s that hold) it is on again. */
-/* 2026-11-15 (Nathan: keep frames high, game logic untouched): after a tick that ran over 35 ms the NEXT tick makes no in-between picture
-   (no recording, no second pass), so a busy stretch alternates instead of falling off the cliff to 30. Only drawing is skipped; the game
-   logic and the step-down limits are unchanged. */
+/* Measure the work between presents separately from time spent in the
+   game's VBlank waits. A short/long cadence can still average 30 ticks/s. */
 int P3DS_Fps60Skip; static unsigned f60NSkip;
-void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
-    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, rN, rIdle, sinceOn, downs, ups; static u64 sumUs, sumMid, sumComp, sumStrip, idle0, idleL;
+void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
+    static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, rN, rIdle, sinceOn, downs, ups;
+    static u64 sumUs, sumMid, sumComp, sumStrip, idleWindow;
     const int act = P3DS_Fps60Active();
+    const unsigned busyUs = frameUs > idleUs ? frameUs - idleUs : 0;
+    const int overBudget = busyUs > 33333;
     if (P3DS_Fps60Skip) f60NSkip++;
-    P3DS_Fps60Skip = (act && !f60Pause && frameUs > 35000 && !P3DS_Fps60Skip) ? 1 : 0;
+    P3DS_Fps60Skip = act && !P3DS_Fps60Skip && (overBudget || frameUs > 50000);
     if (shown && !f60Did) { shown = 0; why = 3; }
-    const u64 idlNow = P3DS_VblIdleTicks; const unsigned idleUs = (unsigned)((idlNow - idleL) / 268); idleL = idlNow;
+    idleWindow += idleUs;
     n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
     if (shown) { nShown++; sumMid += f60MidUs; sumComp += composeUs; sumStrip += stripUs; }
     else if (f60Pause) nPaused++; else if (act) nWhy[why & 3]++;
-    if (act) { wN++; wUs += frameUs > 100000 ? 100000 : frameUs; if (frameUs > 36000) wSlow++; sinceOn++;
+    if (act) { wN++; wUs += frameUs > 100000 ? 100000 : frameUs; if (overBudget) wSlow++; sinceOn++;
         if (sinceOn == 600 && f60Ov > 4000) f60Ov -= 500;
         if (wN >= 60) { if (wSlow > 15 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
                 if (sinceOn < 180 && f60Ov < 14000) f60Ov += 1500;
-                PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks over 36 ms, avg %u us): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, f60Ov + 1500); }
+                PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks busy over 33.3 ms, avg tick %u us): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, f60Ov + 1500); }
             wN = wSlow = wUs = 0; } }
     else if (f60Pause) { wN = wSlow = wUs = 0; rN++; rIdle += idleUs > 33000 ? 33000 : idleUs;
         if (rN % 30 == 0) { const unsigned spare = rIdle / 30; rIdle = 0;
@@ -522,11 +524,11 @@ void P3DS_Fps60Tick(unsigned frameUs, int shown, int why, unsigned composeUs, un
         const unsigned k = nShown ? nShown : 1;
         PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between %u (%u%%) | avg %u.%02u ms, %u>36 | idle %u us | why not: no3D %u, unpaired %u, nomem %u, nothingmoved %u, runs %u, fog %u, notdirect %u, cpu %u, menu %u, at30 %u | skipped %u | stepdown %u back %u cost %u | per frame: comp %u strips %u draw %u us | handed over: %u in time (avg %u us), %u late",
             (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B)" : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
-            (unsigned)((idlNow - idle0) / 268 / n),
+            (unsigned)(idleWindow / n),
             nWhy[1], G3G_MidWhy[4], G3G_MidWhy[5], G3G_MidWhy[3], G3G_MidWhy[1], G3G_MidWhy[2], G3G_MidWhy[0], nWhy[2], nWhy[3], nPaused,
             f60NSkip, downs, ups, f60Ov, (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
             f60FlipN - f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, f60FlipLate);
-        f60NSkip = 0; idle0 = idlNow; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
+        f60NSkip = 0; idleWindow = 0; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
 }
 /* The in-between picture and the real one are drawn in ONE GPU frame by P3DS_GpuPresent: the in-between goes into the screen targets
    and out to the LCD at that frame's end; the real picture goes into a second pair of targets (tgtTopB / tgtTopRB, not linked to a
