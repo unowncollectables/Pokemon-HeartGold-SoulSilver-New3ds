@@ -111,6 +111,9 @@ void P3DS_GcEye(int eye, int pair) { fpEye = eye & 1; fpDefer = !eye && pair && 
    that reads or draws on the picture first calls P3DS_GcResolve(), which does exactly what the compose used to do at its end. */
 int P3DS_GcDeferOut; static int dfPend[2]; static u32 *dfOut[2]; static u16 dfMbr[2]; unsigned P3DS_GcDeferN, P3DS_GcResolveN;
 static C3D_Tex rtTexR; static C3D_RenderTarget *rtR; static int rtROk = -1;   /* the right eye's own target (3D slider up): both eyes stay on the GPU */
+void P3DS_GcRetryRightTarget(void) {
+    if (rtROk == 0) rtROk = -1;
+}
 static C3D_Tex *dfTex(int e) { return e ? &rtTexR : &rtTex; }
 static void dfFetch(int e, u32 *dst) {   /* exactly the end of a non-deferred compose: transfer, wait, colour pass */
     C3D_FrameBegin(0); C3D_SyncDisplayTransfer((u32 *)dfTex(e)->data, GX_BUFFER_DIM(256, 256), rb, GX_BUFFER_DIM(256, 256), RB_FLAGS); P3DS_FrameEnd();
@@ -496,9 +499,16 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     const u64 t0 = svcGetSystemTick();
     /* a picture left on the GPU by the last compose is replaced now (its CPU buffer is written by this compose or the CPU fallback) */
     if (!fpEye) dfPend[0] = dfPend[1] = 0; else dfPend[1] = 0;
+    if (P3DS_GcDeferOut && fpEye && rtROk < 0) {
+        if (C3D_TexInitVRAM(&rtTexR, 256, 256, GPU_RGBA8)) {
+            rtR = C3D_RenderTargetCreateFromTex(&rtTexR, GPU_TEXFACE_2D, 0, -1);
+            if (!rtR) C3D_TexDelete(&rtTexR);
+        }
+        rtROk = rtR != NULL;
+        PSPNativeMemLog("[GPUC] direct screen: right-eye target %s",
+                        rtROk ? "ready (VRAM)" : "failed, the right eye takes the CPU path");
+    }
     const int dfEye = P3DS_GcDeferOut && fpEye && rtROk == 1;   /* right eye into its own target */
-    if (P3DS_GcDeferOut && fpEye && rtROk < 0) { rtROk = C3D_TexInitVRAM(&rtTexR, 256, 256, GPU_RGBA8) && (rtR = C3D_RenderTargetCreateFromTex(&rtTexR, GPU_TEXFACE_2D, 0, -1)) != NULL;
-        PSPNativeMemLog("[GPUC] direct screen: right-eye target %s", rtROk ? "ready (VRAM)" : "failed, the right eye takes the CPU path"); }
     if (gpuBusy && !fpOn()) gcIdle();   /* one vertex buffer: a still queued deferred draw must be done before it is rewritten */
     mc.ok = 0;
     frameNo++; fail = 0; nq = 0; nb = 0; dirtyLo = ~0u; dirtyHi = 0; P3DS_GcDecoded = 0;

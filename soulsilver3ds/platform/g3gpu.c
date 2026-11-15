@@ -171,32 +171,38 @@ static void stripConvert(int e) { stripConv(rb[e], rbStride(e), G3G_Strip[e]); }
 static void stripConv(const u32 *s, const unsigned rst, u32 *d) {
     u16 mb = *(u16 *)(PSPNative_GfxRegisters + 0x6C); unsigned mm = (mb >> 14) & 3, f = mb & 31; if (f > 16) f = 16;
     { extern int P3DS_WideFadeFix(void); extern int P3DS_WideFxCfg(void); if (P3DS_WideFadeFix() || P3DS_WideFxCfg()) f = 0; }  /* run 54: wide_fx fits the strips to the centre */  /* run 52: fade applied when drawing (gpuscale) */
-    static int edgeFill = -1; if (edgeFill < 0) { extern int P3DS_CfgInt(const char *, int); edgeFill = P3DS_CfgInt("wide_edgefill", 1) != 0; PSPNativeMemLog("[WIDE] wide_edgefill=%d", edgeFill); }
-    /* fps_tweaks 5 (CPU trims): no fade and nothing to fill = one test and one OR per pixel, bit-identical to the loop below.
-       Pixels with alpha < 8 (and the edge fill that may replace them) go through the same code as before. */
-    extern int P3DS_FpsTweaks(void);
-    const int quick = P3DS_FpsTweaks() >= 5 && !(f && (mm == 1 || mm == 2));
-    for (unsigned y = 0; y < 192; y++) { const u32 *row = s + y * rst;
-        for (unsigned x = 0; x < 64; x++) { u32 c = row[x < 32 ? x : x + 256];
-            if (quick && (c & 255) >= 8) { d[y * 64 + x] = c | 0xFFu; continue; }
-            /* run 69 wide_edgefill: past the edge of the loaded map (Iron Island dock, sea routes...) the DS draws
-               nothing there, so the strip pixel is empty (alpha 0). Continue the scene with the nearest real pixel
-               of the same row a whole number of 32-px (2 map tiles) periods further in - same texture/tile phase,
-               not mirrored or blurred. Only empty pixels pay; rows with nothing real stay as before. */
-            if ((c & 255) < 8 && edgeFill && P3DS_MapOutdoor) { int sx = x < 32 ? (int)x : (int)x + 256, dir = x < 32 ? 32 : -32;
-                for (int k = sx + dir; k >= 0 && k < 320; k += dir) { u32 t = row[k]; if ((t & 255) < 8) continue;
-                    /* run 73: only a pixel that repeats one period further in is real tiled background (sea, ground);
-                       a sprite / NPC / unique object there is skipped. Indoors (houses, Centers, gyms): no fill. */
-                    int k2 = k + dir; if (k2 < 0 || k2 >= 320) break; u32 t2 = row[k2]; (void)t2;
-                    { int k3 = k + dir * 32; if (k3 < 0 || k3 >= 320) break; u32 u = row[k3];
-                      int dr = (int)(t >> 24) - (int)(u >> 24), dg = (int)((t >> 16) & 255) - (int)((u >> 16) & 255), db = (int)((t >> 8) & 255) - (int)((u >> 8) & 255);
-                      if (dr * dr + dg * dg + db * db > 48 * 48) continue; }
-                    c = t; break; } }
-            unsigned r = c >> 24, g = (c >> 16) & 255, b = (c >> 8) & 255;
-            if ((c & 255) < 8) r = g = b = 0;   /* 3D clear / alpha 0: black like the pillarbox */
-            if (mm == 1 && f) { r += (255 - r) * f / 16; g += (255 - g) * f / 16; b += (255 - b) * f / 16; }
-            else if (mm == 2 && f) { r -= r * f / 16; g -= g * f / 16; b -= b * f / 16; }
-            d[y * 64 + x] = (r << 24) | (g << 16) | (b << 8) | 0xFF; } }
+    /* The old edge search required a second sample 32 periods (1024 pixels)
+       away in a 320-pixel row. It could never replace a pixel. */
+    const int fade = f && (mm == 1 || mm == 2);
+    for (unsigned y = 0; y < 192; y++) {
+        const u32 *row = s + y * rst;
+        for (unsigned side = 0; side < 2; side++) {
+            const int start = side ? 288 : 0;
+            u32 *out = d + y * 64 + side * 32;
+            if (!fade) {
+                for (int x = 0; x < 32; x++) {
+                    const u32 pixel = row[start + x];
+                    out[x] = (pixel & 255) >= 8 ? pixel | 255 : 255;
+                }
+                continue;
+            }
+            for (int x = 0; x < 32; x++) {
+                const u32 src = row[start + x];
+                const u32 pixel = (src & 255) >= 8 ? src : 0;
+                unsigned r = pixel >> 24, g = (pixel >> 16) & 255, b = (pixel >> 8) & 255;
+                if (mm == 1) {
+                    r += (255 - r) * f / 16;
+                    g += (255 - g) * f / 16;
+                    b += (255 - b) * f / 16;
+                } else {
+                    r -= r * f / 16;
+                    g -= g * f / 16;
+                    b -= b * f / 16;
+                }
+                out[x] = (r << 24) | (g << 16) | (b << 8) | 255;
+            }
+        }
+    }
 }
 /* run 55 fog3d=1 (default): DS 3D fog (DISP3DCNT bit 7) on the GPU path. Each opaque polygon writes its POLYGON_ATTR fog
    bit into the stencil buffer (clear plane: CLEAR_COLOR bit 15); after the draw the D24S8 buffer is copied out with
@@ -459,16 +465,21 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
            fallback then took the holes and the RGBA8 scale targets no longer fitted: no frame was presented. So whenever a 2x
            target is involved (old or new), the scale targets are freed first and allocated last, and P3DS_UpAlloc falls back to
            the other format rather than leaving none. */
-        const int dance = wantHi || curHi == 1;
+        const int hiDance = wantHi || curHi == 1;
+        const int dance = hiDance || (f60 && want == 320 && curW != want);
         if (dance) P3DS_UpFree();
         setTargets(want, wantHi);
         if (dance && !P3DS_UpAlloc(curHi == 1)) {
           PSPNativeMemLog("[3DRES] scale targets did not fit next to the %s target, back to 1x", curHi == 1 ? "2x" : "1x");
           if (curHi == 1) { extern void P3DS_Toast(const char *); res3dFail = 1; P3DS_Toast("SHARP 3D: NO VRAM"); }
           P3DS_UpFree(); setTargets(want, 0); P3DS_UpAlloc(0); }
+        if (f60 && dance) {
+          extern void P3DS_GcRetryRightTarget(void);
+          P3DS_GcRetryRightTarget();
+        }
         /* run 50 hardware log: a 320x256 (wide) target that failed once during the 2x dance set wideFail for the rest of the
            session ("my wide screen is not loading anymore"). After every 2x change the VRAM layout is new: try wide again. */
-        if (dance && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the VRAM change"); } }
+        if (hiDance && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the VRAM change"); } }
       if (sh && curHi == 1 && depth16 && !sm) { res3dFail = 1; PSPNativeMemLog("[3DRES] sharp 3D: only 16-bit depth fitted (the run 48 stripes), back to 1x"); { extern void P3DS_Toast(const char *); P3DS_Toast("SHARP 3D: NO MEMORY"); } setTargets(want, 0); { extern int P3DS_UpAlloc(int); P3DS_UpAlloc(0); } }
       wideFrame = curW == 320; hiFrame = curHi == 1; }
     if (P3DS_Fps60Active() && !P3DS_Fps60Skip && ok == 1 && curHi == 0 && !G3G_Async && G3G_WDepthOn() != 2 && midAlloc(eyes)) { G3G_MidRec = 1; krStart(NULL); }
