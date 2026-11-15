@@ -1,3 +1,9 @@
+# Engine B timing
+
+Run 850 on New 3DS confirmed Bottom Menu repaints around 6.1–6.2 ms (previously about 12.2 ms). Its mono Route 34 run also had windows with 3.5–6.4 ms/frame in compositor worker waits while Engine B drew again.
+
+The new `[BPERF]` line splits main-thread wait into the core-2 frame job (which can include right-eye or split-top work), core-1 Engine B and early Engine B. It also reports draw count and average wall time for CPU Engine B scanlines excluding snapshots, cache checks and GPU work. It needs no config change. Compare the fast and slow windows in the next hardware log. The full SoulSilver build is the local validation for these counters.
+
 # 60 fps Bottom Menu repaint
 
 Bottom Menu fills clip once per rectangle. Rounded panels compute a color and border spans per row, and Pokegear reuses the shaded source pixel across both columns at 2x zoom. The location card, overview and achievement gradients also fill one shade per row. This uses the existing output buffer and keeps the same repaint triggers.
