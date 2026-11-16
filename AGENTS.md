@@ -1,6 +1,6 @@
 # AGENTS.md - handoff for any AI (Claude, Grok, Codex, Copilot...)
 
-Short running state and next steps: [docs/HANDOFF.md](docs/HANDOFF.md). Update it in every PR that changes what works or what is untested.
+Short running state and next steps: [HANDOFF.md](HANDOFF.md). [docs/HANDOFF.md](docs/HANDOFF.md) points there. Update it in every PR that changes what works or what is untested.
 
 Read this first. It is the single source of truth for picking up this project cold. If something here disagrees with the code, trust the code and fix this file in the same change. Claude Code reads `CLAUDE.md`, which just points here.
 

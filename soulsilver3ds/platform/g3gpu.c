@@ -660,23 +660,45 @@ void G3G_DirectStrips(void) {
 }
 /* A PICA tile row holds eight scanlines. Copy the first and last four
    tiles from each row, then use the normal display-transfer detile/Y flip. */
-static void midStripQueue(const void *color, int eye) {
+/* sync=1 is the original path: every copy submits the 3D command list first (C3D_FrameSplit inside C3D_Sync*).
+   sync=0 queues the same GX copy onto the list that is already running. fps60_pipe uses that after one split. */
+static void issueTexCopy(u32 *in, u32 indim, u32 *out, u32 outdim, u32 size, u32 flags, int sync) {
+    if (sync) C3D_SyncTextureCopy(in, indim, out, outdim, size, flags);
+    else GX_TextureCopy(in, indim, out, outdim, size, flags);
+}
+static void issueDisp(u32 *in, u32 indim, u32 *out, u32 outdim, u32 flags, int sync) {
+    if (sync) C3D_SyncDisplayTransfer(in, indim, out, outdim, flags);
+    else GX_DisplayTransfer(in, indim, out, outdim, flags);
+}
+static void midStripIssue(const void *color, int eye, int sync) {
     const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
     const u32 *source = color;
     if (midStripTiles) {
         enum { SIDE_BYTES = 32 * 8 * sizeof(u32), WIDE_ROW = 320 * 8 * sizeof(u32) };
         for (unsigned side = 0; side < 2; side++) {
             const unsigned from = side ? WIDE_ROW - SIDE_BYTES : 0;
-            C3D_SyncTextureCopy((u32 *)((const u8 *)color + from),
-                                GX_BUFFER_DIM(SIDE_BYTES / 16, (WIDE_ROW - SIDE_BYTES) / 16),
-                                (u32 *)((u8 *)midStripTiles + side * SIDE_BYTES),
-                                GX_BUFFER_DIM(SIDE_BYTES / 16, SIDE_BYTES / 16),
-                                SIDE_BYTES * (MID_TEXTURE_HEIGHT / 8), GX_TRANSFER_RAW_COPY(1));
+            issueTexCopy((u32 *)((const u8 *)color + from),
+                         GX_BUFFER_DIM(SIDE_BYTES / 16, (WIDE_ROW - SIDE_BYTES) / 16),
+                         (u32 *)((u8 *)midStripTiles + side * SIDE_BYTES),
+                         GX_BUFFER_DIM(SIDE_BYTES / 16, SIDE_BYTES / 16),
+                         SIDE_BYTES * (MID_TEXTURE_HEIGHT / 8), GX_TRANSFER_RAW_COPY(1), sync);
         }
         source = midStripTiles;
     }
-    C3D_SyncDisplayTransfer((u32 *)source, GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT),
-                            rbM[eye], GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT), RB_FLAGS);
+    issueDisp((u32 *)source, GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT),
+              rbM[eye], GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT), RB_FLAGS, sync);
+}
+static void midStripQueue(const void *color, int eye) { midStripIssue(color, eye, 1); }
+/* Centre 256 columns of a 320-wide tiled target, into a 256x256 tiled texture. Same offsets as the old Sync call. */
+static void centreCopy(const void *color, void *dest, int sync) {
+    issueTexCopy((u32 *)((const u8 *)color + 4 * 256), GX_BUFFER_DIM(8192 >> 4, 2048 >> 4),
+                 (u32 *)dest, GX_BUFFER_DIM(8192 >> 4, 0), 8192 * 32, GX_TRANSFER_RAW_COPY(1), sync);
+}
+/* How many C3D_Sync* calls the legacy wide path makes per eye: each one is its own 3D-list break.
+   In-between: centre + (two side packs + readback, or one full readback). Real picture: centre + readback. */
+static int legacyWideKicks(int nEyes) {
+    const int midK = midStripTiles ? 4 : 2;
+    return nEyes * (midK + 2);
 }
 /* fps60: the in-between frame's side strips (64x192 like G3G_Strip) from the readback G3G_End queued. Call after a FrameBegin has waited. */
 int G3G_MidStrip(int e, u32 *dst) {
@@ -738,6 +760,17 @@ const u32 *G3G_CrispHi(const u32 **nf) {
     extern int P3DS_CfgInt(const char *, int);
     if (!crispValid || curHi != 1 || wideFrame || P3DS_CfgInt("g3_sharp", 0) != 4) return NULL;
     *nf = crispNF; return crispBuf; }
+/* fps60_pipe (Settings > Display, default OFF): the wide in-between copies each used to end the 3D
+   command list. Both eyes' in-between scenes are now drawn, then every in-between copy, then both
+   real scenes, then every real copy. Two list breaks instead of one per copy. Pictures and copy
+   rectangles are the same. OFF keeps the original per-copy breaks. */
+static int pipeCfg = -1;
+static int fps60Pipe(void) {
+    if (pipeCfg < 0) { extern int P3DS_CfgInt(const char *, int); pipeCfg = P3DS_CfgInt("fps60_pipe", 0) != 0;
+        PSPNativeMemLog("[FPS60] fps60_pipe=%d (1 = wide in-between copies do not split the 3D draws)", pipeCfg); }
+    return pipeCfg;
+}
+void G3G_SetFps60Pipe(int v) { pipeCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_pipe=%d from settings", pipeCfg); }
 void G3G_End(u32 *outL, u32 *outR) {
     { extern void P3DS_Fps60Poll(void); P3DS_Fps60Poll(); }
     if (ok != 1) return;
@@ -843,7 +876,10 @@ void G3G_End(u32 *outL, u32 *outR) {
         const int f = (int)fogDens((u32)(clearD * 0xFFFFFF)); const int fc3[3] = { (int)((fc & 31) * 255 / 31), (int)(((fc >> 5) & 31) * 255 / 31), (int)(((fc >> 10) & 31) * 255 / 31) };
         fogClr = clearRGBA & 255; for (int c = 0; c < 3; c++) { int v = (clearRGBA >> (24 - 8 * c)) & 255; v = (fc3[c] * f + v * (128 - f)) >> 7; fogClr |= (u32)v << (24 - 8 * c); } }
     int decalOn = 0;
-    for (int ph = mid ? 0 : 1; ph < 2; ph++)   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
+    /* Wide + direct + in-between only. Anything else, including fps60_pipe OFF, keeps the loop below byte for byte. */
+    const int pipe = mid && wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
+    static unsigned pipeN, pipeKickSum;
+    for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
     for (int e = 0; e < eyes; e++) {
         if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
         if (!ph) for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]);
@@ -882,17 +918,32 @@ void G3G_End(u32 *outL, u32 *outR) {
         }
         if (fogFrame == 1) C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
         if (!ph) {   /* in-between frame: out of the target before the real frame clears it (same copies as the direct path below) */
-            if (wideFrame) { C3D_SyncTextureCopy((u32 *)((u8 *)tgt[e]->frameBuf.colorBuf + 4 * 256), GX_BUFFER_DIM(8192 >> 4, 2048 >> 4), (u32 *)midTex[e].data, GX_BUFFER_DIM(8192 >> 4, 0), 8192 * 32, GX_TRANSFER_RAW_COPY(1));
+            if (!pipe) {
+            if (wideFrame) { centreCopy(tgt[e]->frameBuf.colorBuf, midTex[e].data, 1);
                 midStripQueue(tgt[e]->frameBuf.colorBuf, e); }
             else C3D_SyncTextureCopy((u32 *)rt[e].data, GX_BUFFER_DIM(8192 >> 4, 0), (u32 *)midTex[e].data, GX_BUFFER_DIM(8192 >> 4, 0), 256 * 256 * 4, GX_TRANSFER_RAW_COPY(1));
+            }
             continue; }
         if (fogFrame == 2) { C3D_StencilTest(false, GPU_ALWAYS, 0, 0xFF, 0xFF);
             C3D_SyncDisplayTransfer((u32 *)tgt[e]->frameBuf.depthBuf, GX_BUFFER_DIM(curW, 256), drb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS); }
         if (rs && sharedTgt) rbQueue(e);   /* shared 2x target: copy this eye out before the next eye clears it */
     }
+    if (pipe && ph == 0) {   /* both in-between scenes are drawn; one list break, then every copy */
+        C3D_FrameSplit(0); pipeKickSum++;
+        for (int e = 0; e < eyes; e++) { centreCopy(tgt[e]->frameBuf.colorBuf, midTex[e].data, 0); midStripIssue(tgt[e]->frameBuf.colorBuf, e, 0); }
+    }
+    }
     if (rs && !sharedTgt && !direct) for (int e = 0; e < eyes; e++) rbQueue(e);  /* GPU runs these after the draws, same queue */
-    if (direct && wideFrame) for (int e = 0; e < eyes; e++) {   /* wide direct: centre 256 columns -> dirTex[e] (texture copy, tiled to tiled), then the strip readback */
-        C3D_SyncTextureCopy((u32 *)((u8 *)tgt[e]->frameBuf.colorBuf + 4 * 256), GX_BUFFER_DIM(8192 >> 4, 2048 >> 4), (u32 *)dirTex[e].data, GX_BUFFER_DIM(8192 >> 4, 0), 8192 * 32, GX_TRANSFER_RAW_COPY(1));
+    if (direct && wideFrame && pipe) {   /* both real scenes are drawn; one list break, then every wide copy */
+        C3D_FrameSplit(0); pipeKickSum++;
+        for (int e = 0; e < eyes; e++) {
+            centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 0);
+            issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS, 0);
+        }
+        if (++pipeN >= 600) { PSPNativeMemLog("[FPS60] pipe kicks %u per frame over %u frames (legacy %d, %d eyes) tris %u batches %u",
+            pipeKickSum / pipeN, pipeN, legacyWideKicks(eyes), eyes, vn[0] / 3, bn[0]); pipeN = pipeKickSum = 0; }
+    } else if (direct && wideFrame) for (int e = 0; e < eyes; e++) {   /* wide direct: centre 256 columns -> dirTex[e] (texture copy, tiled to tiled), then the strip readback */
+        centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 1);
         rbQueue(e); }
     crispPend = 0;
     { extern int P3DS_CfgInt(const char *, int);
