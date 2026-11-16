@@ -38,8 +38,9 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    transformed skip the matrix multiply and plane tests and feed the same kept triangles to the GPU path.
    g3_wake (Debug tab, default OFF): with g3_thread ON, wake the worker on every queued job (not every 6). Same picture.
    g3_thr_check (Debug tab, default OFF): with g3_thread ON, CRC the job POD at submit and again on the worker; log [G3THR] snap mismatch.
-   Host: tools/g3_thr_race_test.c also checks that a job stays self-contained after live globals change. */
-static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1;
+   g3_fastxform (Debug tab, default OFF): hoist the clip matrix into locals for the raw transform loop (same IEEE ops, less reload).
+   Host: tools/g3_thr_race_test.c (job self-contained) and tools/g3_fastxform_test.c (hoist bit-identical). */
+static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1;
 /* Hot path for g3packet: 0 until g3_prof is read/on, so GeBuffer pays nothing when profiling is OFF. */
 extern "C" volatile int P3DS_G3ProfLive;
 volatile int P3DS_G3ProfLive;
@@ -51,6 +52,8 @@ extern "C" int P3DS_G3WakeCfg(void){if(g3WakeCfg<0){g3WakeCfg=P3DS_CfgInt("g3_wa
 extern "C" void P3DS_SetG3Wake(int v){g3WakeCfg=v!=0;PSPNativeMemLog("[G3THR] g3_wake=%d from settings",g3WakeCfg);}
 extern "C" int P3DS_G3ThrCheckCfg(void){if(g3ThrCheckCfg<0){g3ThrCheckCfg=P3DS_CfgInt("g3_thr_check",0)!=0;PSPNativeMemLog("[G3THR] g3_thr_check=%d (1 = CRC job POD at submit vs worker; logs mismatches)",g3ThrCheckCfg);}return g3ThrCheckCfg;}
 extern "C" void P3DS_SetG3ThrCheck(int v){g3ThrCheckCfg=v!=0;PSPNativeMemLog("[G3THR] g3_thr_check=%d from settings",g3ThrCheckCfg);}
+extern "C" int P3DS_G3FastXformCfg(void){if(g3FastXformCfg<0){g3FastXformCfg=P3DS_CfgInt("g3_fastxform",0)!=0;PSPNativeMemLog("[G3XF] g3_fastxform=%d (1 = hoist clip matrix in the raw transform loop; same picture)",g3FastXformCfg);}return g3FastXformCfg;}
+extern "C" void P3DS_SetG3FastXform(int v){g3FastXformCfg=v!=0;PSPNativeMemLog("[G3XF] g3_fastxform=%d from settings",g3FastXformCfg);}
 static u64 idleAtBegin,prWall;static unsigned prFrames,prTrisSum,prXfHitSum,prXfMissSum;
 static int cull3dCfg(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"cull3d=%d",&x)==1)v=x;fclose(f);}PSPNativeMemLog("[G3] back-face culling cull3d=%d (0 off, 1 normal, 2 inverted winding)",v);}return v;}
 /* ---------------- textures ---------------- */
@@ -631,9 +634,8 @@ static void GpuRawJ(const GJob&J0){
   if(J.snapCrc&&J.snapCrc!=gtSnapCrc(J)){gtCheckBad++;static unsigned mism;if(mism++<16)PSPNativeMemLog("[G3THR] snap mismatch job n=%u sd=%d (worker POD != submit CRC)",J.n,J.sd);}
   if(J.xformCrc&&J.xformCrc!=gtXformCrc(J)){gtCheckBad++;static unsigned xm;if(xm++<16)PSPNativeMemLog("[G3THR] snap mismatch xform n=%u (worker clip hash != submit)",J.n);}
  }
- /* xfcache is a shared table keyed by list pointers: with a worker it can hit stale geometry after pointer reuse.
-    Keep the setting, but never hit/store while g3_thread is actually ON (bit-identical to a cold cache). */
- const bool doProf=P3DS_G3ProfCfg()!=0;const bool doXf=!gtCfg&&P3DS_G3XfCacheCfg()!=0;
+ /* xfcache is safe with depth-1 + ListFreeNow clearing the slot; hits help when the camera is still. */
+ const bool doProf=P3DS_G3ProfCfg()!=0;const bool doXf=P3DS_G3XfCacheCfg()!=0;const bool fastXf=P3DS_G3FastXformCfg()!=0;
  /* Coarse timers only (one tick read per stage per batch). Per-triangle svcGetSystemTick cost ~10+ ms/frame with g3_prof=1. */
  u64 tRaw0=0,t0=0,t1=0;if(doProf)tRaw0=t0=svcGetSystemTick();
  const GuVertex*v=J.v;const unsigned n=J.n;const void*xfKey=J.xfKey?J.xfKey:v;
@@ -690,10 +692,14 @@ static void GpuRawJ(const GJob&J0){
   if(xfArenaN+n/3>XF_TRIS){xfClear();xfBase=0;}
   if(xfArenaN+n/3<=XF_TRIS){xfOut=&xfTab[xfHash(xfKey)];xfBase=xfArenaN;}}
  u64 tLoop=doProf?svcGetSystemTick():0;unsigned clipN=0;
+ /* Stereo field already transforms once (G3G_TriClip2 writes both eyes from the same clip verts). g3_fastxform only
+    hoists M[] into locals so the VFP reloads less — same mul/add order, bit-identical floats. New 3DS has no NEON. */
+ const float m0=M[0],m1=M[1],m2=M[2],m3=M[3],m4=M[4],m5=M[5],m6=M[6],m7=M[7],m8=M[8],m9=M[9],m10=M[10],m11=M[11],m12=M[12],m13=M[13],m14=M[14],m15=M[15];
  for(unsigned i=0;i+2<n;i+=3){float c[12];unsigned out=0x3F;u32 col[3];float su[3],sv[3];
   if(chunked&&i%kChunkV==0&&cmask[i/kChunkV]){const unsigned t=((i+kChunkV<n?i+kChunkV:n)-i)/3;rejOut+=t;bcSkipC++;bcSkipT+=t;i+=3*t-3;continue;}
   for(int k=0;k<3;k++){const GuVertex&p=v[i+k];float*q=c+4*k;
-   q[0]=p.x*M[0]+p.y*M[4]+p.z*M[8]+M[12];q[1]=p.x*M[1]+p.y*M[5]+p.z*M[9]+M[13];q[2]=p.x*M[2]+p.y*M[6]+p.z*M[10]+M[14];q[3]=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];
+   if(fastXf){q[0]=p.x*m0+p.y*m4+p.z*m8+m12;q[1]=p.x*m1+p.y*m5+p.z*m9+m13;q[2]=p.x*m2+p.y*m6+p.z*m10+m14;q[3]=p.x*m3+p.y*m7+p.z*m11+m15;}
+   else{q[0]=p.x*M[0]+p.y*M[4]+p.z*M[8]+M[12];q[1]=p.x*M[1]+p.y*M[5]+p.z*M[9]+M[13];q[2]=p.x*M[2]+p.y*M[6]+p.z*M[10]+M[14];q[3]=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];}
    unsigned o=0;const float qw=qwK*q[3];/* run 43 wideview: keep tris in the side strips */const float qy=yK*q[3];if(q[0]>qw)o|=1;if(q[0]<-qw)o|=2;if(q[1]>qy)o|=4;if(q[1]<-qy)o|=8;if(q[2]>q[3])o|=16;if(q[2]<-q[3])o|=32;out&=o;
    col[k]=p.color;su[k]=p.u;sv[k]=p.v;}
   if(J.wbuf){/* run 31: DS W-buffer (SwapBuffers bit1): depth = w, linear. With z-buffer depth the title's projection

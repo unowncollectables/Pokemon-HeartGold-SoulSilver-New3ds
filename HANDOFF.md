@@ -1,3 +1,22 @@
+# g3_fastxform + xfcache under depth-1 thread (stereo/perf follow-up)
+
+Run 876 G3PROF field stereo: front ~6.0 ms, cmd ~2.5 ms, raw ~8.2 ms (xform alone 2–7.5 ms), xfcache hit~0/miss~66 → ~44 fps stereo / ~51 mono. New 3DS has **no NEON**. Field stereo already transforms once (`G3G_TriClip2` writes both eyes from the same clip verts) — the remaining cost is VFP matrix×vert and poor xfcache hits while walking.
+
+## This PR (`g3_fastxform` + re-enable xfcache under thread)
+
+- Settings > Debug > **3D fast xform** (`g3_fastxform`, default OFF): hoist `M[0..15]` into locals in the `GpuRawJ` loop. Same mul/add order → bit-identical floats; less VFP reload on ARM11. OFF = unchanged.
+- With depth-1 + `ListFreeNow` clearing the xfcache slot on free, **`g3_xfcache` may hit/store while `g3_thread` is ON** again (camera still → reuse; walking still misses). #488 had disabled hits while `gtCfg`.
+- Host: `tools/g3_fastxform_test.c` (bit-identical + host ns probe).
+- **Not in this PR:** moving GeBuffer/`front`/`cmd` onto the worker (mutates game state; unsafe without a larger snapshot). Fixed-point xform (visual risk). NEON (not on New 3DS).
+
+## Expected numbers
+
+- Host: hoist vs index must print `ok bit-identical`. Host ns is not the 3DS VFP win.
+- Azahar/hardware A/B (`g3_prof=1`, same walk): compare `g3_fastxform=0` vs `1` on raw/xform us; stereo must match mono picture with slider up. With `g3_xfcache=1` + thread, expect hits when standing still (was forced 0 under #488’s `!gtCfg` gate).
+- No claim of stereo 44→60 without device numbers; target is cutting xform share of raw without visual loss.
+
+Device next: after #488 lands, `g3_thread=1 g3_wake=1 g3_thr_check=1` (0 mismatches), then `g3_fastxform=1` / `g3_xfcache=1` A/B in Goldenrod + Route 34 stereo.
+
 # g3_thread depth-1 + deferred Batch (run 876 / post-#486+#487)
 
 Hardware run 876 (`e0acb66`): with `g3_thread=1` still duplicated/misplaced NPC billboards (Goldenrod) and white untextured water (Route 34). **Now also seen in Azahar** → logic/scheduling, not only ARM11 ordering.
@@ -6,7 +25,7 @@ Hardware run 876 (`e0acb66`): with `g3_thread=1` still duplicated/misplaced NPC 
 
 1. **Deep queue broke GetTexture cadence.** Inline is GetTex→transform→GetTex→…. Threaded resolved many textures while earlier jobs were still in flight (before VBlank / before the previous draw’s GPU tex was stable) → empty/stale billboard and water textures (white tris, “ghost” sprites).
 2. **Deferred translucent `Batch` dropped the job snapshot** (no `gt`/`sd`/`parL`/`wide`); `FlushDeferred` called `Tri` with live globals.
-3. **`g3_xfcache` with a worker** could serve stale list-pointer hits; hits/stores are skipped while the thread is actually ON.
+3. **`g3_xfcache` with a worker** could serve stale list-pointer hits; #488 skipped hit/store while the thread was ON (this follow-up re-enables under depth-1 + free clears the key).
 4. **`P3DS_Fps60Poll` `C3D_FrameBegin`** while the worker filled `vb[]` reordered GPU work vs inline.
 
 #487 (arena reserve before copy) was necessary but not sufficient.
@@ -15,15 +34,15 @@ Hardware run 876 (`e0acb66`): with `g3_thread=1` still duplicated/misplaced NPC 
 
 - **Depth-1:** `gtWaitIdle()` before `GetTexture`/`G3G_TexCreate` (no arena rewind). One job in flight; transform still overlaps the next GeBuffer decode.
 - Deferred `Batch` stores `gt/tw/th/sd/parL/wide`; flush rebuilds a stack job and sets `gtCur`.
-- xfcache hit/store disabled while `gtCfg`; Fps60Poll skips FrameBegin when `P3DS_G3ThrBusy()`.
+- Fps60Poll skips FrameBegin when `P3DS_G3ThrBusy()`. (#488 also gated xfcache off while `gtCfg`; stereo PR re-enables.)
 - `g3_thr_check`: POD CRC + clip xform hash; every 300 frames logs `[G3THR] check: N jobs, M mismatches (want 0)`.
 - Host: `tools/g3_thr_race_test.c`.
 
 ## Expected perf
 
-Depth-1 removes deep-queue overlap of GetTexture with transform; worker still overlaps game command decode between draws. Expect a small wait increase vs run 872’s deep queue; picture must match `g3_thread=0`. Stereo xform cut is a separate PR.
+Depth-1 removes deep-queue overlap of GetTexture with transform; worker still overlaps game command decode between draws. Expect a small wait increase vs run 872’s deep queue; picture must match `g3_thread=0`. Stereo xform cut is the follow-up above.
 
-Hardware / Azahar: `g3_thread=1`, `g3_wake=1`, `g3_thr_check=1`, `g3_xfcache=0`, walk Goldenrod + Route 34; no ghosts/white water; check line shows **0 mismatches**.
+Hardware / Azahar: `g3_thread=1`, `g3_wake=1`, `g3_thr_check=1`, walk Goldenrod + Route 34; no ghosts/white water; check line shows **0 mismatches**.
 
 # 3D worker queue storage (#487)
 
