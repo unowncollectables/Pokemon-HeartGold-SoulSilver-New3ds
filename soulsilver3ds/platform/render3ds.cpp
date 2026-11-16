@@ -1337,17 +1337,21 @@ static const MItem mItems[]={
  {"60 FPS STRIPS","fps60_strips",2,{"OFF","ON"}},
  {"60 FPS VRAM","fps60_vram",2,{"OFF","ON"}},
  {"60 FPS AREA","fps60_area",2,{"OFF","ON"}},
+ /* g3_xfcache: reuse clip-space triangles for list-cache draws whose matrix did not change. Same picture. Default OFF. */
+ {"3D TRANSFORM CACHE","g3_xfcache",2,{"OFF","ON"}},
+ /* g3_prof: one [G3PROF] line per 3D frame with cull/pair/xform/clip/queue parts. Default OFF. */
+ {"3D PROFILE","g3_prof",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
-enum{kGtsPickerItem=MENU_N-9,kWideLayItem=MENU_N-8,kG3ThrItem=MENU_N-7,kFps60Item=MENU_N-6,kFps60PipeItem=MENU_N-5,kFps60HoldItem=MENU_N-4,kFps60StripsItem=MENU_N-3,kFps60VramItem=MENU_N-2,kFps60AreaItem=MENU_N-1};
-extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);}
+enum{kGtsPickerItem=MENU_N-11,kWideLayItem=MENU_N-10,kG3ThrItem=MENU_N-9,kFps60Item=MENU_N-8,kFps60PipeItem=MENU_N-7,kFps60HoldItem=MENU_N-6,kFps60StripsItem=MENU_N-5,kFps60VramItem=MENU_N-4,kFps60AreaItem=MENU_N-3,kG3XfItem=MENU_N-2,kG3ProfItem=MENU_N-1};
+extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);int P3DS_G3XfCacheCfg(void);void P3DS_SetG3XfCache(int);int P3DS_G3ProfCfg(void);void P3DS_SetG3Prof(int);}
 /* fps60 (g3gpu.c, gpucomp.c, gpuscale.c): in-between pictures for the overworld */
 extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);void G3G_SetFps60Pipe(int);void G3G_SetFps60Hold(int);void G3G_SetFps60Strips(int);void P3DS_SetFps60Vram(int);void P3DS_SetFps60Area(int);void P3DS_Fps60Area(unsigned,int);int G3G_FpsHold(void);
  u32*P3DS_GpuMidStripBuffer(int);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
 static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
-enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-31&&kPgFindItem==MENU_N-30&&kBreedItem==MENU_N-29&&kBatchCullItem==MENU_N-28&&kGcDirectItem==MENU_N-27&&kWildAliveItem==MENU_N-26&&kEventAnyItem==MENU_N-25&&kSteadyItem==MENU_N-24&&kEvenItem==MENU_N-23&&kFlyTapItem==MENU_N-22&&kContestItem==MENU_N-21,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
+enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-33&&kPgFindItem==MENU_N-32&&kBreedItem==MENU_N-31&&kBatchCullItem==MENU_N-30&&kGcDirectItem==MENU_N-29&&kWildAliveItem==MENU_N-28&&kEventAnyItem==MENU_N-27&&kSteadyItem==MENU_N-26&&kEvenItem==MENU_N-25&&kFlyTapItem==MENU_N-24&&kContestItem==MENU_N-23,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
 extern "C" {extern volatile int P3DS_AudioGainV,P3DS_AudioLimiterV,P3DS_AudioStallFadeV;void P3DS_SetAudioGain(int);void P3DS_SetAudioLimiter(int);void P3DS_SetAudioStallFade(int);}
 static const int kVolGain[7]={4,5,6,7,8,9,10};
 static int volIdx(){int g=P3DS_AudioGainV;if(g<0)g=P3DS_CfgInt("audio_gain",7);int b=0;for(int k=1;k<7;k++)if(abs(kVolGain[k]-g)<abs(kVolGain[b]-g))b=k;return b;}
@@ -1447,6 +1451,8 @@ static int menuGet(int i){
  if(i==kFps60StripsItem)return P3DS_CfgInt("fps60_strips",0)!=0;
  if(i==kFps60VramItem)return P3DS_CfgInt("fps60_vram",0)!=0;
  if(i==kFps60AreaItem)return P3DS_CfgInt("fps60_area",0)!=0;
+ if(i==kG3XfItem)return P3DS_G3XfCacheCfg();
+ if(i==kG3ProfItem)return P3DS_G3ProfCfg();
  if(i==kSeasonalTreesItem)return P3DS_CfgInt("seasonal_trees",0)!=0;
  if(i==kPokewalkerItem)return P3DS_CfgInt("pokewalker",0)!=0;
  if(i==kAmbientWeatherItem)return P3DS_AmbientWeatherCfg();if(i==kRoamSprItem)return pgRoamSpr()?1:0;if(i==kMapZoomItem)return pgMapZoomIdx();if(i==139)return titleCleanCfg();if(i==138)return P3DS_GcBFadesCfg();if(i==137)return P3DS_GcAffineCfg();if(i==136)return gpuBCfg();if(i==135)return P3DS_FastBoundsCfg();if(i==134)return P3DS_G3PacketCfg();if(i==kContestItem)return P3DS_ContestOn();if(i==kFlyTapItem)return pgFlyCfg()?1:0;if(i==kEvenItem)return evenCfg()?1:0;if(i==kSteadyItem)return steadyCfg()?1:0;if(i==kEventAnyItem)return evtCfg()?1:0;if(i==kGcDirectItem)return gcDirectCfg();if(i==kBatchCullItem)return P3DS_BatchCullCfg();if(i==kBreedItem)return brCfg();if(i==kPgFindItem)return pgFindCfg();if(i==kHuntStatsItem)return P3DS_CfgInt("hunt_stats",0)!=0;if(i==kPanelLiveItem)return panelLiveCfg();if(i==kAchToastItem)return P3DS_AchToastsOn()?1:0;if(i==kSharpItem){int v=P3DS_CfgInt("g3_sharp",0);return v<0?0:v>4?4:v;}if(i==kSprDepthItem)return P3DS_SpriteDepthCfg();if(i==kPmItem)return P3DS_PmShortcutsCfg();if(i==kAutoRunItem)return P3DS_CfgInt("auto_run",0)!=0;if(i==kPgExtrasItem){pxOn();return pxOnV;}if(i==kHintItem)return P3DS_CfgInt("type_hint",0)!=0;if(i==kTrackerItem)return P3DS_TrkOn();if(i==kRibbonItem)return P3DS_RibbonOn();if(i==kCelebItem)return P3DS_CelebOn();if(i==kHuntItem)return P3DS_HuntOn();if(i==kRateItem)return P3DS_HuntRateIdx();if(i==kBattItem)return P3DS_CfgInt("battery_warn",0)!=0;if(i==kFogHoleItem)return P3DS_FogHoleCfg();if((i>=kWildVisItem&&i<=kWildLastItem)||i==kWildAliveItem)return P3DS_WildVisCfg(wvIdx(i));if(i==kDcSkipItem)return P3DS_DcFlushSkipCfg();if(i==kWideBoxItem)return wideBoxCfg();if(i==kFpsTweakItem)return P3DS_FpsTweakRow();if(i==kWirelessItem){int w=P3DS_CfgInt("wireless",1);return w<0?0:w>2?2:w;}if(i==kUnionGuardItem)return P3DS_CfgInt("union_guard",1)!=0;if(i==kPanelPartyItem)return panelPartyCfg();if(i==kMenuGreyItem)return P3DS_MenuGreyUnsupportedCfg();if(i==kBottomHdItem)return bottomHdCfg();if(i==kWideDexItem)return wideDexCfg();if(i==kWidePcItem)return widePcCfg();if(i==kDirectItem)return G3G_DirectCfg();if(i==kGcNfItem)return gcStNfCfg();if(i==kVolumeItem)return volIdx();if(i==kLimiterItem){int a=P3DS_AudioLimiterV<0?P3DS_CfgInt("audio_limiter",3):P3DS_AudioLimiterV;return a<0?0:a>3?3:a;}if(i==kStallFadeItem)return P3DS_AudioStallFadeV<0?P3DS_CfgInt("audio_stallfade",0)!=0:P3DS_AudioStallFadeV;if(i==kSelectResetItem||i==kSkipIntroItem)return P3DS_CfgInt(mItems[i].key,0)!=0;if(i==kSmoothItem)return P3DS_CfgInt(mItems[i].key,1)!=0;if(i==kBumpItem)return bumpCfg();if(i==kWideScreensItem)return wideScreensCfg();if(i==kBottomMenuItem)return bmCfg();if(i==kPgKantoItem)return pkCfg();if(i==kWDepthItem||i==kWCpuItem||i==kBottomLayoutItem||i==kBottomMapItem)return 0;/* retired rows, in no tab */if(i==kWideBattleItem)return wideBattleCfg();if(i==kMenuBtnItem)return menuBtnCfg();if(i==kGpuBlendItem)return P3DS_GpuBlendCfg();if(i>=33)return genGet(i-33);if(i>=27)return P3DS_Cheat(i-27);switch(i){case 0:return fpsOn?1:0;case 1:return wideCfg>0?1:0;case 2:return P3DS_ScaleMode();case 3:return P3DS_CstickMode()==2?1:0; /* ss3ds: 0 off, 1 = D-pad (mode 2) */
@@ -1463,6 +1469,8 @@ static void menuSet(int i,int v){
  if(i==kFps60StripsItem){G3G_SetFps60Strips(v);P3DS_CfgWrite("fps60_strips",v);return;}
  if(i==kFps60VramItem){P3DS_SetFps60Vram(v);P3DS_CfgWrite("fps60_vram",v);return;}
  if(i==kFps60AreaItem){P3DS_SetFps60Area(v);P3DS_CfgWrite("fps60_area",v);return;}
+ if(i==kG3XfItem){P3DS_SetG3XfCache(v);P3DS_CfgWrite("g3_xfcache",v);return;}
+ if(i==kG3ProfItem){P3DS_SetG3Prof(v);P3DS_CfgWrite("g3_prof",v);return;}
  if(i==kWideLayItem){P3DS_SetWideLayouts(v);P3DS_CfgWrite("wide_layouts",v);return;}
  if(i==kSeasonalTreesItem){P3DS_CfgWrite("seasonal_trees",v);return;}
  if(i==kPokewalkerItem){P3DS_CfgWrite("pokewalker",v);return;}
@@ -1594,7 +1602,7 @@ struct SAppTab{int n;SAppRow r[14];};
 /* the Wide tab was removed (its rows stay in config.txt: wide_battle, wide_boxes, wide_menus ... all default ON, wide_fx default OFF) */
 static const char*const kTabNm[7]={"Display","3D","Input","Battle","Play","Setup","Debug"};
 static const SAppTab kTabs[7]={
- {13,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+ {14,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
      {kWideLayItem,"Wide layouts","Experimental. Menu screens are laid out for the full 400 px width instead of filling the sides."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."},
@@ -1606,7 +1614,8 @@ static const SAppTab kTabs[7]={
      {kFps60HoldItem,"60 fps hold","When the camera, sprites, tiles and 3D are all still, show the real frame again instead of drawing an in-between. OFF skips that repeat."},
      {kFps60StripsItem,"60 fps strips","In-between Wide strips copy only the visible 192 rows. The real picture still copies the full buffer. OFF is the full copy."},
      {kFps60VramItem,"60 fps VRAM","Tries to keep the second screen picture and both in-between pictures in video memory together. If that does not fit, nothing changes. OFF does not try."},
-     {kFps60AreaItem,"60 fps area","Writes one log line per area: about every 10 seconds, and when the zone or map changes. OFF writes none."}}},
+     {kFps60AreaItem,"60 fps area","Writes one log line per area: about every 10 seconds, and when the zone or map changes. OFF writes none."},
+     {kG3XfItem,"3D transform cache","Speed: when a cached 3D model is drawn again with the same matrix, reuse its transformed triangles. Same picture. OFF never reuses."}}},
  {12,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up."},
      {13,"Split top (mono)","Experimental: two CPU cores draw the top screen when 3D is off."},
@@ -1675,14 +1684,15 @@ static const SAppTab kTabs[7]={
      {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app. Experimental."}}},
  /* hidden unless SELECT is pressed inside the app. Fast upload, Fast 3D convert, GPU compose and GPU compose 3D were removed once proven
     (defaults ON/2; config.txt keys gpu_swizzle, fast_conv, gpu_compose, gpu_compose_stereo still work, mItems 11/12/15/19 unchanged). */
- {8,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
+ {9,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
       {88,"GPU compose 3D menus","Same, for battles and menus."},
       {89,"GPU 3D direct","Experimental: keeps the 3D layer on the GPU. Leave OFF."},
       {86,"Audio limiter","Pulls loud moments down instead of letting them crackle."},
       {87,"Audio stall fade","Fades sound out when the game stops making any, instead of buzzing."},
       {94,"Speed tweaks","Experimental speed-ups, each level adds more. +PARALLEL splits the 3D pixel passes over two cores (for 3D slider on). Leave OFF if unsure."},
       {96,"Skip cache flushes","Experimental: ignores the game's own cache flushes. Leave OFF."},
-      {kG3ThrItem,"3D worker thread","Experimental: does the 3D vertex work on a second core. A/B TEST switches it OFF and ON every ~40 s so one log compares both. If the game hangs or looks wrong, turn it OFF."}}},
+      {kG3ThrItem,"3D worker thread","Experimental: does the 3D vertex work on a second core. A/B TEST switches it OFF and ON every ~40 s so one log compares both. If the game hangs or looks wrong, turn it OFF."},
+      {kG3ProfItem,"3D profile","Writes one log line per 3D frame breaking the CPU geometry pass into cull, pair, transform, clip and queue. OFF writes the older 300-frame average only."}}},
 };
 static void prettyLab(char*d,const char*s,int n){/* run 64: "WIDE VIEW FX" -> "Wide view FX" (acronyms kept) */
  static const char*const acr[]={"FPS","GPU","ZL","ZR","FX","3D","1X","2X","25X","5X","ROM","IV","EV","TM","HM","LED","UI","OK","KB","MB","Y","X","A","B","L","R"};

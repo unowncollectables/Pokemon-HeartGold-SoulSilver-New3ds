@@ -1,3 +1,16 @@
+# g3soft CPU geometry (run 870 follow-up)
+
+Run 870 (main 6ecf97b, fps60 + all five Display fps60 toggles): pipe and VRAM worked; the wall is CPU `g3soft` (~20–24 ms mono≈stereo). GPU fill is no longer the limiter. This pass profiles that step and adds one identical-output reuse path.
+
+Settings > Display > 3D transform cache (`g3_xfcache`, default OFF): list-cache replay draws whose clip matrix and stereo/mid/wide rim match the last transform reuse the stored accepted clip-space triangles (skip matrix multiply, plane reject, face cull). Hard (CPU-clip) batches are not cached. OFF never touches the tables — byte-identical to today. Log: `[G3XF] g3_xfcache=…` on boot/settings; hit/miss/store/hardskip ride on the profile line or a 300-frame summary.
+
+Settings > Debug > 3D profile (`g3_prof`, default OFF): one `[G3PROF] tick` line per 3D frame:
+`cull | pair | xform | clip | queue | tex | end | raw` (us) plus `tris` and xfcache counters. OFF keeps the older 300-frame average only.
+
+RGBA8 scale-target FAIL every map change (run 870: free ~839 KiB after dance, one 512×512 RGBA8 needs ~1 MiB): with `fps60_vram` holding mid textures, `G3G_Begin` UpFree→UpAlloc(0) cannot fit RGBA8 and falls back to RGB565 every zone change (hitch + log spam). After the first RGBA8 failure the scale targets stick to RGB565 until VRAM is clearly >3 MiB free again (then one retry). Same picture as the old fallback; no toggle. Log: `[3DRES] scale targets: sticking to RGB565 after RGBA8 fail` once, then no more FAILED spam on map changes.
+
+Host: `tools/g3_xfcache_test.c`. Platform objects compiled with devkitARM (gpuscale, logring); full game link needs the owner's ROM tree. Hardware: `g3_prof=1`, walk Goldenrod / Route 34 with `g3_xfcache` OFF then ON; compare `[G3PROF] tick` xform/queue and `[PERF] g3soft`; confirm no repeated `[3DRES] scale targets now RGBA8: FAILED` on map changes when `fps60_vram=1`.
+
 # 60 fps area
 
 Settings > Display > 60 fps area (`fps60_area`, default OFF) writes one log line per area. The line goes out when the zone or the map changes, and every 300 presented field ticks in the same place (about 10 s at 30 Hz). It names the zone and map, the ticks, the percent that showed an in-between, how many of those were late, how many step-downs, the average and worst tick, the average left FrameBegin wait, the pipe list-breaks in that window (2 per pipe frame), and whether the second-screen targets and the in-between textures are in VRAM. OFF writes none of these lines. It does not change a pixel.

@@ -28,7 +28,16 @@ static unsigned stDecodes,stPix,stDepth,stTexA,stA0,stWritten,stTexTris,stTrans;
 extern "C" void abort(void);
 extern "C" void G3SIM_ChunkAlloc(){printf("[NATIVE-RENDER] vertex overflow\n");abort();for(;;){}}
 static void ResetVertices(){if(recActive&&g3RecCount)recBroken=true;g3ChunkPtr=vertices;g3ChunkLeft=24576;}
-static bool cullAll=false;static u64 prTex,prRaw,prEnd,prN;static int cullFace=0;/*1=GL_FRONT 2=GL_BACK*/
+static bool cullAll=false;static u64 prTex,prRaw,prEnd,prN,prCull,prPair,prXform,prClip,prQueue;static int cullFace=0;/*1=GL_FRONT 2=GL_BACK*/
+extern "C" int P3DS_CfgInt(const char*,int);
+/* g3_prof (Debug tab, default OFF): one [G3PROF] line per 3D frame with the parts of the CPU geometry pass.
+   g3_xfcache (Display tab, default OFF): replay draws whose clip matrix matches the last time they were
+   transformed skip the matrix multiply and plane tests and feed the same kept triangles to the GPU path. */
+static int g3ProfCfg=-1,g3XfCfg=-1;
+extern "C" int P3DS_G3ProfCfg(void){if(g3ProfCfg<0){g3ProfCfg=P3DS_CfgInt("g3_prof",0)!=0;PSPNativeMemLog("[G3PROF] g3_prof=%d (1 = one line per 3D frame)",g3ProfCfg);}return g3ProfCfg;}
+extern "C" void P3DS_SetG3Prof(int v){g3ProfCfg=v!=0;PSPNativeMemLog("[G3PROF] g3_prof=%d from settings",g3ProfCfg);}
+extern "C" int P3DS_G3XfCacheCfg(void){if(g3XfCfg<0){g3XfCfg=P3DS_CfgInt("g3_xfcache",0)!=0;PSPNativeMemLog("[G3XF] g3_xfcache=%d (1 = reuse transformed list-cache draws when the matrix is unchanged)",g3XfCfg);}return g3XfCfg;}
+extern "C" void P3DS_SetG3XfCache(int v); /* defined with xfClear below */
 static int cull3dCfg(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"cull3d=%d",&x)==1)v=x;fclose(f);}PSPNativeMemLog("[G3] back-face culling cull3d=%d (0 off, 1 normal, 2 inverted winding)",v);}return v;}
 /* ---------------- textures ---------------- */
 static bool Gather(unsigned address,unsigned size,bool palette,u8*dst){
@@ -558,16 +567,51 @@ static int CullBatch(const GJob&J,bool&chunked){
   const unsigned m=BoxOut(cb[0],qwK,zp);if(m){bcSkipB++;bcSkipT+=n/3;rejOut+=n/3;rejMask|=m;return 1;}
   if(n>kChunkV){const unsigned nc=(n+kChunkV-1)/kChunkV;for(unsigned c=0;c<nc;c++){const unsigned mc=BoxOut(cb[1+c],qwK,zp);chunkOff[c]=mc!=0;rejMask|=mc;}chunked=true;}}
  return 0;}
+/* g3_xfcache: keep the last accepted clip-space triangles for a list-cache replay draw. Same pointer + identical M + same
+   stereo/mid/wide rim -> skip matrix multiply, plane reject and face cull, and queue the stored triangles. Hard (CPU-clip)
+   triangles are not stored: a batch with any hard tri is left uncached. OFF never touches the tables. */
+enum{XF_SLOTS=256,XF_TRIS=3072};
+struct XfTri{float c[12];u32 col[3];float su[3],sv[3];};
+struct XfSlot{const void*key;unsigned n,nTri,base,gen,cullFace;float M[16];};
+static XfSlot xfTab[XF_SLOTS];static XfTri xfArena[XF_TRIS];static unsigned xfArenaN,xfHits,xfMiss,xfStore,xfSkipHard;
+static inline unsigned xfHash(const void*p){return (unsigned)(((uintptr_t)p>>4)*2654435761u)>>24;}
+static inline unsigned xfGenNow(void){return ((unsigned)(stereoSd&255))|((G3G_MidRec?1u:0u)<<8)|((G3G_Wide?1u:0u)<<9)|((unsigned)(cullFace&3)<<10);}
+static void xfClear(void){xfArenaN=0;for(unsigned i=0;i<XF_SLOTS;i++)xfTab[i].key=nullptr;}
+extern "C" void P3DS_SetG3XfCache(int v){g3XfCfg=v!=0;if(!g3XfCfg)xfClear();PSPNativeMemLog("[G3XF] g3_xfcache=%d from settings",g3XfCfg);}
 static void GpuRawJ(const GJob&J){
  if(J.cullAll)return;
+ const bool doProf=P3DS_G3ProfCfg()!=0;const bool doXf=P3DS_G3XfCacheCfg()!=0;
+ u64 t0=0,t1=0;if(doProf)t0=svcGetSystemTick();
  const GuVertex*v=J.v;const unsigned n=J.n;jM=J.M;jReplayV=J.replay?J.v:nullptr;const float qwK=qwKNow();
  bool chunked=J.chunked;const u8*cmask=J.cmask;
- if(!J.pre){if(CullBatch(J,chunked))return;cmask=chunkOff;}
+ if(!J.pre){if(CullBatch(J,chunked)){if(doProf)prCull+=svcGetSystemTick()-t0;return;}cmask=chunkOff;}
+ if(doProf){t1=svcGetSystemTick();prCull+=t1-t0;t0=t1;}
  if(G3G_MidRec){float K[16];G3G_MidK(n>=3&&!J.wbuf&&mdK(J,K)?K:nullptr);}const float yK=G3G_MidRec?kMidEdge:1.0f;
+ if(doProf){t1=svcGetSystemTick();prPair+=t1-t0;t0=t1;}
  G3G_CurFog=J.fog;const int cullMode3d=cull3dCfg();const G3SIM_TexImageParam_t tp=J.tp;
  bool translucent=(v[0].color>>24)<250||(J.hasTex&&(tp.textureFormat==1||tp.textureFormat==6));
  bool dw=!translucent||J.tdw;unsigned dtest=J.depthTest;
  const float*M=J.M;
+ /* g3_xfcache hit: list-cache replay with the same clip matrix as last time -> queue the stored triangles. */
+ if(doXf&&J.replay&&n>=3&&!J.wbuf){
+  XfSlot&slot=xfTab[xfHash(v)];
+  if(slot.key==v&&slot.n==n&&slot.gen==xfGenNow()&&slot.cullFace==(unsigned)J.cullFace&&!memcmp(slot.M,M,sizeof slot.M)&&slot.base+slot.nTri<=XF_TRIS){
+   xfHits++;
+   float sprZf=-1.0f;
+   if(stereoSd&&!parLock&&n<=6&&J.hasTex&&J.tw<=64&&J.th<=64&&P3DS_SpriteDepthCfg()){extern int P3DS_InField;extern int P3DS_InBattle;
+    if(P3DS_InField&&!P3DS_InBattle){float lowY=1e9f,zfLo=2.0f,zfMin=2.0f,zfMax=-1.0f;bool ok=true;
+     for(unsigned k=0;k<n&&ok;k++){const GuVertex&p=v[k];float w=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];if(w<1e-3f){ok=false;break;}
+      float y=(p.x*M[1]+p.y*M[5]+p.z*M[9]+M[13])/w,z=(p.x*M[2]+p.y*M[6]+p.z*M[10]+M[14])/w,zf=0.5f*z+0.5f;
+      if(y<lowY){lowY=y;zfLo=zf;}if(zf<zfMin)zfMin=zf;if(zf>zfMax)zfMax=zf;}
+     if(ok&&zfLo>=0.0f&&zfLo<=1.0f){sprZf=zfLo;sprN++;sprSpread+=parOf(zfMax)-parOf(zfMin);}else sprSkip++;}}
+   if(doProf){t1=svcGetSystemTick();prXform+=t1-t0;t0=t1;}
+   for(unsigned t=0;t<slot.nTri;t++){const XfTri&T=xfArena[slot.base+t];drawnTris++;
+    if(!stereoSd){G3G_TriClip(0,T.c,T.su,T.sv,T.col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
+    float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=T.c[4*k+3];zf3[k]=w>1e-6f?0.5f*T.c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
+    float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
+    G3G_TriClip2(T.c,T.su,T.sv,T.col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);}
+   if(doProf)prQueue+=svcGetSystemTick()-t0;
+   return;}}
 /* run 62 stereo_edgefix=1 (default): the per-eye stereo shift (up to stereoSd DS px, right eye +, left eye -) is added
    AFTER this x-plane reject, so tris just outside the left plane that the right-eye shift would bring on screen were
    dropped -> a few-px black column at the far left of the right eye (wide view, slider up; mirror case at the right edge
@@ -582,6 +626,13 @@ static void GpuRawJ(const GJob&J){
    if(ok&&zfLo>=0.0f&&zfLo<=1.0f){sprZf=zfLo;sprN++;sprSpread+=parOf(zfMax)-parOf(zfMin);
     if(sprN==1||sprN%3000==0){PSPNativeMemLog("[SPRDEPTH] sprite quads fixed %u (skipped %u), avg parallax spread removed %.4f of the shift, feet zf %.4f, shift %d px",sprN,sprSkip,sprSpread/sprN,zfLo,stereoSd);}}
    else sprSkip++;}}
+ /* optional store into xfcache: only for list-cache replay, no hard tris, and room in the arena */
+ XfSlot*xfOut=nullptr;unsigned xfBase=0,xfNTri=0;bool xfHard=false;
+ if(doXf&&J.replay&&n>=3&&!J.wbuf){
+  xfMiss++;
+  if(xfArenaN+n/3>XF_TRIS){xfClear();xfBase=0;}
+  if(xfArenaN+n/3<=XF_TRIS){xfOut=&xfTab[xfHash(v)];xfBase=xfArenaN;}}
+ u64 tx=doProf?svcGetSystemTick():0;
  for(unsigned i=0;i+2<n;i+=3){float c[12];unsigned out=0x3F;u32 col[3];float su[3],sv[3];
   if(chunked&&i%kChunkV==0&&cmask[i/kChunkV]){const unsigned t=((i+kChunkV<n?i+kChunkV:n)-i)/3;rejOut+=t;bcSkipC++;bcSkipT+=t;i+=3*t-3;continue;}
   for(int k=0;k<3;k++){const GuVertex&p=v[i+k];float*q=c+4*k;
@@ -596,18 +647,26 @@ static void GpuRawJ(const GJob&J){
   if(gpuCpuClip()){/* run 27: only tris touching the near/far planes or outside a 2x guard band go through CPU clipping
      (PICA clipping there gave the black spots); the rest stay on the fast clip-space path. 2026-11-05: guard band only with g3_guardclip=1. */
    bool hard=false;for(int k=0;k<3;k++){const float*q=c+4*k;float w=q[3];if(w<1e-3f||q[2]>w||q[2]<-w||((guardClip()||guardBattle())&&(fabsf(q[0])>2*w||fabsf(q[1])>2*w))){hard=true;break;}}
-   if(hard){unsigned m=RawToScreen(J,v+i,3);if(m)DrawScreenJ(J,rawOut,m,false);cpuClipped++;continue;}}
+   if(hard){if(xfOut){xfHard=true;xfOut=nullptr;xfSkipHard++;}
+    u64 tc=doProf?svcGetSystemTick():0;unsigned m=RawToScreen(J,v+i,3);if(m)DrawScreenJ(J,rawOut,m,false);cpuClipped++;
+    if(doProf){u64 tn=svcGetSystemTick();prXform+=tc-tx;prClip+=tn-tc;tx=tn;}continue;}}
   if(J.cullFace&&cullMode3d&&c[3]>1e-6f&&c[7]>1e-6f&&c[11]>1e-6f){
    float x0=c[0]/c[3],y0=c[1]/c[3],x1=c[4]/c[7],y1=c[5]/c[7],x2=c[8]/c[11],y2=c[9]/c[11];
    float area=(x1-x0)*(y2-y0)-(x2-x0)*(y1-y0);if(cullMode3d==1)area=-area;/* run 26: the old sign culled ~all field tris (36 left) */
    if((J.cullFace==1&&area>0)||(J.cullFace==2&&area<0)){culledTris++;continue;}}
   drawnTris++;
-  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
-  /* 2026-11-04: zf and the parallax once per vertex, both eyes written in one G3G_TriClip2 pass (was: all of it per eye) */
-  float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=c[4*k+3];zf3[k]=w>1e-6f?0.5f*c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
-  float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
-  G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);
+  if(xfOut){XfTri&T=xfArena[xfBase+xfNTri++];memcpy(T.c,c,sizeof T.c);memcpy(T.col,col,sizeof T.col);memcpy(T.su,su,sizeof T.su);memcpy(T.sv,sv,sizeof T.sv);}
+  u64 tq=doProf?svcGetSystemTick():0;
+  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);}
+  else{
+   /* 2026-11-04: zf and the parallax once per vertex, both eyes written in one G3G_TriClip2 pass (was: all of it per eye) */
+   float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=c[4*k+3];zf3[k]=w>1e-6f?0.5f*c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
+   float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
+   G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);}
+  if(doProf){u64 tn=svcGetSystemTick();prXform+=tq-tx;prQueue+=tn-tq;tx=tn;}
  }
+ if(doProf)prXform+=svcGetSystemTick()-tx; /* rejected / culled tris still count as transform */
+ if(xfOut&&!xfHard){xfOut->key=v;xfOut->n=n;xfOut->nTri=xfNTri;xfOut->base=xfBase;xfOut->gen=xfGenNow();xfOut->cullFace=(unsigned)J.cullFace;memcpy(xfOut->M,M,sizeof xfOut->M);xfArenaN=xfBase+xfNTri;xfStore++;}
 }
 static GuVertex scrBuf[8192];
 /* ================= g3_thread: worker for the raw 3D transform (GpuRawJ) =================
@@ -699,7 +758,8 @@ int G3ListRecordEnd(unsigned*count,const GuVertex**verts){recActive=false;*count
 void G3ListReplay(const GuVertex*v,unsigned n){if(n>g3ChunkLeft)G3SIM_ChunkAlloc();memcpy(g3ChunkPtr,v,n*sizeof(GuVertex));g3ChunkPtr+=n;g3ChunkLeft-=n;}
 void G3SIM_FlushArray();
 void G3ListDrawDirect(const GuVertex*v,unsigned n){G3SIM_FlushArray();replayV=v;Draw(v,n,true);replayV=nullptr;}
-static void ListFreeNow(void*p){if(p){BBox*b=bbSlot(p);if(b->p==p){b->p=nullptr;free(b->cb);b->cb=nullptr;}}free(p);}
+static void ListFreeNow(void*p){if(p){BBox*b=bbSlot(p);if(b->p==p){b->p=nullptr;free(b->cb);b->cb=nullptr;}
+ XfSlot&xs=xfTab[xfHash(p)];if(xs.key==p)xs.key=nullptr;}free(p);}
 void G3ListDeferFree(void*p){if(gtBusy()){if(gtPendN<512){gtPendFree[gtPendN++]=p;return;}gtDrain(2);}ListFreeNow(p);}
 void G3ListPendingFreeDrain(){}
 unsigned G3ListPendingFreeHigh(){return 0;}
@@ -750,7 +810,14 @@ void G3SIM_FlushDeferred(){
   if(drawnTris)PSPNativeMemLog("[G3DIAG] gpu3d %d %uus | decodes %u | tex %u trans %u | px tested %u depthrej %u texalpha0 %u alpha0 %u written %u | z %.0f..%.0f x %.1f..%.1f a %u..%u | clear %08lx depth %04x dtest %u | fmt0-7 %u %u %u %u %u %u %u %u | vcol or %08lx and %08lx",gpuOn,G3G_LastUs(),stDecodes,
    stTexTris,stTrans,stPix,stDepth,stTexA,stA0,stWritten,stZmin,stZmax,stXmin,stXmax,stAmin,stAmax,(unsigned long)*(u32*)(PSPNative_GfxRegisters+0x350),*(u16*)(PSPNative_GfxRegisters+0x354),s_curPolygonAttr.depthTest,stFmt[0],stFmt[1],stFmt[2],stFmt[3],stFmt[4],stFmt[5],stFmt[6],stFmt[7],(unsigned long)stColOr,(unsigned long)stColAnd);}
  memset(stFmt,0,sizeof stFmt);stColOr=0;stColAnd=~0u;
- stDecodes=stPix=stDepth=stTexA=stA0=stWritten=stTexTris=stTrans=0;stZmin=stXmin=1e9f;stZmax=stXmax=-1e9f;stAmin=255;stAmax=0;drawnTris=0;wDepthFrame();{static unsigned f;++f;vdump=(f%150==0&&f<=600);if(f%60==0)PSPNativeMemLog("[GPU3D] f=%u trivially rejected %u (planes %02x) of drawn %u",f,rejOut,rejMask,drawnTris);rejOut=rejMask=0;if(f%300==0&&bcV>0){PSPNativeMemLog("[G3CULL] last 300 frames: %u batches tested (%u cached boxes), %u skipped whole, %u 16-tri chunks skipped = %u tris/frame never transformed",bcTested,bcHits,bcSkipB,bcSkipC,bcSkipT/300);bcTested=bcHits=bcSkipB=bcSkipC=bcSkipT=0;}if(f%300==0){PSPNativeMemLog("[GPU3D] cpu-clipped tris %u, culled %u (this frame) | tex page-skips %u mismatches %u (300 f)",cpuClipped,culledTris,texPageSkips,texPageMismatch);texPageSkips=0;if(prN)PSPNativeMemLog("[G3PROF] avg/frame: GetTexture %u us | GpuRaw (transform+clip+queue, incl. its GetTexture) %u us | G3G_End (GPU wait+readback) %u us | rest of g3soft = pspoke frontend/handler",(unsigned)(prTex/prN/268),(unsigned)(prRaw/prN/268),(unsigned)(prEnd/prN/268));prTex=prRaw=prEnd=prN=0;if(prN)PSPNativeMemLog("[G3PROF] per frame avg: GetTexture %u us, GpuRaw (transform+clip+queue, incl. its GetTexture) %u us, G3G_End (GPU wait+readback) %u us; rest of g3soft = pspoke frontend/handler",(unsigned)(prTex/prN/268),(unsigned)(prRaw/prN/268),(unsigned)(prEnd/prN/268));prTex=prRaw=prEnd=prN=0;}cpuClipped=culledTris=0;}}
+ stDecodes=stPix=stDepth=stTexA=stA0=stWritten=stTexTris=stTrans=0;stZmin=stXmin=1e9f;stZmax=stXmax=-1e9f;stAmin=255;stAmax=0;drawnTris=0;wDepthFrame();{static unsigned f;++f;vdump=(f%150==0&&f<=600);if(f%60==0)PSPNativeMemLog("[GPU3D] f=%u trivially rejected %u (planes %02x) of drawn %u",f,rejOut,rejMask,drawnTris);rejOut=rejMask=0;if(f%300==0&&bcV>0){PSPNativeMemLog("[G3CULL] last 300 frames: %u batches tested (%u cached boxes), %u skipped whole, %u 16-tri chunks skipped = %u tris/frame never transformed",bcTested,bcHits,bcSkipB,bcSkipC,bcSkipT/300);bcTested=bcHits=bcSkipB=bcSkipC=bcSkipT=0;}
+  /* g3_prof=1: one line per 3D frame with the CPU geometry parts (us). g3_xfcache hits/misses ride along when that toggle is on. */
+  if(P3DS_G3ProfCfg()){PSPNativeMemLog("[G3PROF] tick cull %u us | pair %u us | xform %u us | clip %u us | queue %u us | tex %u us | end %u us | raw %u us | tris %u | xf hit %u miss %u store %u hardskip %u",
+   (unsigned)(prCull/268),(unsigned)(prPair/268),(unsigned)(prXform/268),(unsigned)(prClip/268),(unsigned)(prQueue/268),
+   (unsigned)(prTex/268),(unsigned)(prEnd/268),(unsigned)(prRaw/268),lastTris,xfHits,xfMiss,xfStore,xfSkipHard);
+   prCull=prPair=prXform=prClip=prQueue=prTex=prRaw=prEnd=0;prN=0;xfHits=xfMiss=xfStore=xfSkipHard=0;}
+  else if(f%300==0){PSPNativeMemLog("[GPU3D] cpu-clipped tris %u, culled %u (this frame) | tex page-skips %u mismatches %u (300 f)",cpuClipped,culledTris,texPageSkips,texPageMismatch);texPageSkips=0;if(prN)PSPNativeMemLog("[G3PROF] avg/frame: GetTexture %u us | GpuRaw (transform+clip+queue, incl. its GetTexture) %u us | G3G_End (GPU wait+readback) %u us | rest of g3soft = pspoke frontend/handler",(unsigned)(prTex/prN/268),(unsigned)(prRaw/prN/268),(unsigned)(prEnd/prN/268));prTex=prRaw=prEnd=prN=0;if(P3DS_G3XfCacheCfg()&&(xfHits|xfMiss)){PSPNativeMemLog("[G3XF] last 300 frames: hit %u miss %u store %u hardskip %u",xfHits,xfMiss,xfStore,xfSkipHard);xfHits=xfMiss=xfStore=xfSkipHard=0;}}
+  cpuClipped=culledTris=0;}}
 unsigned G3SIM_DeferredHighWater(){return 0;}
 void PSPNativeG3Release(){ResetVertices();}
 void PSPNativeG3TrimCache(){}
