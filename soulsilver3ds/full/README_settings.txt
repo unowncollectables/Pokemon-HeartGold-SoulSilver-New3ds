@@ -185,9 +185,9 @@ CONTROLS / TOUCH
                     frame already queued into vb/bt — upload a new gt and pendFree the old (End still samples the old).
                     With texfence, also holds pins until after End. Stops brief walking texture flashes (run 879). Default 0.
                     Log: [G3THR] tex flash risk / tex_postvblank replace vs in-place.  [2026-11-16]
-  g3_stereo_share=0 3D stereo share (Debug tab): with the 3D slider up, TriClip2 fills left then struct-copies to right
-                    and adjusts x (bit-identical to dual write). Fewer scalar stores in the hot loop. Default 0.
-                    Log: [G3STER].  [2026-11-16]
+  g3_stereo_share=0 3D stereo share (Debug tab): with the 3D slider up, TriClip2 writes left only; after drain (or before
+                    hard-clip / any eye-1 write), expand right with x += scale*(shR-shL)/128*w. Bit-identical to dual
+                    TriClip2. Cuts ~half the stereo vb store traffic in raw. Default 0. Log: [G3STER] expand.  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),

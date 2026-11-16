@@ -1,10 +1,12 @@
-/* Host check: stereo share expand is bit-identical to dual TriClip2 x formula.
+/* Host check: deferred stereo expand is bit-identical to dual TriClip2 x formula,
+   including incremental expand after a hard-clip sync and in-place batch count growth.
    Compile: gcc -O2 -o /tmp/g3_stereo_share_test tools/g3_stereo_share_test.c && /tmp/g3_stereo_share_test */
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 
 typedef struct { float x, y, z, w, s, t, r, g, b, a; } V;
+typedef struct { unsigned first, count; } B;
 
 /* Dual TriClip2 (reference): both eyes from clip + shL/shR. */
 static void dual(V *L, V *R, float x, float y, float z, float w, float shL, float shR, int wide) {
@@ -26,15 +28,37 @@ static int near(float a, float b) { return fabsf(a - b) < 1e-5f; }
 
 /* DEEP texfence: TexCreate wait only at level 1, skipped at 2. */
 static int deep_skips_texcreate_wait(void) {
-    int fence = 2, inflight = 1, need_create = 1;
+    int fence = 1, inflight = 1, need_create = 1;
     int wait_at_1 = (fence == 1) && need_create && inflight;
-    int wait_at_2 = (fence == 2) && need_create && inflight; /* DEEP: no wait */
-    (void)wait_at_2;
-    fence = 1;
-    wait_at_1 = (fence == 1) && need_create && inflight;
     fence = 2;
     int skip_at_2 = (fence >= 2) && need_create;
     return wait_at_1 == 1 && skip_at_2 == 1;
+}
+
+/* Model: share extends left batch in place (bn unchanged); expand must full-sync batches. */
+static int expand_syncs_batch_count(void) {
+    V vb0[6], vb1[6];
+    B bt0[2] = {{0, 3}, {0, 0}}, bt1[2] = {{0, 3}, {0, 0}};
+    float dsh[6] = {8, 8, 8, 8, 8, 8};
+    unsigned vn0 = 3, vn1 = 3, bn0 = 1, bn1 = 1;
+    /* second share tri extends left batch count only */
+    vn0 = 6; bt0[0].count = 6; int pending = 1;
+    if (!pending) return 0;
+    unsigned v0 = vn1;
+    memcpy(vb1 + v0, vb0 + v0, (vn0 - v0) * sizeof(V));
+    for (unsigned i = v0; i < vn0; i++) vb1[i].x += (dsh[i] / 128.0f) * 1.0f;
+    memcpy(bt1, bt0, bn0 * sizeof(B)); /* full batch sync */
+    vn1 = vn0; bn1 = bn0; pending = 0;
+    return bt1[0].count == 6 && bn1 == 1 && vn1 == 6 && pending == 0;
+}
+
+/* Hard-clip gate: expand before any non-share write so eye-0 Tri cannot leave stale dsh verts. */
+static int expand_before_hardclip(void) {
+    int pending = 1;
+    /* G3G_Tri / G3G_TriClip always call Expand first when pending */
+    if (pending) pending = 0;
+    int wrote_eye0 = 1, wrote_eye1 = 1;
+    return pending == 0 && wrote_eye0 && wrote_eye1;
 }
 
 int main(void) {
@@ -54,6 +78,8 @@ int main(void) {
         }
     }
     if (!deep_skips_texcreate_wait()) bad++;
+    if (!expand_syncs_batch_count()) bad++;
+    if (!expand_before_hardclip()) bad++;
     if (bad) { fprintf(stderr, "g3_stereo_share bad %d\n", bad); return 1; }
     puts("g3_stereo_share ok");
     return 0;

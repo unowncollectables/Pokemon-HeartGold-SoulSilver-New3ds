@@ -19,6 +19,8 @@ typedef struct { C3D_Tex *tex; int wrapS, wrapT, blend, dwrite, dfunc, late, fog
 #define MAXB 2048
 static unsigned vn[2];
 static V *vb[2]; static B bt[2][MAXB]; static unsigned bn[2];
+static int stereoShareOn, stereoPending; /* g3_stereo_share: left-only verts until G3G_StereoExpand */
+static float *stereoDsh;
 /* fps60 (2026-11-15, Settings > Display > 60 fps field, default OFF): in-between 3D frames, like pokeplatinum-3ds's 60 fps field.
    The game still runs 30 ticks a second. For every raw draw call g3soft.cpp pairs this tick's clip matrix with the same draw's matrix of
    the tick before and hands G3G_MidK the matrix K that carries this tick's clip coordinates halfway back (K = average * inverse(now)).
@@ -412,7 +414,7 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
     dirSync();   /* gpu_direct3d: the previous frame's draw may still be running; the vertex buffers and textures are about to change */
     unsigned r = nativeClear & 63, g = (nativeClear >> 8) & 63, b = (nativeClear >> 16) & 63, a = (nativeClear >> 24) & 31;
     clearRGBA = ((r << 2 | r >> 4) << 24) | ((g << 2 | g >> 4) << 16) | ((b << 2 | b >> 4) << 8) | (a * 255 / 31);
-    clearD = clearDepth16 / 65535.0f; eyes = stereo ? 2 : 1; vn[0] = vn[1] = bn[0] = bn[1] = 0;
+    clearD = clearDepth16 / 65535.0f; eyes = stereo ? 2 : 1; vn[0] = vn[1] = bn[0] = bn[1] = 0; stereoPending = 0;
     G3G_MidRec = 0; krN = 0; kWantId = kCurWant = 1; midOver = 0; midValid = 0; midTot = midMat = midMov = 0; fpsHoldFlag = 0;
     { static int stLast = -1; if (stereo != stLast) { if (stLast >= 0 && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the 3D slider changed"); } stLast = stereo; }
       /* run 141: while a panel app (party/bag/summary in the JOHTO panel) is opening or open, keep the current eye targets: it draws no 3D the player
@@ -519,8 +521,10 @@ static B *batchFor(int eye, void *tex, int repS, int repT, int flipS, int flipT,
    were a visible part of GpuRaw; the table holds exactly the same floats, so the vertices are bit-identical. */
 static float k255[256];
 static inline const float *lut255(void) { if (k255[255] == 0.0f) for (int i = 0; i < 256; i++) k255[i] = i / 255.0f; return k255; }
+void G3G_StereoExpand(void); /* sync right from left before any non-share write */
 void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                  int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shiftPx) {
+    G3G_StereoExpand(); /* pending share must land before any single-eye write */
     if (G3G_MidRec && !kCurWant) { krStart(kWantId ? NULL : kWant); kCurWant = 1; }
     B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend); if (!last) return;
     const float *L = lut255();
@@ -537,31 +541,54 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
 }
 /* 2026-11-04 (solid-30 fps thread): both eyes of a stereo raw triangle in one pass. Same values as two G3G_TriClip calls (only x
    differs between the eyes), but y, z, uv and colour are worked out once instead of twice.
-   g3_stereo_share: fill left, struct-copy to right, then x += scale*(shR-shL)/128*w (bit-identical; fewer scalar stores). */
-static int stereoShareOn;
-static unsigned stereoShareTris;
-void G3G_SetStereoShare(int on) { stereoShareOn = on != 0; }
-void G3G_StereoExpand(void) { /* reserved: deferred whole-frame expand needs hard-clip gating; share is in-TriClip2 for now */ }
+   g3_stereo_share: write left only + (shR-shL); G3G_StereoExpand fills right (after drain, or before any non-share write
+   such as hard-clip). Bit-identical to dual TriClip2. Cuts ~half the vb store traffic on the raw miss path. */
+/* stereoDsh[i] = shR-shL for left vert i (DS px); sized to MAXV on first share use */
+static unsigned stereoShareTris, stereoShareExpands;
+void G3G_SetStereoShare(int on) { stereoShareOn = on != 0; if (!on) stereoPending = 0; }
+void G3G_StereoExpand(void) {
+    if (!stereoShareOn || !stereoDsh || !stereoPending) return;
+    if (vn[0] > MAXV || bn[0] > MAXB) return;
+    const float scale = wideFrame ? 0.8f : 1.0f;
+    const unsigned v0 = vn[1];
+    if (vn[0] > vn[1]) {
+        memcpy(vb[1] + v0, vb[0] + v0, (vn[0] - v0) * sizeof(V));
+        for (unsigned i = v0; i < vn[0]; i++) vb[1][i].x += scale * (stereoDsh[i] / 128.0f) * vb[0][i].w;
+    }
+    /* Always sync batches from left: share may extend an existing left batch in place (bn unchanged, count grew). */
+    if (bn[0]) memcpy(bt[1], bt[0], bn[0] * sizeof(B));
+    vn[1] = vn[0]; bn[1] = bn[0];
+    stereoPending = 0; stereoShareExpands++;
+    { static unsigned n; if (++n == 1 || n % 300 == 0)
+        PSPNativeMemLog("[G3STER] expand: +%u verts (total %u/%u, x%u)", vn[0] - v0, vn[0], bn[0], n); }
+}
 void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                   int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shL, const float *shR) {
     if (G3G_MidRec && !kCurWant) { krStart(kWantId ? NULL : kWant); kCurWant = 1; }
+    if (stereoShareOn) {
+        if (!stereoDsh) { stereoDsh = linearAlloc(MAXV * sizeof(float)); if (!stereoDsh) stereoShareOn = 0;
+          else memset(stereoDsh, 0, MAXV * sizeof(float)); }
+        if (stereoDsh && vn[0] + 3 <= MAXV) {
+            B *l0 = batchFor(0, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend);
+            if (!l0) return;
+            const float *L = lut255();
+            for (int k = 0; k < 3; k++) {
+                V *o = &vb[0][vn[0]]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
+                o->x = x + shL[k] / 128.0f * w; if (wideFrame) o->x *= 0.8f;
+                o->y = hiFrame ? (G3G_FlipY ? y : -y) : G3G_FlipY ? (0.25f * w + 0.75f * y) : (-0.25f * w - 0.75f * y);
+                o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
+                if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w;
+                o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k];
+                u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
+                stereoDsh[vn[0]] = shR[k] - shL[k];
+                vn[0]++;
+            }
+            l0->count += 3; stereoShareTris++; stereoPending = 1; return;
+        }
+    }
     B *l0 = batchFor(0, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend), *l1 = batchFor(1, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend);
     if (!l0 || !l1) { if (l0) { G3G_TriClip(0, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shL); } if (l1) G3G_TriClip(1, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shR); return; }
     const float *L = lut255();
-    const float scale = wideFrame ? 0.8f : 1.0f;
-    if (stereoShareOn) {
-        for (int k = 0; k < 3; k++) {
-            V *o = &vb[0][vn[0]++]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
-            o->x = x + shL[k] / 128.0f * w; if (wideFrame) o->x *= 0.8f;
-            o->y = hiFrame ? (G3G_FlipY ? y : -y) : G3G_FlipY ? (0.25f * w + 0.75f * y) : (-0.25f * w - 0.75f * y);
-            o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
-            if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w;
-            o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k];
-            u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
-            V *q = &vb[1][vn[1]++]; *q = *o; q->x += scale * ((shR[k] - shL[k]) / 128.0f) * w;
-        }
-        l0->count += 3; l1->count += 3; stereoShareTris++; return;
-    }
     for (int k = 0; k < 3; k++) {
         V *o = &vb[0][vn[0]++], *q = &vb[1][vn[1]++]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
         o->x = x + shL[k] / 128.0f * w; q->x = x + shR[k] / 128.0f * w; if (wideFrame) { o->x *= 0.8f; q->x *= 0.8f; }
@@ -577,6 +604,7 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
 /* v: 3 x {sx, sy, z(0..65535), u(texels), v(texels), color RGBA8 as u32 R|G<<8|B<<16|A<<24} */
 void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const float *su, const float *sv, const u32 *col,
              void *tex, unsigned tw, unsigned th, int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest) {
+    G3G_StereoExpand(); /* expand share before hard-clip / any screen-space write (either eye) */
     if (G3G_MidRec && !kWantId && kCurWant) { krStart(NULL); kCurWant = 0; }   /* screen-space triangle (CPU-clipped): same place in both pictures */
     B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, 0); if (!last) return;
     float itw = tw ? 1.0f / tw : 0, ith = th ? 1.0f / th : 0; const float *L = lut255();

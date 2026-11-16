@@ -1722,7 +1722,7 @@ static const SAppTab kTabs[7]={
       {kG3FastXfItem,"3D fast xform","Hoists the clip matrix in the raw transform loop (less VFP reload). Same picture. New 3DS has no NEON; stereo already transforms once for both eyes."},
       {kG3TexFenceItem,"3D tex fence","With 3D worker thread ON: OFF = depth-1. ON = pin in-flight textures so GetTexture need not wait. DEEP = also skip TexCreate idle wait (deeper front/cmd vs raw overlap). Leave OFF if unsure."},
       {kG3TexSafeItem,"3D tex safe","With 3D worker thread ON: after VBlank, upload a new GPU texture instead of updating one this frame already queued (stops brief texture flashes while walking). Leave OFF if unsure."},
-      {kG3StereoShareItem,"3D stereo share","With the 3D slider up: TriClip2 fills left then copies to right with an x adjust (bit-identical). Fewer stores in the hot loop. Leave OFF if unsure."}}},
+      {kG3StereoShareItem,"3D stereo share","With the 3D slider up: TriClip2 writes left only, then expands the right eye after the worker drains (bit-identical). Cuts stereo raw store traffic. Leave OFF if unsure."}}},
 };
 static void prettyLab(char*d,const char*s,int n){/* run 64: "WIDE VIEW FX" -> "Wide view FX" (acronyms kept) */
  static const char*const acr[]={"FPS","GPU","ZL","ZR","FX","3D","1X","2X","25X","5X","ROM","IV","EV","TM","HM","LED","UI","OK","KB","MB","Y","X","A","B","L","R"};

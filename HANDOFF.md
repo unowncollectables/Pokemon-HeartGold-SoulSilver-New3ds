@@ -9,20 +9,20 @@ With `g3_thr_texfence=1`, GetTexture no longer waited, but **every first-time `G
 ## This PR
 
 1. **`g3_thr_texfence` levels** (Debug): `0` = depth-1 (unchanged), `1` = pin (unchanged), **`2` = DEEP** = pin + skip TexCreate idle wait + wake every job. Arena **96K** verts (fewer mid-frame drains). Log: `TexCreate wait N skip M`.
-2. **`g3_stereo_share`** (Debug, default OFF): TriClip2 fills left, struct-copies to right, `x += scale*(shR-shL)/128*w`. Bit-identical to dual write (host test). Deferred whole-frame expand is parked (hard-clip interleaves eye-1 writes). Modest raw store win; xform unchanged.
-3. **Front / G3PROF**: residual now subtracts **wait** (game-thread stalls on worker) so TexCreate serialization is not counted as GeBuffer “front”. Line: `front … | wait … | cmd …`.
+2. **`g3_stereo_share`** (Debug, default OFF): TriClip2 writes **left only** + `(shR-shL)`; `G3G_StereoExpand` fills right after drain (or before hard-clip / any non-share write). Full batch sync (share may extend a left batch in place). Bit-identical (host test). Expected **−2.5…−4 ms** of stereo raw store traffic (xform MAD unchanged).
+3. **Front / G3PROF**: residual now subtracts **wait** (game-thread stalls on worker) so TexCreate serialization is not counted as GeBuffer “front”. Line: `front … | wait … | cmd …`. Real front CPU (~cmd 2.5 + game tick) is not moved this round; DEEP lowers **wall** by overlapping front with raw. Extending `g3_packets` opcodes left for a later PR.
 
 OFF / level 0–1 unchanged. `g3_thr_check` (incl. tex CRC) still applies.
 
 ## Expected per-stage gains (device A/B; do not claim 60 without numbers)
 
-| Stage | Baseline (879) | Hope with DEEP (+ share) |
+| Stage | Baseline (879) | Hope with DEEP + share |
 |---|---|---|
-| texfence avg depth | 1–2 | clearly >2 when creates are skipped while busy |
+| texfence avg depth | 1–2 | clearly >2 when creates skip while busy |
 | wait (new G3PROF) | hidden inside front | drops when DEEP skips TexCreate idle |
-| front | ~5.7 ms | lower by the wait that leaves it |
-| stereo raw | ~9.5 ms (xform 3.8) | small cut from share store path; big cut needs deferred expand later |
-| stereo fps | ~43 | mainly from DEEP wait overlap; no 60 claim |
+| front | ~5.7 ms | lower by the wait that leaves it (residual); wall benefits from overlap |
+| stereo raw | ~9.5 ms (xform 3.8) | toward ~5.5–7 ms (left-only store + one expand) |
+| stereo fps | ~43 | a few fps if raw+wait cut; no 60 claim |
 
 Device: `g3_thread=1 g3_wake=1 g3_thr_check=1 g3_prof=1`, then A/B `g3_thr_texfence=1` vs `2`, and `g3_stereo_share=0` vs `1`, Goldenrod + Route 34 stereo. Want check mismatches 0 (incl. tex).
 

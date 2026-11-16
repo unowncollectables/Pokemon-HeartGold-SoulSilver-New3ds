@@ -45,8 +45,8 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    g3_thr_texsafe (Debug tab, default OFF): with g3_thread ON, do not TexUpdate in place after VBlank for textures this
    frame already queued (replace gt, keep old object for G3G_End). Also hold fence pins until after End. Fixes brief
    texture flashes while walking (run 879; flash with texfence ON and OFF). OFF = old in-place post-vblank path.
-   g3_stereo_share (Debug tab, default OFF): TriClip2 fills left then struct-copies to right and adjusts x
-   (x += scale*(shR-shL)/128*w). Bit-identical to the dual-write path; fewer scalar stores in the hot loop.
+   g3_stereo_share (Debug tab, default OFF): TriClip2 writes left only + (shR-shL); expand right after drain (or
+   before any eye-1 write such as hard-clip). Bit-identical to dual TriClip2; cuts ~half the vb store traffic.
    Host: tools/g3_thr_race_test.c, tools/g3_stereo_share_test.c, tools/g3_fastxform_test.c. */
 static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1,g3TexFenceCfg=-1,g3TexSafeCfg=-1,g3StereoShareCfg=-1;
 /* Hot path for g3packet: 0 until g3_prof is read/on, so GeBuffer pays nothing when profiling is OFF. */
@@ -66,7 +66,7 @@ extern "C" int P3DS_G3TexFenceCfg(void){if(g3TexFenceCfg<0){int v=P3DS_CfgInt("g
 extern "C" void P3DS_SetG3TexFence(int v){g3TexFenceCfg=v<0?0:v>2?2:v;PSPNativeMemLog("[G3THR] g3_thr_texfence=%d from settings",g3TexFenceCfg);}
 extern "C" int P3DS_G3TexSafeCfg(void){if(g3TexSafeCfg<0){g3TexSafeCfg=P3DS_CfgInt("g3_thr_texsafe",0)!=0;PSPNativeMemLog("[G3THR] g3_thr_texsafe=%d (1 = no in-place TexUpdate of queued gts; hold pins until End)",g3TexSafeCfg);}return g3TexSafeCfg;}
 extern "C" void P3DS_SetG3TexSafe(int v){g3TexSafeCfg=v!=0;PSPNativeMemLog("[G3THR] g3_thr_texsafe=%d from settings",g3TexSafeCfg);}
-extern "C" int P3DS_G3StereoShareCfg(void){if(g3StereoShareCfg<0){g3StereoShareCfg=P3DS_CfgInt("g3_stereo_share",0)!=0;PSPNativeMemLog("[G3STER] g3_stereo_share=%d (1 = TriClip2 left fill + struct-copy right; bit-identical)",g3StereoShareCfg);}return g3StereoShareCfg;}
+extern "C" int P3DS_G3StereoShareCfg(void){if(g3StereoShareCfg<0){g3StereoShareCfg=P3DS_CfgInt("g3_stereo_share",0)!=0;PSPNativeMemLog("[G3STER] g3_stereo_share=%d (1 = left-only TriClip2 + expand right after drain; bit-identical)",g3StereoShareCfg);}return g3StereoShareCfg;}
 extern "C" void P3DS_SetG3StereoShare(int v){g3StereoShareCfg=v!=0;PSPNativeMemLog("[G3STER] g3_stereo_share=%d from settings",g3StereoShareCfg);}
 static u64 idleAtBegin,prWall;static unsigned prFrames,prTrisSum,prXfHitSum,prXfMissSum;
 static unsigned postReplace,postInPlace; /* tex_postvblank: replace vs in-place counts */
@@ -790,7 +790,9 @@ static void GpuRawJ(const GJob&J0){
   if(J.cpuClip){/* run 27: only tris touching the near/far planes or outside a 2x guard band go through CPU clipping
      (PICA clipping there gave the black spots); the rest stay on the fast clip-space path. 2026-11-05: guard band only with g3_guardclip=1. */
    bool hard=false;for(int k=0;k<3;k++){const float*q=c+4*k;float w=q[3];if(w<1e-3f||q[2]>w||q[2]<-w||((J.guardClip||J.guardBat)&&(fabsf(q[0])>2*w||fabsf(q[1])>2*w))){hard=true;break;}}
-   if(hard){if(xfOut){xfHard=true;xfOut=nullptr;xfSkipHard++;}
+    if(hard){if(xfOut){xfHard=true;xfOut=nullptr;xfSkipHard++;}
+    /* Hard-clip draws both eyes via G3G_Tri; expand any left-only share verts first (gated inside G3G_Tri too). */
+    if(sd&&P3DS_G3StereoShareCfg())G3G_StereoExpand();
     GuVertex hardBuf[24];unsigned m=RawToScreenBuf(J,v+i,3,hardBuf,(unsigned)(sizeof hardBuf/sizeof hardBuf[0]));if(m)DrawScreenJ(J,hardBuf,m,false);cpuClipped++;clipN++;continue;}}
   if(J.cullFace&&cullMode3d&&c[3]>1e-6f&&c[7]>1e-6f&&c[11]>1e-6f){
    float x0=c[0]/c[3],y0=c[1]/c[3],x1=c[4]/c[7],y1=c[5]/c[7],x2=c[8]/c[11],y2=c[9]/c[11];
@@ -1015,7 +1017,10 @@ void G3SIM_FlushDeferred(){
  CRUMB("g3-flush");const bool doProf=P3DS_G3ProfCfg()!=0;
  G3SIM_FlushArray(); /* may Draw → counted in prRaw, not flush */
  u64 tFlush0=doProf?svcGetSystemTick():0;
- gtDrain(1);gtFrameStats();G3SIM_TexImageParam_t save=s_texImageParam;
+ gtDrain(1);gtFrameStats();
+ /* Stereo share: left-only verts from TriClip2 → expand right now that the worker is idle (before End draws). */
+ if(gpuOn==1&&stereoSd&&P3DS_G3StereoShareCfg())G3G_StereoExpand();
+ G3SIM_TexImageParam_t save=s_texImageParam;
  const int fogSave=G3G_CurFog;
  for(unsigned i=0;i<transN;i++){
   Batch&b=trans[i];G3G_CurFog=b.fog;
