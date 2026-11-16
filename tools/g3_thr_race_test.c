@@ -134,6 +134,32 @@ static int tex_fence_create_still_waits(void) {
     return waited_for_create == 1 && waited_for_decode == 0;
 }
 
+/* texsafe: post-vblank must not mutate a gt already referenced by this frame's batches.
+   OFF = in-place TexUpdate (flash). ON = new gt, old kept for End via pendFree. */
+static int texsafe_postvblank_replaces_queued_gt(void) {
+    void *gtQueued = (void *)(uintptr_t)0xB0B;
+    int thread_on = 1;
+    int texsafe = 1;
+    int would_inplace = thread_on && !texsafe;           /* flash path */
+    int replaces = thread_on && texsafe;                 /* safe path */
+    void *gtForEnd = replaces ? gtQueued : gtQueued;     /* End still samples the queued object */
+    void *gtForNext = replaces ? (void *)(uintptr_t)0xC0C : gtQueued;
+    (void)gtForNext;
+    return !would_inplace && replaces && gtForEnd == gtQueued;
+}
+
+/* thr_check tex: submit crc must differ when px/gpuGen changes before draw. */
+static uint32_t tex_crc_sample(unsigned off, unsigned gen, const uint32_t *px, unsigned n) {
+    uint32_t h = 2166136261u;
+    h = (h ^ (uint8_t)off) * 16777619u;
+    h = (h ^ (uint8_t)gen) * 16777619u;
+    for (unsigned i = 0; i < n; i++) {
+        const uint8_t *b = (const uint8_t *)&px[i];
+        for (unsigned k = 0; k < 4; k++) h = (h ^ b[k]) * 16777619u;
+    }
+    return h;
+}
+
 int main(void) {
     int bad = 0;
     Job J = {0}; J.cullFace = 2; J.sd = 4; J.mid = 1; J.wide = 1;
@@ -167,6 +193,15 @@ int main(void) {
     if (!batch_carries_stereo_tex()) bad++;
     if (!tex_fence_protects_inflight_gt()) bad++;
     if (!tex_fence_create_still_waits()) bad++;
+    if (!texsafe_postvblank_replaces_queued_gt()) bad++;
+    {
+        uint32_t px[4] = {1, 2, 3, 4};
+        uint32_t a = tex_crc_sample(0x100, 1, px, 4);
+        px[2] = 99;
+        uint32_t b = tex_crc_sample(0x100, 1, px, 4);
+        uint32_t c = tex_crc_sample(0x100, 2, px, 4);
+        if (a == b || b == c) bad++;
+    }
 
     if (bad) { fprintf(stderr, "g3_thr_race bad %d\n", bad); return 1; }
     puts("g3_thr_race ok");

@@ -180,6 +180,10 @@ CONTROLS / TOUCH
                     the next draw need not wait for the whole queue (deep pipeline). TexCreate still waits for citro3d idle.
                     OFF = #488 depth-1. Overlaps GeBuffer/front/cmd with worker raw. Same picture. Default 0.
                     Log: [G3THR] texfence: max in-flight / avg depth.  [2026-11-16]
+  g3_thr_texsafe=0  3D tex safe (Debug tab): with g3_thread ON, after VBlank do not TexUpdate in place a GPU texture this
+                    frame already queued into vb/bt — upload a new gt and pendFree the old (End still samples the old).
+                    With texfence, also holds pins until after End. Stops brief walking texture flashes (run 879). Default 0.
+                    Log: [G3THR] tex flash risk / tex_postvblank replace vs in-place.  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),

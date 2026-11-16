@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- New experimental setting, Settings > Debug > 3D tex safe (`g3_thr_texsafe`, default OFF). With `g3_thread` ON, after VBlank do not `TexUpdate` in place a GPU texture this frame already queued — upload a new object and keep the old through End (stops brief walking texture flashes). `g3_thr_check` now also CRCs texture identity/content at submit vs draw. Platform-only; OFF unchanged. See HANDOFF.md.
+
 - New experimental setting, Settings > Display > Wide layouts (`wide_layouts`, default OFF). Menu screens with a layout are drawn for the full 400 px top screen instead of filling the sides with a mirrored edge: Pokémon summary, party, Bag, Options, all Pokégear tabs, the Trainer Card front, PC boxes, the naming screen, Fly map, Unown report, Voltorb Flip, both Safari editors, berry pots, Scratch-Off, the trainer signature, Geonet and the Apricorn box so far. Display only; no game patch and no save change.
 - README: shorter landing page with a features grid and a numbered setup guide. Settings, wireless, status, and developer notes sit in collapsible sections. The Pokéwalker stays in About and under Wireless. Docs only. See `README.md`.
 
