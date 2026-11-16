@@ -932,6 +932,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     /* Wide + direct + in-between only. Anything else, including fps60_pipe OFF, keeps the loop below byte for byte. */
     const int pipe = mid && wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
     static unsigned pipeN, pipeKickSum;
+unsigned G3G_PipeKicks;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
     for (int e = 0; e < eyes; e++) {
         if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
@@ -982,13 +983,13 @@ void G3G_End(u32 *outL, u32 *outR) {
         if (rs && sharedTgt) rbQueue(e);   /* shared 2x target: copy this eye out before the next eye clears it */
     }
     if (pipe && ph == 0) {   /* both in-between scenes are drawn; one list break, then every copy */
-        C3D_FrameSplit(0); pipeKickSum++;
+        C3D_FrameSplit(0); pipeKickSum++; G3G_PipeKicks++;
         for (int e = 0; e < eyes; e++) { centreCopy(tgt[e]->frameBuf.colorBuf, midTex[e].data, 0); midStripIssue(tgt[e]->frameBuf.colorBuf, e, 0); }
     }
     }
     if (rs && !sharedTgt && !direct) for (int e = 0; e < eyes; e++) rbQueue(e);  /* GPU runs these after the draws, same queue */
     if (direct && wideFrame && pipe) {   /* both real scenes are drawn; one list break, then every wide copy */
-        C3D_FrameSplit(0); pipeKickSum++;
+        C3D_FrameSplit(0); pipeKickSum++; G3G_PipeKicks++;
         for (int e = 0; e < eyes; e++) {
             centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 0);
             issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS, 0);

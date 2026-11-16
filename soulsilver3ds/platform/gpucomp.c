@@ -512,6 +512,7 @@ int P3DS_GcMidReserve(void) {
     return 1;
 }
 void P3DS_GcMidRelease(void) { gcMidDrop(); }
+int P3DS_Fps60MidPlace(void) { return rtMOk[0] == 1 && rtMOk[1] == 1; }
 extern int P3DS_Fps60VramPrepare(void);
 static C3D_RenderTarget *gcMidTarget(int eye) {
     if (rtMOk[eye] < 0) {

@@ -503,7 +503,7 @@ static void pnDraw(C3D_RenderTarget *t) {
    on, it rests for a while by itself (longer each time) and says so in the log. ---- */
 extern int P3DS_InField, P3DS_InBattle; extern unsigned G3G_MidWhy[6];
 static int f60Cfg = -1, f60Did; static unsigned f60Phase, f60Pause, f60Ov = 6000, f60MidUs;
-static unsigned f60FlipLate, f60FlipN, f60FlipUs;
+static unsigned f60FlipLate, f60FlipN, f60FlipUs, f60LateTotal, f60DownTotal;
 static int gZoomSet; static float gFill[4];
 int P3DS_Fps60Cfg(void) {
     if (f60Cfg < 0) { f60Cfg = P3DS_CfgInt("fps60", 0); if (f60Cfg < 0 || f60Cfg > 2) f60Cfg = 0;
@@ -541,6 +541,7 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int
         if (sinceOn == 600 && f60Ov > 4000) f60Ov -= 500;
         if (wN >= 60) { if (wSlow > 15 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
                 if (sinceOn < 180 && f60Ov < 14000) f60Ov += 1500;
+                f60DownTotal++;
                 PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks busy over 33.3 ms, avg tick %u us, display wait %u us/tick): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, wFenceIdle / 60, f60Ov + 1500); }
             wN = wSlow = wUs = wFenceIdle = 0; } }
     else if (f60Pause) { wN = wSlow = wUs = wFenceIdle = 0; rN++; rIdle += idleUs > 33000 ? 33000 : idleUs;
@@ -556,6 +557,46 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int
             f60NSkip, downs, ups, f60Ov, (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
             f60FlipN - f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, f60FlipLate);
         f60NSkip = 0; idleWindow = 0; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
+}
+/* One line per area. 300 presented field ticks is about 10 s at 30 Hz.
+   OFF returns before any of this and writes nothing. */
+extern int P3DS_CurMap;
+extern void P3DS_ZoneInfo(int *, int *, int *, unsigned *);
+extern const char *P3DS_AreaName(int);
+extern unsigned G3G_PipeKicks, P3DS_GcBeginUs;
+extern int P3DS_Fps60ScreenPlace(void);
+extern int P3DS_Fps60MidPlace(void);
+static int areaCfg = -1;
+static int fps60AreaOn(void) {
+    if (areaCfg < 0) { areaCfg = P3DS_CfgInt("fps60_area", 0) != 0;
+        PSPNativeMemLog("[FPS60] fps60_area=%d", areaCfg); }
+    return areaCfg;
+}
+void P3DS_SetFps60Area(int v) { areaCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_area=%d from settings", areaCfg); }
+enum { AREA_TICKS = 300 };
+void P3DS_Fps60Area(unsigned frameUs, int shown) {
+    static int zone0, map0, open;
+    static unsigned ticks, shownN, worst, beginN, pipe0, down0, late0;
+    static u64 sumUs, sumBegin;
+    if (!fps60AreaOn()) { open = 0; return; }
+    int zc, zp, zl; unsigned zms; P3DS_ZoneInfo(&zc, &zp, &zl, &zms); (void)zp; (void)zl; (void)zms;
+    const int map = P3DS_CurMap;
+    const int due = open && (zc != zone0 || map != map0 || ticks >= AREA_TICKS);
+    if (due) {
+        const unsigned n = ticks ? ticks : 1;
+        const int sp = P3DS_Fps60ScreenPlace();
+        PSPNativeMemLog("[FPS60] area zone %d %s map %d ticks %u in-between %u%% late %u stepdowns %u avg %u us worst %u us begin %u us pipe %u screen %s mid %s",
+            zone0, P3DS_AreaName(zone0), map0, ticks, shownN * 100 / n,
+            f60LateTotal - late0, f60DownTotal - down0, (unsigned)(sumUs / n), worst,
+            beginN ? (unsigned)(sumBegin / beginN) : 0, G3G_PipeKicks - pipe0,
+            sp == 1 ? "VRAM" : sp == 2 ? "linear" : "none",
+            P3DS_Fps60MidPlace() ? "VRAM" : "none");
+        open = 0;
+    }
+    if (!open) { open = 1; zone0 = zc; map0 = map; ticks = shownN = worst = beginN = 0; sumUs = sumBegin = 0;
+        pipe0 = G3G_PipeKicks; down0 = f60DownTotal; late0 = f60LateTotal; }
+    ticks++; sumUs += frameUs; if (frameUs > worst) worst = frameUs; if (shown) shownN++;
+    if (P3DS_GcBeginUs) { sumBegin += P3DS_GcBeginUs; beginN++; }
 }
 /* The in-between picture and the real one are drawn in ONE GPU frame by P3DS_GpuPresent: the in-between goes into the screen targets
    and out to the LCD at that frame's end; the real picture goes into a second pair of targets (tgtTopB / tgtTopRB, not linked to a
@@ -675,7 +716,7 @@ void P3DS_Fps60Flush(void) {
     if (!f60Flip) return;
     C3D_FrameBegin(0);
     const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
-    f60FlipLate++; f60FlipNow();
+    f60FlipLate++; f60LateTotal++; f60FlipNow();
 }
 void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, const u32 *topR) {
     P3DS_GpFenceIdleUs = 0;

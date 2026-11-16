@@ -1,3 +1,11 @@
+# 60 fps area
+
+Settings > Display > 60 fps area (`fps60_area`, default OFF) writes one log line per area. The line goes out when the zone or the map changes, and every 300 presented field ticks in the same place (about 10 s at 30 Hz). It names the zone and map, the ticks, the percent that showed an in-between, how many of those were late, how many step-downs, the average and worst tick, the average left FrameBegin wait, the pipe list-breaks in that window (2 per pipe frame), and whether the second-screen targets and the in-between textures are in VRAM. OFF writes none of these lines. It does not change a pixel.
+
+`[FPS60] area zone Z name map M ticks N in-between P% late L stepdowns D avg A us worst W us begin B us pipe K screen VRAM|linear|none mid VRAM|none`
+
+`tools/fps60_area_test.c` checks the 300-tick and zone-change window. No ROM and no Azahar in this container.
+
 # 60 fps VRAM
 
 Settings > Display > 60 fps VRAM (`fps60_vram`, default OFF) tries, once, to put both second-screen targets (288000 bytes each) and both in-between textures (196608 bytes each) into VRAM as one set, largest first, on the first in-between compose. That is after the wide eye targets, the scale targets and the direct-screen target already exist. If any of the four does not fit, all four are freed and the old path runs: the in-between textures allocate on their own, and a second-screen target that does not fit a bank stays in linear RAM. OFF never tries. A later required allocation (wide or sharp eye targets, scale targets) that fails while the set is held frees the set and retries that allocation once, so the set cannot be what makes Wide fail. Two holes of 497920 fit the set. Two holes of 409600 do not (288000 + 196608 = 484608), and the log says fallback. `tools/fps60_vram_test.c` checks that rule. No ROM and no Azahar in this container.
