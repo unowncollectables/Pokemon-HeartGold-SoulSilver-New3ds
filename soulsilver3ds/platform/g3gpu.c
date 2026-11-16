@@ -351,6 +351,7 @@ static int setTargets(int w, int hi) {
     if (!okW) {
         PSPNativeMemLog("[3DRES] %dx%s targets FAILED (VRAM free before %lu, linear free %lu)", hi ? 2 * w : w, hi ? "384" : "256", vf, (unsigned long)linearSpaceFree());
         freeTargets(); curW = 0; curHi = -1;
+        { extern int P3DS_Fps60VramRelease(void); if (P3DS_Fps60VramRelease()) return setTargets(w, hi); }
         if (hi) { extern void P3DS_Toast(const char *); res3dFail = 1; P3DS_Toast("SHARP 3D: NO VRAM"); return setTargets(w, 0) ? 0 : 0; }
         if (w != 256) { wideFail = 1; return setTargets(256, 0) ? 0 : 0; }
         PSPNativeMemLog("[3DRES] restoring 256 targets FAILED: 3D off"); ok = 0; return 0;
