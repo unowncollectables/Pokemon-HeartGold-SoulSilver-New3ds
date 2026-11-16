@@ -1,3 +1,7 @@
+# Stereo raw cost (run 879) — analysis only
+
+Run 879: stereo `GpuRaw` ~9.5 ms (G3PROF “xform” ~3.8) vs mono ~4–5 ms. Field already one-xforms both eyes (`G3G_TriClip2`); the gap is dual `vb[]`/`batchFor` write (plus edge-fix), not a second matrix pass. Plan + file:line + expected −2.5…−4.0 ms from a default-OFF `g3_stereo_share`: [STEREO_RAW_COST.md](STEREO_RAW_COST.md). Verify with `g3_thr_check` / `snapCrc` / `xformCrc` plus an eye memcmp of expand-vs-dual TriClip2.
+
 # 60 fps full-slider wait (drop the shared 2D pass)
 
 Run 865, `fps60=1`, Wide on, `stereo_strength=2`. Mono on Route 34 holds 55-59 fps. Full slider steps down three times on the Route 34 / Goldenrod walk, about 20 s at 30 fps each. While it is on, 56-83% of ticks have an in-between and many handovers are late (172 of 500 in one window). Indoor map 101 stays near 35 fps with in-betweens only 14-20% (`no3D` and `nothingmoved` 275-480), and about 30% of those in-betweens are late.
