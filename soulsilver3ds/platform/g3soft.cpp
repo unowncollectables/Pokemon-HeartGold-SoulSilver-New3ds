@@ -854,6 +854,7 @@ static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0
 static void gtWakeForce(){__sync_synchronize();__sync_lock_test_and_set(&gtSleep,0);G3T_Signal();}
 /* ~1 s at 268 MHz. On timeout: log, abandon queue / force-unpin, turn g3_thread OFF for the rest of the session. */
 enum{GT_WAIT_TICKS=268111856ull};
+static inline bool gtBusy();
 static void gtFallbackInline(const char*why){
  gtWaitTimeouts++;
  PSPNativeMemLog("[G3THR] wait timeout (%s): g3_thread OFF, draining then force-empty if needed",why);
