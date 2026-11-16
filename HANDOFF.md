@@ -1,3 +1,7 @@
+# 60 fps strips
+
+Settings > Display > 60 fps strips (`fps60_strips`, default OFF) copies only the visible 192 rows of the in-between Wide side strips. DS row y is GPU row 255-y, so those rows are GPU 64..255 (tile rows 8..31). A flipped transfer of that span still starts at DS row 0, which is what the strip convert reads. The centre picture is still a full 256-row copy: its texture sample is not the same window. The real-frame strips are unchanged. OFF copies all 32 tile rows from the start of the buffer. This cuts copy bytes (8 tile rows per side, and 64 rows of the unpacked readback). It does not skip the 3D fill of the side columns, because those pixels are not in the centre. `tools/fps60_strips_test.c` checks the row span. No ROM and no Azahar in this container.
+
 # 60 fps hold
 
 Settings > Display > 60 fps hold (`fps60_hold`, default OFF) repeats the real frame in the in-between slot when that picture would be the same. The repeat is used only when every 3D draw paired with the previous tick and none of those matrices moved, a sample of positions and texture coordinates is unchanged (water, particles, a walking NPC), and sprites, 2D scroll and background tiles are unchanged (camera on the 2D layers, NPCs drawn as sprites, animated tiles). OFF keeps today's skip with no second present. The repeat is two screen quads of the picture already composed, not a second 3D scene, so a still room does not pay the in-between raster and does not hand a computed midpoint over late. Log: `[FPS60] hold real frame xN`.

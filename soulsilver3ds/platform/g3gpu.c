@@ -679,23 +679,41 @@ static void issueDisp(u32 *in, u32 indim, u32 *out, u32 outdim, u32 flags, int s
     if (sync) C3D_SyncDisplayTransfer(in, indim, out, outdim, flags);
     else GX_DisplayTransfer(in, indim, out, outdim, flags);
 }
+static int stripsCfg = -1;
+static int fps60Strips(void) {
+    if (stripsCfg < 0) { extern int P3DS_CfgInt(const char *, int); stripsCfg = P3DS_CfgInt("fps60_strips", 0) != 0;
+        PSPNativeMemLog("[FPS60] fps60_strips=%d (1 = in-between wide strips copy the visible 192 rows)", stripsCfg); }
+    return stripsCfg;
+}
+void G3G_SetFps60Strips(int v) { stripsCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_strips=%d from settings", stripsCfg); }
+/* DS row y is GPU row 255-y, so the visible 192 rows are GPU rows 64..255 (tile rows 8..31).
+   A flipped transfer of that span puts DS row 0 at the start, which is what the strip convert reads.
+   OFF copies all 32 tile rows from the start of the buffer, as before. */
 static void midStripIssue(const void *color, int eye, int sync) {
+    const int slim = fps60Strips();
+    const unsigned row0 = slim ? 8u : 0u;
+    const unsigned rows = slim ? 24u : (MID_TEXTURE_HEIGHT / 8);
+    const unsigned height = rows * 8;
     const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
     const u32 *source = color;
     if (midStripTiles) {
         enum { SIDE_BYTES = 32 * 8 * sizeof(u32), WIDE_ROW = 320 * 8 * sizeof(u32) };
+        const u8 *base = (const u8 *)color + row0 * WIDE_ROW;
         for (unsigned side = 0; side < 2; side++) {
             const unsigned from = side ? WIDE_ROW - SIDE_BYTES : 0;
-            issueTexCopy((u32 *)((const u8 *)color + from),
+            issueTexCopy((u32 *)(base + from),
                          GX_BUFFER_DIM(SIDE_BYTES / 16, (WIDE_ROW - SIDE_BYTES) / 16),
                          (u32 *)((u8 *)midStripTiles + side * SIDE_BYTES),
                          GX_BUFFER_DIM(SIDE_BYTES / 16, SIDE_BYTES / 16),
-                         SIDE_BYTES * (MID_TEXTURE_HEIGHT / 8), GX_TRANSFER_RAW_COPY(1), sync);
+                         SIDE_BYTES * rows, GX_TRANSFER_RAW_COPY(1), sync);
         }
         source = midStripTiles;
+    } else if (row0) {
+        const unsigned rowBytes = (320 / 8) * (8 * 8 * 4);
+        source = (const u32 *)((const u8 *)color + row0 * rowBytes);
     }
-    issueDisp((u32 *)source, GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT),
-              rbM[eye], GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT), RB_FLAGS, sync);
+    issueDisp((u32 *)source, GX_BUFFER_DIM(width, height),
+              rbM[eye], GX_BUFFER_DIM(width, height), RB_FLAGS, sync);
 }
 static void midStripQueue(const void *color, int eye) { midStripIssue(color, eye, 1); }
 /* Centre 256 columns of a 320-wide tiled target, into a 256x256 tiled texture. Same offsets as the old Sync call. */
