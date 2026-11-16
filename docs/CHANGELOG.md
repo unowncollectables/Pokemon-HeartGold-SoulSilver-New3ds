@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Stereo-60 follow-up after `9bbfcd1` (platform-only, defaults OFF): fix `g3_stereo_share` (heap `stereoDsh` + `[G3STER]` leftOnly/dual counters; linearAlloc failure had silently disabled share), add `present_pace` (NONBLOCK FrameBegin, tearfree kept) and `g3_front_ov` (wake every job + postvblank decode during drain wait). OFF unchanged. See HANDOFF.md.
+
 - Fix run 883 hang with `g3_thr_texfence` + `g3_thr_texsafe` (platform-only, defaults OFF): under texsafe, pins stay until after End, so LRU/`texFree` must not `gtWaitPinned` (defer GPU free until pin release). Drain/idle/pin waits drop the big intrlock, force-Signal the worker, and time out → `g3_thread` OFF. Check log splits `texCrc` vs `flashRisk`. OFF paths unchanged. See HANDOFF.md.
 
 - Stereo-60 perf (platform-only, defaults OFF): `g3_thr_texfence` gains DEEP (2) — skip TexCreate idle wait so front/cmd can overlap worker raw (run 879 depth stayed ~1–2 because every new GPU tex forced idle); arena 96K verts. New `g3_stereo_share` — left-only TriClip2 + expand right after drain / before hard-clip (bit-identical). G3PROF reports wait separately from front. Levels 0/1 and share OFF unchanged. See HANDOFF.md.

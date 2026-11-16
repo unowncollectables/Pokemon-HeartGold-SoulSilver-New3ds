@@ -64,6 +64,23 @@ void P3DS_FpsGuardFrame(void) { if (fpsTwV > 0 && fpsOkFrames >= 0 && ++fpsOkFra
 /* [PERF4] present stages, last frame (us): FrameBegin wait (previous GPU queue), tearfix wait, FrameEnd */
 unsigned P3DS_GpFenceIdleUs;
 unsigned P3DS_GpBeginUs, P3DS_GpTearUs, P3DS_GpEndUs, P3DS_GpUpUs, P3DS_GpDrawUs, P3DS_GpStripUs;
+/* present_pace (Debug tab, default OFF): avoid double-buffer vsync half-rate snap when a frame just misses 60.
+   ON: C3D_FrameBegin(NONBLOCK) first; if the previous GPU queue is still busy, fall back to FrameBegin(0)
+   (queue wait only — never SYNCDRAW). tearfree still waits for GSP present before FrameEnd (no tearing).
+   OFF = old path (optional vsync=1 → SYNCDRAW). Log: [PACE]. */
+static int presentPace = -1;
+static unsigned paceNbOk, paceNbBlock, paceLogN;
+int P3DS_PresentPaceCfg(void) {
+    if (presentPace < 0) {
+        presentPace = P3DS_CfgInt("present_pace", 0) != 0;
+        PSPNativeMemLog("[PACE] present_pace=%d (1 = NONBLOCK FrameBegin, tearfree kept; cuts 30fps snap when near 60)", presentPace);
+    }
+    return presentPace;
+}
+void P3DS_SetPresentPace(int v) {
+    presentPace = v != 0;
+    PSPNativeMemLog("[PACE] present_pace=%d from settings", presentPace);
+}
 int P3DS_GpuInit(void) {
     if (ready) return 1;
     if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE)) return 0;
@@ -744,7 +761,21 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     P3DS_Fps60Flush();
     int st = topR != NULL; if (st != stereoOn) { stereoOn = st; gfxSet3D(st); }
     static int vs = -1; if (vs < 0) { vs = 0; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "vsync=%d", &x) == 1) vs = x != 0; fclose(f); } PSPNativeMemLog("[3DS] vsync (tear-free present) %d", vs); }
-    { const u64 tb = svcGetSystemTick(); C3D_FrameBegin(vs ? C3D_FRAME_SYNCDRAW : 0); P3DS_GpBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
+    { const u64 tb = svcGetSystemTick();
+      const int pace = P3DS_PresentPaceCfg();
+      if (pace) {
+          /* NONBLOCK: if previous GPU work is done, start immediately (no SYNCDRAW half-rate snap).
+             If still busy, wait for the queue only — never an extra vblank align. */
+          if (C3D_FrameBegin(C3D_FRAME_NONBLOCK)) paceNbOk++;
+          else { paceNbBlock++; C3D_FrameBegin(0); }
+          if (++paceLogN >= 600) {
+              PSPNativeMemLog("[PACE] 600f: nonblock ok %u, blocked %u (want ok>>blocked when near 60)", paceNbOk, paceNbBlock);
+              paceNbOk = paceNbBlock = paceLogN = 0;
+          }
+      } else {
+          C3D_FrameBegin(vs ? C3D_FRAME_SYNCDRAW : 0);
+      }
+      P3DS_GpBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
     dirTop = P3DS_GcPendTex(top); dirTopR = topR ? P3DS_GcPendTex(topR) : NULL; P3DS_GcPresented();
     if (srcDbl) srcSet ^= 1;  /* game already paces on vblank; SYNCDRAW added a 2nd vblank wait (30 fps cap) */
     /* run 25: upload AFTER FrameBegin. Before, the sync transfer raced the previous frame's queued

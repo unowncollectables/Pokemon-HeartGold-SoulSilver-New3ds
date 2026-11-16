@@ -1,3 +1,35 @@
+# Stereo-60 share + present pace + front overlap (after 9bbfcd1)
+
+Hardware on `9bbfcd1`: clean exit, 0 mismatches, stereo ~34–38 fps; PERF snaps to 29–30 when a frame misses 60. `g3_stereo_share` did not cut G3PROF raw (still ~9.7–10.5 ms).
+
+## Why share looked dead
+
+1. **`stereoDsh` used `linearAlloc(MAXV floats)` (~192 KiB).** On device that often failed; code cleared `stereoShareOn` with **no log** → every TriClip2 stayed on the dual path (both eyes stored in raw). Fix: **`malloc` + `[G3STER] stereoDsh ready|FAILED`**.
+2. With **`g3_thread` ON**, plain `stereoShareOn` was written on the game thread and read on core 2 with **no barrier** → worker often kept dual-write. Fix: **atomic SetStereoShare** + **`GJob.stereoShare`** applied at `GpuRawJ` / `DrawScreenJ` start (same publish model as other job fields).
+3. With **`g3_thread` ON**, G3PROF **raw is submit time** (snapshot/cull/tex/arena), not worker `GpuRawJ`. Left-only store wins show as lower **[G3THR] worker busy / wait** and as **`[G3STER] 60f: leftOnly >> dual`**, not always a lower raw number. Expected “raw → 6–7 ms” was optimistic for the threaded meter.
+4. Expand after drain still materializes right `vb[]` (bit-identical); incremental batch sync avoids full-table memcpy on mid-frame hard-clip expands.
+
+## This PR (defaults OFF; OFF unchanged)
+
+1. **`g3_stereo_share` fix**: heap `stereoDsh`, engagement counters (`leftOnly` / `dual` / `expands`), incremental expand. Log every 60f.
+2. **`present_pace`** (Debug): `C3D_FrameBegin(NONBLOCK)` then `FrameBegin(0)` if busy — never SYNCDRAW. **tearfree still waits** before FrameEnd (no tearing). Log `[PACE] 600f: nonblock ok/blocked`.
+3. **`g3_front_ov`** (Debug): with `g3_thread`, wake every job + **GatherRaw/DecodeTex during drain wait** (GPU upload still after drain). Same picture. Log `[FRONT]`. Moving GeBuffer itself still needs a private G3SIM clone.
+
+Host: `tools/g3_stereo_share_test.c`. Platform-only; no save format; Wide/GTS/Mystery Gift untouched.
+
+## Device A/B (full-slider stereo; base = run 9bbfcd1 toggles)
+
+Base: `g3_thread=1 g3_wake=1 g3_thr_texfence=1|2 g3_thr_texsafe=1 g3_fastxform=1 g3_xfcache=1 g3_thr_check=1 g3_prof=1`.
+
+| Trial | Expect |
+|---|---|
+| `g3_stereo_share=1` only | `[G3STER] stereoDsh ready`; 60f **leftOnly >> dual**; worker busy / wait down; raw may barely move |
+| `present_pace=1` (+ share) | fewer PERF locks at exactly 29–30 when near 60; `[PACE] ok>>blocked`; no tearing |
+| `g3_front_ov=1` (+ above) | `[FRONT] prep during drain`; wall/front down if drain wait had leftover raw |
+| all OFF | identical to 9bbfcd1 |
+
+Want: no hang, check 0 mismatches, slider-up stereo fps up without visual loss.
+
 # g3_thr_texfence + texsafe hang (run 883)
 
 Main `552376d` (#493+#494). Hardware hang ~100 frames after enabling **texfence=1 + texsafe=1** (wake/thr_check/fastxform/xfcache ON, stereo_share OFF), mono Goldenrod walk. Crumbs: frame ends at `g3-begin`; engine-B worker idle; many `tex flash risk avoided: postvblank replace`. Check line `0 mismatches (18 tex)` was ambiguous.
