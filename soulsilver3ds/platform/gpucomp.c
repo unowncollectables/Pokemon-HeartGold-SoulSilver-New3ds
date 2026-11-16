@@ -493,8 +493,34 @@ static void gcDrawAll(C3D_RenderTarget *tgt, u32 bd, C3D_Tex *t3, unsigned q3, i
 static C3D_Tex rtTexM[2];
 static C3D_RenderTarget *rtM[2];
 static int rtMOk[2] = { -1, -1 };
+static void gcMidDrop(void) {
+    for (int e = 0; e < 2; e++) {
+        if (rtM[e]) C3D_RenderTargetDelete(rtM[e]);
+        rtM[e] = NULL;
+        if (rtTexM[e].data) C3D_TexDelete(&rtTexM[e]);
+        memset(&rtTexM[e], 0, sizeof rtTexM[e]);
+        rtMOk[e] = -1;
+    }
+}
+int P3DS_GcMidReserve(void) {
+    for (int e = 0; e < 2; e++) {
+        if (!C3D_TexInitVRAM(&rtTexM[e], 256, 256, GPU_RGB8)) { gcMidDrop(); return 0; }
+        rtM[e] = C3D_RenderTargetCreateFromTex(&rtTexM[e], GPU_TEXFACE_2D, 0, -1);
+        if (!rtM[e]) { gcMidDrop(); return 0; }
+        C3D_TexSetFilter(&rtTexM[e], GPU_NEAREST, GPU_NEAREST);
+    }
+    return 1;
+}
+void P3DS_GcMidRelease(void) { gcMidDrop(); }
+int P3DS_Fps60MidPlace(void) { return rtMOk[0] == 1 && rtMOk[1] == 1; }
+extern int P3DS_Fps60VramPrepare(void);
 static C3D_RenderTarget *gcMidTarget(int eye) {
     if (rtMOk[eye] < 0) {
+        if (P3DS_Fps60VramPrepare()) {
+            rtMOk[0] = rtMOk[1] = 1;
+            PSPNativeMemLog("[FPS60] in-between picture targets from the VRAM reserve (free %lu)", (unsigned long)vramSpaceFree());
+            return rtM[eye];
+        }
         // The screen scaler samples these pictures as opaque RGB. Keeping
         // RGB8 saves 64 KiB per eye without reducing color precision.
         const GPU_TEXCOLOR formats[] = { GPU_RGB8, GPU_RGBA8 };

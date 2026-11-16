@@ -37,6 +37,15 @@ enum { MID_STRIP_WIDTH = 64, MID_TEXTURE_HEIGHT = 256 };
 static u32 *midStripTiles;
 static C3D_Tex midTex[2]; static u32 *rbM[2]; static int midHave[2], midFail, midOver, midValid, midEyes, midWide;
 static unsigned midTot, midMat, midMov; unsigned G3G_MidWhy[6];   /* why no in-between 3D: 0 not direct, 1 too many matrix runs, 2 CPU fog, 3 nothing moved, 4 too few draws paired, 5 no memory */
+static int fpsHoldFlag;
+int G3G_FpsHold(void) { return fpsHoldFlag; }
+/* Hold only when the in-between would be the same picture as the real frame.
+   tot/mat/mov come from the 3D matrix pairing. sceneMoved is 2D (sprites, scroll, tiles).
+   vertsMoved is a sample of positions and texture coordinates (water, particles, a walking NPC). */
+int P3DS_FpsHoldDecide(int toggle, unsigned tot, unsigned mat, unsigned mov, int sceneMoved, int vertsMoved) {
+    if (!toggle || !tot || mov || mat != tot || sceneMoved || vertsMoved) return 0;
+    return 1;
+}
 extern int P3DS_Fps60Active(void); extern int P3DS_Fps60Cfg(void);
 static int midAlloc(int n) {
     if (midFail) return 0;
@@ -342,6 +351,7 @@ static int setTargets(int w, int hi) {
     if (!okW) {
         PSPNativeMemLog("[3DRES] %dx%s targets FAILED (VRAM free before %lu, linear free %lu)", hi ? 2 * w : w, hi ? "384" : "256", vf, (unsigned long)linearSpaceFree());
         freeTargets(); curW = 0; curHi = -1;
+        { extern int P3DS_Fps60VramRelease(void); if (P3DS_Fps60VramRelease()) return setTargets(w, hi); }
         if (hi) { extern void P3DS_Toast(const char *); res3dFail = 1; P3DS_Toast("SHARP 3D: NO VRAM"); return setTargets(w, 0) ? 0 : 0; }
         if (w != 256) { wideFail = 1; return setTargets(256, 0) ? 0 : 0; }
         PSPNativeMemLog("[3DRES] restoring 256 targets FAILED: 3D off"); ok = 0; return 0;
@@ -403,7 +413,7 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
     unsigned r = nativeClear & 63, g = (nativeClear >> 8) & 63, b = (nativeClear >> 16) & 63, a = (nativeClear >> 24) & 31;
     clearRGBA = ((r << 2 | r >> 4) << 24) | ((g << 2 | g >> 4) << 16) | ((b << 2 | b >> 4) << 8) | (a * 255 / 31);
     clearD = clearDepth16 / 65535.0f; eyes = stereo ? 2 : 1; vn[0] = vn[1] = bn[0] = bn[1] = 0;
-    G3G_MidRec = 0; krN = 0; kWantId = kCurWant = 1; midOver = 0; midValid = 0; midTot = midMat = midMov = 0;
+    G3G_MidRec = 0; krN = 0; kWantId = kCurWant = 1; midOver = 0; midValid = 0; midTot = midMat = midMov = 0; fpsHoldFlag = 0;
     { static int stLast = -1; if (stereo != stLast) { if (stLast >= 0 && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the 3D slider changed"); } stLast = stereo; }
       /* run 141: while a panel app (party/bag/summary in the JOHTO panel) is opening or open, keep the current eye targets: it draws no 3D the player
          sees (the held field is on top), and re-making the targets (VRAM free + alloc + the 2x scale-target dance) cost a ~100 ms frame at every open. */
@@ -670,23 +680,41 @@ static void issueDisp(u32 *in, u32 indim, u32 *out, u32 outdim, u32 flags, int s
     if (sync) C3D_SyncDisplayTransfer(in, indim, out, outdim, flags);
     else GX_DisplayTransfer(in, indim, out, outdim, flags);
 }
+static int stripsCfg = -1;
+static int fps60Strips(void) {
+    if (stripsCfg < 0) { extern int P3DS_CfgInt(const char *, int); stripsCfg = P3DS_CfgInt("fps60_strips", 0) != 0;
+        PSPNativeMemLog("[FPS60] fps60_strips=%d (1 = in-between wide strips copy the visible 192 rows)", stripsCfg); }
+    return stripsCfg;
+}
+void G3G_SetFps60Strips(int v) { stripsCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_strips=%d from settings", stripsCfg); }
+/* DS row y is GPU row 255-y, so the visible 192 rows are GPU rows 64..255 (tile rows 8..31).
+   A flipped transfer of that span puts DS row 0 at the start, which is what the strip convert reads.
+   OFF copies all 32 tile rows from the start of the buffer, as before. */
 static void midStripIssue(const void *color, int eye, int sync) {
+    const int slim = fps60Strips();
+    const unsigned row0 = slim ? 8u : 0u;
+    const unsigned rows = slim ? 24u : (MID_TEXTURE_HEIGHT / 8);
+    const unsigned height = rows * 8;
     const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
     const u32 *source = color;
     if (midStripTiles) {
         enum { SIDE_BYTES = 32 * 8 * sizeof(u32), WIDE_ROW = 320 * 8 * sizeof(u32) };
+        const u8 *base = (const u8 *)color + row0 * WIDE_ROW;
         for (unsigned side = 0; side < 2; side++) {
             const unsigned from = side ? WIDE_ROW - SIDE_BYTES : 0;
-            issueTexCopy((u32 *)((const u8 *)color + from),
+            issueTexCopy((u32 *)(base + from),
                          GX_BUFFER_DIM(SIDE_BYTES / 16, (WIDE_ROW - SIDE_BYTES) / 16),
                          (u32 *)((u8 *)midStripTiles + side * SIDE_BYTES),
                          GX_BUFFER_DIM(SIDE_BYTES / 16, SIDE_BYTES / 16),
-                         SIDE_BYTES * (MID_TEXTURE_HEIGHT / 8), GX_TRANSFER_RAW_COPY(1), sync);
+                         SIDE_BYTES * rows, GX_TRANSFER_RAW_COPY(1), sync);
         }
         source = midStripTiles;
+    } else if (row0) {
+        const unsigned rowBytes = (320 / 8) * (8 * 8 * 4);
+        source = (const u32 *)((const u8 *)color + row0 * rowBytes);
     }
-    issueDisp((u32 *)source, GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT),
-              rbM[eye], GX_BUFFER_DIM(width, MID_TEXTURE_HEIGHT), RB_FLAGS, sync);
+    issueDisp((u32 *)source, GX_BUFFER_DIM(width, height),
+              rbM[eye], GX_BUFFER_DIM(width, height), RB_FLAGS, sync);
 }
 static void midStripQueue(const void *color, int eye) { midStripIssue(color, eye, 1); }
 /* Centre 256 columns of a 320-wide tiled target, into a 256x256 tiled texture. Same offsets as the old Sync call. */
@@ -771,6 +799,28 @@ static int fps60Pipe(void) {
     return pipeCfg;
 }
 void G3G_SetFps60Pipe(int v) { pipeCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_pipe=%d from settings", pipeCfg); }
+static int holdCfg = -1;
+static int fps60Hold(void) {
+    if (holdCfg < 0) { extern int P3DS_CfgInt(const char *, int); holdCfg = P3DS_CfgInt("fps60_hold", 0) != 0;
+        PSPNativeMemLog("[FPS60] fps60_hold=%d (1 = repeat the real frame when nothing moved)", holdCfg); }
+    return holdCfg;
+}
+void G3G_SetFps60Hold(int v) { holdCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_hold=%d from settings", holdCfg); }
+extern int P3DS_FpsSceneMoved(void);
+static int fpsVertsMoved(void) {
+    static u32 prev; static int have;
+    u32 h = 2166136261u ^ vn[0];
+    if (vn[0] && vb[0]) {
+        unsigned step = vn[0] > 32 ? vn[0] / 32 : 1;
+        for (unsigned i = 0; i < vn[0]; i += step) {
+            u32 b; memcpy(&b, &vb[0][i].x, 4); h = (h ^ b) * 16777619u;
+            memcpy(&b, &vb[0][i].y, 4); h = (h ^ b) * 16777619u;
+            memcpy(&b, &vb[0][i].s, 4); h = (h ^ b) * 16777619u;
+            memcpy(&b, &vb[0][i].t, 4); h = (h ^ b) * 16777619u;
+        }
+    }
+    int moved = !have || h != prev; have = 1; prev = h; return moved;
+}
 void G3G_End(u32 *outL, u32 *outR) {
     { extern void P3DS_Fps60Poll(void); P3DS_Fps60Poll(); }
     if (ok != 1) return;
@@ -817,7 +867,10 @@ void G3G_End(u32 *outL, u32 *outR) {
     dirWide = dirStrip = dirRb = 0;
     int mid = 0;
     if (G3G_MidRec) {
-        if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
+        const int holdOn = fps60Hold();
+        const int still = P3DS_FpsHoldDecide(holdOn, midTot, midMat, midMov, holdOn ? P3DS_FpsSceneMoved() : 0, holdOn ? fpsVertsMoved() : 0);
+        if (still && direct) { fpsHoldFlag = 1; static unsigned n; if (++n == 1 || n % 600 == 0) PSPNativeMemLog("[FPS60] hold real frame x%u (camera, sprites, tiles and 3D all still)", n); }
+        else if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
         else if (!midTot || !midMov) G3G_MidWhy[3]++; else if (midMat * 4 < midTot * 3) G3G_MidWhy[4]++; else mid = 1;
     }
     if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
@@ -879,6 +932,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     /* Wide + direct + in-between only. Anything else, including fps60_pipe OFF, keeps the loop below byte for byte. */
     const int pipe = mid && wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
     static unsigned pipeN, pipeKickSum;
+unsigned G3G_PipeKicks;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
     for (int e = 0; e < eyes; e++) {
         if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
@@ -929,13 +983,13 @@ void G3G_End(u32 *outL, u32 *outR) {
         if (rs && sharedTgt) rbQueue(e);   /* shared 2x target: copy this eye out before the next eye clears it */
     }
     if (pipe && ph == 0) {   /* both in-between scenes are drawn; one list break, then every copy */
-        C3D_FrameSplit(0); pipeKickSum++;
+        C3D_FrameSplit(0); pipeKickSum++; G3G_PipeKicks++;
         for (int e = 0; e < eyes; e++) { centreCopy(tgt[e]->frameBuf.colorBuf, midTex[e].data, 0); midStripIssue(tgt[e]->frameBuf.colorBuf, e, 0); }
     }
     }
     if (rs && !sharedTgt && !direct) for (int e = 0; e < eyes; e++) rbQueue(e);  /* GPU runs these after the draws, same queue */
     if (direct && wideFrame && pipe) {   /* both real scenes are drawn; one list break, then every wide copy */
-        C3D_FrameSplit(0); pipeKickSum++;
+        C3D_FrameSplit(0); pipeKickSum++; G3G_PipeKicks++;
         for (int e = 0; e < eyes; e++) {
             centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 0);
             issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS, 0);

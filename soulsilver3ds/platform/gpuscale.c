@@ -102,6 +102,7 @@ void P3DS_UpFree(void) {
     for (int i = 0; i < 3; i++) { if (upTgt[i]) C3D_RenderTargetDelete(upTgt[i]); upTgt[i] = NULL; if (up[i].data) C3D_TexDelete(&up[i]); memset(&up[i], 0, sizeof up[i]); }
     upFmt16 = -1; botValid = 0;
 }
+int P3DS_Fps60VramRelease(void);
 int P3DS_UpAlloc(int fmt16) {
     if (!ready) return 1;   /* GPU scaling not set up (mode 0): nothing to do */
     if (upFmt16 == fmt16) return 1;
@@ -114,6 +115,7 @@ int P3DS_UpAlloc(int fmt16) {
     upFmt16 = fmt16; botValid = 0;
     PSPNativeMemLog("[3DRES] scale targets now %s: %s (VRAM free after %lu)", fmt16 ? "RGB565" : "RGBA8", ok ? "ok" : "FAILED", (unsigned long)vramSpaceFree());
     if (!ok) { P3DS_UpFree();
+        if (P3DS_Fps60VramRelease()) return P3DS_UpAlloc(fmt16);
         /* never leave the screen without scale targets: the other format (16-bit is half the size) */
         static int depth; if (depth) return 0;
         depth = 1; const int alt = P3DS_UpAlloc(!fmt16); depth = 0;
@@ -501,7 +503,7 @@ static void pnDraw(C3D_RenderTarget *t) {
    on, it rests for a while by itself (longer each time) and says so in the log. ---- */
 extern int P3DS_InField, P3DS_InBattle; extern unsigned G3G_MidWhy[6];
 static int f60Cfg = -1, f60Did; static unsigned f60Phase, f60Pause, f60Ov = 6000, f60MidUs;
-static unsigned f60FlipLate, f60FlipN, f60FlipUs;
+static unsigned f60FlipLate, f60FlipN, f60FlipUs, f60LateTotal, f60DownTotal;
 static int gZoomSet; static float gFill[4];
 int P3DS_Fps60Cfg(void) {
     if (f60Cfg < 0) { f60Cfg = P3DS_CfgInt("fps60", 0); if (f60Cfg < 0 || f60Cfg > 2) f60Cfg = 0;
@@ -539,6 +541,7 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int
         if (sinceOn == 600 && f60Ov > 4000) f60Ov -= 500;
         if (wN >= 60) { if (wSlow > 15 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
                 if (sinceOn < 180 && f60Ov < 14000) f60Ov += 1500;
+                f60DownTotal++;
                 PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks busy over 33.3 ms, avg tick %u us, display wait %u us/tick): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, wFenceIdle / 60, f60Ov + 1500); }
             wN = wSlow = wUs = wFenceIdle = 0; } }
     else if (f60Pause) { wN = wSlow = wUs = wFenceIdle = 0; rN++; rIdle += idleUs > 33000 ? 33000 : idleUs;
@@ -555,6 +558,46 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int
             f60FlipN - f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, f60FlipLate);
         f60NSkip = 0; idleWindow = 0; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
 }
+/* One line per area. 300 presented field ticks is about 10 s at 30 Hz.
+   OFF returns before any of this and writes nothing. */
+extern int P3DS_CurMap;
+extern void P3DS_ZoneInfo(int *, int *, int *, unsigned *);
+extern const char *P3DS_AreaName(int);
+extern unsigned G3G_PipeKicks, P3DS_GcBeginUs;
+extern int P3DS_Fps60ScreenPlace(void);
+extern int P3DS_Fps60MidPlace(void);
+static int areaCfg = -1;
+static int fps60AreaOn(void) {
+    if (areaCfg < 0) { areaCfg = P3DS_CfgInt("fps60_area", 0) != 0;
+        PSPNativeMemLog("[FPS60] fps60_area=%d", areaCfg); }
+    return areaCfg;
+}
+void P3DS_SetFps60Area(int v) { areaCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_area=%d from settings", areaCfg); }
+enum { AREA_TICKS = 300 };
+void P3DS_Fps60Area(unsigned frameUs, int shown) {
+    static int zone0, map0, open;
+    static unsigned ticks, shownN, worst, beginN, pipe0, down0, late0;
+    static u64 sumUs, sumBegin;
+    if (!fps60AreaOn()) { open = 0; return; }
+    int zc, zp, zl; unsigned zms; P3DS_ZoneInfo(&zc, &zp, &zl, &zms); (void)zp; (void)zl; (void)zms;
+    const int map = P3DS_CurMap;
+    const int due = open && (zc != zone0 || map != map0 || ticks >= AREA_TICKS);
+    if (due) {
+        const unsigned n = ticks ? ticks : 1;
+        const int sp = P3DS_Fps60ScreenPlace();
+        PSPNativeMemLog("[FPS60] area zone %d %s map %d ticks %u in-between %u%% late %u stepdowns %u avg %u us worst %u us begin %u us pipe %u screen %s mid %s",
+            zone0, P3DS_AreaName(zone0), map0, ticks, shownN * 100 / n,
+            f60LateTotal - late0, f60DownTotal - down0, (unsigned)(sumUs / n), worst,
+            beginN ? (unsigned)(sumBegin / beginN) : 0, G3G_PipeKicks - pipe0,
+            sp == 1 ? "VRAM" : sp == 2 ? "linear" : "none",
+            P3DS_Fps60MidPlace() ? "VRAM" : "none");
+        open = 0;
+    }
+    if (!open) { open = 1; zone0 = zc; map0 = map; ticks = shownN = worst = beginN = 0; sumUs = sumBegin = 0;
+        pipe0 = G3G_PipeKicks; down0 = f60DownTotal; late0 = f60LateTotal; }
+    ticks++; sumUs += frameUs; if (frameUs > worst) worst = frameUs; if (shown) shownN++;
+    if (P3DS_GcBeginUs) { sumBegin += P3DS_GcBeginUs; beginN++; }
+}
 /* The in-between picture and the real one are drawn in ONE GPU frame by P3DS_GpuPresent: the in-between goes into the screen targets
    and out to the LCD at that frame's end; the real picture goes into a second pair of targets (tgtTopB / tgtTopRB, not linked to a
    screen) and is only handed to the LCD ("flipped") one V-blank later, by P3DS_Fps60Poll from the game thread while the next tick
@@ -565,17 +608,72 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int
 #define DISP_FLAGS_B (GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \
     GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) | GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 static C3D_RenderTarget *tgtTopB, *tgtTopRB; static int f60BFail;
+/* fps60_vram: place both 288000-byte screen targets and both 196608-byte
+   in-between textures while the holes are still big enough for that set.
+   Any miss frees the whole set, so a VRAM-required target is never the one
+   that loses. A later required alloc can release the set and retry once. */
+static C3D_RenderTarget *vramScr[2];
+static int vramCfg = -1, vramTried, vramHeld, f60VramN, f60LinN;
+extern int P3DS_GcMidReserve(void);
+extern void P3DS_GcMidRelease(void);
+static int fps60VramOn(void) {
+    if (vramCfg < 0) { vramCfg = 0; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x;
+        if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "fps60_vram=%d", &x) == 1) vramCfg = x != 0; fclose(f); }
+        PSPNativeMemLog("[FPS60] fps60_vram=%d", vramCfg); }
+    return vramCfg;
+}
+void P3DS_SetFps60Vram(int v) {
+    vramCfg = v != 0;
+    PSPNativeMemLog("[FPS60] fps60_vram=%d from settings", vramCfg);
+    if (!vramCfg && vramHeld) P3DS_Fps60VramRelease();
+    else if (vramCfg) vramTried = 0;
+}
+int P3DS_Fps60VramRelease(void) {
+    if (!vramHeld) return 0;
+    C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH);
+    if (tgtTopB == vramScr[0]) tgtTopB = NULL;
+    if (tgtTopRB == vramScr[1]) tgtTopRB = NULL;
+    for (int i = 0; i < 2; i++) { if (vramScr[i]) C3D_RenderTargetDelete(vramScr[i]); vramScr[i] = NULL; }
+    P3DS_GcMidRelease();
+    vramHeld = 0; f60BFail = 0;
+    PSPNativeMemLog("[FPS60] vram reserve released so a required target can fit (free %lu)", (unsigned long)vramSpaceFree());
+    return 1;
+}
+int P3DS_Fps60VramPrepare(void) {
+    if (vramTried) return vramHeld;
+    vramTried = 1;
+    if (!fps60VramOn()) return 0;
+    vramScr[0] = C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1);
+    vramScr[1] = vramScr[0] ? C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1) : NULL;
+    if (!vramScr[0] || !vramScr[1] || !P3DS_GcMidReserve()) {
+        for (int i = 0; i < 2; i++) { if (vramScr[i]) C3D_RenderTargetDelete(vramScr[i]); vramScr[i] = NULL; }
+        P3DS_GcMidRelease();
+        PSPNativeMemLog("[FPS60] vram reserve fallback (free %lu): second screen stays on the old path", (unsigned long)vramSpaceFree());
+        return 0;
+    }
+    vramHeld = 1;
+    PSPNativeMemLog("[FPS60] vram reserve ok: both 288000 screen targets and both 196608 in-between textures in VRAM (free %lu)", (unsigned long)vramSpaceFree());
+    return 1;
+}
+/* 1 = both second-screen colour buffers are in VRAM, 2 = at least one is linear, 0 = not made yet */
+int P3DS_Fps60ScreenPlace(void) {
+    if (vramHeld) return 1;
+    if (f60LinN) return 2;
+    if (f60VramN) return 1;
+    return 0;
+}
 /* Second screen target. VRAM is two 3 MB banks and one target must sit inside one bank: log of 2026-11-15 had 471808 bytes free in total
    but not 288000 in a single bank (stereo, right eye). Then the colour buffer goes to linear RAM (the PICA renders to FCRAM; same trick as
    the res3d linear target in g3gpu.c: target made from a tiny VRAM texture, colour pointer replaced). */
 static C3D_RenderTarget *f60MakeB(void) {
     C3D_RenderTarget *t = C3D_RenderTargetCreate(240, 400, GPU_RB_RGB8, -1);
-    if (t) return t;
+    if (t) { f60VramN++; return t; }
     static C3D_Tex dumTex; static int dumOk = -1;
     if (dumOk < 0) dumOk = C3D_TexInitVRAM(&dumTex, 8, 8, GPU_RGBA8) ? 1 : 0;
     void *col = dumOk ? linearMemAlign(240 * 400 * 3, 0x80) : NULL;
     if (col && (t = C3D_RenderTargetCreateFromTex(&dumTex, GPU_TEXFACE_2D, 0, -1))) {
         C3D_FrameBufColor(&t->frameBuf, col, GPU_RB_RGB8); C3D_FrameBufAttrib(&t->frameBuf, 240, 400, false);
+        f60LinN++;
         PSPNativeMemLog("[FPS60] second screen target in linear RAM (VRAM free %lu, no single bank block of 288000)", (unsigned long)vramSpaceFree());
         return t; }
     if (col) linearFree(col);
@@ -586,8 +684,8 @@ static int f60Flip, f60FlipSt; static u64 f60FlipT0, f60PollT;
 int P3DS_GpuPresentMid(C3D_Tex *l, C3D_Tex *r, const u32 *sl, const u32 *sr, int mode, int st) {
     f60Arg.on = 0;
     if (!ready || upFmt16 < 0 || !l || (st && !r) || (mode == 2 && !gZoomSet) || f60BFail) return 0;
-    if (!tgtTopB) tgtTopB = f60MakeB();
-    if (st && !tgtTopRB) tgtTopRB = f60MakeB();
+    if (!tgtTopB) tgtTopB = (vramHeld && vramScr[0]) ? vramScr[0] : f60MakeB();
+    if (st && !tgtTopRB) tgtTopRB = (vramHeld && vramScr[1]) ? vramScr[1] : f60MakeB();
     if (!tgtTopB || (st && !tgtTopRB)) { f60BFail = 1; PSPNativeMemLog("[FPS60] no VRAM for the second screen target (free %lu): no in-between frames", (unsigned long)vramSpaceFree()); return 0; }
     f60Arg.on = 1; f60Arg.mode = mode; f60Arg.st = st; f60Arg.l = l; f60Arg.r = st ? r : NULL; f60Arg.sl = sl; f60Arg.sr = sr;
     return 1;
@@ -618,7 +716,7 @@ void P3DS_Fps60Flush(void) {
     if (!f60Flip) return;
     C3D_FrameBegin(0);
     const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
-    f60FlipLate++; f60FlipNow();
+    f60FlipLate++; f60LateTotal++; f60FlipNow();
 }
 void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, const u32 *topR) {
     P3DS_GpFenceIdleUs = 0;

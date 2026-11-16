@@ -1,3 +1,25 @@
+# 60 fps area
+
+Settings > Display > 60 fps area (`fps60_area`, default OFF) writes one log line per area. The line goes out when the zone or the map changes, and every 300 presented field ticks in the same place (about 10 s at 30 Hz). It names the zone and map, the ticks, the percent that showed an in-between, how many of those were late, how many step-downs, the average and worst tick, the average left FrameBegin wait, the pipe list-breaks in that window (2 per pipe frame), and whether the second-screen targets and the in-between textures are in VRAM. OFF writes none of these lines. It does not change a pixel.
+
+`[FPS60] area zone Z name map M ticks N in-between P% late L stepdowns D avg A us worst W us begin B us pipe K screen VRAM|linear|none mid VRAM|none`
+
+`tools/fps60_area_test.c` checks the 300-tick and zone-change window. No ROM and no Azahar in this container.
+
+# 60 fps VRAM
+
+Settings > Display > 60 fps VRAM (`fps60_vram`, default OFF) tries, once, to put both second-screen targets (288000 bytes each) and both in-between textures (196608 bytes each) into VRAM as one set, largest first, on the first in-between compose. That is after the wide eye targets, the scale targets and the direct-screen target already exist. If any of the four does not fit, all four are freed and the old path runs: the in-between textures allocate on their own, and a second-screen target that does not fit a bank stays in linear RAM. OFF never tries. A later required allocation (wide or sharp eye targets, scale targets) that fails while the set is held frees the set and retries that allocation once, so the set cannot be what makes Wide fail. Two holes of 497920 fit the set. Two holes of 409600 do not (288000 + 196608 = 484608), and the log says fallback. `tools/fps60_vram_test.c` checks that rule. No ROM and no Azahar in this container.
+
+Log: `[FPS60] vram reserve ok: both 288000 screen targets and both 196608 in-between textures in VRAM` or `[FPS60] vram reserve fallback ... second screen stays on the old path`. A fallback can still log `[FPS60] second screen target in linear RAM`.
+
+# 60 fps strips
+
+Settings > Display > 60 fps strips (`fps60_strips`, default OFF) copies only the visible 192 rows of the in-between Wide side strips. DS row y is GPU row 255-y, so those rows are GPU 64..255 (tile rows 8..31). A flipped transfer of that span still starts at DS row 0, which is what the strip convert reads. The centre picture is still a full 256-row copy: its texture sample is not the same window. The real-frame strips are unchanged. OFF copies all 32 tile rows from the start of the buffer. This cuts copy bytes (8 tile rows per side, and 64 rows of the unpacked readback). It does not skip the 3D fill of the side columns, because those pixels are not in the centre. `tools/fps60_strips_test.c` checks the row span. No ROM and no Azahar in this container.
+
+# 60 fps hold
+
+Settings > Display > 60 fps hold (`fps60_hold`, default OFF) repeats the real frame in the in-between slot when that picture would be the same. The repeat is used only when every 3D draw paired with the previous tick and none of those matrices moved, a sample of positions and texture coordinates is unchanged (water, particles, a walking NPC), and sprites, 2D scroll and background tiles are unchanged (camera on the 2D layers, NPCs drawn as sprites, animated tiles). OFF keeps today's skip with no second present. The repeat is two screen quads of the picture already composed, not a second 3D scene, so a still room does not pay the in-between raster and does not hand a computed midpoint over late. Log: `[FPS60] hold real frame xN`.
+
 # 60 fps pipe
 
 Wide stereo in-between frames were ending the 3D command list on every side copy. With the strip pack that is 4 breaks per eye for the in-between (centre, left side, right side, readback) and 2 for the real picture, 12 breaks at full slider. Each break stops the 3D processor before the copy. Settings > Display > 60 fps pipe (`fps60_pipe`, default OFF) draws both in-between scenes, then every in-between copy, then both real scenes, then every real copy: 2 breaks. The triangles, the clear, and the copy rectangles are unchanged. OFF keeps the old breaks. It runs only on a wide direct in-between frame, not in fog and not on the 2x target.
