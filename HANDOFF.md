@@ -1,15 +1,38 @@
-# g3soft CPU geometry (run 870 follow-up)
+# g3soft PERF gap (PR482 hardware follow-up)
 
-Run 870 (main 6ecf97b, fps60 + all five Display fps60 toggles): pipe and VRAM worked; the wall is CPU `g3soft` (~20–24 ms mono≈stereo). GPU fill is no longer the limiter. This pass profiles that step and adds one identical-output reuse path.
+Hardware on main `f8d865d` (#482): sticky RGB565 works (one RGBA8 FAILED, then RGB565 ok). G3PROF `raw` ≈ 7.0–7.5 ms (xform~3.1–3.5, queue~2.1, end~1.2, tex~0.2) while PERF `g3soft` ≈ 21–22 ms mono and stereo. Displayed fps ≈ 56 mono / ≈ 27 full slider with `g3_prof=1` (earlier runs without it ≈ 40 full slider — per-frame log + per-tri timers were expensive). `g3_xfcache` hits ≈ 6.4/frame and only help when the scene is still; no fps difference ON vs OFF.
 
-Settings > Display > 3D transform cache (`g3_xfcache`, default OFF): list-cache replay draws whose clip matrix and stereo/mid/wide rim match the last transform reuse the stored accepted clip-space triangles (skip matrix multiply, plane reject, face cull). Hard (CPU-clip) batches are not cached. OFF never touches the tables — byte-identical to today. Log: `[G3XF] g3_xfcache=…` on boot/settings; hit/miss/store/hardskip ride on the profile line or a 300-frame summary.
+## What PERF g3soft measures that G3PROF raw did not
 
-Settings > Debug > 3D profile (`g3_prof`, default OFF): one `[G3PROF] tick` line per 3D frame:
-`cull | pair | xform | clip | queue | tex | end | raw` (us) plus `tris` and xfcache counters. OFF keeps the older 300-frame average only.
+`P3DS_G3LastUs` = wall from `P3DS_G3BeginFrame` to the end of `G3SIM_FlushDeferred`. Old G3PROF `raw` timed only `GpuRawJ` (transform/clip/queue) inside Draw. The ~14 ms gap is:
 
-RGBA8 scale-target FAIL every map change (run 870: free ~839 KiB after dance, one 512×512 RGBA8 needs ~1 MiB): with `fps60_vram` holding mid textures, `G3G_Begin` UpFree→UpAlloc(0) cannot fit RGBA8 and falls back to RGB565 every zone change (hitch + log spam). After the first RGBA8 failure the scale targets stick to RGB565 until VRAM is clearly >3 MiB free again (then one retry). Same picture as the old fallback; no toggle. Log: `[3DRES] scale targets: sticking to RGB565 after RGBA8 fail` once, then no more FAILED spam on map changes.
+- **idle** — VBlank waits that land while the 3D frame is still open (`P3DS_VblIdleTicks` delta). Field is usually busy, so this is small there; menus/title can be large.
+- **front** — game tick + G3 command FIFO / GeBuffer decode / matrix stack / display-list walking / handler work between Begin and the Draw calls. Not a second stereo geometry pass: field stereo uses one `GpuRawJ` + `G3G_TriClip2` (both eyes). Midpoint/fps60 is a separate path outside this window when it runs.
+- **flush** — transparent pass, post-VBlank texture refresh, worker drain (before `G3G_End`).
+- **end** — `G3G_End` GPU wait + readback (~1.2 ms, already in old G3PROF).
+- **cmd** (subset of front) — wrapped `NNS_G3dGeBufferOP_N` when `g3_prof` is on.
 
-Host: `tools/g3_xfcache_test.c`. Platform objects compiled with devkitARM (gpuscale, logring); full game link needs the owner's ROM tree. Hardware: `g3_prof=1`, walk Goldenrod / Route 34 with `g3_xfcache` OFF then ON; compare `[G3PROF] tick` xform/queue and `[PERF] g3soft`; confirm no repeated `[3DRES] scale targets now RGBA8: FAILED` on map changes when `fps60_vram=1`.
+Stereo does not double the geometry pass in this window. Lock/semaphore waits show up inside flush (gtDrain) or end.
+
+## This pass
+
+Settings > Debug > 3D profile (`g3_prof`, default OFF): every **60** 3D frames, one `[G3PROF] 60f avg:` line for the **whole** Begin→Flush window: `frame | idle | front | cmd | raw (cull pair xform clip queue tex) | flush | end | tris | xf hit/miss`. Coarse batch timers only (no per-triangle `svcGetSystemTick`). OFF keeps the older 300-frame average. GeBuffer cmd timing is gated by `P3DS_G3ProfLive` so OFF pays nothing on the hot path.
+
+Settings > Debug > 3D wake every job (`g3_wake`, default OFF): with `g3_thread` ON, wake the worker on every queued job instead of every 6. Same picture. OFF = previous wake cadence.
+
+Always-on identical skips (no toggle): empty `G3SIM_FlushArray` returns without Draw; `PSPNativeRawMatrix` no-ops when the 16 fx32 words match the last set (no flush, no float convert).
+
+`g3_xfcache` unchanged (Display, default OFF).
+
+Host: platform TUs compiled with devkitARM; **no ROM in this container → no full game link**. Hardware next: `g3_prof=1`, walk Goldenrod / Route 34 mono and full slider; confirm fps stays near the non-prof ~40 full-slider baseline; read `[G3PROF] 60f avg` and check `front+idle+flush+end ≈ frame−raw`; try `g3_thread=1` + `g3_wake=1` and compare flush/idle wait vs wake OFF.
+
+# g3soft CPU geometry (run 870 / #482)
+
+Run 870 wall was CPU `g3soft` (~20–24 ms). #482 added `g3_xfcache` and the first G3PROF split; sticky RGB565 after RGBA8 scale-target fail (see below).
+
+Settings > Display > 3D transform cache (`g3_xfcache`, default OFF): list-cache replay draws whose clip matrix and stereo/mid/wide rim match the last transform reuse the stored accepted clip-space triangles. Hard (CPU-clip) batches are not cached. OFF never touches the tables. Log: `[G3XF]`.
+
+RGBA8 scale-target FAIL every map change (run 870): after the first RGBA8 failure the scale targets stick to RGB565 until VRAM is clearly >3 MiB free again. Log: `[3DRES] scale targets: sticking to RGB565 after RGBA8 fail` once.
 
 # 60 fps area
 

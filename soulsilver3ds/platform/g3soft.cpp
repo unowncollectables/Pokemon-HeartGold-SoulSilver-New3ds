@@ -28,16 +28,26 @@ static unsigned stDecodes,stPix,stDepth,stTexA,stA0,stWritten,stTexTris,stTrans;
 extern "C" void abort(void);
 extern "C" void G3SIM_ChunkAlloc(){printf("[NATIVE-RENDER] vertex overflow\n");abort();for(;;){}}
 static void ResetVertices(){if(recActive&&g3RecCount)recBroken=true;g3ChunkPtr=vertices;g3ChunkLeft=24576;}
-static bool cullAll=false;static u64 prTex,prRaw,prEnd,prN,prCull,prPair,prXform,prClip,prQueue;static int cullFace=0;/*1=GL_FRONT 2=GL_BACK*/
+static bool cullAll=false;static u64 prTex,prRaw,prEnd,prN,prCull,prPair,prXform,prClip,prQueue,prFlush,prIdle,prCmd,prWake;static int cullFace=0;/*1=GL_FRONT 2=GL_BACK*/
 extern "C" int P3DS_CfgInt(const char*,int);
-/* g3_prof (Debug tab, default OFF): one [G3PROF] line per 3D frame with the parts of the CPU geometry pass.
+extern "C" volatile unsigned long long P3DS_VblIdleTicks;
+/* g3_prof (Debug tab, default OFF): every 60 3D frames, one [G3PROF] line for the WHOLE PERF g3soft window
+   (Begin→FlushDeferred): idle (VBlank waits inside the window), front (game+G3 command decode/handler outside Draw),
+   raw (GpuRaw), flush (FlushDeferred before End), end (G3G_End). Per-triangle timers are not used (they cost fps).
    g3_xfcache (Display tab, default OFF): replay draws whose clip matrix matches the last time they were
-   transformed skip the matrix multiply and plane tests and feed the same kept triangles to the GPU path. */
-static int g3ProfCfg=-1,g3XfCfg=-1;
-extern "C" int P3DS_G3ProfCfg(void){if(g3ProfCfg<0){g3ProfCfg=P3DS_CfgInt("g3_prof",0)!=0;PSPNativeMemLog("[G3PROF] g3_prof=%d (1 = one line per 3D frame)",g3ProfCfg);}return g3ProfCfg;}
-extern "C" void P3DS_SetG3Prof(int v){g3ProfCfg=v!=0;PSPNativeMemLog("[G3PROF] g3_prof=%d from settings",g3ProfCfg);}
+   transformed skip the matrix multiply and plane tests and feed the same kept triangles to the GPU path.
+   g3_wake (Debug tab, default OFF): with g3_thread ON, wake the worker on every queued job (not every 6). Same picture. */
+static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1;
+/* Hot path for g3packet: 0 until g3_prof is read/on, so GeBuffer pays nothing when profiling is OFF. */
+extern "C" volatile int P3DS_G3ProfLive;
+volatile int P3DS_G3ProfLive;
+extern "C" int P3DS_G3ProfCfg(void){if(g3ProfCfg<0){g3ProfCfg=P3DS_CfgInt("g3_prof",0)!=0;P3DS_G3ProfLive=g3ProfCfg;PSPNativeMemLog("[G3PROF] g3_prof=%d (1 = avg every 60 3D frames over the whole Begin→Flush window)",g3ProfCfg);}return g3ProfCfg;}
+extern "C" void P3DS_SetG3Prof(int v){g3ProfCfg=v!=0;P3DS_G3ProfLive=g3ProfCfg;PSPNativeMemLog("[G3PROF] g3_prof=%d from settings",g3ProfCfg);}
 extern "C" int P3DS_G3XfCacheCfg(void){if(g3XfCfg<0){g3XfCfg=P3DS_CfgInt("g3_xfcache",0)!=0;PSPNativeMemLog("[G3XF] g3_xfcache=%d (1 = reuse transformed list-cache draws when the matrix is unchanged)",g3XfCfg);}return g3XfCfg;}
 extern "C" void P3DS_SetG3XfCache(int v); /* defined with xfClear below */
+extern "C" int P3DS_G3WakeCfg(void){if(g3WakeCfg<0){g3WakeCfg=P3DS_CfgInt("g3_wake",0)!=0;PSPNativeMemLog("[G3THR] g3_wake=%d (1 = wake worker every job when g3_thread is ON)",g3WakeCfg);}return g3WakeCfg;}
+extern "C" void P3DS_SetG3Wake(int v){g3WakeCfg=v!=0;PSPNativeMemLog("[G3THR] g3_wake=%d from settings",g3WakeCfg);}
+static u64 idleAtBegin,prWall;static unsigned prFrames,prTrisSum,prXfHitSum,prXfMissSum;
 static int cull3dCfg(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"cull3d=%d",&x)==1)v=x;fclose(f);}PSPNativeMemLog("[G3] back-face culling cull3d=%d (0 off, 1 normal, 2 inverted winding)",v);}return v;}
 /* ---------------- textures ---------------- */
 static bool Gather(unsigned address,unsigned size,bool palette,u8*dst){
@@ -581,10 +591,11 @@ extern "C" void P3DS_SetG3XfCache(int v){g3XfCfg=v!=0;if(!g3XfCfg)xfClear();PSPN
 static void GpuRawJ(const GJob&J){
  if(J.cullAll)return;
  const bool doProf=P3DS_G3ProfCfg()!=0;const bool doXf=P3DS_G3XfCacheCfg()!=0;
- u64 t0=0,t1=0;if(doProf)t0=svcGetSystemTick();
+ /* Coarse timers only (one tick read per stage per batch). Per-triangle svcGetSystemTick cost ~10+ ms/frame with g3_prof=1. */
+ u64 tRaw0=0,t0=0,t1=0;if(doProf)tRaw0=t0=svcGetSystemTick();
  const GuVertex*v=J.v;const unsigned n=J.n;jM=J.M;jReplayV=J.replay?J.v:nullptr;const float qwK=qwKNow();
  bool chunked=J.chunked;const u8*cmask=J.cmask;
- if(!J.pre){if(CullBatch(J,chunked)){if(doProf)prCull+=svcGetSystemTick()-t0;return;}cmask=chunkOff;}
+ if(!J.pre){if(CullBatch(J,chunked)){if(doProf){prCull+=svcGetSystemTick()-t0;prRaw+=svcGetSystemTick()-tRaw0;}return;}cmask=chunkOff;}
  if(doProf){t1=svcGetSystemTick();prCull+=t1-t0;t0=t1;}
  if(G3G_MidRec){float K[16];G3G_MidK(n>=3&&!J.wbuf&&mdK(J,K)?K:nullptr);}const float yK=G3G_MidRec?kMidEdge:1.0f;
  if(doProf){t1=svcGetSystemTick();prPair+=t1-t0;t0=t1;}
@@ -610,7 +621,7 @@ static void GpuRawJ(const GJob&J){
     float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=T.c[4*k+3];zf3[k]=w>1e-6f?0.5f*T.c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
     float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
     G3G_TriClip2(T.c,T.su,T.sv,T.col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);}
-   if(doProf)prQueue+=svcGetSystemTick()-t0;
+   if(doProf){prQueue+=svcGetSystemTick()-t0;prRaw+=svcGetSystemTick()-tRaw0;}
    return;}}
 /* run 62 stereo_edgefix=1 (default): the per-eye stereo shift (up to stereoSd DS px, right eye +, left eye -) is added
    AFTER this x-plane reject, so tris just outside the left plane that the right-eye shift would bring on screen were
@@ -632,7 +643,7 @@ static void GpuRawJ(const GJob&J){
   xfMiss++;
   if(xfArenaN+n/3>XF_TRIS){xfClear();xfBase=0;}
   if(xfArenaN+n/3<=XF_TRIS){xfOut=&xfTab[xfHash(v)];xfBase=xfArenaN;}}
- u64 tx=doProf?svcGetSystemTick():0;
+ u64 tLoop=doProf?svcGetSystemTick():0;unsigned clipN=0;
  for(unsigned i=0;i+2<n;i+=3){float c[12];unsigned out=0x3F;u32 col[3];float su[3],sv[3];
   if(chunked&&i%kChunkV==0&&cmask[i/kChunkV]){const unsigned t=((i+kChunkV<n?i+kChunkV:n)-i)/3;rejOut+=t;bcSkipC++;bcSkipT+=t;i+=3*t-3;continue;}
   for(int k=0;k<3;k++){const GuVertex&p=v[i+k];float*q=c+4*k;
@@ -648,26 +659,27 @@ static void GpuRawJ(const GJob&J){
      (PICA clipping there gave the black spots); the rest stay on the fast clip-space path. 2026-11-05: guard band only with g3_guardclip=1. */
    bool hard=false;for(int k=0;k<3;k++){const float*q=c+4*k;float w=q[3];if(w<1e-3f||q[2]>w||q[2]<-w||((guardClip()||guardBattle())&&(fabsf(q[0])>2*w||fabsf(q[1])>2*w))){hard=true;break;}}
    if(hard){if(xfOut){xfHard=true;xfOut=nullptr;xfSkipHard++;}
-    u64 tc=doProf?svcGetSystemTick():0;unsigned m=RawToScreen(J,v+i,3);if(m)DrawScreenJ(J,rawOut,m,false);cpuClipped++;
-    if(doProf){u64 tn=svcGetSystemTick();prXform+=tc-tx;prClip+=tn-tc;tx=tn;}continue;}}
+    unsigned m=RawToScreen(J,v+i,3);if(m)DrawScreenJ(J,rawOut,m,false);cpuClipped++;clipN++;continue;}}
   if(J.cullFace&&cullMode3d&&c[3]>1e-6f&&c[7]>1e-6f&&c[11]>1e-6f){
    float x0=c[0]/c[3],y0=c[1]/c[3],x1=c[4]/c[7],y1=c[5]/c[7],x2=c[8]/c[11],y2=c[9]/c[11];
    float area=(x1-x0)*(y2-y0)-(x2-x0)*(y1-y0);if(cullMode3d==1)area=-area;/* run 26: the old sign culled ~all field tris (36 left) */
    if((J.cullFace==1&&area>0)||(J.cullFace==2&&area<0)){culledTris++;continue;}}
   drawnTris++;
   if(xfOut){XfTri&T=xfArena[xfBase+xfNTri++];memcpy(T.c,c,sizeof T.c);memcpy(T.col,col,sizeof T.col);memcpy(T.su,su,sizeof T.su);memcpy(T.sv,sv,sizeof T.sv);}
-  u64 tq=doProf?svcGetSystemTick():0;
-  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);}
-  else{
-   /* 2026-11-04: zf and the parallax once per vertex, both eyes written in one G3G_TriClip2 pass (was: all of it per eye) */
-   float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=c[4*k+3];zf3[k]=w>1e-6f?0.5f*c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
-   float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
-   G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);}
-  if(doProf){u64 tn=svcGetSystemTick();prXform+=tq-tx;prQueue+=tn-tq;tx=tn;}
+  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
+  /* 2026-11-04: zf and the parallax once per vertex, both eyes written in one G3G_TriClip2 pass (was: all of it per eye) */
+  float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=c[4*k+3];zf3[k]=w>1e-6f?0.5f*c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
+  float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
+  G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);
  }
- if(doProf)prXform+=svcGetSystemTick()-tx; /* rejected / culled tris still count as transform */
+ if(doProf){u64 tn=svcGetSystemTick();const u64 loop=tn-tLoop;
+  /* Coarse: hard-clip share by triangle count; the rest is transform+reject+face-cull+TriClip (reported as xform; queue stays for xfcache hits). */
+  if(clipN&&n>=3){const u64 c=(loop*(u64)clipN)/(u64)(n/3);prClip+=c;prXform+=loop-c;}else prXform+=loop;
+  prRaw+=tn-tRaw0;}
  if(xfOut&&!xfHard){xfOut->key=v;xfOut->n=n;xfOut->nTri=xfNTri;xfOut->base=xfBase;xfOut->gen=xfGenNow();xfOut->cullFace=(unsigned)J.cullFace;memcpy(xfOut->M,M,sizeof xfOut->M);xfArenaN=xfBase+xfNTri;xfStore++;}
 }
+/* GeBuffer / G3 command decode time (subset of front) when g3_prof is on. */
+extern "C" void P3DS_G3ProfAddCmd(unsigned long long ticks){if(P3DS_G3ProfCfg())prCmd+=ticks;}
 static GuVertex scrBuf[8192];
 /* ================= g3_thread: worker for the raw 3D transform (GpuRawJ) =================
    The game thread builds a GJob per raw draw call (state snapshot; vertices copied into a per-frame arena unless they are a list-cache replay array),
@@ -717,7 +729,7 @@ static void gtPush(GJob&J,bool chunked){
  if(chunked){const unsigned nc=(J.n+kChunkV-1)/kChunkV;if(gtCmPos+nc>64*1024)gtDrain(5);u8*d=gtCmArena+gtCmPos;memcpy(d,chunkOff,nc);gtCmPos+=nc;J.cmask=d;}
  if(gtTail-gtHead>=GT_N)gtDrain(4);
  gtRing[gtTail&GT_MASK]=J;__sync_synchronize();gtTail=gtTail+1;gtJobs++;
- if(gtTail-gtKicked>=6){gtKicked=gtTail;gtWake();}}
+ {const unsigned every=P3DS_G3WakeCfg()?1u:6u;if(gtTail-gtKicked>=every){gtKicked=gtTail;gtWake();if(every==1)prWake++;}}}
 static void gtFrameStats(){
  if(++gtFrames%300)return;
  PSPNativeMemLog("[G3THR] %s | 300 frames: %u jobs, worker busy %u us/frame, game thread waited %u us/frame at drains (frame %u screen %u listfree %u texfree %u ringfull %u arena %u)",gtCfg?"ON":"OFF",gtJobs,(unsigned)(gtBusyTicks/268/300),(unsigned)(gtWaitTicks/268/300),gtDrains[1],gtDrains[0],gtDrains[2],gtDrains[3],gtDrains[4],gtDrains[5]);
@@ -776,10 +788,13 @@ void G3SIM_AddVtx(G3SIM_Vertex_t*v){if(!g3ChunkLeft)G3SIM_ChunkAlloc();
  *g3ChunkPtr++={v->s*s_texImageParam.textureSSize,v->t*s_texImageParam.textureTSize,channel(v->r)|(channel(v->g)<<8)|(channel(v->b)<<16)|(channel(v->a)<<24),128.0f+v->x*128.0f,96.0f-v->y*96.0f,v->z*32767.0f+32768.0f};g3ChunkLeft--;}
 void G3SIM_DrawArray(){Draw(vertices,(unsigned)(g3ChunkPtr-vertices),true);}
 void G3SIM_DrawCleanUp(){ResetVertices();}
-void G3SIM_FlushArray(){G3SIM_DrawArray();ResetVertices();}
+void G3SIM_FlushArray(){if(g3ChunkPtr==vertices){ResetVertices();return;}G3SIM_DrawArray();ResetVertices();}
 static u64 frameTicks,sumTicks;static unsigned frames,lastUs,lastTris;
 void G3SIM_FlushDeferred(){
- CRUMB("g3-flush");G3SIM_FlushArray();gtDrain(1);gtFrameStats();G3SIM_TexImageParam_t save=s_texImageParam;
+ CRUMB("g3-flush");const bool doProf=P3DS_G3ProfCfg()!=0;
+ G3SIM_FlushArray(); /* may Draw → counted in prRaw, not flush */
+ u64 tFlush0=doProf?svcGetSystemTick():0;
+ gtDrain(1);gtFrameStats();G3SIM_TexImageParam_t save=s_texImageParam;
  const int fogSave=G3G_CurFog;
  for(unsigned i=0;i<transN;i++){Batch&b=trans[i];G3G_CurFog=b.fog;for(unsigned k=0;k+2<b.n;k+=3)Tri(b.v[k],b.v[k+1],b.v[k+2],b.tex,b.tp,true,b.dw,b.dtest);}
  transN=transVN=0;s_texImageParam=save;G3G_CurFog=fogSave;
@@ -802,7 +817,8 @@ void G3SIM_FlushDeferred(){
    if(!f){k+=snprintf(b+k,sizeof b-k," -%x/%x/%x",prv[j].off,prv[j].pal,prv[j].wh);if(k>140)fl();}}
   fl();memcpy(prv,cur,cn*sizeof(E));pn=cn;}}
  usedN=0;
- if(gpuOn==1){u64 t=svcGetSystemTick();G3G_FogNoW=!wbufOn();G3G_MidInfo(mdTot,mdMat,mdMov);G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);prEnd+=svcGetSystemTick()-t;prN++;}
+ if(doProf)prFlush+=svcGetSystemTick()-tFlush0;
+ if(gpuOn==1){u64 t=doProf?svcGetSystemTick():0;G3G_FogNoW=!wbufOn();G3G_MidInfo(mdTot,mdMat,mdMov);G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);if(doProf){prEnd+=svcGetSystemTick()-t;prN++;}}
  /* debug g3_shot=N: dump the finished 3D layer (256x192 RGBA, 6-bit) of 3D frames N, N+60, ... (8 files) to
     sdmc:/3ds/soulsilver3ds/g3shot_<frame>.bin, to compare renderers on the exact same game frame. Off (0) by default. */
  {static int shotF=-1;if(shotF<0)shotF=0 /* g3_shot: debug option removed */;if(shotF>0&&g3FrameNo>=(unsigned)shotF&&(g3FrameNo-shotF)%60==0&&g3FrameNo<(unsigned)shotF+480){G3G_DirectResolveWhy(7);char fn[64];snprintf(fn,sizeof fn,"sdmc:/3ds/soulsilver3ds/g3shot_%u.bin",g3FrameNo);FILE*f=fopen(fn,"wb");if(f){fwrite(GPU3D::NativeFrame,4,256*192,f);fclose(f);PSPNativeMemLog("[G3SHOT] %s (gpu %d)",fn,gpuOn);}}}
@@ -811,22 +827,35 @@ void G3SIM_FlushDeferred(){
    stTexTris,stTrans,stPix,stDepth,stTexA,stA0,stWritten,stZmin,stZmax,stXmin,stXmax,stAmin,stAmax,(unsigned long)*(u32*)(PSPNative_GfxRegisters+0x350),*(u16*)(PSPNative_GfxRegisters+0x354),s_curPolygonAttr.depthTest,stFmt[0],stFmt[1],stFmt[2],stFmt[3],stFmt[4],stFmt[5],stFmt[6],stFmt[7],(unsigned long)stColOr,(unsigned long)stColAnd);}
  memset(stFmt,0,sizeof stFmt);stColOr=0;stColAnd=~0u;
  stDecodes=stPix=stDepth=stTexA=stA0=stWritten=stTexTris=stTrans=0;stZmin=stXmin=1e9f;stZmax=stXmax=-1e9f;stAmin=255;stAmax=0;drawnTris=0;wDepthFrame();{static unsigned f;++f;vdump=(f%150==0&&f<=600);if(f%60==0)PSPNativeMemLog("[GPU3D] f=%u trivially rejected %u (planes %02x) of drawn %u",f,rejOut,rejMask,drawnTris);rejOut=rejMask=0;if(f%300==0&&bcV>0){PSPNativeMemLog("[G3CULL] last 300 frames: %u batches tested (%u cached boxes), %u skipped whole, %u 16-tri chunks skipped = %u tris/frame never transformed",bcTested,bcHits,bcSkipB,bcSkipC,bcSkipT/300);bcTested=bcHits=bcSkipB=bcSkipC=bcSkipT=0;}
-  /* g3_prof=1: one line per 3D frame with the CPU geometry parts (us). g3_xfcache hits/misses ride along when that toggle is on. */
-  if(P3DS_G3ProfCfg()){PSPNativeMemLog("[G3PROF] tick cull %u us | pair %u us | xform %u us | clip %u us | queue %u us | tex %u us | end %u us | raw %u us | tris %u | xf hit %u miss %u store %u hardskip %u",
-   (unsigned)(prCull/268),(unsigned)(prPair/268),(unsigned)(prXform/268),(unsigned)(prClip/268),(unsigned)(prQueue/268),
-   (unsigned)(prTex/268),(unsigned)(prEnd/268),(unsigned)(prRaw/268),lastTris,xfHits,xfMiss,xfStore,xfSkipHard);
-   prCull=prPair=prXform=prClip=prQueue=prTex=prRaw=prEnd=0;prN=0;xfHits=xfMiss=xfStore=xfSkipHard=0;}
+  /* g3_prof=1: whole PERF g3soft window (Begin→FlushDeferred); one averaged line every 60 3D frames. */
+  if(P3DS_G3ProfCfg()){
+   const u64 idleNow=P3DS_VblIdleTicks;const u64 idleTicks=idleNow>idleAtBegin?idleNow-idleAtBegin:0;
+   prIdle+=idleTicks;prWall+=svcGetSystemTick()-frameTicks;
+   prFrames++;prTrisSum+=lastTris;prXfHitSum+=xfHits;prXfMissSum+=xfMiss;
+   xfHits=xfMiss=xfStore=xfSkipHard=0;
+   if(prFrames>=60){const unsigned n=prFrames;
+    auto U=[&](u64 t){return (unsigned)(t/268/n);};
+    const unsigned frameUs=U(prWall),idleUs=U(prIdle),rawUs=U(prRaw),flushUs=U(prFlush),endUs=U(prEnd),cmdUs=U(prCmd);
+    const unsigned frontUs=frameUs>(idleUs+rawUs+flushUs+endUs)?frameUs-(idleUs+rawUs+flushUs+endUs):0;
+    PSPNativeMemLog("[G3PROF] 60f avg: frame %u us | idle %u | front %u | cmd %u | raw %u (cull %u pair %u xform %u clip %u queue %u tex %u) | flush %u | end %u | tris %u | xf hit %u miss %u",
+     frameUs,idleUs,frontUs,cmdUs,rawUs,U(prCull),U(prPair),U(prXform),U(prClip),U(prQueue),U(prTex),flushUs,endUs,
+     prTrisSum/n,prXfHitSum/n,prXfMissSum/n);
+    prCull=prPair=prXform=prClip=prQueue=prTex=prRaw=prEnd=prFlush=prIdle=prCmd=prWall=0;prN=0;prFrames=prTrisSum=prXfHitSum=prXfMissSum=0;}
+  }
   else if(f%300==0){PSPNativeMemLog("[GPU3D] cpu-clipped tris %u, culled %u (this frame) | tex page-skips %u mismatches %u (300 f)",cpuClipped,culledTris,texPageSkips,texPageMismatch);texPageSkips=0;if(prN)PSPNativeMemLog("[G3PROF] avg/frame: GetTexture %u us | GpuRaw (transform+clip+queue, incl. its GetTexture) %u us | G3G_End (GPU wait+readback) %u us | rest of g3soft = pspoke frontend/handler",(unsigned)(prTex/prN/268),(unsigned)(prRaw/prN/268),(unsigned)(prEnd/prN/268));prTex=prRaw=prEnd=prN=0;if(P3DS_G3XfCacheCfg()&&(xfHits|xfMiss)){PSPNativeMemLog("[G3XF] last 300 frames: hit %u miss %u store %u hardskip %u",xfHits,xfMiss,xfStore,xfSkipHard);xfHits=xfMiss=xfStore=xfSkipHard=0;}}
   cpuClipped=culledTris=0;}}
 unsigned G3SIM_DeferredHighWater(){return 0;}
 void PSPNativeG3Release(){ResetVertices();}
 void PSPNativeG3TrimCache(){}
-static unsigned rawGen;
-void PSPNativeRawMatrix(const s32*m,unsigned gen){if(rawMode&&rawGen==gen)return;G3SIM_FlushArray();rawMode=true;rawGen=gen;for(int i=0;i<16;i++)rawM[i]=m[i]/4096.0f;}
-void PSPNativeRawMode(int v){if(rawMode!=(v!=0)){G3SIM_FlushArray();rawMode=v!=0;}}
+static unsigned rawGen;static s32 rawMFx[16];static int rawMFxOk;
+void PSPNativeRawMatrix(const s32*m,unsigned gen){
+ /* Identical skip (always on): same 16 fx32 words → no flush, no float convert. Same picture. */
+ if(rawMode&&rawMFxOk&&!memcmp(m,rawMFx,64)){rawGen=gen;return;}
+ G3SIM_FlushArray();rawMode=true;rawGen=gen;memcpy(rawMFx,m,64);rawMFxOk=1;for(int i=0;i<16;i++)rawM[i]=m[i]/4096.0f;}
+void PSPNativeRawMode(int v){if(rawMode!=(v!=0)){G3SIM_FlushArray();rawMode=v!=0;if(!rawMode)rawMFxOk=0;}}
 /* Frame start: clear the 3D layer to the DS CLEAR_COLOR / CLEAR_DEPTH registers. */
 extern "C" int P3DS_StereoShiftNow(void);
-void P3DS_G3BeginFrame(void){CRUMB("g3-begin");g3FrameNo++;usedN=0;frameTicks=svcGetSystemTick();stereoSd=P3DS_StereoShiftNow();{extern int P3DS_InBattle;extern int P3DS_BattleDepthLock(void);static unsigned bf;static int wasB;
+void P3DS_G3BeginFrame(void){CRUMB("g3-begin");g3FrameNo++;usedN=0;frameTicks=svcGetSystemTick();idleAtBegin=P3DS_VblIdleTicks;(void)P3DS_G3ProfCfg();stereoSd=P3DS_StereoShiftNow();{extern int P3DS_InBattle;extern int P3DS_BattleDepthLock(void);static unsigned bf;static int wasB;
  parLock=stereoSd&&P3DS_BattleDepthLock();parTrack=stereoSd&&P3DS_InBattle&&!parLock;
  if(P3DS_InBattle&&stereoSd){if(!wasB){wasB=1;bf=0;PSPNativeMemLog("[BATTLE] stereo 3D: shift %d px, battle depth lock %d (stereo_2d=3: all 3D at one depth; else per-vertex z), lock offsets L 0 / R +%d px (same integer as the BG)",stereoSd,parLock,(stereoSd+1)/2);}
   if(++bf%150==1&&bf>1){PSPNativeMemLog("[BATTLE] stereo 3D f%u: %u vertices, z range %.3f..%.3f, clamped tris so far %u, lock %d",bf,parN,parZMin,parZMax,stereoClamped,parLock);parN=0;parZMin=1;parZMax=0;}}
