@@ -165,9 +165,12 @@ CONTROLS / TOUCH
                     0 = old path (every triangle transformed, then rejected). Default 1. Log: [G3CULL] every 300 frames.  [2026-11-04]
   g3_xfcache=0      3D transform cache (Display tab): list-cache replay draws whose clip matrix (and stereo/mid/wide rim) match the
                     last time they were transformed reuse the stored clip-space triangles. Same picture. 0 = never reuse. Default 0.
-                    Log: [G3XF] on boot / settings; hit/miss on [G3PROF] tick lines or every 300 frames.  [2026-11-16]
-  g3_prof=0         3D profile (Debug tab): one [G3PROF] tick line per 3D frame with cull / pair / xform / clip / queue / tex / end / raw
-                    times in us. 0 = older 300-frame average only. Default 0.  [2026-11-16]
+                    Log: [G3XF] on boot / settings; hit/miss on [G3PROF] 60f lines or every 300 frames.  [2026-11-16]
+  g3_prof=0         3D profile (Debug tab): every 60 3D frames, one [G3PROF] avg line for the whole Begin→Flush window
+                    (idle / front / cmd / raw with cull·pair·xform·clip·queue·tex / flush / end). Coarse timers only.
+                    0 = older 300-frame average only. Default 0.  [2026-11-16]
+  g3_wake=0         3D wake every job (Debug tab): with g3_thread ON, wake the worker on every queued draw (not every 6).
+                    Same picture. Default 0. Log: [G3THR] g3_wake=.  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),

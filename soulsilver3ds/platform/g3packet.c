@@ -8,6 +8,9 @@ extern void PSPNativeG3CommandsBorrowed(const void *,unsigned);
 extern void __real_NNS_G3dGeBufferOP_N(u32,const u32 *,u32);
 extern BOOL NNS_G3dGeIsBufferExist(void);
 extern BOOL NNS_G3dGeIsSendDLBusy(void);
+extern volatile int P3DS_G3ProfLive;
+extern void P3DS_G3ProfAddCmd(unsigned long long);
+extern unsigned long long svcGetSystemTick(void);
 #ifdef P3DS_PACKET_ORACLE
 extern int P3DS_PacketDecodeCheck(u32,const u32 *,u32,const draw_msg_t *,unsigned);
 #endif
@@ -64,8 +67,12 @@ static unsigned direct(u32 op,const u32 *args,u32 words,draw_msg_t *m){
 
 void __wrap_NNS_G3dGeBufferOP_N(u32 op,const u32 *args,u32 words){
  static unsigned used,packed,fallback;
+ const int prof=P3DS_G3ProfLive;
+ const unsigned long long t0=prof?svcGetSystemTick():0;
  if(!P3DS_G3PacketCfg()||words>64||(words&&!args)||NNS_G3dGeIsBufferExist()||NNS_G3dGeIsSendDLBusy()){
-  fallback++;__real_NNS_G3dGeBufferOP_N(op,args,words);return;
+  fallback++;__real_NNS_G3dGeBufferOP_N(op,args,words);
+  if(prof)P3DS_G3ProfAddCmd(svcGetSystemTick()-t0);
+  return;
  }
  draw_msg_t msg;
  if(direct(op,args,words,&msg)){used++;SIM_HandleG3Command(&msg);}
@@ -75,5 +82,6 @@ void __wrap_NNS_G3dGeBufferOP_N(u32 op,const u32 *args,u32 words){
   u32 packet[65];packet[0]=op;if(words)memcpy(packet+1,args,words*4);
   packed++;PSPNativeG3CommandsBorrowed(packet,(words+1)*4);
  }
+ if(prof)P3DS_G3ProfAddCmd(svcGetSystemTick()-t0);
  if((used+packed)%100000==0)PSPNativeMemLog("[G3PACK] direct=%u packed=%u original=%u",used,packed,fallback);
 }
