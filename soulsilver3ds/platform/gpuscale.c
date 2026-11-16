@@ -103,8 +103,22 @@ void P3DS_UpFree(void) {
     upFmt16 = -1; botValid = 0;
 }
 int P3DS_Fps60VramRelease(void);
+/* Run 870: with fps60_vram holding the mid textures, free VRAM is ~839 KiB — not enough for one 512x512 RGBA8
+   (~1 MiB), so every map-change dance (UpFree then UpAlloc(0)) logged FAILED and fell back to RGB565. Sticky
+   RGB565 after the first RGBA8 failure stops that thrash; same picture we already had after the fallback.
+   Cleared when VRAM is clearly large enough again (after UpFree, free > 3 MiB) so a later quiet scene can retry. */
+static int upRgba8Fail;
 int P3DS_UpAlloc(int fmt16) {
     if (!ready) return 1;   /* GPU scaling not set up (mode 0): nothing to do */
+    if (!fmt16 && upRgba8Fail) {
+        if (upFmt16 < 0 && vramSpaceFree() > 3u * 1024u * 1024u) {
+            upRgba8Fail = 0;
+            PSPNativeMemLog("[3DRES] scale targets: retrying RGBA8 (VRAM free %lu)", (unsigned long)vramSpaceFree());
+        } else {
+            static unsigned stickN; if (!stickN++) PSPNativeMemLog("[3DRES] scale targets: sticking to RGB565 after RGBA8 fail (stops map-change retry)");
+            fmt16 = 1;
+        }
+    }
     if (upFmt16 == fmt16) return 1;
     if (upFmt16 >= 0) P3DS_UpFree();
     const GPU_TEXCOLOR f = fmt16 ? GPU_RGB565 : GPU_RGBA8; int ok = 1;
@@ -115,11 +129,13 @@ int P3DS_UpAlloc(int fmt16) {
     upFmt16 = fmt16; botValid = 0;
     PSPNativeMemLog("[3DRES] scale targets now %s: %s (VRAM free after %lu)", fmt16 ? "RGB565" : "RGBA8", ok ? "ok" : "FAILED", (unsigned long)vramSpaceFree());
     if (!ok) { P3DS_UpFree();
+        if (!fmt16) upRgba8Fail = 1;
         if (P3DS_Fps60VramRelease()) return P3DS_UpAlloc(fmt16);
         /* never leave the screen without scale targets: the other format (16-bit is half the size) */
         static int depth; if (depth) return 0;
         depth = 1; const int alt = P3DS_UpAlloc(!fmt16); depth = 0;
         return alt ? 2 : 0; }
+    if (!fmt16) upRgba8Fail = 0;
     return 1;
 }
 /* DS pixel (compositor output: R bits 0-7, G 8-15, B 16-23) -> RGBA8 (0xRRGGBBAA); 256x192 into a 256x256 texture. */

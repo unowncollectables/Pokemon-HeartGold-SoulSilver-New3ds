@@ -163,6 +163,11 @@ CONTROLS / TOUCH
   g3_batchcull=1    Off-screen skip (3D tab): raw 3D batches and 16-triangle runs whose bounding box is wholly off screen are skipped
                     before any vertex is transformed. Same picture, less CPU in towns (Goldenrod: ~5,500 of ~7,900 triangles a frame).
                     0 = old path (every triangle transformed, then rejected). Default 1. Log: [G3CULL] every 300 frames.  [2026-11-04]
+  g3_xfcache=0      3D transform cache (Display tab): list-cache replay draws whose clip matrix (and stereo/mid/wide rim) match the
+                    last time they were transformed reuse the stored clip-space triangles. Same picture. 0 = never reuse. Default 0.
+                    Log: [G3XF] on boot / settings; hit/miss on [G3PROF] tick lines or every 300 frames.  [2026-11-16]
+  g3_prof=0         3D profile (Debug tab): one [G3PROF] tick line per 3D frame with cull / pair / xform / clip / queue / tex / end / raw
+                    times in us. 0 = older 300-frame average only. Default 0.  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),
