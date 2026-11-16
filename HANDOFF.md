@@ -1,3 +1,7 @@
+# 60 fps hold
+
+Settings > Display > 60 fps hold (`fps60_hold`, default OFF) repeats the real frame in the in-between slot when that picture would be the same. The repeat is used only when every 3D draw paired with the previous tick and none of those matrices moved, a sample of positions and texture coordinates is unchanged (water, particles, a walking NPC), and sprites, 2D scroll and background tiles are unchanged (camera on the 2D layers, NPCs drawn as sprites, animated tiles). OFF keeps today's skip with no second present. The repeat is two screen quads of the picture already composed, not a second 3D scene, so a still room does not pay the in-between raster and does not hand a computed midpoint over late. Log: `[FPS60] hold real frame xN`.
+
 # 60 fps pipe
 
 Wide stereo in-between frames were ending the 3D command list on every side copy. With the strip pack that is 4 breaks per eye for the in-between (centre, left side, right side, readback) and 2 for the real picture, 12 breaks at full slider. Each break stops the 3D processor before the copy. Settings > Display > 60 fps pipe (`fps60_pipe`, default OFF) draws both in-between scenes, then every in-between copy, then both real scenes, then every real copy: 2 breaks. The triangles, the clear, and the copy rectangles are unchanged. OFF keeps the old breaks. It runs only on a wide direct in-between frame, not in fog and not on the 2x target.

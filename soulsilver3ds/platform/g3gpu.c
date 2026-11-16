@@ -37,6 +37,15 @@ enum { MID_STRIP_WIDTH = 64, MID_TEXTURE_HEIGHT = 256 };
 static u32 *midStripTiles;
 static C3D_Tex midTex[2]; static u32 *rbM[2]; static int midHave[2], midFail, midOver, midValid, midEyes, midWide;
 static unsigned midTot, midMat, midMov; unsigned G3G_MidWhy[6];   /* why no in-between 3D: 0 not direct, 1 too many matrix runs, 2 CPU fog, 3 nothing moved, 4 too few draws paired, 5 no memory */
+static int fpsHoldFlag;
+int G3G_FpsHold(void) { return fpsHoldFlag; }
+/* Hold only when the in-between would be the same picture as the real frame.
+   tot/mat/mov come from the 3D matrix pairing. sceneMoved is 2D (sprites, scroll, tiles).
+   vertsMoved is a sample of positions and texture coordinates (water, particles, a walking NPC). */
+int P3DS_FpsHoldDecide(int toggle, unsigned tot, unsigned mat, unsigned mov, int sceneMoved, int vertsMoved) {
+    if (!toggle || !tot || mov || mat != tot || sceneMoved || vertsMoved) return 0;
+    return 1;
+}
 extern int P3DS_Fps60Active(void); extern int P3DS_Fps60Cfg(void);
 static int midAlloc(int n) {
     if (midFail) return 0;
@@ -403,7 +412,7 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
     unsigned r = nativeClear & 63, g = (nativeClear >> 8) & 63, b = (nativeClear >> 16) & 63, a = (nativeClear >> 24) & 31;
     clearRGBA = ((r << 2 | r >> 4) << 24) | ((g << 2 | g >> 4) << 16) | ((b << 2 | b >> 4) << 8) | (a * 255 / 31);
     clearD = clearDepth16 / 65535.0f; eyes = stereo ? 2 : 1; vn[0] = vn[1] = bn[0] = bn[1] = 0;
-    G3G_MidRec = 0; krN = 0; kWantId = kCurWant = 1; midOver = 0; midValid = 0; midTot = midMat = midMov = 0;
+    G3G_MidRec = 0; krN = 0; kWantId = kCurWant = 1; midOver = 0; midValid = 0; midTot = midMat = midMov = 0; fpsHoldFlag = 0;
     { static int stLast = -1; if (stereo != stLast) { if (stLast >= 0 && wideFail) { wideFail = 0; PSPNativeMemLog("[3DRES] wide view retried after the 3D slider changed"); } stLast = stereo; }
       /* run 141: while a panel app (party/bag/summary in the JOHTO panel) is opening or open, keep the current eye targets: it draws no 3D the player
          sees (the held field is on top), and re-making the targets (VRAM free + alloc + the 2x scale-target dance) cost a ~100 ms frame at every open. */
@@ -771,6 +780,28 @@ static int fps60Pipe(void) {
     return pipeCfg;
 }
 void G3G_SetFps60Pipe(int v) { pipeCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_pipe=%d from settings", pipeCfg); }
+static int holdCfg = -1;
+static int fps60Hold(void) {
+    if (holdCfg < 0) { extern int P3DS_CfgInt(const char *, int); holdCfg = P3DS_CfgInt("fps60_hold", 0) != 0;
+        PSPNativeMemLog("[FPS60] fps60_hold=%d (1 = repeat the real frame when nothing moved)", holdCfg); }
+    return holdCfg;
+}
+void G3G_SetFps60Hold(int v) { holdCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_hold=%d from settings", holdCfg); }
+extern int P3DS_FpsSceneMoved(void);
+static int fpsVertsMoved(void) {
+    static u32 prev; static int have;
+    u32 h = 2166136261u ^ vn[0];
+    if (vn[0] && vb[0]) {
+        unsigned step = vn[0] > 32 ? vn[0] / 32 : 1;
+        for (unsigned i = 0; i < vn[0]; i += step) {
+            u32 b; memcpy(&b, &vb[0][i].x, 4); h = (h ^ b) * 16777619u;
+            memcpy(&b, &vb[0][i].y, 4); h = (h ^ b) * 16777619u;
+            memcpy(&b, &vb[0][i].s, 4); h = (h ^ b) * 16777619u;
+            memcpy(&b, &vb[0][i].t, 4); h = (h ^ b) * 16777619u;
+        }
+    }
+    int moved = !have || h != prev; have = 1; prev = h; return moved;
+}
 void G3G_End(u32 *outL, u32 *outR) {
     { extern void P3DS_Fps60Poll(void); P3DS_Fps60Poll(); }
     if (ok != 1) return;
@@ -817,7 +848,10 @@ void G3G_End(u32 *outL, u32 *outR) {
     dirWide = dirStrip = dirRb = 0;
     int mid = 0;
     if (G3G_MidRec) {
-        if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
+        const int holdOn = fps60Hold();
+        const int still = P3DS_FpsHoldDecide(holdOn, midTot, midMat, midMov, holdOn ? P3DS_FpsSceneMoved() : 0, holdOn ? fpsVertsMoved() : 0);
+        if (still && direct) { fpsHoldFlag = 1; static unsigned n; if (++n == 1 || n % 600 == 0) PSPNativeMemLog("[FPS60] hold real frame x%u (camera, sprites, tiles and 3D all still)", n); }
+        else if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
         else if (!midTot || !midMov) G3G_MidWhy[3]++; else if (midMat * 4 < midTot * 3) G3G_MidWhy[4]++; else mid = 1;
     }
     if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
