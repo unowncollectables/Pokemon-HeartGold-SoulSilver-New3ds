@@ -452,8 +452,22 @@ static void titleStripOut(u16 mbr){
  }P3DS_GcTitleWideValid=1;
 }
 /* the whole composed picture into tgt: every 2D batch of the frame just walked and the 3D layer quad sampling t3 */
+/* RGB8 is a 24-bit memory fill: the first three little-endian bytes of the
+   fill word are repeated. RGBA8 words in this file are R<<24|G<<16|B<<8|A,
+   so that fill stores A,B,G. An opaque backdrop (A = 255) is then sampled as
+   blue wherever nothing is drawn over the clear. RGB8 pixels are B,G,R. */
+static u32 gcClearWord(const C3D_RenderTarget *tgt, u32 rgba) {
+    if (tgt->frameBuf.colorFmt != GPU_RB_RGB8) return rgba;
+    static int once;
+    if (!once) {
+        once = 1;
+        PSPNativeMemLog("[FPS60] RGB8 in-between clear keeps the backdrop (word %08lx -> 24-bit fill %08lx)",
+                        (unsigned long)rgba, (unsigned long)(rgba >> 8));
+    }
+    return rgba >> 8;
+}
 static void gcDrawAll(C3D_RenderTarget *tgt, u32 bd, C3D_Tex *t3, unsigned q3, int b3, GV *vbuf, float width) {
-    C3D_RenderTargetClear(tgt, C3D_CLEAR_ALL, bd, 0);
+    C3D_RenderTargetClear(tgt, C3D_CLEAR_ALL, gcClearWord(tgt, bd), 0);
     C3D_FrameDrawOn(tgt);
     C3D_BindProgram(&prog);
     C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, width, 0.0f, 256.0f, 1.0f, -1.0f, true);  /* DS y 0 -> clip -1 (= g3gpu convention, FLIP_VERT readback gives rows top-first) */
