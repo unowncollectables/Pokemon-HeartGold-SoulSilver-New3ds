@@ -1721,7 +1721,7 @@ static const SAppTab kTabs[7]={
       {kG3ThrCheckItem,"3D thread check","With 3D worker thread ON: CRC job POD, xform, and texture identity/content at submit vs draw. Logs [G3THR] snap/tex mismatch. Leave OFF for normal play."},
       {kG3FastXfItem,"3D fast xform","Hoists the clip matrix in the raw transform loop (less VFP reload). Same picture. New 3DS has no NEON; stereo already transforms once for both eyes."},
       {kG3TexFenceItem,"3D tex fence","With 3D worker thread ON: OFF = depth-1. ON = pin in-flight textures so GetTexture need not wait. DEEP = also skip TexCreate idle wait (deeper front/cmd vs raw overlap). Leave OFF if unsure."},
-      {kG3TexSafeItem,"3D tex safe","With 3D worker thread ON: after VBlank, upload a new GPU texture instead of updating one this frame already queued (stops brief texture flashes while walking). Leave OFF if unsure."},
+      {kG3TexSafeItem,"3D tex safe","With 3D worker thread ON: after VBlank, upload a new GPU texture instead of updating one this frame already queued (stops brief texture flashes while walking). Safe with 3D tex fence (defers frees while pins are held). Leave OFF if unsure."},
       {kG3StereoShareItem,"3D stereo share","With the 3D slider up: TriClip2 writes left only, then expands the right eye after the worker drains (bit-identical). Cuts stereo raw store traffic. Leave OFF if unsure."}}},
 };
 static void prettyLab(char*d,const char*s,int n){/* run 64: "WIDE VIEW FX" -> "Wide view FX" (acronyms kept) */
