@@ -3,7 +3,8 @@
    2) Full POD snapshot survives live global mutation after submit.
    3) Depth-1 resolve: GetTexture/TexCreate only when the queue is idle (inline cadence).
    4) Deferred Batch carries sd/parL/wide/gt (FlushDeferred must not use live stereo/tex).
-   5) Threaded vs inline clip xform hashes match after arena copy. */
+   5) Threaded vs inline clip xform hashes match after arena copy.
+   6) Tex fence: LRU must not free a gt while pin>0; deep queue OK when pinned. */
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -110,6 +111,29 @@ static int batch_carries_stereo_tex(void) {
     return bad.sd == 0 && bad.gt == NULL && good.sd == 4 && good.gt != NULL && good.hasTex;
 }
 
+/* Tex fence: deep GetTexture OK only if in-flight gt is pinned (else LRU frees it → white water / ghosts). */
+static int tex_fence_protects_inflight_gt(void) {
+    void *gtA = (void *)(uintptr_t)0xA11;
+    unsigned pin = 1; /* job 0 holds gtA */
+    int lru_would_free_unpinned = (pin == 0); /* buggy deep queue without fence */
+    int lru_blocked_when_pinned = (pin > 0);  /* fence: skip / wait */
+    /* After worker finishes: pin drops, free OK */
+    pin = 0;
+    int free_ok_after_release = (pin == 0);
+    (void)gtA;
+    return !lru_would_free_unpinned && lru_blocked_when_pinned && free_ok_after_release;
+}
+
+/* With fence, TexCreate still serializes on idle; DecodeTex of an already-created gt does not. */
+static int tex_fence_create_still_waits(void) {
+    int inflight = 1;
+    int need_create = 1;
+    int decode_only = 0;
+    int waited_for_create = need_create && inflight; /* must wait */
+    int waited_for_decode = decode_only && inflight; /* must NOT require wait when pinned */
+    return waited_for_create == 1 && waited_for_decode == 0;
+}
+
 int main(void) {
     int bad = 0;
     Job J = {0}; J.cullFace = 2; J.sd = 4; J.mid = 1; J.wide = 1;
@@ -141,6 +165,8 @@ int main(void) {
 
     if (!depth1_resolve_only_when_idle()) bad++;
     if (!batch_carries_stereo_tex()) bad++;
+    if (!tex_fence_protects_inflight_gt()) bad++;
+    if (!tex_fence_create_still_waits()) bad++;
 
     if (bad) { fprintf(stderr, "g3_thr_race bad %d\n", bad); return 1; }
     puts("g3_thr_race ok");

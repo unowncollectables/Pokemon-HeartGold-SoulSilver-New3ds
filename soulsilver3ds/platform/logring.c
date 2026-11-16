@@ -144,7 +144,7 @@ static UseEnt useTab[] = {
     { "seasonal_particles", "[WEATHER] seasonal particles ", 0 },
     { "visible_wild_spawns", "[WILD] spawn ", 0 }, { "visible_wild_battles", "[WILD] contact ", 0 },
     { "fps60_pipe", "[FPS60] pipe ", 0 }, { "fps60_hold", "[FPS60] hold ", 0 }, { "fps60_strips", "[FPS60] fps60_strips=", 0 }, { "fps60_vram", "[FPS60] vram reserve ", 0 }, { "fps60_area", "[FPS60] area ", 0 },
-    { "g3_xfcache", "[G3XF] ", 0 }, { "g3_prof", "[G3PROF] 60f ", 0 }, { "g3_wake", "[G3THR] g3_wake=", 0 }, { "g3_thr_check", "[G3THR] snap mismatch", 0 }, { "g3_fastxform", "[G3XF] g3_fastxform=", 0 },
+    { "g3_xfcache", "[G3XF] ", 0 }, { "g3_prof", "[G3PROF] 60f ", 0 }, { "g3_wake", "[G3THR] g3_wake=", 0 }, { "g3_thr_check", "[G3THR] snap mismatch", 0 }, { "g3_fastxform", "[G3XF] g3_fastxform=", 0 }, { "g3_thr_texfence", "[G3THR] texfence:", 0 },
 };
 #define NUSE ((int)(sizeof useTab / sizeof useTab[0]))
 void P3DS_Use(const char *name) { for (int i = 0; i < NUSE; i++) if (!strcmp(useTab[i].name, name)) { __sync_fetch_and_add(&useTab[i].n, 1); return; } }
@@ -176,7 +176,7 @@ static const CfgEnt cfgTab[] = {
     { "battle_monobj_hide", 1, 0 }, { "fps_tweaks", 7, 0 }, { "dc_flush_skip", 1, 0 }, { "fog_hole", 1, 0 }, { "bottom_hd", 1, 0 }, { "pg_extras", 1, 0 }, { "wide_pokedex", 1, 0 }, { "wide_pc", 1, 0 },  { "bottom_menu", 1, 0 }, { "bottom_vramgen", 1, 0 }, { "cam_zoom", 0, 0 }, { "catch_overlay", 1, 0 },
     { "cheat_no_encounters", 0, 0 }, { "cheat_time", 0, 0 }, { "cpad_dpad", 1, 0 }, { "credits_splash", 1, 0 }, { "cstick_mode", 2, 0 },
     { "display_capture", 1, 0 }, { "fast_text", 2, 0 }, { "follower", 0, 0 }, { "follower_slot", 0, 0 }, { "follower_talk", 0, 0 },
-    { "fps_counter", 1, 0 }, { "fps60_pipe", 0, 0 }, { "fps60_hold", 0, 0 }, { "fps60_strips", 0, 0 }, { "fps60_vram", 0, 0 }, { "fps60_area", 0, 0 }, { "g3_xfcache", 0, 0 }, { "g3_prof", 0, 0 }, { "g3_wake", 0, 0 }, { "g3_thr_check", 0, 0 }, { "g3_fastxform", 0, 0 }, { "g3_wmode", 2, 0 }, { "g3_sharp", 3, 0 }, { "g3_smooth", 0, 0 },
+    { "fps_counter", 1, 0 }, { "fps60_pipe", 0, 0 }, { "fps60_hold", 0, 0 }, { "fps60_strips", 0, 0 }, { "fps60_vram", 0, 0 }, { "fps60_area", 0, 0 }, { "g3_xfcache", 0, 0 }, { "g3_prof", 0, 0 }, { "g3_wake", 0, 0 }, { "g3_thr_check", 0, 0 }, { "g3_fastxform", 0, 0 }, { "g3_thr_texfence", 0, 0 }, { "g3_wmode", 2, 0 }, { "g3_sharp", 3, 0 }, { "g3_smooth", 0, 0 },
     { "gpu_blend", 1, 0 }, { "gpu_compose", 2, 0 }, { "gpu_compose_stereo", 1, 0 }, { "gpu_compose_stereo_nf", 1, 0 }, { "gpu_direct3d", 1, 0 }, { "gpu_direct3d_wide", 1, 0 }, 
     { "ribbon_check", 1, 0 }, { "celebrations", 1, 0 }, { "birthdays", 0, 0 }, { "hunt_counter", 1, 0 }, { "hunt_stats", 1, 0 }, { "shiny_suite", 1, 0 }, { "shiny_rate", 0, 0 }, { "battery_warn", 1, 0 }, { "type_hint", 1, 0 }, { "dmg_check", 1, 0 }, { "hunt_async_save", 1, 0 }, { "lid_sound", 1, 0 }, { "log_max_kb", 1024, 0 }, { "menu_audio", 1, 0 }, { "menu_button", 0, 0 },
     { "menu_combo", 1, 0 }, { "repel_prompt", 1, 0 }, { "reset_skip_intro", 1, 0 }, { "reusable_tms", 1, 0 }, { "save_backup", 1, 0 },

@@ -176,6 +176,10 @@ CONTROLS / TOUCH
   g3_fastxform=0    3D fast xform (Debug tab): hoist the clip matrix in the raw transform loop (less VFP reload). Same IEEE
                     ops / same picture. New 3DS has no NEON; stereo already uses one transform for both eyes (TriClip2).
                     Default 0. Log: [G3XF] g3_fastxform=.  [2026-11-16]
+  g3_thr_texfence=0 3D tex fence (Debug tab): with g3_thread ON, pin GPU textures held by in-flight jobs so GetTexture for
+                    the next draw need not wait for the whole queue (deep pipeline). TexCreate still waits for citro3d idle.
+                    OFF = #488 depth-1. Overlaps GeBuffer/front/cmd with worker raw. Same picture. Default 0.
+                    Log: [G3THR] texfence: max in-flight / avg depth.  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),

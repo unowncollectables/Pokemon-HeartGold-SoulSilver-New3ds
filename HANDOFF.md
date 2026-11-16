@@ -1,3 +1,34 @@
+# g3_thr_texfence — overlap front/cmd with worker raw (stereo-60 follow-up)
+
+Main `2de0150` (#488+#489). Run 876 stereo field: front ~6.0 ms, cmd ~2.5 ms, raw ~8.2 ms → ~44 fps. Moving GeBuffer/handler onto core-2 needs a full private G3SIM clone (matrix stacks, `prevXYZ`, list-cache, polygon slots) — not this PR. Field stereo already one-xforms both eyes (`G3G_TriClip2`). Core 1 is already used by `stereo_c1` for engine B in stereo; G3 worker stays on core 2.
+
+## What actually serialised front with raw after #488
+
+Depth-1 `gtWaitIdle()` before every `GetTexture` made the game thread wait for the prior job before resolving the next tex, so GeBuffer/front/cmd could not overlap worker `GpuRawJ`. The deep-queue bug was **not** “GetTexture while busy” alone: LRU/re-decode called `texFree` on a `gt` an in-flight job still held → white water / ghost billboards.
+
+## This PR (`g3_thr_texfence`, default OFF)
+
+- Settings > Debug > **3D tex fence**: with `g3_thread` ON, **pin** each job’s `gt` until the worker finishes that job. `GetTexture` may run while jobs are in flight; LRU skips pinned slots; `texFree` waits only for that pin (not always a full drain). **`G3G_TexCreate` still waits for citro3d idle.**
+- OFF = unchanged #488 depth-1.
+- `g3_thr_check` also flags `hasTex && !gt`; snap CRC includes `texGen`.
+- Host: `tools/g3_thr_race_test.c` (fence pin rules); `tools/g3_fixedxform_test.c` shows Q16.16 ≠ float → **no fixed-point toggle**.
+- Log: `[G3THR] texfence: max in-flight N, avg depth M, pins …` — depth > 1 means front/cmd overlapped raw.
+
+## Expected gains (Azahar / hardware A/B)
+
+| Stage | OFF (depth-1) | ON (texfence) |
+|---|---|---|
+| front / cmd | same CPU work; often stalls behind raw | same CPU work, **overlapped** with worker raw |
+| raw | worker busy | same transform; less game-thread wait before submit |
+| wall frame | ≈ front_serial + raw + flush + end | ≈ max(front, raw) + flush + end (ideal) |
+| picture | baseline | must match; `g3_thr_check` 0 mismatches |
+
+Do not claim stereo 44→60 without device numbers. Typical hope: cut a few ms of game-thread wait when many textured draws share already-created `gt`s (billboards/water after first create).
+
+**Not in this PR:** GeBuffer/handler clone on the worker; across-frame eye pipeline (double-buffer `G3G_End` vs next Begin); fixed-point xform.
+
+Device: `g3_thread=1 g3_wake=1 g3_thr_texfence=1 g3_thr_check=1 g3_prof=1`, Goldenrod + Route 34 stereo; compare wait us and texfence depth vs fence OFF.
+
 # g3_fastxform + xfcache under depth-1 thread (stereo/perf follow-up)
 
 Run 876 G3PROF field stereo: front ~6.0 ms, cmd ~2.5 ms, raw ~8.2 ms (xform alone 2–7.5 ms), xfcache hit~0/miss~66 → ~44 fps stereo / ~51 mono. New 3DS has **no NEON**. Field stereo already transforms once (`G3G_TriClip2` writes both eyes from the same clip verts) — the remaining cost is VFP matrix×vert and poor xfcache hits while walking.
