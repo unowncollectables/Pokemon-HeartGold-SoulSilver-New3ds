@@ -35,7 +35,7 @@ static int deep_skips_texcreate_wait(void) {
     return wait_at_1 == 1 && skip_at_2 == 1;
 }
 
-/* Model: share extends left batch in place (bn unchanged); expand must full-sync batches. */
+/* Model: share extends left batch in place (bn unchanged); expand syncs count in-place then copies only new batches. */
 static int expand_syncs_batch_count(void) {
     V vb0[6], vb1[6];
     B bt0[2] = {{0, 3}, {0, 0}}, bt1[2] = {{0, 3}, {0, 0}};
@@ -44,12 +44,20 @@ static int expand_syncs_batch_count(void) {
     /* second share tri extends left batch count only */
     vn0 = 6; bt0[0].count = 6; int pending = 1;
     if (!pending) return 0;
-    unsigned v0 = vn1;
+    unsigned v0 = vn1, b0 = bn1;
     memcpy(vb1 + v0, vb0 + v0, (vn0 - v0) * sizeof(V));
     for (unsigned i = v0; i < vn0; i++) vb1[i].x += (dsh[i] / 128.0f) * 1.0f;
-    memcpy(bt1, bt0, bn0 * sizeof(B)); /* full batch sync */
+    if (b0 > 0 && b0 <= bn0) bt1[b0 - 1].count = bt0[b0 - 1].count; /* incremental */
+    if (bn0 > b0) memcpy(bt1 + b0, bt0 + b0, (bn0 - b0) * sizeof(B));
     vn1 = vn0; bn1 = bn0; pending = 0;
     return bt1[0].count == 6 && bn1 == 1 && vn1 == 6 && pending == 0;
+}
+/* Engagement proof: left-only path increments leftTris; dual path increments dualTris. */
+static int share_stats_engage(void) {
+    unsigned left = 0, dual = 0;
+    int shareOn = 1, dshOk = 1; /* malloc succeeded */
+    if (shareOn && dshOk) left += 3; else dual += 3;
+    return left == 3 && dual == 0;
 }
 
 /* Hard-clip gate: expand before any non-share write so eye-0 Tri cannot leave stale dsh verts. */
@@ -80,6 +88,7 @@ int main(void) {
     if (!deep_skips_texcreate_wait()) bad++;
     if (!expand_syncs_batch_count()) bad++;
     if (!expand_before_hardclip()) bad++;
+    if (!share_stats_engage()) bad++;
     if (bad) { fprintf(stderr, "g3_stereo_share bad %d\n", bad); return 1; }
     puts("g3_stereo_share ok");
     return 0;

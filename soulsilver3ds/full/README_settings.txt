@@ -188,7 +188,14 @@ CONTROLS / TOUCH
                     Log: [G3THR] tex flash risk / tex_postvblank replace vs in-place / defer-free.  [2026-11-16]
   g3_stereo_share=0 3D stereo share (Debug tab): with the 3D slider up, TriClip2 writes left only; after drain (or before
                     hard-clip / any eye-1 write), expand right with x += scale*(shR-shL)/128*w. Bit-identical to dual
-                    TriClip2. Cuts ~half the stereo vb store traffic in raw. Default 0. Log: [G3STER] expand.  [2026-11-16]
+                    TriClip2. stereoDsh is malloc (not linearAlloc; ~192 KiB linear often failed → share silently OFF on
+                    9bbfcd1). Default 0. Log: [G3STER] 60f leftOnly/dual/expands (want leftOnly>>dual).  [2026-11-16]
+  present_pace=0    Present pace (Debug tab): NONBLOCK C3D_FrameBegin so a frame that just misses 60 does not snap to
+                    30 via SYNCDRAW / double-buffer align. tearfree still waits for GSP before FrameEnd (no tearing).
+                    Default 0. Log: [PACE] 600f nonblock ok/blocked.  [2026-11-16]
+  g3_front_ov=0     3D front overlap (Debug tab): with g3_thread ON, wake every job and GatherRaw/DecodeTex for
+                    post-VBlank refreshes while waiting for the worker drain (GPU upload still after drain). Same
+                    picture; overlaps residual front with remaining raw. Default 0. Log: [FRONT].  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),
