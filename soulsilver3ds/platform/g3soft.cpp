@@ -39,8 +39,11 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    g3_wake (Debug tab, default OFF): with g3_thread ON, wake the worker on every queued job (not every 6). Same picture.
    g3_thr_check (Debug tab, default OFF): with g3_thread ON, CRC the job POD at submit and again on the worker; log [G3THR] snap mismatch.
    g3_fastxform (Debug tab, default OFF): hoist the clip matrix into locals for the raw transform loop (same IEEE ops, less reload).
-   Host: tools/g3_thr_race_test.c (job self-contained) and tools/g3_fastxform_test.c (hoist bit-identical). */
-static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1;
+   g3_thr_texfence (Debug tab, default OFF): with g3_thread ON, pin GPU tex objects held by in-flight jobs so GetTexture
+   can resolve the next draw without waiting for the whole queue (deep pipeline). TexCreate still waits for citro3d idle.
+   OFF keeps the #488 depth-1 wait. Overlaps GeBuffer/front/cmd with worker raw without moving the handler.
+   Host: tools/g3_thr_race_test.c (job self-contained + tex fence), tools/g3_fastxform_test.c. */
+static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1,g3TexFenceCfg=-1;
 /* Hot path for g3packet: 0 until g3_prof is read/on, so GeBuffer pays nothing when profiling is OFF. */
 extern "C" volatile int P3DS_G3ProfLive;
 volatile int P3DS_G3ProfLive;
@@ -54,6 +57,8 @@ extern "C" int P3DS_G3ThrCheckCfg(void){if(g3ThrCheckCfg<0){g3ThrCheckCfg=P3DS_C
 extern "C" void P3DS_SetG3ThrCheck(int v){g3ThrCheckCfg=v!=0;PSPNativeMemLog("[G3THR] g3_thr_check=%d from settings",g3ThrCheckCfg);}
 extern "C" int P3DS_G3FastXformCfg(void){if(g3FastXformCfg<0){g3FastXformCfg=P3DS_CfgInt("g3_fastxform",0)!=0;PSPNativeMemLog("[G3XF] g3_fastxform=%d (1 = hoist clip matrix in the raw transform loop; same picture)",g3FastXformCfg);}return g3FastXformCfg;}
 extern "C" void P3DS_SetG3FastXform(int v){g3FastXformCfg=v!=0;PSPNativeMemLog("[G3XF] g3_fastxform=%d from settings",g3FastXformCfg);}
+extern "C" int P3DS_G3TexFenceCfg(void){if(g3TexFenceCfg<0){g3TexFenceCfg=P3DS_CfgInt("g3_thr_texfence",0)!=0;PSPNativeMemLog("[G3THR] g3_thr_texfence=%d (1 = pin in-flight GPU textures; deep queue overlaps front/cmd with raw)",g3TexFenceCfg);}return g3TexFenceCfg;}
+extern "C" void P3DS_SetG3TexFence(int v){g3TexFenceCfg=v!=0;PSPNativeMemLog("[G3THR] g3_thr_texfence=%d from settings",g3TexFenceCfg);}
 static u64 idleAtBegin,prWall;static unsigned prFrames,prTrisSum,prXfHitSum,prXfMissSum;
 static int cull3dCfg(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"cull3d=%d",&x)==1)v=x;fclose(f);}PSPNativeMemLog("[G3] back-face culling cull3d=%d (0 off, 1 normal, 2 inverted winding)",v);}return v;}
 /* ---------------- textures ---------------- */
@@ -69,11 +74,37 @@ static bool Gather(unsigned address,unsigned size,bool palette,u8*dst){
 }
 static inline u32 c555(u16 c,unsigned a){unsigned r=c&31,g=(c>>5)&31,b=(c>>10)&31;return (r<<3|r>>2)|((g<<3|g>>2)<<8)|((b<<3|b>>2)<<16)|(a<<24);}
 struct Tex{unsigned off,pal,fmt,w,h,c0,gen;u32*px;unsigned lru;u8*raw;unsigned rawN;void*gt;u64 cnt;unsigned useF;};
-static bool gtInWorker=false;static void gtDrainIfBusy(int why);extern "C" {static void ListFreeNow(void*p);}static void*gtPendFree[512];static unsigned gtPendN;
+static bool gtInWorker=false;static int gtCfg=0;static void gtDrainIfBusy(int why);extern "C" {static void ListFreeNow(void*p);}static void*gtPendFree[512];static unsigned gtPendN;
 extern "C" {int G3G_Init(void);void*G3G_TexCreate(const u32*,unsigned,unsigned);void G3G_TexFree(void*);void G3G_Begin(u32,unsigned,int);
  void G3G_Tri(int,const float*,const float*,const float*,const float*,const float*,const u32*,void*,unsigned,unsigned,int,int,int,int,int,int,int);
  void G3G_End(u32*,u32*);void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectInvalidate(void);void G3G_TexUpdate(void*,const u32*,unsigned,unsigned);int G3G_RbSyncOn(void);void G3G_TriClip(int,const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*);void G3G_TriClip2(const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*,const float*);unsigned G3G_LastUs(void);extern int G3G_TexFlip,G3G_FlipY,G3G_ZInv,G3G_Async,G3G_Wide,G3G_CurFog,G3G_FogNoW;}
-static void texFree(void*p){gtDrainIfBusy(3);G3G_TexFree(p);}   /* a queued job may still hold this GPU texture */
+/* g3_thr_texfence: refcount GPU tex pointers held by in-flight ring jobs. GetTexture must not free a pinned gt
+   (that was the deep-queue white-water / ghost-billboard bug: LRU/re-decode freed a gt the worker still used). */
+enum{GT_PIN_N=128};
+static struct{void*gt;unsigned n;}gtPins[GT_PIN_N]; /* gt/n touched from game thread + worker → atomics */
+static unsigned gtPinWaits,gtPinHits,gtInFlightMax,gtFenceDepthSum,gtFenceDepthN;
+static unsigned gtPinGet(void*gt){
+ if(!gt)return 0;
+ for(unsigned i=0;i<GT_PIN_N;i++)if(__atomic_load_n(&gtPins[i].gt,__ATOMIC_ACQUIRE)==gt)return __atomic_load_n(&gtPins[i].n,__ATOMIC_ACQUIRE);
+ return 0;}
+static void gtPinAdd(void*gt){
+ if(!gt)return;
+ for(unsigned i=0;i<GT_PIN_N;i++)if(__atomic_load_n(&gtPins[i].gt,__ATOMIC_ACQUIRE)==gt){__atomic_fetch_add(&gtPins[i].n,1,__ATOMIC_ACQ_REL);gtPinHits++;return;}
+ for(unsigned i=0;i<GT_PIN_N;i++){void*exp=nullptr;if(__atomic_compare_exchange_n(&gtPins[i].gt,&exp,gt,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)){__atomic_store_n(&gtPins[i].n,1,__ATOMIC_RELEASE);gtPinHits++;return;}}
+ /* table full: drain so the worker releases pins, then retry once */
+ gtPinWaits++;gtDrainIfBusy(3);
+ for(unsigned i=0;i<GT_PIN_N;i++){void*exp=nullptr;if(__atomic_compare_exchange_n(&gtPins[i].gt,&exp,gt,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)){__atomic_store_n(&gtPins[i].n,1,__ATOMIC_RELEASE);gtPinHits++;return;}}}
+static void gtPinRel(void*gt){
+ if(!gt)return;
+ for(unsigned i=0;i<GT_PIN_N;i++)if(__atomic_load_n(&gtPins[i].gt,__ATOMIC_ACQUIRE)==gt){
+  if(__atomic_fetch_sub(&gtPins[i].n,1,__ATOMIC_ACQ_REL)==1)__atomic_store_n(&gtPins[i].gt,(void*)nullptr,__ATOMIC_RELEASE);
+  return;}}
+static void gtWaitPinned(void*gt); /* defined with the worker */
+static void texFree(void*p){
+ if(!p)return;
+ /* Fence path: wait only for jobs that still hold this gt. OFF / no thread: drain the whole queue as before. */
+ if(gtCfg&&P3DS_G3TexFenceCfg())gtWaitPinned(p);else gtDrainIfBusy(3);
+ G3G_TexFree(p);}
 static int gpuOn=-1,gpuReq=-1;
 /* Source bytes (texels [+4x4 index data] + palette) of a texture; used to skip re-decoding when VRAM gen moved
    but this texture's bytes did not (outdoors the gen changes every frame). */
@@ -206,8 +237,13 @@ static Tex*GetTextureImpl(){
   continue;
   decode_into_i:{Tex*e=&t;if(!DecodeTex(e))return nullptr;return e;}
  }
- /* new entry */
- {unsigned slot;if(texN<96)slot=texN++;else{slot=0;for(unsigned i=1;i<texN;i++)if(texCache[i].lru<texCache[slot].lru)slot=i;free(texCache[slot].px);free(texCache[slot].raw);texFree(texCache[slot].gt);}
+ /* new entry — with tex fence, never evict a slot whose gt is still pinned by an in-flight job */
+ {unsigned slot;if(texN<96)slot=texN++;else{
+   slot=~0u;
+   for(unsigned i=0;i<texN;i++)if(!gtPinGet(texCache[i].gt)&&(slot==~0u||texCache[i].lru<texCache[slot].lru))slot=i;
+   if(slot==~0u){/* every slot pinned: wait for the whole queue, then pick LRU */
+    gtDrainIfBusy(3);slot=0;for(unsigned i=1;i<texN;i++)if(texCache[i].lru<texCache[slot].lru)slot=i;}
+   free(texCache[slot].px);free(texCache[slot].raw);texFree(texCache[slot].gt);}
   Tex&t=texCache[slot];t={p.textureOffset,s_texPlttBase,fmt,w,h,p.color0,PSPNativeVramGen-1u,nullptr,0,nullptr,0,nullptr};
   return GetTexture();}
 }
@@ -243,7 +279,7 @@ static int parLock,parTrack;static unsigned parN;static float parZMin=1,parZMax=
 /* One raw/screen draw as a value. Worker path must only read this (plus immutable config), never live stereo/matrix/tex globals. */
 struct GJob{const GuVertex*v;unsigned n;float M[16];bool cullAll;int cullFace;int fog;unsigned depthTest;G3SIM_TexImageParam_t tp;bool tdw;bool wbuf;bool replay;
  const void*xfKey;int sd;int parL;bool mid,wide;
- Tex*tex;void*gt;bool hasTex;unsigned tw,th;bool pre,chunked;const u8*cmask;bool screen,deferOk;
+ Tex*tex;void*gt;bool hasTex;unsigned tw,th;unsigned texGen;bool pre,chunked;const u8*cmask;bool screen,deferOk;
  /* post-#485/#486: midpoint K, cull/clip/sprite flags, submit CRC + clip xform hash for g3_thr_check */
  bool hasK;float K[16];int sprDepth;int cull3d;bool cpuClip,guardClip,guardBat,edgeFix,fieldSpr;u32 snapCrc,xformCrc;};
 static const GJob* gtCur; /* set while GpuRawJ / DrawScreenJ run */
@@ -611,7 +647,7 @@ static u32 gtSnapCrc(const GJob&J){
  u32 h=2166136261u;auto feed=[&](const void*p,unsigned n){const u8*b=(const u8*)p;for(unsigned i=0;i<n;i++)h=(h^b[i])*16777619u;};
  feed(J.M,sizeof J.M);feed(&J.n,sizeof J.n);feed(&J.sd,sizeof J.sd);feed(&J.parL,sizeof J.parL);feed(&J.mid,1);feed(&J.wide,1);
  feed(&J.cullFace,sizeof J.cullFace);feed(&J.fog,sizeof J.fog);feed(&J.depthTest,sizeof J.depthTest);feed(&J.tp,sizeof J.tp);
- feed(&J.tdw,1);feed(&J.wbuf,1);feed(&J.gt,sizeof J.gt);feed(&J.tw,sizeof J.tw);feed(&J.th,sizeof J.th);feed(&J.hasTex,1);
+ feed(&J.tdw,1);feed(&J.wbuf,1);feed(&J.gt,sizeof J.gt);feed(&J.tw,sizeof J.tw);feed(&J.th,sizeof J.th);feed(&J.hasTex,1);feed(&J.texGen,sizeof J.texGen);
  feed(&J.hasK,1);if(J.hasK)feed(J.K,sizeof J.K);feed(&J.sprDepth,sizeof J.sprDepth);feed(&J.cull3d,sizeof J.cull3d);
  feed(&J.cpuClip,1);feed(&J.guardClip,1);feed(&J.guardBat,1);feed(&J.edgeFix,1);feed(&J.fieldSpr,1);
  return h;}
@@ -633,6 +669,7 @@ static void GpuRawJ(const GJob&J0){
   gtCheckN++;
   if(J.snapCrc&&J.snapCrc!=gtSnapCrc(J)){gtCheckBad++;static unsigned mism;if(mism++<16)PSPNativeMemLog("[G3THR] snap mismatch job n=%u sd=%d (worker POD != submit CRC)",J.n,J.sd);}
   if(J.xformCrc&&J.xformCrc!=gtXformCrc(J)){gtCheckBad++;static unsigned xm;if(xm++<16)PSPNativeMemLog("[G3THR] snap mismatch xform n=%u (worker clip hash != submit)",J.n);}
+  if(J.hasTex&&!J.gt){gtCheckBad++;static unsigned nt;if(nt++<8)PSPNativeMemLog("[G3THR] snap mismatch empty gt n=%u tw=%u (hasTex but no GPU tex)",J.n,J.tw);}
  }
  /* xfcache is safe with depth-1 + ListFreeNow clearing the slot; hits help when the camera is still. */
  const bool doProf=P3DS_G3ProfCfg()!=0;const bool doXf=P3DS_G3XfCacheCfg()!=0;const bool fastXf=P3DS_G3FastXformCfg()!=0;
@@ -741,7 +778,7 @@ static GuVertex scrBuf[8192];
    writes (ARM11 is weakly ordered; missing acquire let the worker see a new gtTail with a stale/partial GJob → flashing
    terrain). The worker is the only writer of G3G batches while the queue is busy; the game thread drains before
    DrawScreen / G3SIM_FlushDeferred / G3ListDeferFree / G3G_TexFree. OFF runs GpuRawJ in Draw. Log: [G3THR]. */
-static int gtCfgWant=-1,gtCfg=0,gtThreadOk=0;static unsigned gtAbN;   /* g3_thread 2 = A/B test: OFF and ON alternate every 1200 3D frames (~40 s) in one session */
+static int gtCfgWant=-1,gtThreadOk=0;static unsigned gtAbN;   /* g3_thread 2 = A/B test: OFF and ON alternate every 1200 3D frames (~40 s) in one session */
 enum{GT_N=1024,GT_MASK=GT_N-1,GT_ARENA=48*1024};          /* 48K vertices = 1.1 MB per frame, then a drain + reset */
 static GJob gtRing[GT_N];static GuVertex*gtArena;static u8*gtCmArena;static unsigned gtArenaPos,gtCmPos;
 static volatile unsigned gtHead,gtTail,gtKicked,gtSleep;
@@ -754,7 +791,9 @@ static void gtMain(void*){P3DS_ThreadGuard("g3thread");gtInWorker=true;
   unsigned h=__atomic_load_n(&gtHead,__ATOMIC_RELAXED);
   unsigned t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE); /* acquire: see producer's ring/arena stores */
   if(h==t){gtSleep=1;__sync_synchronize();t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);if(h!=t){gtSleep=0;continue;}G3T_Wait();continue;}
-  const u64 t0=svcGetSystemTick();{const GJob J=gtRing[h&GT_MASK];if(J.screen)DrawScreenJ(J,J.v,J.n,J.deferOk);else GpuRawJ(J);}gtBusyTicks+=svcGetSystemTick()-t0;
+  const u64 t0=svcGetSystemTick();
+  {const GJob J=gtRing[h&GT_MASK];if(J.screen)DrawScreenJ(J,J.v,J.n,J.deferOk);else GpuRawJ(J);gtPinRel(J.gt);}
+  gtBusyTicks+=svcGetSystemTick()-t0;
   __atomic_store_n(&gtHead,h+1,__ATOMIC_RELEASE); /* release: vb[] / batch writes visible before head advances */
  }}
 /* Midpoint pairing mutates md* tables: must run on the game thread after cull, before the arena copy. */
@@ -779,25 +818,35 @@ static void gtDrain(int why){
  gtArenaPos=0;gtCmPos=0;gtKicked=__atomic_load_n(&gtTail,__ATOMIC_RELAXED);
  for(unsigned i=0;i<gtPendN;i++)ListFreeNow(gtPendFree[i]);gtPendN=0;}   /* queue empty: nothing references the arena */
 static void gtDrainIfBusy(int why){if(gtBusy())gtDrain(why);}
-/* Wait until the worker is idle WITHOUT rewinding the arenas. Depth-1 submit: GetTexture/TexCreate run only when no
-   job is in flight, matching the inline GetTex→transform cadence (deep queues resolved tex before earlier draws finished
-   → stale/empty billboard and water textures, visible as white tris / ghost sprites). Arena is reset only by gtDrain. */
+/* Wait until the worker is idle WITHOUT rewinding the arenas. Depth-1 (g3_thr_texfence OFF): GetTexture/TexCreate
+   run only when no job is in flight. With texfence ON, GetTexture may run while jobs are in flight (pins protect
+   their gt); only TexCreate still waits here. Arena is reset only by gtDrain. */
 static void gtWaitIdle(void){
  if(!gtBusy())return;
  gtWake();const u64 t0=svcGetSystemTick();unsigned spins=0;
  while(gtBusy()){if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWake();}else __asm__ volatile("yield");}
  __sync_synchronize();gtWaitTicks+=svcGetSystemTick()-t0;}
+static void gtWaitPinned(void*gt){
+ if(!gt||!gtPinGet(gt))return;
+ gtWake();const u64 t0=svcGetSystemTick();unsigned spins=0;gtPinWaits++;
+ while(gtPinGet(gt)){if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWake();}else __asm__ volatile("yield");}
+ __sync_synchronize();gtWaitTicks+=svcGetSystemTick()-t0;}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  extern int P3DS_InField,P3DS_InBattle;
  J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=J.replay?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
  memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
- J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.pre=false;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;
+ J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.texGen=0;J.pre=false;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;
  J.hasK=false;J.sprDepth=P3DS_SpriteDepthCfg()!=0;J.cull3d=cull3dCfg();J.cpuClip=gpuCpuClip()!=0;J.guardClip=guardClip()!=0;J.guardBat=guardBattle();
  J.edgeFix=edgeFixCfg()!=0;J.fieldSpr=(P3DS_InField!=0&&P3DS_InBattle==0);J.snapCrc=0;J.xformCrc=0;}
 static void gtResolveTex(GJob&J){
- /* CPU decode is fine anytime; G3G_TexCreate must not run while the worker writes vb[] / uses citro3d. */
- gtWaitIdle();
- Tex*t=GetTexture();if(t&&!t->gt)t->gt=G3SIM_GpuTex(t);J.tex=t;J.hasTex=t!=nullptr;J.gt=t?t->gt:nullptr;J.tw=t?t->w:0;J.th=t?t->h:0;}
+ /* Depth-1 (fence OFF): wait for idle before any resolve. Fence ON: CPU GetTexture/Decode anytime; pin the gt so a
+    later LRU/re-decode cannot free it; TexCreate still needs citro3d idle (worker may be writing vb[]). */
+ const bool fence=gtCfg&&P3DS_G3TexFenceCfg();
+ if(!fence)gtWaitIdle();
+ Tex*t=GetTexture();
+ if(t&&!t->gt){if(fence)gtWaitIdle();t->gt=G3SIM_GpuTex(t);}
+ J.tex=t;J.hasTex=t!=nullptr;J.gt=t?t->gt:nullptr;J.tw=t?t->w:0;J.th=t?t->h:0;J.texGen=t?t->gen:0;
+ if(fence&&J.gt)gtPinAdd(J.gt);}
 static void gtPush(GJob&J,bool chunked);
 static void gtSubmit(GJob&J){
  /* the batch-level reject runs here (same code, same counters); a rejected batch never costs a copy, a texture fetch or a queue slot */
@@ -835,10 +884,14 @@ static void gtPush(GJob&J,bool chunked){
   gtRing[tail&GT_MASK]=J;
   __atomic_store_n(&gtTail,tail+1,__ATOMIC_RELEASE); /* release: ring + arena visible before the new tail */
   gtJobs++;
+  {const unsigned depth=(tail+1)-__atomic_load_n(&gtHead,__ATOMIC_ACQUIRE);if(depth>gtInFlightMax)gtInFlightMax=depth;gtFenceDepthSum+=depth;gtFenceDepthN++;}
   {const unsigned every=P3DS_G3WakeCfg()?1u:6u;if((tail+1)-gtKicked>=every){gtKicked=tail+1;gtWake();if(every==1)prWake++;}}}}
 static void gtFrameStats(){
  if(++gtFrames%300)return;
  PSPNativeMemLog("[G3THR] %s | 300 frames: %u jobs, worker busy %u us/frame, game thread waited %u us/frame at drains (frame %u screen %u listfree %u texfree %u ringfull %u arena %u)",gtCfg?"ON":"OFF",gtJobs,(unsigned)(gtBusyTicks/268/300),(unsigned)(gtWaitTicks/268/300),gtDrains[1],gtDrains[0],gtDrains[2],gtDrains[3],gtDrains[4],gtDrains[5]);
+ if(P3DS_G3TexFenceCfg()){const unsigned avgD=gtFenceDepthN?gtFenceDepthSum/gtFenceDepthN:0;
+  PSPNativeMemLog("[G3THR] texfence: max in-flight %u, avg depth %u, pins %u, pin-waits %u (depth>1 means front/cmd overlapped raw)",gtInFlightMax,avgD,gtPinHits,gtPinWaits);
+  gtInFlightMax=gtFenceDepthSum=gtFenceDepthN=gtPinHits=gtPinWaits=0;}
  if(P3DS_G3ThrCheckCfg()){PSPNativeMemLog("[G3THR] check: %u jobs, %u mismatches (want 0)",gtCheckN,gtCheckBad);gtCheckN=gtCheckBad=0;}
  gtJobs=0;gtBusyTicks=gtWaitTicks=0;memset(gtDrains,0,sizeof gtDrains);}
 extern "C" int P3DS_G3ThreadCfg(void){if(gtCfgWant<0){gtCfgWant=P3DS_CfgInt("g3_thread",0);if(gtCfgWant<0||gtCfgWant>2)gtCfgWant=0;PSPNativeMemLog("[G3THR] g3_thread=%d (raw 3D transform on a worker thread on core 2; OFF = on the game thread)",gtCfgWant);}return gtCfgWant;}
@@ -876,7 +929,7 @@ static void DrawScreenJ(const GJob&J0,const GuVertex*v,unsigned n,bool deferOk){
  gtCur=prev;
 }
 static void DrawScreen(const GuVertex*v,unsigned n,bool deferOk){   /* game thread */
- if(gtCfg&&gpuOn==1){ /* depth-1 queue: resolve only when idle so tex cadence matches inline */
+ if(gtCfg&&gpuOn==1){ /* resolve: depth-1 idle wait, or texfence pin (see gtResolveTex) */
   GJob J;gtSnapshot(J,v,n);if(!n||J.cullAll)return;gtResolveTex(J);
   J.screen=true;J.deferOk=deferOk;if(P3DS_G3ThrCheckCfg()){J.snapCrc=gtSnapCrc(J);J.xformCrc=gtXformCrc(J);}gtPush(J,false);return;}
  if(gtBusy())gtDrain(0);
