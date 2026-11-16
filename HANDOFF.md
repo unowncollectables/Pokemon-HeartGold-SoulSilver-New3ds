@@ -1,3 +1,20 @@
+# g3_thr_texfence + texsafe hang (run 883)
+
+Main `552376d` (#493+#494). Hardware hang ~100 frames after enabling **texfence=1 + texsafe=1** (wake/thr_check/fastxform/xfcache ON, stereo_share OFF), mono Goldenrod walk. Crumbs: frame ends at `g3-begin`; engine-B worker idle; many `tex flash risk avoided: postvblank replace`. Check line `0 mismatches (18 tex)` was ambiguous.
+
+## Deadlock
+
+With **texsafe**, fence pins stay until **after** `G3G_End`. LRU / re-decode called `texFree` → `gtWaitPinned`. `gtDrain` empties the queue but **does not release those pins**, so the wait never ends and End never runs. Postvblank replace creates many new gts → fills the cache with pinned slots quickly.
+
+## Fix (defaults OFF; OFF unchanged)
+
+- `texFree` under fence+texsafe: **defer** `G3G_TexFree` until after `gtPinReleaseDone` (never `gtWaitPinned` while pins are End-held).
+- All drain/idle/pin waits: **drop the big intrlock** for the wait, **force-Signal** the worker (not only when `gtSleep==1`), **~1 s timeout** → log, `g3_thread` OFF, drain/force-empty.
+- Check log: `mismatches (N texCrc, M flashRisk)` — flashRisk is in-place postvblank, not a CRC mismatch. Run 883’s `(18 tex)` with 0 mismatches was flashRisk from the window, not tex CRC failures.
+- Host: `tools/g3_thr_race_test.c` (defer-free, force-signal, log split).
+
+Device A/B: same as run 883 (`texfence=1 texsafe=1`), walk Goldenrod; want no hang, check `0 mismatches`, defer-free counts OK.
+
 # Stereo-60 perf round (run 879 follow-up): texfence DEEP + stereo share + front/wait
 
 Main `148bd4f` (#492+#427). Run 879 with texfence+fastxform: mono ~54 avg, stereo ~43 avg; G3PROF idle 3.9 / front 5.7 / raw 9.5 (xform 3.8). Texfence avg depth stayed ~1–2.
