@@ -1,12 +1,37 @@
-# 3D worker queue storage
+# g3_thread depth-1 + deferred Batch (run 876 / post-#486+#487)
 
-After #486 a queue-full or chunk-arena drain could rewind the vertex arena after the producer had copied the next job's vertices. The following enqueue could reuse that storage while the worker still held a pointer to it. The producer now checks ring and arena capacity before making any copies. A failed worker start also stays off for the rest of the boot, using the inline path.
+Hardware run 876 (`e0acb66`): with `g3_thread=1` still duplicated/misplaced NPC billboards (Goldenrod) and white untextured water (Route 34). **Now also seen in Azahar** → logic/scheduling, not only ARM11 ordering.
 
-Host tests using the actual enqueue function reproduced the overwrite on the old ring-full and chunk-full paths and checked all three drain cases on the fix. A failed-start harness verified repeated calls stayed off. New 3DS rendering validation is pending.
+## Root cause (Azahar-repro)
 
-# g3_thread full job snapshot (post-#485 hardware)
+1. **Deep queue broke GetTexture cadence.** Inline is GetTex→transform→GetTex→…. Threaded resolved many textures while earlier jobs were still in flight (before VBlank / before the previous draw’s GPU tex was stable) → empty/stale billboard and water textures (white tris, “ghost” sprites).
+2. **Deferred translucent `Batch` dropped the job snapshot** (no `gt`/`sd`/`parL`/`wide`); `FlushDeferred` called `Tri` with live globals.
+3. **`g3_xfcache` with a worker** could serve stale list-pointer hits; hits/stores are skipped while the thread is actually ON.
+4. **`P3DS_Fps60Poll` `C3D_FrameBegin`** while the worker filled `vb[]` reordered GPU work vs inline.
 
-Hardware on main `f7e85e4` (#485) with `g3_thread=1`: top screen still corrupted (bottom fine). Phone video: Goldenrod walking — NPC/Pokémon billboards (blue shirt, green hair, Snubbull) duplicated at wrong positions; Route 34 — Tentacool duplicated/misplaced; Route 34 water/shore — large flat white/grey untextured tris. `g3_thread=0` clean. Azahar does not reproduce.
+#487 (arena reserve before copy) was necessary but not sufficient.
+
+## Fix (`g3_thread` still default OFF)
+
+- **Depth-1:** `gtWaitIdle()` before `GetTexture`/`G3G_TexCreate` (no arena rewind). One job in flight; transform still overlaps the next GeBuffer decode.
+- Deferred `Batch` stores `gt/tw/th/sd/parL/wide`; flush rebuilds a stack job and sets `gtCur`.
+- xfcache hit/store disabled while `gtCfg`; Fps60Poll skips FrameBegin when `P3DS_G3ThrBusy()`.
+- `g3_thr_check`: POD CRC + clip xform hash; every 300 frames logs `[G3THR] check: N jobs, M mismatches (want 0)`.
+- Host: `tools/g3_thr_race_test.c`.
+
+## Expected perf
+
+Depth-1 removes deep-queue overlap of GetTexture with transform; worker still overlaps game command decode between draws. Expect a small wait increase vs run 872’s deep queue; picture must match `g3_thread=0`. Stereo xform cut is a separate PR.
+
+Hardware / Azahar: `g3_thread=1`, `g3_wake=1`, `g3_thr_check=1`, `g3_xfcache=0`, walk Goldenrod + Route 34; no ghosts/white water; check line shows **0 mismatches**.
+
+# 3D worker queue storage (#487)
+
+After #486 a queue-full or chunk-arena drain could rewind the vertex arena after the producer had copied the next job's vertices. The producer now checks ring and arena capacity before making any copies.
+
+# g3_thread full job snapshot (#486)
+
+#486 snapshotted mid K / Tri gtCur / hardBuf. Hardware still wrong until the depth-1 + Batch fix above.
 
 ## What was still leaking after #485
 
