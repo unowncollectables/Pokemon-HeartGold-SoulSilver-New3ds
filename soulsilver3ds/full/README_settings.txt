@@ -171,6 +171,8 @@ CONTROLS / TOUCH
                     0 = older 300-frame average only. Default 0.  [2026-11-16]
   g3_wake=0         3D wake every job (Debug tab): with g3_thread ON, wake the worker on every queued draw (not every 6).
                     Same picture. Default 0. Log: [G3THR] g3_wake=.  [2026-11-16]
+  g3_thr_check=0    3D thread check (Debug tab): with g3_thread ON, CRC each job's snapshotted POD at submit and again on the
+                    worker. Logs [G3THR] snap mismatch on a torn/incomplete job. Same picture. Default 0.  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),

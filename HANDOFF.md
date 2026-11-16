@@ -1,20 +1,33 @@
-# g3_thread terrain flash (run 872 / main 54598a4)
+# g3_thread full job snapshot (post-#485 hardware)
 
-Hardware: `g3_thread=1` (also with `g3_wake=1`) flashes/glitches lots of overworld terrain; `g3_thread=0` is clean. `g3_xfcache` was on in both cases. With the thread on: ~23–24k jobs / 300 frames, worker ~5.3 ms/frame, drain wait ~40 µs; mono reached 57–60 fps.
+Hardware on main `f7e85e4` (#485) with `g3_thread=1`: top screen still corrupted (bottom fine). Phone video: Goldenrod walking — NPC/Pokémon billboards (blue shirt, green hair, Snubbull) duplicated at wrong positions; Route 34 — Tentacool duplicated/misplaced; Route 34 water/shore — large flat white/grey untextured tris. `g3_thread=0` clean. Azahar does not reproduce.
 
-## Root cause
+## What was still leaking after #485
 
-ARM11 is weakly ordered. The producer published `gtRing[i]=J` then bumped `gtTail` with a barrier, but the **worker read `gtTail` then the ring slot with no acquire**. It could see the new tail and a stale/partial `GJob` (wrong matrix, vertex pointer, cull, tex) → flashing terrain. Drain waited for `gtHead==gtTail` without an acquire before the game thread used `vb[]` written by the worker.
+#485 snapshotted verts + `sd`/`parL`/`mid`/`wide` (+ matrix/cull/fog/tex param already in `GJob`) and fixed acquire/release. The worker still read **live** state after the game thread moved on:
 
-Secondary: list-cache **replay jobs did not copy vertices** into the arena (only non-replay did). The worker kept a pointer into game/list memory while the game thread continued. `xfGenNow()` also used live `cullFace` / globals instead of the job snapshot, so xfcache gen was wrong under the thread (misses, not the flash).
+- `Tri` / `TriEye` / `parOf`: `stereoSd`, `parLock`, `G3G_Wide`, and `tex->gt`/`w`/`h` (hard-clip and screen-space path) — wrong stereo copies / missing GPU tex → white tris.
+- `mdK` / `mdMid` tables: pairing ran on the worker and used arena `J.v` as the replay key — raced the game thread and broke midpoint identity.
+- `CullBatch` rim via live `stereoSd`/`G3G_Wide`/`G3G_MidRec`; `cull3dCfg` / `gpuCpuClip` / `guardClip` / `guardBattle` / `P3DS_SpriteDepthCfg` / `P3DS_InField` on the worker.
+- Shared `rawOut` for hard-clip (stack buffer now).
 
-## Fix (g3_thread still default OFF; OFF path unchanged in behaviour)
+## Fix (g3_thread still default OFF; OFF = same behaviour)
 
-- Ring publish = `__ATOMIC_RELEASE` store of `gtTail`; worker loads `gtTail` with `__ATOMIC_ACQUIRE` before reading the job; `gtHead` advance = release; drain acquire after empty.
-- **Every** queued draw copies its vertices into the arena (replay too). `xfKey` keeps the list-cache identity for `g3_xfcache`.
-- Job snapshot includes `sd` / `parL` / `mid` / `wide`; `GpuRawJ` and xf gen use those, not live globals.
+- Every job is fully self-contained: matrices, tex handle + size, polygon/fog/depth, stereo rim, **midpoint K computed on the game thread** (`gtFinishMid`), sprite/cull/clip/field flags. `gtCur` makes `Tri`/`parOf`/`TriEye` read the job, not globals. Hard-clip uses a stack `hardBuf`. Release/acquire ordering unchanged.
+- Settings > Debug > **3D thread check** (`g3_thr_check`, default OFF): CRC the job POD at submit and again on the worker; logs `[G3THR] snap mismatch`.
+- Host: `tools/g3_thr_race_test.c` (barriers, copy, xf gen, mutate-live-after-snapshot, threaded vs inline xform).
 
-Host: `tools/g3_thr_race_test.c`. Platform: `g3thr.c` compiled with devkitARM; **no ROM / incomplete pspoke work tree → no full game link / no g3soft.o** (needs nitro headers). Hardware: `g3_thread=1`, `g3_wake=0` then `1`, walk Goldenrod / Route 34; terrain must match OFF (no flash). Keep Wide/GTS/MG with thread OFF first, then ON.
+## Expected perf
+
+POD growth ~+90 B/job (K[16] + flags); ring copy already existed. Midpoint solve stays on the game thread (same work as before when mid is on). No per-draw alloc. Vertex arena copy unchanged (dominant). Expect **no fps regression** vs run 872 mono 57–60 with `g3_thread`+`g3_wake`.
+
+Hardware next: `g3_thread=1`, walk Goldenrod / Route 34 (wide on); sprites and water must match OFF. Optional `g3_thr_check=1` once — no snap mismatch lines — then OFF. Keep Wide/GTS/MG with thread OFF first.
+
+# g3_thread terrain flash (run 872 / #485)
+
+Hardware: `g3_thread=1` flashed overworld terrain; `g3_thread=0` clean. Root cause: ARM11 weak ordering (worker read ring without acquire) + replay jobs not copying verts. #485 fixed barriers + always-copy + sd/parL/mid/wide in the job. Follow-up snapshot work is above.
+
+Host: `tools/g3_thr_race_test.c`. No ROM in cloud → no full `g3soft.o` link.
 
 # g3soft PERF gap (PR482 hardware follow-up)
 
