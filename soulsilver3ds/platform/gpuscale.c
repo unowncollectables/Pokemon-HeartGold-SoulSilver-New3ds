@@ -233,8 +233,13 @@ static void prescale(int i) {
     if (dirOf(i)) { tevPlain(); if (P3DS_GpTextOn) textMaskDraw(); }
     else if (swz[i]) tevPlain();
 }
+/* Same 24-bit fill as gpucomp.c. 0x000000FF is opaque black on RGBA8 and pure
+   blue on the RGB8 second screen target unless the alpha byte is shifted out. */
+static u32 presentClear(const C3D_RenderTarget *t, u32 rgba) {
+    return t->frameBuf.colorFmt == GPU_RB_RGB8 ? rgba >> 8 : rgba;
+}
 static void quad(C3D_RenderTarget *t, float sw, int i, float x0, float y0, float x1, float y1) {
-    C3D_RenderTargetClear(t, C3D_CLEAR_ALL, 0x000000FF, 0);
+    C3D_RenderTargetClear(t, C3D_CLEAR_ALL, presentClear(t, 0x000000FF), 0);
     C3D_FrameDrawOn(t);
     C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, sw, 240.0f, 0.0f, 1.0f, -1.0f, true);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);

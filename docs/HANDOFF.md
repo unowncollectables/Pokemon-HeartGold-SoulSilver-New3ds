@@ -10,6 +10,12 @@ The second screen target is still linear because no VRAM bank has a 288000-byte 
 
 Azahar was not run. No ROM or emulator in this container, and the conclusion does not depend on a new timing run. Nothing to flash for this part. The indoor blue void is a separate change.
 
+# 60 fps indoor void flash
+
+The in-between picture is composed into an RGB8 target (#474). A 24-bit GX fill repeats the first three little-endian bytes of the clear word. The backdrop word is R<<24|G<<16|B<<8|A, so that fill stored A,B,G. Indoor maps clear the 3D layer to transparent (CLEAR_COLOR 3f000000 is black with alpha 0 and polygon id 63), the compositor rejects those pixels, and the backdrop clear shows through. Opaque alpha 255 in the blue channel is pure blue. Real frames stay on RGBA8, so the void was right on the game's picture and blue only on the in-between. That matches the map 101 flashes, including the late ones: an in-between is the only frame that used this clear.
+
+The RGB8 fill is now the backdrop shifted down one byte (B,G,R), which is what the texture sampler reads back. The RGBA8 real frame is unchanged. The second screen target uses the same rule, so its uncovered pixels stay black instead of blue. VRAM size is unchanged. A host check covers black, white, and mixed backdrops. Azahar was not run: this container has no ROM and no emulator. Hardware check: fps60=1, Wide on, stereo_strength=2, stand inside the Goldenrod north gate (map 101) and walk a step. The void outside the room should stay the same colour on the in-between and on the real picture, slider up and slider down.
+
 # 60 fps midpoint compositor submissions
 
 A direct GPU compositor pass now draws each eye's ordinary image and its midpoint in one Citro3D frame. This removes one FrameBegin/FrameEnd pair per eye on an interpolated tick. Both images still use separate render targets. Midpoint textures prefer RGB8 because the screen scaler samples them as opaque, with RGBA8 as an allocation fallback. RGB8 saves 128 KiB in stereo.
