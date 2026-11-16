@@ -28,6 +28,18 @@ The field vertex shader only passes the position through, so the four scene draw
 
 Every 600 pipe frames: `[FPS60] pipe kicks 2 per frame over 600 frames (legacy 12, 2 eyes)`. Hardware: `fps60=1`, 60 fps pipe ON, Wide on, `stereo_strength=2`, full slider, walk Route 34 and Goldenrod. Compare the left FrameBegin in the composite split with pipe OFF. A `too heavy` line means it still stepped down.
 
+# 60 fps full-slider wait (drop the shared 2D pass)
+
+Run 865, `fps60=1`, Wide on, `stereo_strength=2`. Mono on Route 34 holds 55-59 fps. Full slider steps down three times on the Route 34 / Goldenrod walk, about 20 s at 30 fps each. While it is on, 56-83% of ticks have an in-between and many handovers are late (172 of 500 in one window). Indoor map 101 stays near 35 fps with in-betweens only 14-20% (`no3D` and `nothingmoved` 275-480), and about 30% of those in-betweens are late.
+
+The left compositor is 3.7-9.2 ms, of which FrameBegin is 3.2-8.6 ms. The right compositor is 0.7-1.1 ms total. That FrameBegin is `gcFrameBegin` → `C3D_FrameBegin`, waiting until the GPU queue is idle. The queue still holds this tick's `G3G_End` list: midpoint and real scene for both eyes, then the wide centre copies and strip readbacks. The left call is the first thing that waits, so it pays for all of that. The right call starts after the queue has drained, which is why it is short. Tearfix is the present-time display wait (`P3DS_GpTearUs`), already left out of the busy guard when it completes. It is not this number.
+
+The left eye's tile walk is already before that wait. On this log it is the rest of the left composite, about 0.5 ms. The right eye's whole composite is under 1.1 ms and already runs after the wait. Sharing the 2D batch, or moving that right-eye walk earlier, can hide about 1 ms. It does not touch the 3-8 ms of GPU scene draws. There is no later CPU stage that long which can slide under the wait: the wide strip convert has to read the GPU copy, so it cannot start before the queue drains. Drop the shared 2D pass from #475.
+
+The second screen target is still linear because no VRAM bank has a 288000-byte hole (free 602624). Each in-between texture is 196608 bytes of RGB8 and both eyes got one, since in-betweens were actually shown. Those two allocations are what break the 288000-byte runs. A bank with about 400 KB free can hold a texture and then has about 200 KB left, which is short of a screen target. Taking the screen target first would leave under 197 KB, and the in-between picture has to be a VRAM texture. The linear screen target is the fallback that keeps the in-between. Reordering the two is not a safe fix. No code change in this pass.
+
+Azahar was not run. No ROM or emulator in this container, and the conclusion does not depend on a new timing run. Nothing to flash for this part. The indoor blue void is a separate change.
+
 # 60 fps indoor void flash
 
 The in-between picture is composed into an RGB8 target (#474). A 24-bit GX fill repeats the first three little-endian bytes of the clear word. The backdrop word is R<<24|G<<16|B<<8|A, so that fill stored A,B,G. Indoor maps clear the 3D layer to transparent (CLEAR_COLOR 3f000000 is black with alpha 0 and polygon id 63), the compositor rejects those pixels, and the backdrop clear shows through. Opaque alpha 255 in the blue channel is pure blue. Real frames stay on RGBA8, so the void was right on the game's picture and blue only on the in-between. That matches the map 101 flashes, including the late ones: an in-between is the only frame that used this clear.
