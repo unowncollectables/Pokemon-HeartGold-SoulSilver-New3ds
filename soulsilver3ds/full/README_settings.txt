@@ -173,6 +173,9 @@ CONTROLS / TOUCH
                     Same picture. Default 0. Log: [G3THR] g3_wake=.  [2026-11-16]
   g3_thr_check=0    3D thread check (Debug tab): with g3_thread ON, CRC each job's snapshotted POD at submit and again on the
                     worker. Logs [G3THR] snap mismatch on a torn/incomplete job. Same picture. Default 0.  [2026-11-16]
+  g3_fastxform=0    3D fast xform (Debug tab): hoist the clip matrix in the raw transform loop (less VFP reload). Same IEEE
+                    ops / same picture. New 3DS has no NEON; stereo already uses one transform for both eyes (TriClip2).
+                    Default 0. Log: [G3XF] g3_fastxform=.  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),
