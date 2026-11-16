@@ -1,3 +1,9 @@
+# 3D worker queue storage
+
+After #486 a queue-full or chunk-arena drain could rewind the vertex arena after the producer had copied the next job's vertices. The following enqueue could reuse that storage while the worker still held a pointer to it. The producer now checks ring and arena capacity before making any copies. A failed worker start also stays off for the rest of the boot, using the inline path.
+
+Host tests using the actual enqueue function reproduced the overwrite on the old ring-full and chunk-full paths and checked all three drain cases on the fix. A failed-start harness verified repeated calls stayed off. New 3DS rendering validation is pending.
+
 # g3_thread full job snapshot (post-#485 hardware)
 
 Hardware on main `f7e85e4` (#485) with `g3_thread=1`: top screen still corrupted (bottom fine). Phone video: Goldenrod walking — NPC/Pokémon billboards (blue shirt, green hair, Snubbull) duplicated at wrong positions; Route 34 — Tentacool duplicated/misplaced; Route 34 water/shore — large flat white/grey untextured tris. `g3_thread=0` clean. Azahar does not reproduce.

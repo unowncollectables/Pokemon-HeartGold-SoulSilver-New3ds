@@ -739,7 +739,7 @@ static void gtFinishMid(GJob&J){
  float K[16];if(mdK(J,K)){memcpy(J.K,K,sizeof J.K);J.hasK=true;}}
 static int edgeFixCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("stereo_edgefix",1)!=0;PSPNativeMemLog("[G3] stereo_edgefix=%d",v);}return v;}
 static bool gtStart(){
- if(gtThreadOk)return true;if(gtThreadOk<0)return false;
+ if(gtThreadOk!=0)return gtThreadOk>0;
  gtArena=(GuVertex*)memalign(16,GT_ARENA*sizeof(GuVertex));gtCmArena=(u8*)malloc(64*1024);
  bool started=false;if(gtArena&&gtCmArena)started=G3T_Start(gtMain)!=0;
  if(!started){free(gtArena);free(gtCmArena);gtArena=nullptr;gtCmArena=nullptr;gtThreadOk=-1;PSPNativeMemLog("[G3THR] worker thread could not start: g3_thread stays OFF");return false;}
@@ -774,12 +774,27 @@ static void gtPush(GJob&J,bool chunked){
  /* Always copy vertices into the arena (replay too). List-cache arrays are "immutable until free", but on a weakly ordered
     MPCore the worker must not race the game thread's next use of that pointer, and a fresh arena write pairs with the
     publish barrier below. xfKey keeps the list identity for g3_xfcache. */
- if(J.n){if(gtArenaPos+J.n>GT_ARENA)gtDrain(5);GuVertex*d=gtArena+gtArenaPos;memcpy(d,J.v,J.n*sizeof(GuVertex));gtArenaPos+=J.n;
-  if(J.replay&&!J.xfKey)J.xfKey=J.v;J.v=d;}
- if(chunked){const unsigned nc=(J.n+kChunkV-1)/kChunkV;if(gtCmPos+nc>64*1024)gtDrain(5);u8*d=gtCmArena+gtCmPos;memcpy(d,chunkOff,nc);gtCmPos+=nc;J.cmask=d;}
- {const unsigned head=__atomic_load_n(&gtHead,__ATOMIC_ACQUIRE);const unsigned tail=__atomic_load_n(&gtTail,__ATOMIC_RELAXED);
-  if(tail-head>=GT_N)gtDrain(4);}
- {const unsigned tail=__atomic_load_n(&gtTail,__ATOMIC_RELAXED);
+ const unsigned nc = chunked ? (J.n + kChunkV - 1) / kChunkV : 0;
+ const unsigned head = __atomic_load_n(&gtHead, __ATOMIC_ACQUIRE);
+ const unsigned tail = __atomic_load_n(&gtTail, __ATOMIC_RELAXED);
+ // A drain rewinds both arenas. Reserve the ring and both arenas before
+ // copying anything, so a new job's storage remains reserved until it drains.
+ if (tail - head >= GT_N) gtDrain(4);
+ else if (gtArenaPos + J.n > GT_ARENA || gtCmPos + nc > 64 * 1024) gtDrain(5);
+ if (J.n) {
+  GuVertex *dst = gtArena + gtArenaPos;
+  memcpy(dst, J.v, J.n * sizeof(GuVertex));
+  gtArenaPos += J.n;
+  if (J.replay && !J.xfKey) J.xfKey = J.v;
+  J.v = dst;
+ }
+ if (nc) {
+  u8 *dst = gtCmArena + gtCmPos;
+  memcpy(dst, chunkOff, nc);
+  gtCmPos += nc;
+  J.cmask = dst;
+ }
+ {
   gtRing[tail&GT_MASK]=J;
   __atomic_store_n(&gtTail,tail+1,__ATOMIC_RELEASE); /* release: ring + arena visible before the new tail */
   gtJobs++;
