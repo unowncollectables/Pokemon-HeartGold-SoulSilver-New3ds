@@ -718,8 +718,10 @@ static int f60Pending(void) { return gspIsPresentPending(GFX_TOP) || gspIsPresen
 /* game thread, any time no GPU frame is open (per 3D draw call, at the V-blank wait, before the 3D frame ends): flip as soon as the GPU
    has finished the two pictures AND the LCD has taken the in-between one (a flip before that would land in the buffer being shown) */
 int P3DS_Fps60Pending(void) { return f60Flip; }
+extern int P3DS_G3ThrBusy(void); /* g3soft: worker has queued jobs; do not open a C3D frame over it */
 void P3DS_Fps60Poll(void) {
     if (!f60Flip) return;
+    if (P3DS_G3ThrBusy()) return; /* g3_thread: FrameBegin while the worker fills vb[] reorders GPU work vs inline */
     const u64 now = svcGetSystemTick(); if (now - f60PollT < 268 * 300) return; f60PollT = now;
     if (f60FlipSt == 0) { if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) return; f60FlipSt = 1;
         if (f60Pending()) { C3D_FrameEnd(GX_CMDLIST_FLUSH); return; }
