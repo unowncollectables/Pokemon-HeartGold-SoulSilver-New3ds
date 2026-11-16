@@ -5,8 +5,9 @@ Hardware on `9bbfcd1`: clean exit, 0 mismatches, stereo ~34–38 fps; PERF snaps
 ## Why share looked dead
 
 1. **`stereoDsh` used `linearAlloc(MAXV floats)` (~192 KiB).** On device that often failed; code cleared `stereoShareOn` with **no log** → every TriClip2 stayed on the dual path (both eyes stored in raw). Fix: **`malloc` + `[G3STER] stereoDsh ready|FAILED`**.
-2. With **`g3_thread` ON**, G3PROF **raw is submit time** (snapshot/cull/tex/arena), not worker `GpuRawJ`. Left-only store wins show as lower **[G3THR] worker busy / wait** and as **`[G3STER] 60f: leftOnly >> dual`**, not always a lower raw number. Expected “raw → 6–7 ms” was optimistic for the threaded meter.
-3. Expand after drain still materializes right `vb[]` (bit-identical); incremental batch sync avoids full-table memcpy on mid-frame hard-clip expands.
+2. With **`g3_thread` ON**, plain `stereoShareOn` was written on the game thread and read on core 2 with **no barrier** → worker often kept dual-write. Fix: **atomic SetStereoShare** + **`GJob.stereoShare`** applied at `GpuRawJ` / `DrawScreenJ` start (same publish model as other job fields).
+3. With **`g3_thread` ON**, G3PROF **raw is submit time** (snapshot/cull/tex/arena), not worker `GpuRawJ`. Left-only store wins show as lower **[G3THR] worker busy / wait** and as **`[G3STER] 60f: leftOnly >> dual`**, not always a lower raw number. Expected “raw → 6–7 ms” was optimistic for the threaded meter.
+4. Expand after drain still materializes right `vb[]` (bit-identical); incremental batch sync avoids full-table memcpy on mid-frame hard-clip expands.
 
 ## This PR (defaults OFF; OFF unchanged)
 

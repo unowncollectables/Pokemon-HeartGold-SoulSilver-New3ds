@@ -59,6 +59,14 @@ static int share_stats_engage(void) {
     if (shareOn && dshOk) left += 3; else dual += 3;
     return left == 3 && dual == 0;
 }
+/* Worker publish: job.stereoShare must drive SetStereoShare on the worker (not only Begin). */
+static int job_publishes_share(void) {
+    int sd = 4, stereoShare = 1; /* snapshot: stereoSd && cfg */
+    int want = sd && stereoShare;
+    int workerShare = 0;
+    workerShare = want; /* GpuRawJ: G3G_SetStereoShare(J.sd && J.stereoShare) */
+    return workerShare == 1;
+}
 
 /* Hard-clip gate: expand before any non-share write so eye-0 Tri cannot leave stale dsh verts. */
 static int expand_before_hardclip(void) {
@@ -89,6 +97,7 @@ int main(void) {
     if (!expand_syncs_batch_count()) bad++;
     if (!expand_before_hardclip()) bad++;
     if (!share_stats_engage()) bad++;
+    if (!job_publishes_share()) bad++;
     if (bad) { fprintf(stderr, "g3_stereo_share bad %d\n", bad); return 1; }
     puts("g3_stereo_share ok");
     return 0;

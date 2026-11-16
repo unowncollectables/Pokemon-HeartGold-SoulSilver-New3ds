@@ -50,8 +50,9 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    g3_stereo_share (Debug tab, default OFF): TriClip2 writes left only + (shR-shL); expand right after drain (or
    before any eye-1 write such as hard-clip). Bit-identical to dual TriClip2; cuts ~half the vb store traffic.
    stereoDsh is malloc (not linearAlloc): run 9bbfcd1 linearAlloc of ~192 KiB often failed → share silently OFF.
-   Log [G3STER] 60f leftOnly/dual/expands — want leftOnly>>dual when ON. With g3_thread, G3PROF "raw" is submit
-   time; worker store cut shows as lower [G3THR] worker busy / wait, not always lower raw.
+   With g3_thread, share is also published per GJob (stereoShare) + atomic SetStereoShare so the worker sees ON.
+   Log [G3STER] 60f leftOnly/dual/expands — want leftOnly>>dual when ON. G3PROF "raw" is submit time when threaded;
+   worker store cut shows as lower [G3THR] worker busy / wait, not always lower raw.
    g3_front_ov (Debug tab, default OFF): with g3_thread ON, wake every job and run post-VBlank GatherRaw/Decode
    into side buffers while waiting for the worker drain (apply after). Same picture; overlaps residual front with
    remaining raw. Moving GeBuffer itself needs a private G3SIM clone (not this toggle). Log: [FRONT].
@@ -332,7 +333,9 @@ struct GJob{const GuVertex*v;unsigned n;float M[16];bool cullAll;int cullFace;in
  const void*xfKey;int sd;int parL;bool mid,wide;
  Tex*tex;void*gt;bool hasTex;unsigned tw,th;unsigned texGen,texGpuGen;u32 texCrc;bool chunked;const u8*cmask;bool screen,deferOk;
  /* post-#485/#486: midpoint K, cull/clip/sprite flags, submit CRC + clip xform hash for g3_thr_check */
- bool hasK;float K[16];int sprDepth;int cull3d;bool cpuClip,guardClip,guardBat,edgeFix,fieldSpr;u32 snapCrc,xformCrc;};
+ bool hasK;float K[16];int sprDepth;int cull3d;bool cpuClip,guardClip,guardBat,edgeFix,fieldSpr;u32 snapCrc,xformCrc;
+ /* g3_stereo_share: publish per job so the worker sees share ON (stereoShareOn alone raced across cores). */
+ bool stereoShare;};
 static const GJob* gtCur; /* set while GpuRawJ / DrawScreenJ run */
 static unsigned gtCheckN,gtCheckBad,gtTexBad; /* g3_thr_check: jobs verified / POD+xform / tex mismatches */
 static int stereoDepth=-1;static inline float parOf(float zf){if(stereoDepth<0){stereoDepth=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"stereo_depth=%d",&x)==1)stereoDepth=x!=0;fclose(f);}PSPNativeMemLog("[G3] stereo_depth=%d",stereoDepth);}
@@ -726,6 +729,8 @@ static void GpuRawJ(const GJob&J0){
  if(J0.cullAll)return;
  const GJob*prev=gtCur;gtCur=&J0; /* Tri/parOf/TriEye and hard-clip DrawScreenJ read stereo/tex from the job */
  const GJob&J=J0;
+ /* Per-job share flag (release via gtTail): worker must not rely only on Begin's SetStereoShare. */
+ G3G_SetStereoShare(J.sd&&J.stereoShare);
  if(P3DS_G3ThrCheckCfg()){
   gtCheckN++;
   if(J.snapCrc&&J.snapCrc!=gtSnapCrc(J)){gtCheckBad++;static unsigned mism;if(mism++<16)PSPNativeMemLog("[G3THR] snap mismatch job n=%u sd=%d (worker POD != submit CRC)",J.n,J.sd);}
@@ -945,7 +950,8 @@ static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
  J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.texGen=0;J.texGpuGen=0;J.texCrc=0;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;
  J.hasK=false;J.sprDepth=P3DS_SpriteDepthCfg()!=0;J.cull3d=cull3dCfg();J.cpuClip=gpuCpuClip()!=0;J.guardClip=guardClip()!=0;J.guardBat=guardBattle();
- J.edgeFix=edgeFixCfg()!=0;J.fieldSpr=(P3DS_InField!=0&&P3DS_InBattle==0);J.snapCrc=0;J.xformCrc=0;}
+ J.edgeFix=edgeFixCfg()!=0;J.fieldSpr=(P3DS_InField!=0&&P3DS_InBattle==0);J.snapCrc=0;J.xformCrc=0;
+ J.stereoShare=stereoSd&&P3DS_G3StereoShareCfg();}
 static void gtResolveTex(GJob&J){
  /* Depth-1 (fence 0): wait for idle before any resolve. Fence 1+: GetTexture/Decode anytime; pin the gt so a
     later LRU/re-decode cannot free it. Fence 1 still waits before TexCreate; fence 2 (DEEP) skips that wait
@@ -1031,6 +1037,7 @@ static void DrawScreenJ(const GJob&J0,const GuVertex*v,unsigned n,bool deferOk){
  if(!n||J0.cullAll)return;
  const GJob*prev=gtCur;gtCur=&J0; /* hard-clip / queued screen draws: Tri must use job sd/parL/wide/gt */
  const GJob&J=J0;
+ G3G_SetStereoShare(J.sd&&J.stereoShare);
  if(P3DS_G3ThrCheckCfg()){
   gtCheckN++;
   if(J.snapCrc&&J.snapCrc!=gtSnapCrc(J)){gtCheckBad++;static unsigned mism;if(mism++<16)PSPNativeMemLog("[G3THR] snap mismatch screen job n=%u",J.n);}
