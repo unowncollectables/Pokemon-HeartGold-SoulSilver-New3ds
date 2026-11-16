@@ -1,3 +1,21 @@
+# g3_thread terrain flash (run 872 / main 54598a4)
+
+Hardware: `g3_thread=1` (also with `g3_wake=1`) flashes/glitches lots of overworld terrain; `g3_thread=0` is clean. `g3_xfcache` was on in both cases. With the thread on: ~23–24k jobs / 300 frames, worker ~5.3 ms/frame, drain wait ~40 µs; mono reached 57–60 fps.
+
+## Root cause
+
+ARM11 is weakly ordered. The producer published `gtRing[i]=J` then bumped `gtTail` with a barrier, but the **worker read `gtTail` then the ring slot with no acquire**. It could see the new tail and a stale/partial `GJob` (wrong matrix, vertex pointer, cull, tex) → flashing terrain. Drain waited for `gtHead==gtTail` without an acquire before the game thread used `vb[]` written by the worker.
+
+Secondary: list-cache **replay jobs did not copy vertices** into the arena (only non-replay did). The worker kept a pointer into game/list memory while the game thread continued. `xfGenNow()` also used live `cullFace` / globals instead of the job snapshot, so xfcache gen was wrong under the thread (misses, not the flash).
+
+## Fix (g3_thread still default OFF; OFF path unchanged in behaviour)
+
+- Ring publish = `__ATOMIC_RELEASE` store of `gtTail`; worker loads `gtTail` with `__ATOMIC_ACQUIRE` before reading the job; `gtHead` advance = release; drain acquire after empty.
+- **Every** queued draw copies its vertices into the arena (replay too). `xfKey` keeps the list-cache identity for `g3_xfcache`.
+- Job snapshot includes `sd` / `parL` / `mid` / `wide`; `GpuRawJ` and xf gen use those, not live globals.
+
+Host: `tools/g3_thr_race_test.c`. Platform: `g3thr.c` compiled with devkitARM; **no ROM / incomplete pspoke work tree → no full game link / no g3soft.o** (needs nitro headers). Hardware: `g3_thread=1`, `g3_wake=0` then `1`, walk Goldenrod / Route 34; terrain must match OFF (no flash). Keep Wide/GTS/MG with thread OFF first, then ON.
+
 # g3soft PERF gap (PR482 hardware follow-up)
 
 Hardware on main `f8d865d` (#482): sticky RGB565 works (one RGBA8 FAILED, then RGB565 ok). G3PROF `raw` ≈ 7.0–7.5 ms (xform~3.1–3.5, queue~2.1, end~1.2, tex~0.2) while PERF `g3soft` ≈ 21–22 ms mono and stereo. Displayed fps ≈ 56 mono / ≈ 27 full slider with `g3_prof=1` (earlier runs without it ≈ 40 full slider — per-frame log + per-tri timers were expensive). `g3_xfcache` hits ≈ 6.4/frame and only help when the scene is still; no fps difference ON vs OFF.

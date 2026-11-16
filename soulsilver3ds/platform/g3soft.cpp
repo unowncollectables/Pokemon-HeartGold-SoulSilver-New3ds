@@ -340,6 +340,8 @@ void G3SIM_FlushArray();
    can change between draw calls (matrix, cull state, polygon attributes, texture) is captured here at submit time, so the same code runs unchanged on the
    game thread (g3_thread OFF) or on a worker thread (ON). ---- */
 struct GJob{const GuVertex*v;unsigned n;float M[16];bool cullAll;int cullFace;int fog;unsigned depthTest;G3SIM_TexImageParam_t tp;bool tdw;bool wbuf;bool replay;
+ /* xfKey: stable list-cache identity when v was copied into the worker arena (replay draws). nullptr = use v. */
+ const void*xfKey;int sd;int parL;bool mid,wide;
  Tex*tex;void*gt;bool hasTex;unsigned tw,th;bool pre,chunked;const u8*cmask;bool screen,deferOk;};
 static bool rawMode=false;static float rawM[16];
 struct CV{float x,y,z,w,u,v;float c[4];};
@@ -585,7 +587,8 @@ struct XfTri{float c[12];u32 col[3];float su[3],sv[3];};
 struct XfSlot{const void*key;unsigned n,nTri,base,gen,cullFace;float M[16];};
 static XfSlot xfTab[XF_SLOTS];static XfTri xfArena[XF_TRIS];static unsigned xfArenaN,xfHits,xfMiss,xfStore,xfSkipHard;
 static inline unsigned xfHash(const void*p){return (unsigned)(((uintptr_t)p>>4)*2654435761u)>>24;}
-static inline unsigned xfGenNow(void){return ((unsigned)(stereoSd&255))|((G3G_MidRec?1u:0u)<<8)|((G3G_Wide?1u:0u)<<9)|((unsigned)(cullFace&3)<<10);}
+static inline unsigned xfGenOf(int sd,bool mid,bool wide,int cull){return ((unsigned)(sd&255))|((mid?1u:0u)<<8)|((wide?1u:0u)<<9)|((unsigned)(cull&3)<<10);}
+static inline unsigned xfGenNow(void){return xfGenOf(stereoSd,G3G_MidRec!=0,G3G_Wide!=0,cullFace);}
 static void xfClear(void){xfArenaN=0;for(unsigned i=0;i<XF_SLOTS;i++)xfTab[i].key=nullptr;}
 extern "C" void P3DS_SetG3XfCache(int v){g3XfCfg=v!=0;if(!g3XfCfg)xfClear();PSPNativeMemLog("[G3XF] g3_xfcache=%d from settings",g3XfCfg);}
 static void GpuRawJ(const GJob&J){
@@ -593,23 +596,29 @@ static void GpuRawJ(const GJob&J){
  const bool doProf=P3DS_G3ProfCfg()!=0;const bool doXf=P3DS_G3XfCacheCfg()!=0;
  /* Coarse timers only (one tick read per stage per batch). Per-triangle svcGetSystemTick cost ~10+ ms/frame with g3_prof=1. */
  u64 tRaw0=0,t0=0,t1=0;if(doProf)tRaw0=t0=svcGetSystemTick();
- const GuVertex*v=J.v;const unsigned n=J.n;jM=J.M;jReplayV=J.replay?J.v:nullptr;const float qwK=qwKNow();
+ const GuVertex*v=J.v;const unsigned n=J.n;const void*xfKey=J.xfKey?J.xfKey:v;
+ const int sd=J.sd,parL=J.parL;const bool mid=J.mid,wide=J.wide;
+ jM=J.M;jReplayV=J.replay?xfKey:nullptr;
+ /* Use the job's snapshotted rim (not live globals): with g3_thread the game thread has moved on. */
+ static int edgeFix=-1;if(edgeFix<0){edgeFix=P3DS_CfgInt("stereo_edgefix",1)!=0;PSPNativeMemLog("[G3] stereo_edgefix=%d",edgeFix);}
+ const float qwK=((wide?1.25f:1.0f)+(edgeFix&&sd?sd*(1.0f/128.0f):0.0f))*(mid?kMidEdge:1.0f);
  bool chunked=J.chunked;const u8*cmask=J.cmask;
  if(!J.pre){if(CullBatch(J,chunked)){if(doProf){prCull+=svcGetSystemTick()-t0;prRaw+=svcGetSystemTick()-tRaw0;}return;}cmask=chunkOff;}
  if(doProf){t1=svcGetSystemTick();prCull+=t1-t0;t0=t1;}
- if(G3G_MidRec){float K[16];G3G_MidK(n>=3&&!J.wbuf&&mdK(J,K)?K:nullptr);}const float yK=G3G_MidRec?kMidEdge:1.0f;
+ if(mid){float K[16];G3G_MidK(n>=3&&!J.wbuf&&mdK(J,K)?K:nullptr);}const float yK=mid?kMidEdge:1.0f;
  if(doProf){t1=svcGetSystemTick();prPair+=t1-t0;t0=t1;}
  G3G_CurFog=J.fog;const int cullMode3d=cull3dCfg();const G3SIM_TexImageParam_t tp=J.tp;
  bool translucent=(v[0].color>>24)<250||(J.hasTex&&(tp.textureFormat==1||tp.textureFormat==6));
  bool dw=!translucent||J.tdw;unsigned dtest=J.depthTest;
  const float*M=J.M;
+ const unsigned xfGen=xfGenOf(sd,mid,wide,J.cullFace);
  /* g3_xfcache hit: list-cache replay with the same clip matrix as last time -> queue the stored triangles. */
  if(doXf&&J.replay&&n>=3&&!J.wbuf){
-  XfSlot&slot=xfTab[xfHash(v)];
-  if(slot.key==v&&slot.n==n&&slot.gen==xfGenNow()&&slot.cullFace==(unsigned)J.cullFace&&!memcmp(slot.M,M,sizeof slot.M)&&slot.base+slot.nTri<=XF_TRIS){
+  XfSlot&slot=xfTab[xfHash(xfKey)];
+  if(slot.key==xfKey&&slot.n==n&&slot.gen==xfGen&&slot.cullFace==(unsigned)J.cullFace&&!memcmp(slot.M,M,sizeof slot.M)&&slot.base+slot.nTri<=XF_TRIS){
    xfHits++;
    float sprZf=-1.0f;
-   if(stereoSd&&!parLock&&n<=6&&J.hasTex&&J.tw<=64&&J.th<=64&&P3DS_SpriteDepthCfg()){extern int P3DS_InField;extern int P3DS_InBattle;
+   if(sd&&!parL&&n<=6&&J.hasTex&&J.tw<=64&&J.th<=64&&P3DS_SpriteDepthCfg()){extern int P3DS_InField;extern int P3DS_InBattle;
     if(P3DS_InField&&!P3DS_InBattle){float lowY=1e9f,zfLo=2.0f,zfMin=2.0f,zfMax=-1.0f;bool ok=true;
      for(unsigned k=0;k<n&&ok;k++){const GuVertex&p=v[k];float w=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];if(w<1e-3f){ok=false;break;}
       float y=(p.x*M[1]+p.y*M[5]+p.z*M[9]+M[13])/w,z=(p.x*M[2]+p.y*M[6]+p.z*M[10]+M[14])/w,zf=0.5f*z+0.5f;
@@ -617,9 +626,9 @@ static void GpuRawJ(const GJob&J){
      if(ok&&zfLo>=0.0f&&zfLo<=1.0f){sprZf=zfLo;sprN++;sprSpread+=parOf(zfMax)-parOf(zfMin);}else sprSkip++;}}
    if(doProf){t1=svcGetSystemTick();prXform+=t1-t0;t0=t1;}
    for(unsigned t=0;t<slot.nTri;t++){const XfTri&T=xfArena[slot.base+t];drawnTris++;
-    if(!stereoSd){G3G_TriClip(0,T.c,T.su,T.sv,T.col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
+    if(!sd){G3G_TriClip(0,T.c,T.su,T.sv,T.col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
     float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=T.c[4*k+3];zf3[k]=w>1e-6f?0.5f*T.c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
-    float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
+    float shL[3],shR[3];for(int k=0;k<3;k++){if(parL){shL[k]=lockSh(0,sd);shR[k]=lockSh(1,sd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-sd*p;shR[k]=sd*p;}}
     G3G_TriClip2(T.c,T.su,T.sv,T.col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);}
    if(doProf){prQueue+=svcGetSystemTick()-t0;prRaw+=svcGetSystemTick()-tRaw0;}
    return;}}
@@ -629,20 +638,20 @@ static void GpuRawJ(const GJob&J){
    of the left eye). Widen the x reject planes by the maximum shift (stereoSd/128 clip units per w; par <= 1). */
  /* sprite_depth: one parallax for the whole quad (feet vertex), field only */
  float sprZf=-1.0f;
- if(stereoSd&&!parLock&&n<=6&&J.hasTex&&J.tw<=64&&J.th<=64&&P3DS_SpriteDepthCfg()){extern int P3DS_InField;extern int P3DS_InBattle;
+ if(sd&&!parL&&n<=6&&J.hasTex&&J.tw<=64&&J.th<=64&&P3DS_SpriteDepthCfg()){extern int P3DS_InField;extern int P3DS_InBattle;
   if(P3DS_InField&&!P3DS_InBattle){float lowY=1e9f,zfLo=2.0f,zfMin=2.0f,zfMax=-1.0f;bool ok=true;
    for(unsigned k=0;k<n&&ok;k++){const GuVertex&p=v[k];float w=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];if(w<1e-3f){ok=false;break;}
     float y=(p.x*M[1]+p.y*M[5]+p.z*M[9]+M[13])/w,z=(p.x*M[2]+p.y*M[6]+p.z*M[10]+M[14])/w,zf=0.5f*z+0.5f;
     if(y<lowY){lowY=y;zfLo=zf;}if(zf<zfMin)zfMin=zf;if(zf>zfMax)zfMax=zf;}
    if(ok&&zfLo>=0.0f&&zfLo<=1.0f){sprZf=zfLo;sprN++;sprSpread+=parOf(zfMax)-parOf(zfMin);
-    if(sprN==1||sprN%3000==0){PSPNativeMemLog("[SPRDEPTH] sprite quads fixed %u (skipped %u), avg parallax spread removed %.4f of the shift, feet zf %.4f, shift %d px",sprN,sprSkip,sprSpread/sprN,zfLo,stereoSd);}}
+    if(sprN==1||sprN%3000==0){PSPNativeMemLog("[SPRDEPTH] sprite quads fixed %u (skipped %u), avg parallax spread removed %.4f of the shift, feet zf %.4f, shift %d px",sprN,sprSkip,sprSpread/sprN,zfLo,sd);}}
    else sprSkip++;}}
  /* optional store into xfcache: only for list-cache replay, no hard tris, and room in the arena */
  XfSlot*xfOut=nullptr;unsigned xfBase=0,xfNTri=0;bool xfHard=false;
  if(doXf&&J.replay&&n>=3&&!J.wbuf){
   xfMiss++;
   if(xfArenaN+n/3>XF_TRIS){xfClear();xfBase=0;}
-  if(xfArenaN+n/3<=XF_TRIS){xfOut=&xfTab[xfHash(v)];xfBase=xfArenaN;}}
+  if(xfArenaN+n/3<=XF_TRIS){xfOut=&xfTab[xfHash(xfKey)];xfBase=xfArenaN;}}
  u64 tLoop=doProf?svcGetSystemTick():0;unsigned clipN=0;
  for(unsigned i=0;i+2<n;i+=3){float c[12];unsigned out=0x3F;u32 col[3];float su[3],sv[3];
   if(chunked&&i%kChunkV==0&&cmask[i/kChunkV]){const unsigned t=((i+kChunkV<n?i+kChunkV:n)-i)/3;rejOut+=t;bcSkipC++;bcSkipT+=t;i+=3*t-3;continue;}
@@ -666,26 +675,28 @@ static void GpuRawJ(const GJob&J){
    if((J.cullFace==1&&area>0)||(J.cullFace==2&&area<0)){culledTris++;continue;}}
   drawnTris++;
   if(xfOut){XfTri&T=xfArena[xfBase+xfNTri++];memcpy(T.c,c,sizeof T.c);memcpy(T.col,col,sizeof T.col);memcpy(T.su,su,sizeof T.su);memcpy(T.sv,sv,sizeof T.sv);}
-  if(!stereoSd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
+  if(!sd){G3G_TriClip(0,c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,nullptr);continue;}
   /* 2026-11-04: zf and the parallax once per vertex, both eyes written in one G3G_TriClip2 pass (was: all of it per eye) */
   float zf3[3];bool degen=false;for(int k=0;k<3;k++){float w=c[4*k+3];zf3[k]=w>1e-6f?0.5f*c[4*k+2]/w+0.5f:1.0f;if(!degen&&zDegenerate(w,zf3[k]))degen=true;}if(degen)stereoClamped++;
-  float shL[3],shR[3];for(int k=0;k<3;k++){if(parLock){shL[k]=lockSh(0,stereoSd);shR[k]=lockSh(1,stereoSd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-stereoSd*p;shR[k]=stereoSd*p;}}
+  float shL[3],shR[3];for(int k=0;k<3;k++){if(parL){shL[k]=lockSh(0,sd);shR[k]=lockSh(1,sd);}else{const float p=degen?0.65f:parOf(sprZf>=0.0f?sprZf:zf3[k]);shL[k]=-sd*p;shR[k]=sd*p;}}
   G3G_TriClip2(c,su,sv,col,J.gt,tp.repeatS,tp.repeatT,tp.flipS,tp.flipT,translucent,dw,dtest,shL,shR);
  }
  if(doProf){u64 tn=svcGetSystemTick();const u64 loop=tn-tLoop;
   /* Coarse: hard-clip share by triangle count; the rest is transform+reject+face-cull+TriClip (reported as xform; queue stays for xfcache hits). */
   if(clipN&&n>=3){const u64 c=(loop*(u64)clipN)/(u64)(n/3);prClip+=c;prXform+=loop-c;}else prXform+=loop;
   prRaw+=tn-tRaw0;}
- if(xfOut&&!xfHard){xfOut->key=v;xfOut->n=n;xfOut->nTri=xfNTri;xfOut->base=xfBase;xfOut->gen=xfGenNow();xfOut->cullFace=(unsigned)J.cullFace;memcpy(xfOut->M,M,sizeof xfOut->M);xfArenaN=xfBase+xfNTri;xfStore++;}
+ if(xfOut&&!xfHard){xfOut->key=xfKey;xfOut->n=n;xfOut->nTri=xfNTri;xfOut->base=xfBase;xfOut->gen=xfGen;xfOut->cullFace=(unsigned)J.cullFace;memcpy(xfOut->M,M,sizeof xfOut->M);xfArenaN=xfBase+xfNTri;xfStore++;}
 }
 /* GeBuffer / G3 command decode time (subset of front) when g3_prof is on. */
 extern "C" void P3DS_G3ProfAddCmd(unsigned long long ticks){if(P3DS_G3ProfCfg())prCmd+=ticks;}
 static GuVertex scrBuf[8192];
 /* ================= g3_thread: worker for the raw 3D transform (GpuRawJ) =================
-   The game thread builds a GJob per raw draw call (state snapshot; vertices copied into a per-frame arena unless they are a list-cache replay array),
-   a worker on core 2 runs GpuRawJ on it. The worker is the only thing that appends to the G3G batches while the queue is busy; the game thread drains it
-   (waits for the worker) before anything else that touches the batches, the textures or the vertex arrays: DrawScreen, G3SIM_FlushDeferred (frame end),
-   G3ListDeferFree, G3G_TexFree. OFF (default) runs GpuRawJ right in Draw, exactly the same code. Log: [G3THR]. */
+   The game thread builds a GJob per raw draw call (full state snapshot; EVERY vertex list is copied into the per-frame
+   arena — including list-cache replay — so the worker never reads game memory the game thread can mutate). A worker on
+   core 2 runs GpuRawJ. Acquire/release barriers pair the ring publish with the worker read and the drain with vb[]
+   writes (ARM11 is weakly ordered; missing acquire let the worker see a new gtTail with a stale/partial GJob → flashing
+   terrain). The worker is the only writer of G3G batches while the queue is busy; the game thread drains before
+   DrawScreen / G3SIM_FlushDeferred / G3ListDeferFree / G3G_TexFree. OFF runs GpuRawJ in Draw. Log: [G3THR]. */
 static int gtCfgWant=-1,gtCfg=0,gtThreadOk=0;static unsigned gtAbN;   /* g3_thread 2 = A/B test: OFF and ON alternate every 1200 3D frames (~40 s) in one session */
 enum{GT_N=1024,GT_MASK=GT_N-1,GT_ARENA=48*1024};          /* 48K vertices = 1.1 MB per frame, then a drain + reset */
 static GJob gtRing[GT_N];static GuVertex*gtArena;static u8*gtCmArena;static unsigned gtArenaPos,gtCmPos;
@@ -695,26 +706,32 @@ static u64 gtBusyTicks,gtWaitTicks;static unsigned gtJobs,gtDrains[6],gtFrames;s
 extern "C" void P3DS_ThreadGuard(const char*);
 static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0)==1)G3T_Signal();}
 static void gtMain(void*){P3DS_ThreadGuard("g3thread");gtInWorker=true;
- for(;;){unsigned h=gtHead;
-  if(h==gtTail){gtSleep=1;__sync_synchronize();if(h!=gtTail){gtSleep=0;continue;}G3T_Wait();continue;}
-  const u64 t0=svcGetSystemTick();{const GJob&J=gtRing[h&GT_MASK];if(J.screen)DrawScreenJ(J,J.v,J.n,J.deferOk);else GpuRawJ(J);}gtBusyTicks+=svcGetSystemTick()-t0;
-  __sync_synchronize();gtHead=h+1;}}
+ for(;;){
+  unsigned h=__atomic_load_n(&gtHead,__ATOMIC_RELAXED);
+  unsigned t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE); /* acquire: see producer's ring/arena stores */
+  if(h==t){gtSleep=1;__sync_synchronize();t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);if(h!=t){gtSleep=0;continue;}G3T_Wait();continue;}
+  const u64 t0=svcGetSystemTick();{const GJob J=gtRing[h&GT_MASK];if(J.screen)DrawScreenJ(J,J.v,J.n,J.deferOk);else GpuRawJ(J);}gtBusyTicks+=svcGetSystemTick()-t0;
+  __atomic_store_n(&gtHead,h+1,__ATOMIC_RELEASE); /* release: vb[] / batch writes visible before head advances */
+ }}
 static bool gtStart(){
  if(gtThreadOk)return true;if(gtThreadOk<0)return false;
  gtArena=(GuVertex*)memalign(16,GT_ARENA*sizeof(GuVertex));gtCmArena=(u8*)malloc(64*1024);
  bool started=false;if(gtArena&&gtCmArena)started=G3T_Start(gtMain)!=0;
  if(!started){free(gtArena);free(gtCmArena);gtArena=nullptr;gtCmArena=nullptr;gtThreadOk=-1;PSPNativeMemLog("[G3THR] worker thread could not start: g3_thread stays OFF");return false;}
  gtThreadOk=1;PSPNativeMemLog("[G3THR] worker thread started on core 2 (queue %d jobs, arena %u KB)",GT_N,(unsigned)(GT_ARENA*sizeof(GuVertex)>>10));return true;}
-static inline bool gtBusy(){return gtHead!=gtTail;}
+static inline bool gtBusy(){return __atomic_load_n(&gtHead,__ATOMIC_ACQUIRE)!=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);}
 static void gtDrain(int why){
  if(gtBusy()){gtWake();const u64 t0=svcGetSystemTick();unsigned spins=0;
-  while(gtHead!=gtTail){if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWake();}else __asm__ volatile("yield");}
+  while(__atomic_load_n(&gtHead,__ATOMIC_ACQUIRE)!=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE)){
+   if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWake();}else __asm__ volatile("yield");}
+  __sync_synchronize(); /* acquire all worker vb[] / batch stores before the game thread uses them */
   gtWaitTicks+=svcGetSystemTick()-t0;gtDrains[why]++;}
- gtArenaPos=0;gtCmPos=0;gtKicked=gtTail;
+ gtArenaPos=0;gtCmPos=0;gtKicked=__atomic_load_n(&gtTail,__ATOMIC_RELAXED);
  for(unsigned i=0;i<gtPendN;i++)ListFreeNow(gtPendFree[i]);gtPendN=0;}   /* queue empty: nothing references the arena */
 static void gtDrainIfBusy(int why){if(gtBusy())gtDrain(why);}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
- J.v=v;J.n=n;J.replay=(v==replayV);memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
+ J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=J.replay?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
+ memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
  J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.pre=false;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;}
 static void gtResolveTex(GJob&J){Tex*t=GetTexture();if(t&&!t->gt)t->gt=G3SIM_GpuTex(t);J.tex=t;J.hasTex=t!=nullptr;J.gt=t?t->gt:nullptr;J.tw=t?t->w:0;J.th=t?t->h:0;}
 static void gtPush(GJob&J,bool chunked);
@@ -725,11 +742,19 @@ static void gtSubmit(GJob&J){
  gtResolveTex(J);J.pre=true;J.chunked=chunked;
  gtPush(J,chunked);}
 static void gtPush(GJob&J,bool chunked){
- if(!J.replay){if(gtArenaPos+J.n>GT_ARENA)gtDrain(5);GuVertex*d=gtArena+gtArenaPos;memcpy(d,J.v,J.n*sizeof(GuVertex));gtArenaPos+=J.n;J.v=d;}
+ /* Always copy vertices into the arena (replay too). List-cache arrays are "immutable until free", but on a weakly ordered
+    MPCore the worker must not race the game thread's next use of that pointer, and a fresh arena write pairs with the
+    publish barrier below. xfKey keeps the list identity for g3_xfcache. */
+ if(J.n){if(gtArenaPos+J.n>GT_ARENA)gtDrain(5);GuVertex*d=gtArena+gtArenaPos;memcpy(d,J.v,J.n*sizeof(GuVertex));gtArenaPos+=J.n;
+  if(J.replay&&!J.xfKey)J.xfKey=J.v;J.v=d;}
  if(chunked){const unsigned nc=(J.n+kChunkV-1)/kChunkV;if(gtCmPos+nc>64*1024)gtDrain(5);u8*d=gtCmArena+gtCmPos;memcpy(d,chunkOff,nc);gtCmPos+=nc;J.cmask=d;}
- if(gtTail-gtHead>=GT_N)gtDrain(4);
- gtRing[gtTail&GT_MASK]=J;__sync_synchronize();gtTail=gtTail+1;gtJobs++;
- {const unsigned every=P3DS_G3WakeCfg()?1u:6u;if(gtTail-gtKicked>=every){gtKicked=gtTail;gtWake();if(every==1)prWake++;}}}
+ {const unsigned head=__atomic_load_n(&gtHead,__ATOMIC_ACQUIRE);const unsigned tail=__atomic_load_n(&gtTail,__ATOMIC_RELAXED);
+  if(tail-head>=GT_N)gtDrain(4);}
+ {const unsigned tail=__atomic_load_n(&gtTail,__ATOMIC_RELAXED);
+  gtRing[tail&GT_MASK]=J;
+  __atomic_store_n(&gtTail,tail+1,__ATOMIC_RELEASE); /* release: ring + arena visible before the new tail */
+  gtJobs++;
+  {const unsigned every=P3DS_G3WakeCfg()?1u:6u;if((tail+1)-gtKicked>=every){gtKicked=tail+1;gtWake();if(every==1)prWake++;}}}}
 static void gtFrameStats(){
  if(++gtFrames%300)return;
  PSPNativeMemLog("[G3THR] %s | 300 frames: %u jobs, worker busy %u us/frame, game thread waited %u us/frame at drains (frame %u screen %u listfree %u texfree %u ringfull %u arena %u)",gtCfg?"ON":"OFF",gtJobs,(unsigned)(gtBusyTicks/268/300),(unsigned)(gtWaitTicks/268/300),gtDrains[1],gtDrains[0],gtDrains[2],gtDrains[3],gtDrains[4],gtDrains[5]);
