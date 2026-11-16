@@ -305,7 +305,7 @@ static int parLock,parTrack;static unsigned parN;static float parZMin=1,parZMax=
 /* One raw/screen draw as a value. Worker path must only read this (plus immutable config), never live stereo/matrix/tex globals. */
 struct GJob{const GuVertex*v;unsigned n;float M[16];bool cullAll;int cullFace;int fog;unsigned depthTest;G3SIM_TexImageParam_t tp;bool tdw;bool wbuf;bool replay;
  const void*xfKey;int sd;int parL;bool mid,wide;
- Tex*tex;void*gt;bool hasTex;unsigned tw,th;unsigned texGen,texGpuGen;u32 texCrc;bool pre,chunked;const u8*cmask;bool screen,deferOk;
+ Tex*tex;void*gt;bool hasTex;unsigned tw,th;unsigned texGen,texGpuGen;u32 texCrc;bool chunked;const u8*cmask;bool screen,deferOk;
  /* post-#485/#486: midpoint K, cull/clip/sprite flags, submit CRC + clip xform hash for g3_thr_check */
  bool hasK;float K[16];int sprDepth;int cull3d;bool cpuClip,guardClip,guardBat,edgeFix,fieldSpr;u32 snapCrc,xformCrc;};
 static const GJob* gtCur; /* set while GpuRawJ / DrawScreenJ run */
@@ -613,7 +613,7 @@ extern "C" int P3DS_BatchCullCfg(void){if(bcV<0){bcV=P3DS_CfgInt("g3_batchcull",
 extern "C" void P3DS_SetBatchCull(int v){bcV=v!=0;}
 enum{kChunkV=48};   /* 16 triangles */
 struct BBox{const void*p;unsigned n;float(*cb)[6];};   /* cb[0] = whole batch, cb[1+k] = chunk k: min xyz, max xyz */
-static BBox bbTab[1024];static const GuVertex*replayV;static const GuVertex*jReplayV;static const float*jM;static unsigned bcTested,bcSkipB,bcSkipC,bcSkipT,bcHits;
+static BBox bbTab[1024];static const GuVertex*replayV;static unsigned bcTested,bcSkipB,bcSkipC,bcSkipT,bcHits;
 static float bcTmp[2+24576/kChunkV][6];static u8 chunkOff[1+24576/kChunkV];
 static inline BBox*bbSlot(const void*p){return &bbTab[(unsigned)(((uintptr_t)p>>4)*2654435761u)>>22];}
 static void BoxesOf(const GuVertex*v,unsigned n,float(*cb)[6]){
@@ -622,14 +622,14 @@ static void BoxesOf(const GuVertex*v,unsigned n,float(*cb)[6]){
   for(unsigned k=i+1;k<e;k++){const GuVertex&q=v[k];if(q.x<x0)x0=q.x;if(q.x>x1)x1=q.x;if(q.y<y0)y0=q.y;if(q.y>y1)y1=q.y;if(q.z<z0)z0=q.z;if(q.z>z1)z1=q.z;}
   float*B=cb[1+c];B[0]=x0;B[1]=y0;B[2]=z0;B[3]=x1;B[4]=y1;B[5]=z1;
   if(x0<W[0])W[0]=x0;if(y0<W[1])W[1]=y0;if(z0<W[2])W[2]=z0;if(x1>W[3])W[3]=x1;if(y1>W[4])W[4]=y1;if(z1>W[5])W[5]=z1;i=e;}}
-static float(*BoxesFor(const GuVertex*v,unsigned n))[6]{
- if(v!=jReplayV){BoxesOf(v,n,bcTmp);return bcTmp;}
+static float(*BoxesFor(const GuVertex*v,unsigned n,bool replay))[6]{
+ if(!replay){BoxesOf(v,n,bcTmp);return bcTmp;}
  BBox*b=bbSlot(v);if(b->p==v&&b->n==n&&b->cb){bcHits++;return b->cb;}
  free(b->cb);b->p=nullptr;b->cb=(float(*)[6])malloc((2+n/kChunkV)*sizeof(float[6]));if(!b->cb){BoxesOf(v,n,bcTmp);return bcTmp;}
  BoxesOf(v,n,b->cb);b->p=v;b->n=n;return b->cb;}
 /* plane mask that all 8 corners of box B share (0 = may be visible) */
-static unsigned BoxOutOrig(const float*B,float qwK,bool zp){
- const float*M=jM;unsigned all=zp?0x3F:0x0F;
+static unsigned BoxOutOrig(const float*B,const float*M,float qwK,bool zp){
+ unsigned all=zp?0x3F:0x0F;
  for(int c=0;c<8&&all;c++){const float x=B[(c&1)?3:0],y=B[(c&2)?4:1],z=B[(c&4)?5:2];
   const float q0=x*M[0]+y*M[4]+z*M[8]+M[12],q1=x*M[1]+y*M[5]+z*M[9]+M[13],q2=x*M[2]+y*M[6]+z*M[10]+M[14],q3=x*M[3]+y*M[7]+z*M[11]+M[15];
   /* margin: a corner must be clearly outside, so float rounding inside the box can never put a vertex back on the inside */
@@ -641,30 +641,30 @@ static unsigned BoxOutOrig(const float*B,float qwK,bool zp){
 static FastBoxPlanes fastPlanes;static bool fastBatchOn;static int fastBoundsV=-1;
 extern "C" int P3DS_FastBoundsCfg(void){if(fastBoundsV<0){fastBoundsV=P3DS_CfgInt("g3_fast_bounds",1)!=0;PSPNativeMemLog("[G3BOUNDS] g3_fast_bounds=%d (support planes, original calculation near boundaries)",fastBoundsV);}return fastBoundsV;}
 extern "C" void P3DS_SetFastBounds(int v){fastBoundsV=v!=0;PSPNativeMemLog("[G3BOUNDS] g3_fast_bounds=%d from settings",fastBoundsV);}
-static unsigned fastBox(const float*B,float qwK,bool zp){unsigned m=fastPlanes.test(B);return (m&0x80000000u)?BoxOutOrig(B,qwK,zp):m;}
-static unsigned BoxOut(const float*B,float qwK,bool zp){
- if(!fastBatchOn)return BoxOutOrig(B,qwK,zp);
+static unsigned fastBox(const float*B,const float*M,float qwK,bool zp){unsigned m=fastPlanes.test(B);return (m&0x80000000u)?BoxOutOrig(B,M,qwK,zp):m;}
+static unsigned BoxOut(const float*B,const float*M,float qwK,bool zp){
+ if(!fastBatchOn)return BoxOutOrig(B,M,qwK,zp);
 #ifdef P3DS_BOUNDS_ORACLE
  static unsigned checks,bad,samples;static u64 oldTicks,newTicks;
  if(checks<500000){unsigned ref,next;bool timed=((checks&63)==0);
-  if(timed){u64 a=svcGetSystemTick();ref=BoxOutOrig(B,qwK,zp);u64 b=svcGetSystemTick();next=fastBox(B,qwK,zp);u64 c=svcGetSystemTick();oldTicks+=b-a;newTicks+=c-b;samples++;}
-  else{ref=BoxOutOrig(B,qwK,zp);next=fastBox(B,qwK,zp);}
+  if(timed){u64 a=svcGetSystemTick();ref=BoxOutOrig(B,M,qwK,zp);u64 b=svcGetSystemTick();next=fastBox(B,M,qwK,zp);u64 c=svcGetSystemTick();oldTicks+=b-a;newTicks+=c-b;samples++;}
+  else{ref=BoxOutOrig(B,M,qwK,zp);next=fastBox(B,M,qwK,zp);}
   checks++;if(next!=ref){if(bad++<8)PSPNativeMemLog("[BOUNDSCHECK] mismatch old=%02x new=%02x",ref,next);fastBoundsV=0;fastBatchOn=false;next=ref;}
   if(checks%100000==0)PSPNativeMemLog("[BOUNDSCHECK] checks=%u mismatches=%u samples=%u old_ticks=%llu new_ticks=%llu",checks,bad,samples,oldTicks,newTicks);
   return next;
  }
 #endif
- return fastBox(B,qwK,zp);
+ return fastBox(B,M,qwK,zp);
 }
 static float qwKOf(const GJob&J){
  return ((J.wide?1.25f:1.0f)+(J.edgeFix&&J.sd?J.sd*(1.0f/128.0f):0.0f))*(J.mid?kMidEdge:1.0f);}
 /* batch-level off-screen reject (g3_batchcull). Returns 1 if the whole batch is outside one clip plane. Fills chunkOff / chunked for the per-chunk skip. */
 static int CullBatch(const GJob&J,bool&chunked){
- const GuVertex*v=J.v;const unsigned n=J.n;jM=J.M;jReplayV=J.replay?(J.xfKey?J.xfKey:J.v):nullptr;const float qwK=qwKOf(J);chunked=false;
- static float mcM[16];if(J.mid){memcpy(mcM,J.M,sizeof mcM);for(int k=0;k<4;k++)mcM[4*k+1]*=1.0f/kMidEdge;jM=mcM;}   /* fps60: clip y shrunk = the same rim top and bottom as qwK gives left and right */
- if(n>=(J.replay?9u:24u)&&P3DS_BatchCullCfg()){float(*cb)[6]=BoxesFor(v,n);const bool zp=!J.wbuf;bcTested++;fastBatchOn=P3DS_FastBoundsCfg()!=0;if(fastBatchOn)fastPlanes.prepare(jM,qwK,zp);
-  const unsigned m=BoxOut(cb[0],qwK,zp);if(m){bcSkipB++;bcSkipT+=n/3;rejOut+=n/3;rejMask|=m;return 1;}
-  if(n>kChunkV){const unsigned nc=(n+kChunkV-1)/kChunkV;for(unsigned c=0;c<nc;c++){const unsigned mc=BoxOut(cb[1+c],qwK,zp);chunkOff[c]=mc!=0;rejMask|=mc;}chunked=true;}}
+ const GuVertex*v=J.v;const unsigned n=J.n;const float *matrix=J.M;const float qwK=qwKOf(J);chunked=false;
+ float mcM[16];if(J.mid){memcpy(mcM,J.M,sizeof mcM);for(int k=0;k<4;k++)mcM[4*k+1]*=1.0f/kMidEdge;matrix=mcM;}   /* fps60: clip y shrunk = the same rim top and bottom as qwK gives left and right */
+ if(n>=(J.replay?9u:24u)&&P3DS_BatchCullCfg()){float(*cb)[6]=BoxesFor(v,n,J.replay && (!J.xfKey || J.xfKey==v));const bool zp=!J.wbuf;bcTested++;fastBatchOn=P3DS_FastBoundsCfg()!=0;if(fastBatchOn)fastPlanes.prepare(matrix,qwK,zp);
+  const unsigned m=BoxOut(cb[0],matrix,qwK,zp);if(m){bcSkipB++;bcSkipT+=n/3;rejOut+=n/3;rejMask|=m;return 1;}
+  if(n>kChunkV){const unsigned nc=(n+kChunkV-1)/kChunkV;for(unsigned c=0;c<nc;c++){const unsigned mc=BoxOut(cb[1+c],matrix,qwK,zp);chunkOff[c]=mc!=0;rejMask|=mc;}chunked=true;}}
  return 0;}
 /* g3_xfcache: keep the last accepted clip-space triangles for a list-cache replay draw. Same pointer + identical M + same
    stereo/mid/wide rim -> skip matrix multiply, plane reject and face cull, and queue the stored triangles. Hard (CPU-clip)
@@ -720,10 +720,10 @@ static void GpuRawJ(const GJob&J0){
  u64 tRaw0=0,t0=0,t1=0;if(doProf)tRaw0=t0=svcGetSystemTick();
  const GuVertex*v=J.v;const unsigned n=J.n;const void*xfKey=J.xfKey?J.xfKey:v;
  const int sd=J.sd,parL=J.parL;const bool mid=J.mid,wide=J.wide;
- jM=J.M;jReplayV=J.replay?xfKey:nullptr;
  const float qwK=qwKOf(J);
- bool chunked=J.chunked;const u8*cmask=J.cmask;
- if(!J.pre){if(CullBatch(J,chunked)){if(doProf){prCull+=svcGetSystemTick()-t0;prRaw+=svcGetSystemTick()-tRaw0;}gtCur=prev;return;}cmask=chunkOff;}
+ // Both submitters cull before transforming. The worker uses only its
+ // job's copied mask and never touches the producer's culling scratch.
+ const bool chunked=J.chunked;const u8*cmask=J.cmask;
  if(doProf){t1=svcGetSystemTick();prCull+=t1-t0;t0=t1;}
  /* Midpoint K is computed on the game thread at submit (gtFinishMid). Worker must not touch md* tables. */
  if(mid)G3G_MidK(J.hasK?J.K:nullptr);const float yK=mid?kMidEdge:1.0f;
@@ -882,7 +882,7 @@ static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  extern int P3DS_InField,P3DS_InBattle;
  J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=J.replay?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
  memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
- J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.texGen=0;J.texGpuGen=0;J.texCrc=0;J.pre=false;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;
+ J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.texGen=0;J.texGpuGen=0;J.texCrc=0;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;
  J.hasK=false;J.sprDepth=P3DS_SpriteDepthCfg()!=0;J.cull3d=cull3dCfg();J.cpuClip=gpuCpuClip()!=0;J.guardClip=guardClip()!=0;J.guardBat=guardBattle();
  J.edgeFix=edgeFixCfg()!=0;J.fieldSpr=(P3DS_InField!=0&&P3DS_InBattle==0);J.snapCrc=0;J.xformCrc=0;}
 static void gtResolveTex(GJob&J){
@@ -904,7 +904,7 @@ static void gtSubmit(GJob&J){
  /* the batch-level reject runs here (same code, same counters); a rejected batch never costs a copy, a texture fetch or a queue slot */
  if(J.cullAll)return;
  bool chunked=false;if(CullBatch(J,chunked))return;
- gtResolveTex(J);gtFinishMid(J);J.pre=true;J.chunked=chunked;
+ gtResolveTex(J);gtFinishMid(J);J.chunked=chunked;
  if(P3DS_G3ThrCheckCfg()){J.snapCrc=gtSnapCrc(J);J.xformCrc=gtXformCrc(J);}
  gtPush(J,chunked);}
 static void gtPush(GJob&J,bool chunked){
@@ -960,7 +960,7 @@ static void Draw(const GuVertex*v,unsigned n,bool deferOk){
   for(unsigned i=0;i<n;i++){GuVertex o=v[i];const float d=((o.z-32768.0f)*(1.0f/32767.0f)+1.0f)*0.5f,w=d*wmax;
    float zn=w>=ff?1.0f:w>1e-6f?A-B/w:-1.0f;if(zn<-1)zn=-1;if(zn>1)zn=1;o.z=zn*32767.0f+32768.0f;scrBuf[i]=o;}
   DrawScreen(scrBuf,n,deferOk);return;}
- if(rawMode&&n&&gpuOn==1){P3DS_Fps60Poll();u64 t=svcGetSystemTick();GJob J;gtSnapshot(J,v,n);if(gtCfg)gtSubmit(J);else if(!J.cullAll){bool ch=false;if(!CullBatch(J,ch)){gtResolveTex(J);gtFinishMid(J);J.pre=true;J.chunked=ch;J.cmask=chunkOff;if(P3DS_G3ThrCheckCfg()){J.snapCrc=gtSnapCrc(J);J.xformCrc=gtXformCrc(J);}GpuRawJ(J);}}prRaw+=svcGetSystemTick()-t;return;}
+ if(rawMode&&n&&gpuOn==1){P3DS_Fps60Poll();u64 t=svcGetSystemTick();GJob J;gtSnapshot(J,v,n);if(gtCfg)gtSubmit(J);else if(!J.cullAll){bool ch=false;if(!CullBatch(J,ch)){gtResolveTex(J);gtFinishMid(J);J.chunked=ch;J.cmask=chunkOff;if(P3DS_G3ThrCheckCfg()){J.snapCrc=gtSnapCrc(J);J.xformCrc=gtXformCrc(J);}GpuRawJ(J);}}prRaw+=svcGetSystemTick()-t;return;}
  if(rawMode&&n){if(gtBusy())gtDrain(0);GJob J;gtSnapshot(J,v,n);unsigned m=RawToScreen(J,v,n);DrawScreen(rawOut,m,deferOk);return;}
  DrawScreen(v,n,deferOk);
 }
