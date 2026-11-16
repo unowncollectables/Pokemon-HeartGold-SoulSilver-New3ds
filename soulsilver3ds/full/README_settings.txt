@@ -183,8 +183,9 @@ CONTROLS / TOUCH
                     Default 0. Log: [G3THR] texfence: … TexCreate wait/skip.  [2026-11-16]
   g3_thr_texsafe=0  3D tex safe (Debug tab): with g3_thread ON, after VBlank do not TexUpdate in place a GPU texture this
                     frame already queued into vb/bt — upload a new gt and pendFree the old (End still samples the old).
-                    With texfence, also holds pins until after End. Stops brief walking texture flashes (run 879). Default 0.
-                    Log: [G3THR] tex flash risk / tex_postvblank replace vs in-place.  [2026-11-16]
+                    With texfence, also holds pins until after End. Stops brief walking texture flashes (run 879).
+                    Run 883: with texfence, LRU must defer GPU free (not wait on End-held pins). Default 0.
+                    Log: [G3THR] tex flash risk / tex_postvblank replace vs in-place / defer-free.  [2026-11-16]
   g3_stereo_share=0 3D stereo share (Debug tab): with the 3D slider up, TriClip2 writes left only; after drain (or before
                     hard-clip / any eye-1 write), expand right with x += scale*(shR-shL)/128*w. Bit-identical to dual
                     TriClip2. Cuts ~half the stereo vb store traffic in raw. Default 0. Log: [G3STER] expand.  [2026-11-16]

@@ -44,7 +44,9 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    Run 879 avg depth stayed ~1–2 mainly because every new GPU tex forced idle. Levels 0 and 1 unchanged.
    g3_thr_texsafe (Debug tab, default OFF): with g3_thread ON, do not TexUpdate in place after VBlank for textures this
    frame already queued (replace gt, keep old object for G3G_End). Also hold fence pins until after End. Fixes brief
-   texture flashes while walking (run 879; flash with texfence ON and OFF). OFF = old in-place post-vblank path.
+   texture flashes while walking (run 879). Run 883: with texfence+texsafe, LRU/texFree must NOT gtWaitPinned
+   (pins stay until End → deadlock); defer GPU free until after pin release. Wait loops drop the big intrlock,
+   force-Signal, and time out → g3_thread OFF. OFF = old in-place post-vblank path.
    g3_stereo_share (Debug tab, default OFF): TriClip2 writes left only + (shR-shL); expand right after drain (or
    before any eye-1 write such as hard-clip). Bit-identical to dual TriClip2; cuts ~half the vb store traffic.
    Host: tools/g3_thr_race_test.c, tools/g3_stereo_share_test.c, tools/g3_fastxform_test.c. */
@@ -124,10 +126,21 @@ static void gtPinRel(void*gt){
   if(__atomic_fetch_sub(&gtPins[i].n,1,__ATOMIC_ACQ_REL)==1)__atomic_store_n(&gtPins[i].gt,(void*)nullptr,__ATOMIC_RELEASE);
   return;}}
 static void gtWaitPinned(void*gt); /* defined with the worker */
+/* Run 883: with texsafe, pins stay until after End. texFree must not gtWaitPinned those — that deadlocks
+   (drain empties the queue but pins remain; End never runs). Defer the free until pins are released. */
+static void*gtTexDeferFree[512];static unsigned gtTexDeferN,gtTexDeferHits,gtWaitTimeouts,gtFlashRisk;
+static void gtFlushTexDeferFree(void){
+ for(unsigned i=0;i<gtTexDeferN;i++)G3G_TexFree(gtTexDeferFree[i]);gtTexDeferN=0;}
 static void texFree(void*p){
  if(!p)return;
- /* Fence path: wait only for jobs that still hold this gt. OFF / no thread: drain the whole queue as before. */
- if(gtCfg&&P3DS_G3TexFenceCfg())gtWaitPinned(p);else gtDrainIfBusy(3);
+ if(gtCfg&&P3DS_G3TexFenceCfg()&&gtPinGet(p)){
+  if(P3DS_G3TexSafeCfg()){
+   /* Still pinned for End: queue the free; never wait here. */
+   if(gtTexDeferN<512){gtTexDeferFree[gtTexDeferN++]=p;gtTexDeferHits++;return;}
+   static unsigned ov;if(ov++<8)PSPNativeMemLog("[G3THR] tex defer-free full; forcing pin wait with timeout");
+   gtWaitPinned(p);
+  }else gtWaitPinned(p);
+ }else if(!(gtCfg&&P3DS_G3TexFenceCfg()))gtDrainIfBusy(3);
  G3G_TexFree(p);}
 static int gpuOn=-1,gpuReq=-1;
 /* Source bytes (texels [+4x4 index data] + palette) of a texture; used to skip re-decoding when VRAM gen moved
@@ -263,12 +276,16 @@ static Tex*GetTextureImpl(){
   continue;
   decode_into_i:{Tex*e=&t;if(!DecodeTex(e))return nullptr;return e;}
  }
- /* new entry — with tex fence, never evict a slot whose gt is still pinned by an in-flight job */
+ /* new entry — with tex fence, never evict a slot whose gt is still pinned by an in-flight job.
+    Run 883: texsafe keeps pins until End, so "drain then force LRU" + gtWaitPinned deadlocked. Prefer unpinned;
+    if every slot is pinned, still evict LRU but texFree defers the GPU free (no wait). */
  {unsigned slot;if(texN<96)slot=texN++;else{
    slot=~0u;
    for(unsigned i=0;i<texN;i++)if(!gtPinGet(texCache[i].gt)&&(slot==~0u||texCache[i].lru<texCache[slot].lru))slot=i;
-   if(slot==~0u){/* every slot pinned: wait for the whole queue, then pick LRU */
-    gtDrainIfBusy(3);slot=0;for(unsigned i=1;i<texN;i++)if(texCache[i].lru<texCache[slot].lru)slot=i;}
+   if(slot==~0u){
+    gtDrainIfBusy(3);
+    for(unsigned i=0;i<texN;i++)if(!gtPinGet(texCache[i].gt)&&(slot==~0u||texCache[i].lru<texCache[slot].lru))slot=i;
+    if(slot==~0u){slot=0;for(unsigned i=1;i<texN;i++)if(texCache[i].lru<texCache[slot].lru)slot=i;}}
    free(texCache[slot].px);free(texCache[slot].raw);texFree(texCache[slot].gt);}
   Tex&t=texCache[slot];t={p.textureOffset,s_texPlttBase,fmt,w,h,p.color0,PSPNativeVramGen-1u,nullptr,0,nullptr,0,nullptr};
   return GetTexture();}
@@ -828,9 +845,27 @@ enum{GT_N=1024,GT_MASK=GT_N-1,GT_ARENA=96*1024};          /* 96K verts (~2.2 MB)
 static GJob gtRing[GT_N];static GuVertex*gtArena;static u8*gtCmArena;static unsigned gtArenaPos,gtCmPos;
 static volatile unsigned gtHead,gtTail,gtKicked,gtSleep;
 extern "C" {int G3T_Start(void(*)(void*));void G3T_Wait(void);void G3T_Signal(void);void G3T_SleepNs(long long);void*memalign(size_t,size_t);}
+extern "C" {int P3DS_BigLockDropForWait(void);void P3DS_BigLockRestoreAfterWait(int);int P3DS_BigLockDepth(void);}
 static u64 gtBusyTicks,gtWaitTicks;static unsigned gtJobs,gtDrains[6],gtFrames;static const char*const gtWhy[6]={"screen","frame","listfree","texfree","ringfull","arena"};
 extern "C" void P3DS_ThreadGuard(const char*);
+/* Conditional wake (publish path): only Signal if the worker marked itself asleep. */
 static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0)==1)G3T_Signal();}
+/* Drain/pin waits: always Signal so a lost TAS cannot leave the worker asleep with work queued (run 883). */
+static void gtWakeForce(){__sync_synchronize();__sync_lock_test_and_set(&gtSleep,0);G3T_Signal();}
+/* ~1 s at 268 MHz. On timeout: log, abandon queue / force-unpin, turn g3_thread OFF for the rest of the session. */
+enum{GT_WAIT_TICKS=268111856ull};
+static void gtFallbackInline(const char*why){
+ gtWaitTimeouts++;
+ PSPNativeMemLog("[G3THR] wait timeout (%s): g3_thread OFF, draining then force-empty if needed",why);
+ if(gtCfg){gtCfg=0;PSPNativeMemLog("[G3THR] now OFF (timeout fallback)");}
+ /* Stop new work; keep waking so the worker can finish what it has. */
+ const u64 t1=svcGetSystemTick();
+ while(gtBusy()&&svcGetSystemTick()-t1<GT_WAIT_TICKS/2){gtWakeForce();G3T_SleepNs(100000);}
+ if(gtBusy()){
+  unsigned t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);
+  __atomic_store_n(&gtHead,t,__ATOMIC_RELEASE);
+  PSPNativeMemLog("[G3THR] force-empty queue after timeout (worker may skip leftover jobs)");}
+ gtSleep=0;G3T_Signal();}
 static void gtMain(void*){P3DS_ThreadGuard("g3thread");gtInWorker=true;
  for(;;){
   unsigned h=__atomic_load_n(&gtHead,__ATOMIC_RELAXED);
@@ -856,12 +891,26 @@ static bool gtStart(){
  gtThreadOk=1;PSPNativeMemLog("[G3THR] worker thread started on core 2 (queue %d jobs, arena %u KB)",GT_N,(unsigned)(GT_ARENA*sizeof(GuVertex)>>10));return true;}
 static inline bool gtBusy(){return __atomic_load_n(&gtHead,__ATOMIC_ACQUIRE)!=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);}
 extern "C" int P3DS_G3ThrBusy(void){return gtCfg&&gtBusy();}
+/* Spin/sleep until pred(); drop big lock around the wait. Returns 0 on timeout (fallback already applied if fallBack). */
+static int gtWaitLoop(int(*pred)(void*),void*arg,const char*why,int fallBack){
+ const int held=P3DS_BigLockDropForWait();
+ gtWakeForce();const u64 t0=svcGetSystemTick();unsigned spins=0;
+ int ok=1;
+ while(!pred(arg)){
+  if(svcGetSystemTick()-t0>GT_WAIT_TICKS){ok=0;break;}
+  if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWakeForce();}else __asm__ volatile("yield");}
+ __sync_synchronize();
+ gtWaitTicks+=svcGetSystemTick()-t0;
+ if(!ok&&fallBack)gtFallbackInline(why);
+ P3DS_BigLockRestoreAfterWait(held);
+ return ok;}
+static int gtPredIdle(void*){return !gtBusy();}
+static int gtPredPinClear(void*gt){return !gtPinGet(gt);}
 static void gtDrain(int why){
- if(gtBusy()){gtWake();const u64 t0=svcGetSystemTick();unsigned spins=0;
-  while(__atomic_load_n(&gtHead,__ATOMIC_ACQUIRE)!=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE)){
-   if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWake();}else __asm__ volatile("yield");}
-  __sync_synchronize(); /* acquire all worker vb[] / batch stores before the game thread uses them */
-  gtWaitTicks+=svcGetSystemTick()-t0;gtDrains[why]++;}
+ if(gtBusy()){
+  if(!gtWaitLoop(gtPredIdle,nullptr,gtWhy[why],1)){
+   /* queue abandoned; still rewind arenas below */}
+  else gtDrains[why]++;}
  gtArenaPos=0;gtCmPos=0;gtKicked=__atomic_load_n(&gtTail,__ATOMIC_RELAXED);
  for(unsigned i=0;i<gtPendN;i++)ListFreeNow(gtPendFree[i]);gtPendN=0;}   /* queue empty: nothing references the arena */
 static void gtDrainIfBusy(int why){if(gtBusy())gtDrain(why);}
@@ -870,14 +919,18 @@ static void gtDrainIfBusy(int why){if(gtBusy())gtDrain(why);}
    their gt); only TexCreate still waits here. Arena is reset only by gtDrain. */
 static void gtWaitIdle(void){
  if(!gtBusy())return;
- gtWake();const u64 t0=svcGetSystemTick();unsigned spins=0;
- while(gtBusy()){if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWake();}else __asm__ volatile("yield");}
- __sync_synchronize();gtWaitTicks+=svcGetSystemTick()-t0;}
+ gtWaitLoop(gtPredIdle,nullptr,"idle",1);}
 static void gtWaitPinned(void*gt){
  if(!gt||!gtPinGet(gt))return;
- gtWake();const u64 t0=svcGetSystemTick();unsigned spins=0;gtPinWaits++;
- while(gtPinGet(gt)){if(++spins>4000){G3T_SleepNs(50000);spins=0;gtWake();}else __asm__ volatile("yield");}
- __sync_synchronize();gtWaitTicks+=svcGetSystemTick()-t0;}
+ /* texsafe: pins are held until after End — callers must defer (texFree) instead of waiting. */
+ if(P3DS_G3TexSafeCfg()){
+  static unsigned n;if(n++<8)PSPNativeMemLog("[G3THR] gtWaitPinned skipped under texsafe (would deadlock); defer free");
+  return;}
+ gtPinWaits++;
+ if(!gtWaitLoop(gtPredPinClear,gt,"pin",0)){
+  /* Timed out without abandoning the whole thread: force-unpin this gt so LRU can proceed. */
+  while(gtPinGet(gt))gtPinRel(gt);
+  PSPNativeMemLog("[G3THR] pin wait timeout gt=%p: force-unpinned",gt);}}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  extern int P3DS_InField,P3DS_InBattle;
  J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=J.replay?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
@@ -942,9 +995,11 @@ static void gtFrameStats(){
  if(++gtFrames%300)return;
  PSPNativeMemLog("[G3THR] %s | 300 frames: %u jobs, worker busy %u us/frame, game thread waited %u us/frame at drains (frame %u screen %u listfree %u texfree %u ringfull %u arena %u)",gtCfg?"ON":"OFF",gtJobs,(unsigned)(gtBusyTicks/268/300),(unsigned)(gtWaitTicks/268/300),gtDrains[1],gtDrains[0],gtDrains[2],gtDrains[3],gtDrains[4],gtDrains[5]);
  if(P3DS_G3TexFenceCfg()){const unsigned avgD=gtFenceDepthN?gtFenceDepthSum/gtFenceDepthN:0;
-  PSPNativeMemLog("[G3THR] texfence: max in-flight %u, avg depth %u, pins %u, pin-waits %u, TexCreate wait %u skip %u (level %d; depth>1 means front/cmd overlapped raw)",gtInFlightMax,avgD,gtPinHits,gtPinWaits,texCreateWait,texCreateSkip,P3DS_G3TexFenceCfg());
-  gtInFlightMax=gtFenceDepthSum=gtFenceDepthN=gtPinHits=gtPinWaits=0;texCreateWait=texCreateSkip=0;}
- if(P3DS_G3ThrCheckCfg()){PSPNativeMemLog("[G3THR] check: %u jobs, %u mismatches (%u tex) (want 0)",gtCheckN,gtCheckBad,gtTexBad);gtCheckN=gtCheckBad=gtTexBad=0;}
+  PSPNativeMemLog("[G3THR] texfence: max in-flight %u, avg depth %u, pins %u, pin-waits %u, TexCreate wait %u skip %u, defer-free %u, wait-timeouts %u (level %d; depth>1 means front/cmd overlapped raw)",gtInFlightMax,avgD,gtPinHits,gtPinWaits,texCreateWait,texCreateSkip,gtTexDeferHits,gtWaitTimeouts,P3DS_G3TexFenceCfg());
+  gtInFlightMax=gtFenceDepthSum=gtFenceDepthN=gtPinHits=gtPinWaits=0;texCreateWait=texCreateSkip=0;gtTexDeferHits=gtWaitTimeouts=0;}
+ /* mismatches = POD/xform/tex-CRC failures (gtCheckBad). texCrc = subset that were texture CRC. flashRisk =
+    in-place postvblank while thread ON (not a CRC mismatch; was wrongly lumped into "(N tex)" before). */
+ if(P3DS_G3ThrCheckCfg()){PSPNativeMemLog("[G3THR] check: %u jobs, %u mismatches (%u texCrc, %u flashRisk) (want 0 mismatches)",gtCheckN,gtCheckBad,gtTexBad,gtFlashRisk);gtCheckN=gtCheckBad=gtTexBad=gtFlashRisk=0;}
  if(postReplace|postInPlace){PSPNativeMemLog("[G3THR] tex_postvblank 300f: replace %u in-place %u (texsafe wants replace when thread ON)",postReplace,postInPlace);postReplace=postInPlace=0;}
  gtJobs=0;gtBusyTicks=gtWaitTicks=0;memset(gtDrains,0,sizeof gtDrains);}
 extern "C" int P3DS_G3ThreadCfg(void){if(gtCfgWant<0){gtCfgWant=P3DS_CfgInt("g3_thread",0);if(gtCfgWant<0||gtCfgWant>2)gtCfgWant=0;PSPNativeMemLog("[G3THR] g3_thread=%d (raw 3D transform on a worker thread on core 2; OFF = on the game thread)",gtCfgWant);}return gtCfgWant;}
@@ -1047,7 +1102,7 @@ void G3SIM_FlushDeferred(){
        if(neu){t->gt=neu;G3G_TexFree(old);postReplace++;postFixes++;}
        else{G3G_TexUpdate(t->gt,t->px,t->w,t->h);t->gpuGen++;postInPlace++;postFixes++;}}
       else if(t->gt){
-       if(gtCfg&&P3DS_G3ThrCheckCfg()){static unsigned fi;if(fi++<16)PSPNativeMemLog("[G3THR] tex flash risk: postvblank in-place off=%x gt=%p (enable g3_thr_texsafe)",t->off,t->gt);gtTexBad++;}
+       if(gtCfg&&P3DS_G3ThrCheckCfg()){static unsigned fi;if(fi++<16)PSPNativeMemLog("[G3THR] tex flash risk: postvblank in-place off=%x gt=%p (enable g3_thr_texsafe)",t->off,t->gt);gtFlashRisk++;}
        G3G_TexUpdate(t->gt,t->px,t->w,t->h);t->gpuGen++;postInPlace++;postFixes++;}
       else{t->gt=G3SIM_GpuTex(t);postFixes++;}}}
     if(rn){t->gen=PSPNativeVramGen;t->cnt=VramCnt();}}}
@@ -1065,8 +1120,10 @@ void G3SIM_FlushDeferred(){
  usedN=0;
  if(doProf)prFlush+=svcGetSystemTick()-tFlush0;
  if(gpuOn==1){u64 t=doProf?svcGetSystemTick():0;G3G_FogNoW=!wbufOn();G3G_MidInfo(mdTot,mdMat,mdMov);G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);if(doProf){prEnd+=svcGetSystemTick()-t;prN++;}}
- /* Release fence pins held for texsafe (after End finished sampling those gts). */
- if(gtCfg&&P3DS_G3TexFenceCfg()&&P3DS_G3TexSafeCfg())gtPinReleaseDone();
+ /* Release fence pins held for texsafe (after End finished sampling those gts), then GPU-free any
+    cache evictions that were deferred because those pins were still held (run 883 hang fix). */
+ if(gtCfg&&P3DS_G3TexFenceCfg()&&P3DS_G3TexSafeCfg()){gtPinReleaseDone();gtFlushTexDeferFree();}
+ else if(gtTexDeferN)gtFlushTexDeferFree();
  /* debug g3_shot=N: dump the finished 3D layer (256x192 RGBA, 6-bit) of 3D frames N, N+60, ... (8 files) to
     sdmc:/3ds/soulsilver3ds/g3shot_<frame>.bin, to compare renderers on the exact same game frame. Off (0) by default. */
  {static int shotF=-1;if(shotF<0)shotF=0 /* g3_shot: debug option removed */;if(shotF>0&&g3FrameNo>=(unsigned)shotF&&(g3FrameNo-shotF)%60==0&&g3FrameNo<(unsigned)shotF+480){G3G_DirectResolveWhy(7);char fn[64];snprintf(fn,sizeof fn,"sdmc:/3ds/soulsilver3ds/g3shot_%u.bin",g3FrameNo);FILE*f=fopen(fn,"wb");if(f){fwrite(GPU3D::NativeFrame,4,256*192,f);fclose(f);PSPNativeMemLog("[G3SHOT] %s (gpu %d)",fn,gpuOn);}}}

@@ -20,14 +20,26 @@ static volatile unsigned bigLr; static volatile int bigTid;
 /* run 79: slot 0 is also what every non-psp thread (libntrdwc/CPS network threads) reports, so "main" in run 74-78 may really be one of
    those. Keep the real thread pointer too, and snapshot who held the lock at the moment someone had to wait (the last wait = the deadlock). */
 static volatile unsigned bigThr, cLr, cThr, cMe, cCnt;
-unsigned int sceKernelCpuSuspendIntr(void) { initBig(); if (!RecursiveLock_TryLock(&big)) { cLr = bigLr; cThr = bigThr; cMe = (unsigned)threadGetCurrent(); cCnt++; CRUMB("intrlock-wait"); RecursiveLock_Lock(&big); } bigLr = (unsigned)__builtin_return_address(0); bigTid = tlsId; bigThr = (unsigned)threadGetCurrent(); return 1; }
+/* Run 883: g3_thread waits must not run while this thread holds the big lock (worker / ROM / alarm may need it). */
+static __thread int bigDepth;
+unsigned int sceKernelCpuSuspendIntr(void) { initBig(); if (!RecursiveLock_TryLock(&big)) { cLr = bigLr; cThr = bigThr; cMe = (unsigned)threadGetCurrent(); cCnt++; CRUMB("intrlock-wait"); RecursiveLock_Lock(&big); } bigLr = (unsigned)__builtin_return_address(0); bigTid = tlsId; bigThr = (unsigned)threadGetCurrent(); bigDepth++; return 1; }
 void P3DS_BigLockInfo(char *b, int n) {
     int t = bigTid; if (t < 0 || t > MAXT) t = 0;
     int w = snprintf(b, n, "big lock last taken by thread slot %d (%s) from %p; threads:", t, pts[t].name[0] ? pts[t].name : (t ? "?" : "main"), (void *)bigLr);
     if (w > 0 && w < n - 120) w += snprintf(b + w, n - w, " | last take thread %08x | last WAIT: waiter thread %08x, holder was thread %08x taken from %08x (%u waits);", bigThr, cMe, cThr, cLr, cCnt);
     for (int i = 1; i <= MAXT && w > 0 && w < n - 40; i++) if (pts[i].used) w += snprintf(b + w, n - w, " [%d %s%s]", i, pts[i].name, pts[i].started ? "" : " (not started)");
 }
-void sceKernelCpuResumeIntr(unsigned int f) { (void)f; RecursiveLock_Unlock(&big); }
+void sceKernelCpuResumeIntr(unsigned int f) { (void)f; if (bigDepth > 0) bigDepth--; RecursiveLock_Unlock(&big); }
+/* Drop every recursive hold on this thread before a long wait; restore afterward. Returns depth released. */
+int P3DS_BigLockDropForWait(void) {
+    int d = 0; initBig();
+    while (bigDepth > 0) { sceKernelCpuResumeIntr(1); d++; }
+    return d;
+}
+void P3DS_BigLockRestoreAfterWait(int depth) {
+    while (depth-- > 0) (void)sceKernelCpuSuspendIntr();
+}
+int P3DS_BigLockDepth(void) { return bigDepth; }
 int sceKernelSuspendDispatchThread(void) { return (int)sceKernelCpuSuspendIntr(); }
 int sceKernelResumeDispatchThread(int s) { sceKernelCpuResumeIntr((unsigned)s); return 0; }
 /* PSP prio 0x20 (= PSP main thread) maps to 0x30 (3DS main thread); DS worker threads (0x20+p) land at or below

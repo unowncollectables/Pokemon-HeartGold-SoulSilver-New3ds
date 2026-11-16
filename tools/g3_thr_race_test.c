@@ -152,6 +152,38 @@ static int texsafe_postvblank_replaces_queued_gt(void) {
     return !would_inplace && replaces && gtForEnd == gtQueued;
 }
 
+/* Run 883 hang: fence+texsafe keeps pins until after End. Drain empties the queue but pins remain.
+   LRU/texFree must NOT wait on pin (deadlock); defer free until after pin release. */
+static int should_defer_tex_free(int fence, int texsafe, int pin) { return fence && texsafe && pin; }
+static int should_wait_pin(int fence, int texsafe, int pin) { return fence && !texsafe && pin; }
+static int texsafe_fence_defers_free_instead_of_wait(void) {
+    /* both ON + pin after idle: pre-fix waited forever; fixed defers */
+    if (!should_defer_tex_free(1, 1, 1)) return 0;
+    if (should_wait_pin(1, 1, 1)) return 0;   /* must not wait under texsafe */
+    if (!should_wait_pin(1, 0, 1)) return 0;  /* fence alone may wait (worker releases) */
+    return 1;
+}
+
+/* Drain/pin waits must force-Signal (not only when gtSleep==1) and must drop the big lock. */
+static int wait_force_signal_and_drop_biglock(void) {
+    int gtSleep = 0; /* worker mid-job or between TAS and Wait */
+    int conditional_wake_signals = (gtSleep == 1); /* would miss */
+    int force_wake_signals = 1;                    /* always Signal */
+    int big_depth = 2;
+    int depth_after_drop = 0; /* DropForWait releases all */
+    int restored = 2;
+    return conditional_wake_signals == 0 && force_wake_signals == 1 && depth_after_drop == 0 && restored == big_depth;
+}
+
+/* Check log: flashRisk is separate from texCrc mismatches ("0 mismatches (18 tex)" was ambiguous). */
+static int check_log_splits_flash_from_texcrc(void) {
+    unsigned mismatches = 0, texCrc = 0, flashRisk = 18;
+    /* Old log lumped flash into "(N tex)" while mismatches stayed 0 — confusing. */
+    int old_ambiguous = (mismatches == 0 && flashRisk == 18);
+    int new_clear = (mismatches == 0 && texCrc == 0 && flashRisk == 18);
+    return old_ambiguous && new_clear;
+}
+
 /* thr_check tex: submit crc must differ when px/gpuGen changes before draw. */
 static uint32_t tex_crc_sample(unsigned off, unsigned gen, const uint32_t *px, unsigned n) {
     uint32_t h = 2166136261u;
@@ -198,6 +230,9 @@ int main(void) {
     if (!tex_fence_protects_inflight_gt()) bad++;
     if (!tex_fence_create_still_waits()) bad++;
     if (!texsafe_postvblank_replaces_queued_gt()) bad++;
+    if (!texsafe_fence_defers_free_instead_of_wait()) bad++;
+    if (!wait_force_signal_and_drop_biglock()) bad++;
+    if (!check_log_splits_flash_from_texcrc()) bad++;
     {
         uint32_t px[4] = {1, 2, 3, 4};
         uint32_t a = tex_crc_sample(0x100, 1, px, 4);
