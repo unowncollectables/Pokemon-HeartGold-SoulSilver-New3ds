@@ -821,6 +821,7 @@ static int fpsVertsMoved(void) {
     }
     int moved = !have || h != prev; have = 1; prev = h; return moved;
 }
+unsigned G3G_PipeKicks;   /* fps60_pipe kick counter; file scope so gpuscale.c can read it */
 void G3G_End(u32 *outL, u32 *outR) {
     { extern void P3DS_Fps60Poll(void); P3DS_Fps60Poll(); }
     if (ok != 1) return;
@@ -932,7 +933,6 @@ void G3G_End(u32 *outL, u32 *outR) {
     /* Wide + direct + in-between only. Anything else, including fps60_pipe OFF, keeps the loop below byte for byte. */
     const int pipe = mid && wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
     static unsigned pipeN, pipeKickSum;
-unsigned G3G_PipeKicks;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
     for (int e = 0; e < eyes; e++) {
         if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
