@@ -536,13 +536,32 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
     last->count += 3;
 }
 /* 2026-11-04 (solid-30 fps thread): both eyes of a stereo raw triangle in one pass. Same values as two G3G_TriClip calls (only x
-   differs between the eyes), but y, z, uv and colour are worked out once instead of twice. */
+   differs between the eyes), but y, z, uv and colour are worked out once instead of twice.
+   g3_stereo_share: fill left, struct-copy to right, then x += scale*(shR-shL)/128*w (bit-identical; fewer scalar stores). */
+static int stereoShareOn;
+static unsigned stereoShareTris;
+void G3G_SetStereoShare(int on) { stereoShareOn = on != 0; }
+void G3G_StereoExpand(void) { /* reserved: deferred whole-frame expand needs hard-clip gating; share is in-TriClip2 for now */ }
 void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                   int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shL, const float *shR) {
     if (G3G_MidRec && !kCurWant) { krStart(kWantId ? NULL : kWant); kCurWant = 1; }
     B *l0 = batchFor(0, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend), *l1 = batchFor(1, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend);
     if (!l0 || !l1) { if (l0) { G3G_TriClip(0, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shL); } if (l1) G3G_TriClip(1, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shR); return; }
     const float *L = lut255();
+    const float scale = wideFrame ? 0.8f : 1.0f;
+    if (stereoShareOn) {
+        for (int k = 0; k < 3; k++) {
+            V *o = &vb[0][vn[0]++]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
+            o->x = x + shL[k] / 128.0f * w; if (wideFrame) o->x *= 0.8f;
+            o->y = hiFrame ? (G3G_FlipY ? y : -y) : G3G_FlipY ? (0.25f * w + 0.75f * y) : (-0.25f * w - 0.75f * y);
+            o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
+            if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w;
+            o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k];
+            u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
+            V *q = &vb[1][vn[1]++]; *q = *o; q->x += scale * ((shR[k] - shL[k]) / 128.0f) * w;
+        }
+        l0->count += 3; l1->count += 3; stereoShareTris++; return;
+    }
     for (int k = 0; k < 3; k++) {
         V *o = &vb[0][vn[0]++], *q = &vb[1][vn[1]++]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
         o->x = x + shL[k] / 128.0f * w; q->x = x + shR[k] / 128.0f * w; if (wideFrame) { o->x *= 0.8f; q->x *= 0.8f; }

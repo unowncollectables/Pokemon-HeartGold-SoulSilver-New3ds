@@ -1,3 +1,31 @@
+# Stereo-60 perf round (run 879 follow-up): texfence DEEP + stereo share + front/wait
+
+Main `148bd4f` (#492+#427). Run 879 with texfence+fastxform: mono ~54 avg, stereo ~43 avg; G3PROF idle 3.9 / front 5.7 / raw 9.5 (xform 3.8). Texfence avg depth stayed ~1–2.
+
+## Why depth stayed 1–2
+
+With `g3_thr_texfence=1`, GetTexture no longer waited, but **every first-time `G3G_TexCreate` still called `gtWaitIdle()`** — that drains the queue back to empty before the next submit, so measured in-flight depth rarely climbs. Mid-frame **arena drains** (was 48K verts) and wake-every-6 also reset depth. Worker writing `vb[]` does not touch the linear allocator; `TexCreate0` only fills tex memory → safe to skip that wait under DEEP.
+
+## This PR
+
+1. **`g3_thr_texfence` levels** (Debug): `0` = depth-1 (unchanged), `1` = pin (unchanged), **`2` = DEEP** = pin + skip TexCreate idle wait + wake every job. Arena **96K** verts (fewer mid-frame drains). Log: `TexCreate wait N skip M`.
+2. **`g3_stereo_share`** (Debug, default OFF): TriClip2 fills left, struct-copies to right, `x += scale*(shR-shL)/128*w`. Bit-identical to dual write (host test). Deferred whole-frame expand is parked (hard-clip interleaves eye-1 writes). Modest raw store win; xform unchanged.
+3. **Front / G3PROF**: residual now subtracts **wait** (game-thread stalls on worker) so TexCreate serialization is not counted as GeBuffer “front”. Line: `front … | wait … | cmd …`.
+
+OFF / level 0–1 unchanged. `g3_thr_check` (incl. tex CRC) still applies.
+
+## Expected per-stage gains (device A/B; do not claim 60 without numbers)
+
+| Stage | Baseline (879) | Hope with DEEP (+ share) |
+|---|---|---|
+| texfence avg depth | 1–2 | clearly >2 when creates are skipped while busy |
+| wait (new G3PROF) | hidden inside front | drops when DEEP skips TexCreate idle |
+| front | ~5.7 ms | lower by the wait that leaves it |
+| stereo raw | ~9.5 ms (xform 3.8) | small cut from share store path; big cut needs deferred expand later |
+| stereo fps | ~43 | mainly from DEEP wait overlap; no 60 claim |
+
+Device: `g3_thread=1 g3_wake=1 g3_thr_check=1 g3_prof=1`, then A/B `g3_thr_texfence=1` vs `2`, and `g3_stereo_share=0` vs `1`, Goldenrod + Route 34 stereo. Want check mismatches 0 (incl. tex).
+
 # g3_thr_texsafe — stop g3_thread texture flashes (run 879)
 
 Owner (run 879, main `ef5244f`): occasional brief texture flashes while walking with **`g3_thread=1` only** (gone at `g3_thread=0`). Happens with **texfence ON and OFF**. `g3_thr_check` reported 0 POD/xform mismatches — those checks never covered texture content at draw time.
