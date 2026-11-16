@@ -124,14 +124,18 @@ static int tex_fence_protects_inflight_gt(void) {
     return !lru_would_free_unpinned && lru_blocked_when_pinned && free_ok_after_release;
 }
 
-/* With fence, TexCreate still serializes on idle; DecodeTex of an already-created gt does not. */
+/* Fence level 1: TexCreate still serializes on idle; DecodeTex of an already-created gt does not.
+   Fence level 2 (DEEP): TexCreate skip wait. */
 static int tex_fence_create_still_waits(void) {
     int inflight = 1;
     int need_create = 1;
     int decode_only = 0;
-    int waited_for_create = need_create && inflight; /* must wait */
+    int fence = 1;
+    int waited_for_create = fence == 1 && need_create && inflight; /* level 1 must wait */
     int waited_for_decode = decode_only && inflight; /* must NOT require wait when pinned */
-    return waited_for_create == 1 && waited_for_decode == 0;
+    fence = 2;
+    int deep_skips = fence >= 2 && need_create; /* DEEP skips idle wait */
+    return waited_for_create == 1 && waited_for_decode == 0 && deep_skips == 1;
 }
 
 /* texsafe: post-vblank must not mutate a gt already referenced by this frame's batches.

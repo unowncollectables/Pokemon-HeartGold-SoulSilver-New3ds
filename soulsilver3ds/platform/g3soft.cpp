@@ -39,14 +39,16 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    g3_wake (Debug tab, default OFF): with g3_thread ON, wake the worker on every queued job (not every 6). Same picture.
    g3_thr_check (Debug tab, default OFF): with g3_thread ON, CRC the job POD at submit and again on the worker; log [G3THR] snap mismatch.
    g3_fastxform (Debug tab, default OFF): hoist the clip matrix into locals for the raw transform loop (same IEEE ops, less reload).
-   g3_thr_texfence (Debug tab, default OFF): with g3_thread ON, pin GPU tex objects held by in-flight jobs so GetTexture
-   can resolve the next draw without waiting for the whole queue (deep pipeline). TexCreate still waits for citro3d idle.
-   OFF keeps the #488 depth-1 wait. Overlaps GeBuffer/front/cmd with worker raw without moving the handler.
+   g3_thr_texfence (Debug tab, default OFF): 0 = #488 depth-1, 1 = pin in-flight gts (GetTexture while busy),
+   2 = DEEP: same pins AND skip TexCreate's gtWaitIdle (TexCreate0 only fills tex memory; worker only writes vb[]).
+   Run 879 avg depth stayed ~1–2 mainly because every new GPU tex forced idle. Levels 0 and 1 unchanged.
    g3_thr_texsafe (Debug tab, default OFF): with g3_thread ON, do not TexUpdate in place after VBlank for textures this
    frame already queued (replace gt, keep old object for G3G_End). Also hold fence pins until after End. Fixes brief
    texture flashes while walking (run 879; flash with texfence ON and OFF). OFF = old in-place post-vblank path.
-   Host: tools/g3_thr_race_test.c (job + tex fence + texsafe), tools/g3_fastxform_test.c. */
-static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1,g3TexFenceCfg=-1,g3TexSafeCfg=-1;
+   g3_stereo_share (Debug tab, default OFF): TriClip2 writes left only + (shR-shL); expand right after drain (or
+   before any eye-1 write such as hard-clip). Bit-identical to dual TriClip2; cuts ~half the vb store traffic.
+   Host: tools/g3_thr_race_test.c, tools/g3_stereo_share_test.c, tools/g3_fastxform_test.c. */
+static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1,g3TexFenceCfg=-1,g3TexSafeCfg=-1,g3StereoShareCfg=-1;
 /* Hot path for g3packet: 0 until g3_prof is read/on, so GeBuffer pays nothing when profiling is OFF. */
 extern "C" volatile int P3DS_G3ProfLive;
 volatile int P3DS_G3ProfLive;
@@ -60,12 +62,15 @@ extern "C" int P3DS_G3ThrCheckCfg(void){if(g3ThrCheckCfg<0){g3ThrCheckCfg=P3DS_C
 extern "C" void P3DS_SetG3ThrCheck(int v){g3ThrCheckCfg=v!=0;PSPNativeMemLog("[G3THR] g3_thr_check=%d from settings",g3ThrCheckCfg);}
 extern "C" int P3DS_G3FastXformCfg(void){if(g3FastXformCfg<0){g3FastXformCfg=P3DS_CfgInt("g3_fastxform",0)!=0;PSPNativeMemLog("[G3XF] g3_fastxform=%d (1 = hoist clip matrix in the raw transform loop; same picture)",g3FastXformCfg);}return g3FastXformCfg;}
 extern "C" void P3DS_SetG3FastXform(int v){g3FastXformCfg=v!=0;PSPNativeMemLog("[G3XF] g3_fastxform=%d from settings",g3FastXformCfg);}
-extern "C" int P3DS_G3TexFenceCfg(void){if(g3TexFenceCfg<0){g3TexFenceCfg=P3DS_CfgInt("g3_thr_texfence",0)!=0;PSPNativeMemLog("[G3THR] g3_thr_texfence=%d (1 = pin in-flight GPU textures; deep queue overlaps front/cmd with raw)",g3TexFenceCfg);}return g3TexFenceCfg;}
-extern "C" void P3DS_SetG3TexFence(int v){g3TexFenceCfg=v!=0;PSPNativeMemLog("[G3THR] g3_thr_texfence=%d from settings",g3TexFenceCfg);}
+extern "C" int P3DS_G3TexFenceCfg(void){if(g3TexFenceCfg<0){int v=P3DS_CfgInt("g3_thr_texfence",0);g3TexFenceCfg=v<0?0:v>2?2:v;PSPNativeMemLog("[G3THR] g3_thr_texfence=%d (0 depth-1, 1 pin, 2 DEEP = pin + TexCreate without idle wait)",g3TexFenceCfg);}return g3TexFenceCfg;}
+extern "C" void P3DS_SetG3TexFence(int v){g3TexFenceCfg=v<0?0:v>2?2:v;PSPNativeMemLog("[G3THR] g3_thr_texfence=%d from settings",g3TexFenceCfg);}
 extern "C" int P3DS_G3TexSafeCfg(void){if(g3TexSafeCfg<0){g3TexSafeCfg=P3DS_CfgInt("g3_thr_texsafe",0)!=0;PSPNativeMemLog("[G3THR] g3_thr_texsafe=%d (1 = no in-place TexUpdate of queued gts; hold pins until End)",g3TexSafeCfg);}return g3TexSafeCfg;}
 extern "C" void P3DS_SetG3TexSafe(int v){g3TexSafeCfg=v!=0;PSPNativeMemLog("[G3THR] g3_thr_texsafe=%d from settings",g3TexSafeCfg);}
+extern "C" int P3DS_G3StereoShareCfg(void){if(g3StereoShareCfg<0){g3StereoShareCfg=P3DS_CfgInt("g3_stereo_share",0)!=0;PSPNativeMemLog("[G3STER] g3_stereo_share=%d (1 = left-only TriClip2 + expand right after drain; bit-identical)",g3StereoShareCfg);}return g3StereoShareCfg;}
+extern "C" void P3DS_SetG3StereoShare(int v){g3StereoShareCfg=v!=0;PSPNativeMemLog("[G3STER] g3_stereo_share=%d from settings",g3StereoShareCfg);}
 static u64 idleAtBegin,prWall;static unsigned prFrames,prTrisSum,prXfHitSum,prXfMissSum;
 static unsigned postReplace,postInPlace; /* tex_postvblank: replace vs in-place counts */
+static unsigned texCreateWait,texCreateSkip; /* fence DEEP: TexCreate idle waits skipped */
 static int cull3dCfg(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"cull3d=%d",&x)==1)v=x;fclose(f);}PSPNativeMemLog("[G3] back-face culling cull3d=%d (0 off, 1 normal, 2 inverted winding)",v);}return v;}
 /* ---------------- textures ---------------- */
 static bool Gather(unsigned address,unsigned size,bool palette,u8*dst){
@@ -96,7 +101,7 @@ static void gtPinReleaseDone(void){
  __atomic_store_n(&gtPinDoneH,h,__ATOMIC_RELAXED);}
 extern "C" {int G3G_Init(void);void*G3G_TexCreate(const u32*,unsigned,unsigned);void G3G_TexFree(void*);void G3G_Begin(u32,unsigned,int);
  void G3G_Tri(int,const float*,const float*,const float*,const float*,const float*,const u32*,void*,unsigned,unsigned,int,int,int,int,int,int,int);
- void G3G_End(u32*,u32*);void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectInvalidate(void);void G3G_TexUpdate(void*,const u32*,unsigned,unsigned);int G3G_RbSyncOn(void);void G3G_TriClip(int,const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*);void G3G_TriClip2(const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*,const float*);unsigned G3G_LastUs(void);extern int G3G_TexFlip,G3G_FlipY,G3G_ZInv,G3G_Async,G3G_Wide,G3G_CurFog,G3G_FogNoW;}
+ void G3G_End(u32*,u32*);void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectInvalidate(void);void G3G_TexUpdate(void*,const u32*,unsigned,unsigned);int G3G_RbSyncOn(void);void G3G_TriClip(int,const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*);void G3G_TriClip2(const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*,const float*);void G3G_SetStereoShare(int);void G3G_StereoExpand(void);unsigned G3G_LastUs(void);extern int G3G_TexFlip,G3G_FlipY,G3G_ZInv,G3G_Async,G3G_Wide,G3G_CurFog,G3G_FogNoW;}
 /* g3_thr_texfence: refcount GPU tex pointers held by in-flight ring jobs. GetTexture must not free a pinned gt
    (that was the deep-queue white-water / ghost-billboard bug: LRU/re-decode freed a gt the worker still used). */
 enum{GT_PIN_N=128};
@@ -785,7 +790,9 @@ static void GpuRawJ(const GJob&J0){
   if(J.cpuClip){/* run 27: only tris touching the near/far planes or outside a 2x guard band go through CPU clipping
      (PICA clipping there gave the black spots); the rest stay on the fast clip-space path. 2026-11-05: guard band only with g3_guardclip=1. */
    bool hard=false;for(int k=0;k<3;k++){const float*q=c+4*k;float w=q[3];if(w<1e-3f||q[2]>w||q[2]<-w||((J.guardClip||J.guardBat)&&(fabsf(q[0])>2*w||fabsf(q[1])>2*w))){hard=true;break;}}
-   if(hard){if(xfOut){xfHard=true;xfOut=nullptr;xfSkipHard++;}
+    if(hard){if(xfOut){xfHard=true;xfOut=nullptr;xfSkipHard++;}
+    /* Hard-clip draws both eyes via G3G_Tri; expand any left-only share verts first (gated inside G3G_Tri too). */
+    if(sd&&P3DS_G3StereoShareCfg())G3G_StereoExpand();
     GuVertex hardBuf[24];unsigned m=RawToScreenBuf(J,v+i,3,hardBuf,(unsigned)(sizeof hardBuf/sizeof hardBuf[0]));if(m)DrawScreenJ(J,hardBuf,m,false);cpuClipped++;clipN++;continue;}}
   if(J.cullFace&&cullMode3d&&c[3]>1e-6f&&c[7]>1e-6f&&c[11]>1e-6f){
    float x0=c[0]/c[3],y0=c[1]/c[3],x1=c[4]/c[7],y1=c[5]/c[7],x2=c[8]/c[11],y2=c[9]/c[11];
@@ -817,7 +824,7 @@ static GuVertex scrBuf[8192];
    terrain). The worker is the only writer of G3G batches while the queue is busy; the game thread drains before
    DrawScreen / G3SIM_FlushDeferred / G3ListDeferFree / G3G_TexFree. OFF runs GpuRawJ in Draw. Log: [G3THR]. */
 static int gtCfgWant=-1,gtThreadOk=0;static unsigned gtAbN;   /* g3_thread 2 = A/B test: OFF and ON alternate every 1200 3D frames (~40 s) in one session */
-enum{GT_N=1024,GT_MASK=GT_N-1,GT_ARENA=48*1024};          /* 48K vertices = 1.1 MB per frame, then a drain + reset */
+enum{GT_N=1024,GT_MASK=GT_N-1,GT_ARENA=96*1024};          /* 96K verts (~2.2 MB): fewer mid-frame arena drains that reset depth */
 static GJob gtRing[GT_N];static GuVertex*gtArena;static u8*gtCmArena;static unsigned gtArenaPos,gtCmPos;
 static volatile unsigned gtHead,gtTail,gtKicked,gtSleep;
 extern "C" {int G3T_Start(void(*)(void*));void G3T_Wait(void);void G3T_Signal(void);void G3T_SleepNs(long long);void*memalign(size_t,size_t);}
@@ -879,12 +886,16 @@ static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  J.hasK=false;J.sprDepth=P3DS_SpriteDepthCfg()!=0;J.cull3d=cull3dCfg();J.cpuClip=gpuCpuClip()!=0;J.guardClip=guardClip()!=0;J.guardBat=guardBattle();
  J.edgeFix=edgeFixCfg()!=0;J.fieldSpr=(P3DS_InField!=0&&P3DS_InBattle==0);J.snapCrc=0;J.xformCrc=0;}
 static void gtResolveTex(GJob&J){
- /* Depth-1 (fence OFF): wait for idle before any resolve. Fence ON: CPU GetTexture/Decode anytime; pin the gt so a
-    later LRU/re-decode cannot free it; TexCreate still needs citro3d idle (worker may be writing vb[]). */
- const bool fence=gtCfg&&P3DS_G3TexFenceCfg();
+ /* Depth-1 (fence 0): wait for idle before any resolve. Fence 1+: GetTexture/Decode anytime; pin the gt so a
+    later LRU/re-decode cannot free it. Fence 1 still waits before TexCreate; fence 2 (DEEP) skips that wait
+    (TexCreate0 only allocates/fills tex memory; the worker only writes preallocated vb[] during GpuRawJ). */
+ const int fence=gtCfg?P3DS_G3TexFenceCfg():0;
  if(!fence)gtWaitIdle();
  Tex*t=GetTexture();
- if(t&&!t->gt){if(fence)gtWaitIdle();t->gt=G3SIM_GpuTex(t);}
+ if(t&&!t->gt){
+  if(fence==1){gtWaitIdle();texCreateWait++;}
+  else if(fence>=2)texCreateSkip++;
+  t->gt=G3SIM_GpuTex(t);}
  J.tex=t;J.hasTex=t!=nullptr;J.gt=t?t->gt:nullptr;J.tw=t?t->w:0;J.th=t?t->h:0;J.texGen=t?t->gen:0;J.texGpuGen=t?t->gpuGen:0;
  J.texCrc=(t&&J.gt)?gtTexCrcOf(t,J.gt,J.tw,J.th,J.texGpuGen):0;
  if(fence&&J.gt)gtPinAdd(J.gt);}
@@ -926,13 +937,13 @@ static void gtPush(GJob&J,bool chunked){
   __atomic_store_n(&gtTail,tail+1,__ATOMIC_RELEASE); /* release: ring + arena visible before the new tail */
   gtJobs++;
   {const unsigned depth=(tail+1)-__atomic_load_n(&gtHead,__ATOMIC_ACQUIRE);if(depth>gtInFlightMax)gtInFlightMax=depth;gtFenceDepthSum+=depth;gtFenceDepthN++;}
-  {const unsigned every=P3DS_G3WakeCfg()?1u:6u;if((tail+1)-gtKicked>=every){gtKicked=tail+1;gtWake();if(every==1)prWake++;}}}}
+  {const unsigned every=(P3DS_G3WakeCfg()||P3DS_G3TexFenceCfg()>=2)?1u:6u;if((tail+1)-gtKicked>=every){gtKicked=tail+1;gtWake();if(every==1)prWake++;}}}}
 static void gtFrameStats(){
  if(++gtFrames%300)return;
  PSPNativeMemLog("[G3THR] %s | 300 frames: %u jobs, worker busy %u us/frame, game thread waited %u us/frame at drains (frame %u screen %u listfree %u texfree %u ringfull %u arena %u)",gtCfg?"ON":"OFF",gtJobs,(unsigned)(gtBusyTicks/268/300),(unsigned)(gtWaitTicks/268/300),gtDrains[1],gtDrains[0],gtDrains[2],gtDrains[3],gtDrains[4],gtDrains[5]);
  if(P3DS_G3TexFenceCfg()){const unsigned avgD=gtFenceDepthN?gtFenceDepthSum/gtFenceDepthN:0;
-  PSPNativeMemLog("[G3THR] texfence: max in-flight %u, avg depth %u, pins %u, pin-waits %u (depth>1 means front/cmd overlapped raw)",gtInFlightMax,avgD,gtPinHits,gtPinWaits);
-  gtInFlightMax=gtFenceDepthSum=gtFenceDepthN=gtPinHits=gtPinWaits=0;}
+  PSPNativeMemLog("[G3THR] texfence: max in-flight %u, avg depth %u, pins %u, pin-waits %u, TexCreate wait %u skip %u (level %d; depth>1 means front/cmd overlapped raw)",gtInFlightMax,avgD,gtPinHits,gtPinWaits,texCreateWait,texCreateSkip,P3DS_G3TexFenceCfg());
+  gtInFlightMax=gtFenceDepthSum=gtFenceDepthN=gtPinHits=gtPinWaits=0;texCreateWait=texCreateSkip=0;}
  if(P3DS_G3ThrCheckCfg()){PSPNativeMemLog("[G3THR] check: %u jobs, %u mismatches (%u tex) (want 0)",gtCheckN,gtCheckBad,gtTexBad);gtCheckN=gtCheckBad=gtTexBad=0;}
  if(postReplace|postInPlace){PSPNativeMemLog("[G3THR] tex_postvblank 300f: replace %u in-place %u (texsafe wants replace when thread ON)",postReplace,postInPlace);postReplace=postInPlace=0;}
  gtJobs=0;gtBusyTicks=gtWaitTicks=0;memset(gtDrains,0,sizeof gtDrains);}
@@ -1006,7 +1017,10 @@ void G3SIM_FlushDeferred(){
  CRUMB("g3-flush");const bool doProf=P3DS_G3ProfCfg()!=0;
  G3SIM_FlushArray(); /* may Draw → counted in prRaw, not flush */
  u64 tFlush0=doProf?svcGetSystemTick():0;
- gtDrain(1);gtFrameStats();G3SIM_TexImageParam_t save=s_texImageParam;
+ gtDrain(1);gtFrameStats();
+ /* Stereo share: left-only verts from TriClip2 → expand right now that the worker is idle (before End draws). */
+ if(gpuOn==1&&stereoSd&&P3DS_G3StereoShareCfg())G3G_StereoExpand();
+ G3SIM_TexImageParam_t save=s_texImageParam;
  const int fogSave=G3G_CurFog;
  for(unsigned i=0;i<transN;i++){
   Batch&b=trans[i];G3G_CurFog=b.fog;
@@ -1070,9 +1084,13 @@ void G3SIM_FlushDeferred(){
    if(prFrames>=60){const unsigned n=prFrames;
     auto U=[&](u64 t){return (unsigned)(t/268/n);};
     const unsigned frameUs=U(prWall),idleUs=U(prIdle),rawUs=U(prRaw),flushUs=U(prFlush),endUs=U(prEnd),cmdUs=U(prCmd);
-    const unsigned frontUs=frameUs>(idleUs+rawUs+flushUs+endUs)?frameUs-(idleUs+rawUs+flushUs+endUs):0;
-    PSPNativeMemLog("[G3PROF] 60f avg: frame %u us | idle %u | front %u | cmd %u | raw %u (cull %u pair %u xform %u clip %u queue %u tex %u) | flush %u | end %u | tris %u | xf hit %u miss %u",
-     frameUs,idleUs,frontUs,cmdUs,rawUs,U(prCull),U(prPair),U(prXform),U(prClip),U(prQueue),U(prTex),flushUs,endUs,
+    static u64 waitMark;const u64 waitDelta=gtWaitTicks>waitMark?gtWaitTicks-waitMark:0;waitMark=gtWaitTicks;
+    const unsigned waitUs=(unsigned)(waitDelta/268/n); /* game-thread stalls on worker (TexCreate idle / drains) */
+    /* front residual: wall minus idle/raw/flush/end/wait so TexCreate serialization is not mistaken for GeBuffer work */
+    const unsigned accounted=idleUs+rawUs+flushUs+endUs+waitUs;
+    const unsigned frontUs=frameUs>accounted?frameUs-accounted:0;
+    PSPNativeMemLog("[G3PROF] 60f avg: frame %u us | idle %u | front %u | wait %u | cmd %u | raw %u (cull %u pair %u xform %u clip %u queue %u tex %u) | flush %u | end %u | tris %u | xf hit %u miss %u",
+     frameUs,idleUs,frontUs,waitUs,cmdUs,rawUs,U(prCull),U(prPair),U(prXform),U(prClip),U(prQueue),U(prTex),flushUs,endUs,
      prTrisSum/n,prXfHitSum/n,prXfMissSum/n);
     prCull=prPair=prXform=prClip=prQueue=prTex=prRaw=prEnd=prFlush=prIdle=prCmd=prWall=0;prN=0;prFrames=prTrisSum=prXfHitSum=prXfMissSum=0;}
   }
@@ -1101,7 +1119,7 @@ void P3DS_G3BeginFrame(void){CRUMB("g3-begin");g3FrameNo++;usedN=0;frameTicks=sv
  if(gpuReq>=0){gpuOn=gpuReq&&G3G_Init()?1:0;gpuReq=-1;PSPNativeMemLog("[GPU3D] L+R+Y: gpu3d=%d",gpuOn);}
  /* CPU renderer (GPU 3D init failed or turned off with L+R+Y): DS W-buffer frames (title Lugia) use the perspective-correct raster TriWPersp */
  wPerspFrame=gpuOn!=1&&s_SIM_useWBuffer&&wbufOn()&&G3G_WDepthOn()!=3;
- if(gpuOn==1){gtDrain(1);const int cw=P3DS_G3ThreadCfg();const int ab=cw==2?(int)((gtAbN++/1200)&1):cw;const int want=ab&&gtStart();if(want!=gtCfg){gtCfg=want;if(gtCfg)xfClear();PSPNativeMemLog("[G3THR] now %s%s",gtCfg?"ON":"OFF",cw==2?" (A/B test block)":"");}u16 dz=(u16)(((cd&0x7FFF)*2)|1);G3G_Begin(v,dz?dz:0xFFFF,stereoSd);mdFrameBegin(G3G_MidRec!=0);transN=transVN=0;return;}
+ if(gpuOn==1){gtDrain(1);const int cw=P3DS_G3ThreadCfg();const int ab=cw==2?(int)((gtAbN++/1200)&1):cw;const int want=ab&&gtStart();if(want!=gtCfg){gtCfg=want;if(gtCfg)xfClear();PSPNativeMemLog("[G3THR] now %s%s",gtCfg?"ON":"OFF",cw==2?" (A/B test block)":"");}u16 dz=(u16)(((cd&0x7FFF)*2)|1);G3G_SetStereoShare(stereoSd&&P3DS_G3StereoShareCfg());G3G_Begin(v,dz?dz:0xFFFF,stereoSd);mdFrameBegin(G3G_MidRec!=0);transN=transVN=0;return;}
  if(gtCfg){gtDrain(1);gtCfg=0;}
  G3G_DirectInvalidate();/* gpu_direct3d: this frame is CPU-rendered, NativeFrame is the truth again */
  for(unsigned i=0;i<256*192;i++)GPU3D::NativeFrame[i]=v;

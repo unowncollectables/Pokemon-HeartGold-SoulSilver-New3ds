@@ -176,14 +176,18 @@ CONTROLS / TOUCH
   g3_fastxform=0    3D fast xform (Debug tab): hoist the clip matrix in the raw transform loop (less VFP reload). Same IEEE
                     ops / same picture. New 3DS has no NEON; stereo already uses one transform for both eyes (TriClip2).
                     Default 0. Log: [G3XF] g3_fastxform=.  [2026-11-16]
-  g3_thr_texfence=0 3D tex fence (Debug tab): with g3_thread ON, pin GPU textures held by in-flight jobs so GetTexture for
-                    the next draw need not wait for the whole queue (deep pipeline). TexCreate still waits for citro3d idle.
-                    OFF = #488 depth-1. Overlaps GeBuffer/front/cmd with worker raw. Same picture. Default 0.
-                    Log: [G3THR] texfence: max in-flight / avg depth.  [2026-11-16]
+  g3_thr_texfence=0 3D tex fence (Debug tab): with g3_thread ON. 0 = #488 depth-1. 1 = pin in-flight GPU textures so
+                    GetTexture need not wait for the whole queue. 2 = DEEP: same pins AND skip TexCreate's idle wait
+                    (TexCreate0 only fills tex memory; worker only writes vb[]). Run 879 avg depth stayed ~1–2 because
+                    every new GPU tex forced idle. Levels 0 and 1 unchanged. Also wakes every job at DEEP. Arena 96K verts.
+                    Default 0. Log: [G3THR] texfence: … TexCreate wait/skip.  [2026-11-16]
   g3_thr_texsafe=0  3D tex safe (Debug tab): with g3_thread ON, after VBlank do not TexUpdate in place a GPU texture this
                     frame already queued into vb/bt — upload a new gt and pendFree the old (End still samples the old).
                     With texfence, also holds pins until after End. Stops brief walking texture flashes (run 879). Default 0.
                     Log: [G3THR] tex flash risk / tex_postvblank replace vs in-place.  [2026-11-16]
+  g3_stereo_share=0 3D stereo share (Debug tab): with the 3D slider up, TriClip2 writes left only; after drain (or before
+                    hard-clip / any eye-1 write), expand right with x += scale*(shR-shL)/128*w. Bit-identical to dual
+                    TriClip2. Cuts ~half the stereo vb store traffic in raw. Default 0. Log: [G3STER] expand.  [2026-11-16]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),
