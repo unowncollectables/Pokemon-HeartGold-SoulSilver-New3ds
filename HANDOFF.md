@@ -1,3 +1,33 @@
+# g3_thr_texsafe — stop g3_thread texture flashes (run 879)
+
+Owner (run 879, main `ef5244f`): occasional brief texture flashes while walking with **`g3_thread=1` only** (gone at `g3_thread=0`). Happens with **texfence ON and OFF**. `g3_thr_check` reported 0 POD/xform mismatches — those checks never covered texture content at draw time.
+
+## Root cause (common to all g3_thread paths)
+
+`tex_postvblank` runs after `gtDrain` and **before** `G3G_End`. Batches already hold `gt` pointers into `vb[]`/`bt[]`. The old path called **`G3G_TexUpdate` in place** on those objects when VRAM changed after resolve → End samples different texels than submit → flash. Rarer after #486/#488 (better snapshots) but still there whenever VBlank DMA lands between resolve and End. Not caused by texfence; fence ON/OFF both hit the same FlushDeferred path.
+
+## Fix (`g3_thr_texsafe`, default OFF; OFF = unchanged)
+
+- Settings > Debug > **3D tex safe**: with `g3_thread` actually ON, post-vblank **uploads a new `gt`** and `G3G_TexFree`s the old (pendFree keeps it alive through this End). Next frame uses the new object.
+- With **texfence + texsafe**: pins are held until **after** `G3G_End` (not when the worker finishes `GpuRawJ`).
+- **`g3_thr_check` extended**: submit stores `texCrc` / `texGpuGen` (identity + sampled px + upload gen); worker re-hashes at draw; logs `[G3THR] tex mismatch`. In-place post-vblank while thread ON logs `[G3THR] tex flash risk` (and counts as a tex mismatch). Summary: `check: N jobs, M mismatches (T tex)`.
+- Host: `tools/g3_thr_race_test.c` (texsafe replace + tex crc).
+
+## A/B on device (flash hunt)
+
+Base: `g3_thread=1 g3_wake=1 g3_thr_check=1`, walk Goldenrod/Route 34.
+
+| Trial | Expect |
+|---|---|
+| `g3_thr_texsafe=1` (fence either) | flashes gone; log shows `replace` not `in-place`; check tex=0 |
+| `g3_thr_texsafe=0` (control) | flashes return; may see `tex flash risk: postvblank in-place` |
+| `g3_xfcache=0` only | if flashes remain → not xfcache (owner already saw flashes with xfcache on; still useful to rule out) |
+| `g3_fastxform=0` only | bit-identical path; should not remove flashes |
+| `g3_thr_texfence` on/off | should not remove flashes (confirmed run 879) |
+| `g3_thread=0` | flashes gone (confirmed) |
+
+Stereo-60 depth/raw/front work is a follow-up; this PR is flash-first.
+
 # g3_thr_texfence — overlap front/cmd with worker raw (stereo-60 follow-up)
 
 Main `2de0150` (#488+#489). Run 876 stereo field: front ~6.0 ms, cmd ~2.5 ms, raw ~8.2 ms → ~44 fps. Moving GeBuffer/handler onto core-2 needs a full private G3SIM clone (matrix stacks, `prevXYZ`, list-cache, polygon slots) — not this PR. Field stereo already one-xforms both eyes (`G3G_TriClip2`). Core 1 is already used by `stereo_c1` for engine B in stereo; G3 worker stays on core 2.
