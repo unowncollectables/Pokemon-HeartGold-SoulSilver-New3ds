@@ -1114,7 +1114,7 @@ void G3G_End(u32 *outL, u32 *outR) {
             } else sterWhy = STER_WHY_NOSHAD;
         }
         if (!gpuRight) {
-            if (__atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) G3G_StereoExpand();
+            if (__atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) { G3G_StereoExpand(); GSPGPU_FlushDataCache(vb[1], vn[1] * sizeof(V)); } /* expand writes vb[1] after the main flush above */
             /* Count real fallbacks only (skip empty/no-geom frames that never had share work). */
             if (sterWhy == STER_WHY_NOSHAD || sterWhy == STER_WHY_EYE1 ||
                 (sterWhy == STER_WHY_NOPEND && (vn[0] || vn[1])) ||
@@ -1124,7 +1124,7 @@ void G3G_End(u32 *outL, u32 *outR) {
             }
         }
     } else if (pend0) {
-        G3G_StereoExpand();
+        G3G_StereoExpand(); GSPGPU_FlushDataCache(vb[1], vn[1] * sizeof(V));
     }
     if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
         const unsigned tot = vn[0] + vn[1];
