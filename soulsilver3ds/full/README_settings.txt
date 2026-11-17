@@ -205,8 +205,7 @@ CONTROLS / TOUCH
   g3_raw_split=0    3D raw split (Debug tab): with g3_thread ON, second raw worker on core 3 (New 3DS). Live
                     Settings toggle drains then starts/parks worker 2. Default 0. Log: [G3THR] second worker +
                     per-worker busy us.  [2026-11-17]
-  g3_xf_map=0       3D xf map (Debug tab): with g3_xfcache ON, also cache static map draws (not only list-cache
-                    replay). Default 0. Log: [G3XF] g3_xf_map.  [2026-11-17]
+  g3_xf_map         Retired. Older config values are ignored; the transform cache requires immutable list replay.
   g3_front_bg=0     3D front bg (Debug tab): side-buffer postvblank prep during drain without wake-every.
                     Default 0. Log: [FRONT] g3_front_bg.  [2026-11-17]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.

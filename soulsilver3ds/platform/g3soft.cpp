@@ -62,10 +62,10 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    left+dsh). CPU-expand fallback only when eye1 already filled / shader fail; 60f log includes reason counts.
    Default V/g3.v.pica untouched.
    g3_raw_split: live toggle drains then Start2/park worker 2; per-worker busy us in [G3THR] 300f line.
-   g3_xf_map / g3_front_bg (Debug, default OFF): next wall cuts; OFF = unchanged (hw: little gain so far).
+   g3_front_bg (Debug, default OFF): side-buffer prep during the worker drain.
    Host: tools/g3_thr_race_test.c, tools/g3_stereo_share_test.c, tools/g3_fastxform_test.c. */
 static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1,g3TexFenceCfg=-1,g3TexSafeCfg=-1,g3StereoShareCfg=-1,g3FrontOvCfg=-1,g3StereoGpuCfg=-1;
-static int g3RawSplitCfg=-1,g3XfMapCfg=-1,g3FrontBgCfg=-1;
+static int g3RawSplitCfg=-1,g3FrontBgCfg=-1;
 /* Hot path for g3packet: 0 until g3_prof is read/on, so GeBuffer pays nothing when profiling is OFF. */
 extern "C" volatile int P3DS_G3ProfLive;
 volatile int P3DS_G3ProfLive;
@@ -92,8 +92,6 @@ extern "C" void P3DS_SetG3StereoGpu(int v){g3StereoGpuCfg=v!=0;PSPNativeMemLog("
 extern "C" int P3DS_G3RawSplitCfg(void){if(g3RawSplitCfg<0){g3RawSplitCfg=P3DS_CfgInt("g3_raw_split",0)!=0;PSPNativeMemLog("[G3THR] g3_raw_split=%d (1 = second raw worker on core 3; OFF = one worker)",g3RawSplitCfg);}return g3RawSplitCfg;}
 /* Live apply defined with gtApplyRawSplit below (drain + Start2/Stop2). */
 extern "C" void P3DS_SetG3RawSplit(int v);
-extern "C" int P3DS_G3XfMapCfg(void){if(g3XfMapCfg<0){g3XfMapCfg=P3DS_CfgInt("g3_xf_map",0)!=0;PSPNativeMemLog("[G3XF] g3_xf_map=%d (1 = xfcache static map draws too; OFF = replay-only)",g3XfMapCfg);}return g3XfMapCfg;}
-extern "C" void P3DS_SetG3XfMap(int v){g3XfMapCfg=v!=0;PSPNativeMemLog("[G3XF] g3_xf_map=%d from settings",g3XfMapCfg);}
 extern "C" int P3DS_G3FrontBgCfg(void){if(g3FrontBgCfg<0){g3FrontBgCfg=P3DS_CfgInt("g3_front_bg",0)!=0;PSPNativeMemLog("[FRONT] g3_front_bg=%d (1 = side-buffer postvblank prep during drain without wake-every; OFF = front_ov-only)",g3FrontBgCfg);}return g3FrontBgCfg;}
 extern "C" void P3DS_SetG3FrontBg(int v){g3FrontBgCfg=v!=0;PSPNativeMemLog("[FRONT] g3_front_bg=%d from settings",g3FrontBgCfg);}
 static u64 idleAtBegin,prWall,prExpand;static unsigned prFrames,prTrisSum,prXfHitSum,prXfMissSum;
@@ -809,7 +807,7 @@ static void GpuRawJ(const GJob&J0){
  const float*M=J.M;
  const unsigned xfGen=xfGenOf(sd,mid,wide,J.cullFace);
  /* g3_xfcache hit: same clip matrix as last time -> queue the stored triangles.
-    Default: list-cache replay only. g3_xf_map also keys static map draws by the source vert pointer. */
+    Only list-cache replay has stable vertex backing. */
  if(doXf&&J.xfKey&&n>=3&&!J.wbuf){
   XfSlot&slot=xfTab[xfHash(xfKey)];
   if(slot.key==xfKey&&slot.n==n&&slot.gen==xfGen&&slot.cullFace==(unsigned)J.cullFace&&!memcmp(slot.M,M,sizeof slot.M)&&slot.base+slot.nTri<=XF_TRIS){
@@ -841,7 +839,7 @@ static void GpuRawJ(const GJob&J0){
    if(ok&&zfLo>=0.0f&&zfLo<=1.0f){sprZf=zfLo;sprN++;sprSpread+=parOf(zfMax)-parOf(zfMin);
     if(sprN==1||sprN%3000==0){PSPNativeMemLog("[SPRDEPTH] sprite quads fixed %u (skipped %u), avg parallax spread removed %.4f of the shift, feet zf %.4f, shift %d px",sprN,sprSkip,sprSpread/sprN,zfLo,sd);}}
    else sprSkip++;}
- /* optional store into xfcache: replay (or g3_xf_map), no hard tris, room in the arena */
+ /* optional store into xfcache: replay, no hard tris, room in the arena */
  XfSlot*xfOut=nullptr;unsigned xfBase=0,xfNTri=0;bool xfHard=false;
  if(doXf&&J.xfKey&&n>=3&&!J.wbuf){
   xfMiss++;
@@ -1046,7 +1044,7 @@ static void gtWaitPinned(void*gt){
   PSPNativeMemLog("[G3THR] pin wait timeout gt=%p: force-unpinned",gt);}}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  extern int P3DS_InField,P3DS_InBattle;
- J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=(J.replay||P3DS_G3XfMapCfg())?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
+ J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=J.replay?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
  memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
  J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.texGen=0;J.texGpuGen=0;J.texCrc=0;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;
  J.hasK=false;J.sprDepth=P3DS_SpriteDepthCfg()!=0;J.cull3d=cull3dCfg();J.cpuClip=gpuCpuClip()!=0;J.guardClip=guardClip()!=0;J.guardBat=guardBattle();
@@ -1383,7 +1381,7 @@ void P3DS_G3BeginFrame(void){CRUMB("g3-begin");g3FrameNo++;usedN=0;frameTicks=sv
  else wasB=0;}
  u32 cc=*(u32*)(PSPNative_GfxRegisters+0x350);u16 cd=*(u16*)(PSPNative_GfxRegisters+0x354);
  unsigned r=cc&31,g=(cc>>5)&31,b=(cc>>10)&31,a=(cc>>16)&31;u32 v=(r<<1|r>>4)|((g<<1|g>>4)<<8)|((b<<1|b>>4)<<16)|(a<<24);
- if(gpuOn<0){int want=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");if(f){char l[64];int x;while(fgets(l,sizeof l,f)){if(sscanf(l,"gpu3d=%d",&x)==1)want=x;if(sscanf(l,"gpu3d_texflip=%d",&x)==1)G3G_TexFlip=x;if(sscanf(l,"gpu3d_flipy=%d",&x)==1)G3G_FlipY=x;if(sscanf(l,"gpu3d_zinv=%d",&x)==1)G3G_ZInv=x;if(sscanf(l,"gpu3d_async=%d",&x)==1)G3G_Async=x!=0;}fclose(f);}
+ if(gpuOn<0){if(P3DS_CfgInt("g3_xf_map",0))PSPNativeMemLog("[G3XF] legacy g3_xf_map ignored: transform cache is list replay only");int want=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");if(f){char l[64];int x;while(fgets(l,sizeof l,f)){if(sscanf(l,"gpu3d=%d",&x)==1)want=x;if(sscanf(l,"gpu3d_texflip=%d",&x)==1)G3G_TexFlip=x;if(sscanf(l,"gpu3d_flipy=%d",&x)==1)G3G_FlipY=x;if(sscanf(l,"gpu3d_zinv=%d",&x)==1)G3G_ZInv=x;if(sscanf(l,"gpu3d_async=%d",&x)==1)G3G_Async=x!=0;}fclose(f);}
   gpuOn=want&&G3G_Init()?1:0;if(want&&!gpuOn)PSPNativeMemLog("[GPU3D] GPU 3D init FAILED -> automatic CPU 3D fallback");PSPNativeMemLog("[GPU3D] gpu3d=%d (config wants %d) texflip=%d zinv=%d async=%d",gpuOn,want,G3G_TexFlip,G3G_ZInv,G3G_Async);}
  if(gpuReq>=0){gpuOn=gpuReq&&G3G_Init()?1:0;gpuReq=-1;PSPNativeMemLog("[GPU3D] L+R+Y: gpu3d=%d",gpuOn);}
  /* CPU renderer (GPU 3D init failed or turned off with L+R+Y): DS W-buffer frames (title Lugia) use the perspective-correct raster TriWPersp */
