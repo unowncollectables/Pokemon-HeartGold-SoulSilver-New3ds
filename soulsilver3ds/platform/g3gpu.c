@@ -869,7 +869,7 @@ static void issueDisp(u32 *in, u32 indim, u32 *out, u32 outdim, u32 flags, int s
 static int stripsCfg = -1;
 static int fps60Strips(void) {
     if (stripsCfg < 0) { extern int P3DS_CfgInt(const char *, int); stripsCfg = P3DS_CfgInt("fps60_strips", 0) != 0;
-        PSPNativeMemLog("[FPS60] fps60_strips=%d (1 = in-between wide strips copy the visible 192 rows)", stripsCfg); }
+        PSPNativeMemLog("[FPS60] fps60_strips=%d (1 = visible 192 rows; real wide readback too when piped)", stripsCfg); }
     return stripsCfg;
 }
 void G3G_SetFps60Strips(int v) { stripsCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_strips=%d from settings", stripsCfg); }
@@ -1222,7 +1222,17 @@ void G3G_End(u32 *outL, u32 *outR) {
         C3D_FrameSplit(0); pipeKickSum++; G3G_PipeKicks++;
         for (int e = 0; e < eyes; e++) {
             centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 0);
-            issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS, 0);
+            /* The flipped transfer places DS y=0 at the start of rb[] in either case.
+               CPU fallback and side conversion consume only the first 192 rows. */
+            const unsigned rows = fps60Strips() ? 192 : 256;
+            const u32 *source = (const u32 *)tgt[e]->frameBuf.colorBuf + (256 - rows) * curW;
+            const u32 dims = GX_BUFFER_DIM(curW, rows);
+            issueDisp((u32 *)source, dims, rb[e], dims, RB_FLAGS, 0);
+            if (rows == 192) {
+                static unsigned slimFrames[2];
+                if (++slimFrames[e] == 1 || (e == 1 && slimFrames[e] % 600 == 0))
+                    PSPNativeMemLog("[GPU3D] wide real readback cropped: 320x192, eye %d (%u frames)", e, slimFrames[e]);
+            }
         }
         const unsigned legacyKicks = legacyWideKicks(eyes, mid);
         legacyKickSum += legacyKicks;

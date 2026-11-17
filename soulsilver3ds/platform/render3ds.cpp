@@ -1658,7 +1658,7 @@ static const SAppTab kTabs[7]={
      {kFps60Item,"60 fps field","Experimental. Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth. A/B TEST switches it OFF and ON every ~40 s so one log compares both. Needs GPU 3D direct and Direct screen ON."},
      {kFps60PipeItem,"60 fps pipe","Wide view only. Draws both eyes before the side copies, so those copies do not stop the 3D processor. Same picture. OFF is the original timing."},
      {kFps60HoldItem,"60 fps hold","When the camera, sprites, tiles and 3D are all still, show the real frame again instead of drawing an in-between. OFF skips that repeat."},
-     {kFps60StripsItem,"60 fps strips","In-between Wide strips copy only the visible 192 rows. The real picture still copies the full buffer. OFF is the full copy."},
+     {kFps60StripsItem,"60 fps strips","Copy only the visible Wide rows. With 60 fps pipe on, this also crops the real-picture readback."},
      {kFps60VramItem,"60 fps VRAM","Tries to keep the second screen picture and both in-between pictures in video memory together. If that does not fit, nothing changes. OFF does not try."},
      {kFps60AreaItem,"60 fps area","Writes one log line per area: about every 10 seconds, and when the zone or map changes. OFF writes none."},
      {kG3XfItem,"3D transform cache","Speed: when a cached 3D model is drawn again with the same matrix, reuse its transformed triangles. Same picture. OFF never reuses."}}},
