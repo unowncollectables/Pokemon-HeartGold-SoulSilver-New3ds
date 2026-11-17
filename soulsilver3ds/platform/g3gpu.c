@@ -14,6 +14,7 @@ extern int P3DS_GpuInit(void);
 extern void PSPNativeMemLog(const char *, ...);
 extern void P3DS_FrameEnd(void);  /* gpuscale.c: C3D_FrameEnd, lean flush with fps_tweaks >= 1 */
 extern void G3T_VbLock(void); extern void G3T_VbUnlock(void); /* g3_raw_split: serialise vb appends */
+extern int G3T_SplitOn(void);
 typedef struct { float x, y, z, w, s, t, r, g, b, a; } V;
 typedef struct { C3D_Tex *tex; int wrapS, wrapT, blend, dwrite, dfunc, late, fog; unsigned first, count; } B;
 /* 2026-10-25: 3*8192 -> 3*16384 (+1 MiB linear per eye) for the removed GPU SPLIT mode; kept at 3*16384 until a device test shows 3*8192 is enough again. */
@@ -92,7 +93,21 @@ static void krStart(const float *K) {
     KR *q = &kr[krN++]; q->v0[0] = vn[0]; q->v0[1] = vn[1]; q->id = id; memcpy(q->k, k, sizeof k);
 }
 /* g3soft.cpp, before the triangles of one raw draw call: K = in-between clip matrix * inverse(this tick's), NULL = stays where it is */
-void G3G_MidK(const float *K) { if (!G3G_MidRec) return; kWantId = !K; if (K) memcpy(kWant, K, sizeof kWant); krStart(K); kCurWant = 1; }
+void G3G_MidK(const float *K) {
+    if (!G3G_MidRec) return;
+    /* Hard-clipped screen triangles can temporarily restore identity. Only
+       skip the change while the requested run is still active. */
+    if (kCurWant && (K ? !kWantId && !memcmp(kWant, K, sizeof kWant) : kWantId) && !G3T_SplitOn()) {
+        static unsigned skipped;
+        if (++skipped % 8192 == 0)
+            PSPNativeMemLog("[FPS60K] identical active midpoint matrices skipped: %u", skipped);
+        return;
+    }
+    kWantId = !K;
+    if (K) memcpy(kWant, K, sizeof kWant);
+    krStart(K);
+    kCurWant = 1;
+}
 void G3G_MidInfo(unsigned tot, unsigned mat, unsigned mov) { midTot = tot; midMat = mat; midMov = mov; }
 int G3G_MidReady(void) { return midValid; }
 C3D_Tex *G3G_MidTex(int e) { return midValid && e >= 0 && e < midEyes ? &midTex[e] : NULL; }
