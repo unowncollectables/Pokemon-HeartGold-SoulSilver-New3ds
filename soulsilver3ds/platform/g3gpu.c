@@ -915,22 +915,8 @@ static void gtLog(void) {
     memset(gtSum, 0, sizeof gtSum); memset(cwSum, 0, sizeof cwSum); memset(scSum, 0, sizeof scSum);
     memset(gtN, 0, sizeof gtN); memset(cwN, 0, sizeof cwN); memset(scN, 0, sizeof scN); memset(frN, 0, sizeof frN);
 }
-/* 2026-11-17 g3_statecache (Debug tab, default OFF, A/B TEST): G3G_End sets texture env, texture/wrap, blend and depth test only
-   when they differ from the batch before (per eye and pass), instead of before every draw. citro3d re-emits every state that was
-   set (dirty) at the next draw, so unchanged ones cost CPU for nothing. Same draws, same order, same picture.
-   [G3SC] logs the average G3G_End time per state every 600 3D frames (sampled timing frames left out). */
-static int scCfg = -1;
-static int scClamp(int v) { return v < 0 ? 0 : v > 2 ? 2 : v; }
-int G3G_StateCacheCfg(void) { if (scCfg < 0) { scCfg = scClamp(P3DS_CfgInt("g3_statecache", 0)); PSPNativeMemLog("[G3SC] g3_statecache=%d (1 = set draw state only when it changes, 2 = A/B)", scCfg); } return scCfg; }
-void G3G_SetStateCache(int v) { scCfg = scClamp(v); PSPNativeMemLog("[G3SC] g3_statecache=%d from settings", scCfg); }
-static unsigned long long scUs[2]; static unsigned scN[2], scBn[2];
-static void scNote(int on, unsigned us, unsigned batches) {
-    scUs[on] += us; scN[on]++; scBn[on] += batches;
-    if (scN[0] + scN[1] < 600) return;
-    if (scCfg > 0) PSPNativeMemLog("[G3SC] 3D End avg: state cache OFF %u us (%u frames, %u batches) | ON %u us (%u frames, %u batches)",
-        scN[0] ? (unsigned)(scUs[0] / scN[0]) : 0, scN[0], scN[0] ? scBn[0] / scN[0] : 0, scN[1] ? (unsigned)(scUs[1] / scN[1]) : 0, scN[1], scN[1] ? scBn[1] / scN[1] : 0);
-    scUs[0] = scUs[1] = 0; scN[0] = scN[1] = scBn[0] = scBn[1] = 0;
-}
+/* 2026-11-17 state cache: G3G_End sets texture env, texture/wrap, blend and depth test only when they differ from the batch before
+   (per eye and pass). citro3d re-emits every state that was set at the next draw. Run 910 A/B: End 1.52-1.62 ms -> 1.25-1.36 ms. */
 /* why (logged in the stats line): 0 other, 1 flat stereo shift, 2 CPU right eye, 3 CPU composite, 4 GPU compose rejected,
    5 dump/diagnostic, 6 wide haze fit, 7 g3_shot */
 void G3G_DirectResolveWhy(int why) {
@@ -1271,7 +1257,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     /* real wide strips: copy only the side strips (see stripConvert) */
     slimFrame = direct && wideFrame && curHi == 0 && !r1xFrame && !sharedTgt && slimAlloc();   /* falls back to the full readback without memory */
     const int gtS = G3G_GpuTimeCfg() && direct && ++gtCnt % 30 == 0;
-    const int scC = G3G_StateCacheCfg(), scOn = scC == 1 || (scC == 2 && ((abFrames / 600) & 1));
+    const int scOn = 1;   /* state cache: always on since run 910's A/B (End -0.15..0.37 ms, same picture) */
     int gtFirst = 1; unsigned gtCur[6] = { 0 };
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
@@ -1438,7 +1424,6 @@ void G3G_End(u32 *outL, u32 *outR) {
         } else ruValid = 0;
     }
     lastUs = (unsigned)((svcGetSystemTick() - t0) / 268);
-    if (direct && !gtS) scNote(scOn, lastUs, bn[0]);
     if (curHi == 1 && eyes == 2 && !direct) {   /* [PERF] stereo 2x cost, per mode: End = both eye draws + wait + readback convert */
         static unsigned n[2], us[2], cv[2]; const int m = r1xFrame ? 1 : 0; n[m]++; us[m] += lastUs; cv[m] += G3G_ConvUs;
         if (n[m] >= 300) { PSPNativeMemLog("[PERF] sharp 3D stereo, %s: %u frames, G3G_End avg %u us (draw+wait+convert), of which CPU convert avg %u us", m ? "FAST 3D (right eye 1x)" : "both eyes 2x", n[m], us[m] / n[m], cv[m] / n[m]); n[m] = us[m] = cv[m] = 0; } }
