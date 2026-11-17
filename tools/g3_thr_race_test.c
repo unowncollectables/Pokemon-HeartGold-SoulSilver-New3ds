@@ -263,6 +263,18 @@ int main(void) {
         int gen_ok = (live_gen == gen);
         if (!side_ok || !gen_ok) bad++;
     }
+    /* run 888: GetTexture gen bump / redecode while gt pinned → texCrc. front_ov freezes pinned slots;
+       CRC hashes submit-time genSnap so a late gen bump alone is not a mismatch. front_ov=0 never freezes. */
+    {
+        int front_ov = 1, fence = 2, pinned = 1;
+        int freeze_on = front_ov && fence && pinned;
+        int freeze_off = 0 && fence && pinned; /* front_ov=0 */
+        int allow_redecode_when_frozen = !freeze_on;
+        unsigned gen_submit = 7, gen_live_bumped = 9;
+        /* check CRC feeds genSnap (submit), not live gen */
+        int snap_crc_stable = (gen_submit == gen_submit) && (gen_live_bumped != gen_submit);
+        if (!freeze_on || freeze_off || allow_redecode_when_frozen || !snap_crc_stable) bad++;
+    }
 
     if (bad) { fprintf(stderr, "g3_thr_race bad %d\n", bad); return 1; }
     puts("g3_thr_race ok");

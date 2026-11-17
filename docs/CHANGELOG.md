@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Run 888 follow-up (platform-only, defaults OFF): fix remaining `g3_front_ov` texCrc (freeze pinned textures while front_ov ON; CRC uses submit-time gen; prep no longer stores `useF` during drain — `front_ov=0` GetTexture unchanged). Redo `g3_stereo_gpu` as an isolated path (`g3s.v.pica` + `stereoDsh` attr; default V/shader untouched) so share can skip CPU expand. See HANDOFF.md.
+
 - Fix run 887 black top with `g3_front_ov` on main `5ff16cf` / #498 (platform-only): #498 always grew G3 verts to 12 floats and rewrote shaders for `g3_stereo_gpu`, so PICA misread attrs and every 3D draw was blank (front_ov was the tested toggle; side-buffer prep often 0). Restore pre-#498 V/AttrInfo/shaders/End; keep race-free side-buffer `front_ov` + worker expand; park shader `g3_stereo_gpu` (CPU expand only); session kill-switch if front_ov on and geometry submitted but 0 tris. `front_ov=0` matches pre-#498 again. See HANDOFF.md.
 
 - Stereo-60 follow-up after `9bbfcd1` (platform-only, defaults OFF): fix `g3_stereo_share` (heap `stereoDsh` + `[G3STER]` leftOnly/dual counters; linearAlloc failure had silently disabled share), add `present_pace` (NONBLOCK FrameBegin, tearfree kept) and `g3_front_ov` (wake every job + postvblank decode during drain wait). OFF unchanged. See HANDOFF.md.

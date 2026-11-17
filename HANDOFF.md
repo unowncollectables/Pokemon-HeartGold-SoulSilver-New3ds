@@ -1,3 +1,33 @@
+# Run 888 front_ov texCrc + isolated stereo_gpu (after #499 / c2087a3)
+
+Emulator run 888 on main: `front_ov=0` → 0 mismatches / 19220 jobs, clean exit, 3D back. `front_ov=1` → 1–2 **texCrc** per ~17–18k jobs (0 flashRisk, no safety line). Full-slider stereo ~29–31 fps (mono ~55); share engaged (leftOnly).
+
+## Remaining texCrc (fixed)
+
+Side buffers already kept `t->px` stable during prep. Remaining mismatches: **GetTextureImpl could still bump `t->gen` / redecode `t->px` while a job’s gt was pinned** (DEEP fence), and the check hashed **live** `t->gen`. Fix (front_ov ON only for freeze so OFF stays identical):
+
+1. Freeze pinned textures while `front_ov` (no redecode/gen bump mid-flight).
+2. CRC uses submit-time `J.texGen` (genSnap), not live gen.
+3. Prep marks via `frontPrep[]` only — no `useF` store during drain.
+
+## Stereo fps (this PR)
+
+1. **`g3_stereo_gpu` redone, isolated**: default `V` / `g3.v.pica` / AttrInfo `4/2/4` never change. When ON + share left-only, skip CPU expand; `G3G_End` draws both eyes from `vb[0]` with `g3s.v.pica` (`stereok * dsh * w`, `dsh` from `stereoDsh` as a 2nd vertex buffer). Mid/K frames still CPU-expand. Log `[gpu right]`.
+2. Keep `[G3STER]` stage timings (expand / end / front / raw / …).
+
+## Device A/B
+
+Base: run 888 toggles (`thread/wake/check/fastxform/xfcache/prof/texfence=2/texsafe/share/present_pace`).
+
+| Trial | Expect |
+|---|---|
+| `front_ov=0` | identical to c2087a3; check 0 |
+| `front_ov=1` | same picture; check **0** mismatches; `[FRONT]` freeze+side |
+| `g3_stereo_gpu=1` (+ share, slider up) | `[G3STER] [gpu right]`; expand ~0; stereo fps up; same picture |
+| all new OFF | same as c2087a3 |
+
+---
+
 # Run 887 black top with front_ov (main 5ff16cf / #498) — fix
 
 Hardware run 887 on `5ff16cf`: `g3_front_ov=1` (`g3_stereo_gpu=0`) → **top screen fully black from boot** (title Lugia too). G3PROF often `tris 0` / `cmd 0`; `[G3THR] 0 jobs` most windows; a few windows had jobs/tris 200–700 and still blank; ~59 fps empty. `[FRONT] prep … 0`. Slider 0 at boot.
