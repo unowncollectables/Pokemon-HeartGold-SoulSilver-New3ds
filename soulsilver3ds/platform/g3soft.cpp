@@ -1062,7 +1062,8 @@ static void gtResolveTex(GJob&J){
   else if(fence>=2)texCreateSkip++;
   t->gt=G3SIM_GpuTex(t);}
  J.tex=t;J.hasTex=t!=nullptr;J.gt=t?t->gt:nullptr;J.tw=t?t->w:0;J.th=t?t->h:0;J.texGen=t?t->gen:0;J.texGpuGen=t?t->gpuGen:0;
- J.texCrc=(t&&J.gt)?gtTexCrcOf(t,J.gt,J.tw,J.th,J.texGpuGen):0;
+ // The texture hash is only consumed by the job diagnostics.
+ J.texCrc=(t&&J.gt&&P3DS_G3ThrCheckCfg())?gtTexCrcOf(t,J.gt,J.tw,J.th,J.texGpuGen):0;
  if(fence&&J.gt)gtPinAdd(J.gt);}
 static void gtPush(GJob&J,bool chunked);
 static void gtSubmit(GJob&J){
@@ -1095,8 +1096,7 @@ static void gtPush(GJob&J,bool chunked){
   gtCmPos += nc;
   J.cmask = dst;
  }
- /* Recompute xform CRC after the arena copy so the worker hashes the same bytes. */
- if (J.xformCrc) J.xformCrc = gtXformCrc(J);
+ /* Keep the submit-side xform CRC so the worker also checks the arena copy. */
  {
   gtRing[tail&GT_MASK]=J;
   __atomic_store_n(&gtTail,tail+1,__ATOMIC_RELEASE); /* release: ring + arena visible before the new tail */
