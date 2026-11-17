@@ -906,8 +906,8 @@ static void gtMark(unsigned *cur, int slot, int *first) {
    [GPUT] lines are grouped by scissor OFF / ON (A/B steps every 600 3D frames). */
 static int scisCfg = -1, scisMode = -1;   /* scisMode: -1 not calibrated, 0 hidden = window rows 0..63, 1 = rows 192..255, 2 failed */
 #define SCIS_PENDING "sdmc:/3ds/soulsilver3ds/g3sci_pending"   /* exists while a calibration is in flight: a hang there never repeats */
-int G3G_ScissorCfg(void) { if (scisCfg < 0) { scisCfg = P3DS_CfgInt("g3_scissor", 0); if (scisCfg < 0 || scisCfg > 2) scisCfg = 0;
-      { FILE *f = fopen(SCIS_PENDING, "r"); if (f) { fclose(f); remove(SCIS_PENDING); scisMode = 2; PSPNativeMemLog("[G3SCI] the last session stopped during the calibration: scissor stays OFF this session"); } } PSPNativeMemLog("[G3SCI] g3_scissor=%d (1 = GPU skips the 64 hidden rows, 2 = A/B)", scisCfg); } return scisCfg; }
+int G3G_ScissorCfg(void) { if (scisCfg < 0) { scisCfg = 1;   /* always on since run 913's A/B: GPU 7.8-8.0 -> 4.1-6.1 ms/tick, in-between 44-61% -> 70-74%; g3_scissor is ignored */
+      { FILE *f = fopen(SCIS_PENDING, "r"); if (f) { fclose(f); remove(SCIS_PENDING); scisMode = 2; PSPNativeMemLog("[G3SCI] the last session stopped during the calibration: scissor stays OFF this session"); } } PSPNativeMemLog("[G3SCI] hidden rows skip always on (the GPU skips the 64 rows that are never shown; stays off if the check fails)"); } return scisCfg; }
 void G3G_SetScissor(int v) { scisCfg = v < 0 || v > 2 ? 0 : v; PSPNativeMemLog("[G3SCI] g3_scissor=%d from settings", scisCfg); }
 static void clearQuad(void);
 /* run 912: the first version waited for the GPU in the middle of G3G_End (FrameEnd + FrameBegin) and the boot hung on
