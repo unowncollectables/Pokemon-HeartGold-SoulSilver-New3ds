@@ -555,6 +555,14 @@ int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InB
 /* Measure the work between presents separately from time spent in the
    game's VBlank waits. A short/long cadence can still average 30 ticks/s. */
 int P3DS_Fps60Skip; static unsigned f60NSkip;
+/* 2026-11-17 fps60_noskip (Debug > 60 fps after slow tick, default SKIP = old behaviour): run 913 lost 90-114 of 600 in-between
+   pictures to "skipped" (the tick after one over 33.3 ms busy). DRAW keeps the in-between there too (the step-down still guards
+   real overload). A/B TEST switches SKIP/DRAW every 600 ticks, one [FPS60] line each, marked "slow-tick SKIP/DRAW". */
+static int f60NoSkipCfg = -1, f60NoSkipWin;
+int P3DS_Fps60NoSkipCfg(void) { if (f60NoSkipCfg < 0) { f60NoSkipCfg = P3DS_CfgInt("fps60_noskip", 0); if (f60NoSkipCfg < 0 || f60NoSkipCfg > 2) f60NoSkipCfg = 0;
+    PSPNativeMemLog("[FPS60] fps60_noskip=%d (0 skip the in-between after a slow tick, 1 draw it anyway, 2 A/B every 600 ticks)", f60NoSkipCfg); } return f60NoSkipCfg; }
+void P3DS_SetFps60NoSkip(int v) { f60NoSkipCfg = v < 0 || v > 2 ? 0 : v; PSPNativeMemLog("[FPS60] fps60_noskip=%d from settings", f60NoSkipCfg); }
+static int f60NoSkipOn(void) { const int c = P3DS_Fps60NoSkipCfg(); return c == 1 || (c == 2 && (f60NoSkipWin & 1)); }
 void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
     static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, wFenceIdle, rN, rIdle, sinceOn, downs, ups;
     static u64 sumUs, sumMid, sumComp, sumStrip, idleWindow;
@@ -565,7 +573,7 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int
     const unsigned busyUs = afterGameIdle > fenceIdleUs ? afterGameIdle - fenceIdleUs : 0;
     const int overBudget = busyUs > 33333;
     if (P3DS_Fps60Skip) f60NSkip++;
-    P3DS_Fps60Skip = act && !P3DS_Fps60Skip && (overBudget || frameUs > 50000);
+    P3DS_Fps60Skip = act && !P3DS_Fps60Skip && (overBudget || frameUs > 50000) && !(f60NoSkipOn() && frameUs <= 50000);
     if (shown && !f60Did) { shown = 0; why = 3; }
     idleWindow += idleUs;
     n++; sumUs += frameUs; if (frameUs > 36000) nSlow++;
@@ -584,13 +592,13 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int
     f60Phase++;
     if (n >= 600 || (P3DS_Fps60Cfg() == 2 && f60Phase % 1200 == 0)) {
         const unsigned k = nShown ? nShown : 1;
-        PSPNativeMemLog("[FPS60] %s%s | %u ticks: in-between %u (%u%%) | avg %u.%02u ms, %u>36 | idle %u us | why not: no3D %u, unpaired %u, nomem %u, nothingmoved %u, runs %u, fog %u, notdirect %u, cpu %u, menu %u, at30 %u | skipped %u | stepdown %u back %u cost %u | per frame: comp %u strips %u draw %u us | handed over: %u in time (avg %u us), %u late",
-            (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B)" : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
+        PSPNativeMemLog("[FPS60] %s%s%s | %u ticks: in-between %u (%u%%) | avg %u.%02u ms, %u>36 | idle %u us | why not: no3D %u, unpaired %u, nomem %u, nothingmoved %u, runs %u, fog %u, notdirect %u, cpu %u, menu %u, at30 %u | skipped %u | stepdown %u back %u cost %u | per frame: comp %u strips %u draw %u us | handed over: %u in time (avg %u us), %u late",
+            (P3DS_Fps60Cfg() == 1 || (((f60Phase - 1) / 1200) & 1)) ? "ON" : "OFF", P3DS_Fps60Cfg() == 2 ? " (A/B)" : "", P3DS_Fps60NoSkipCfg() ? (f60NoSkipOn() ? " slow-tick DRAW" : " slow-tick SKIP") : "", n, nShown, nShown * 100 / n, (unsigned)(sumUs / n / 1000), (unsigned)(sumUs / n % 1000 / 10), nSlow,
             (unsigned)(idleWindow / n),
             nWhy[1], G3G_MidWhy[4], G3G_MidWhy[5], G3G_MidWhy[3], G3G_MidWhy[1], G3G_MidWhy[2], G3G_MidWhy[0], nWhy[2], nWhy[3], nPaused,
             f60NSkip, downs, ups, f60Ov, (unsigned)(sumComp / k), (unsigned)(sumStrip / k), (unsigned)(sumMid / k),
             f60FlipN - f60FlipLate, f60FlipN ? f60FlipUs / f60FlipN : 0, f60FlipLate);
-        f60NSkip = 0; idleWindow = 0; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
+        f60NoSkipWin++; f60NSkip = 0; idleWindow = 0; n = nShown = nSlow = nPaused = downs = ups = 0; f60FlipN = f60FlipLate = f60FlipUs = 0; memset(nWhy, 0, sizeof nWhy); memset(G3G_MidWhy, 0, 6 * sizeof(unsigned)); sumUs = sumMid = sumComp = sumStrip = 0; }
 }
 /* One line per area. 300 presented field ticks is about 10 s at 30 Hz.
    OFF returns before any of this and writes nothing. */
