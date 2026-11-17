@@ -1,0 +1,129 @@
+From 16a4ebc644a0543cbf90ad4350ae0611b3a94590 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 21:32:09 +0000
+Subject: [PATCH] ss3ds: per-tick CPU trims (MI address check, wild tile order,
+ party move cache)
+
+From a cloud profile of the field: MI copy/fill/clear return at once for ordinary pointers instead of walking the 12 DS windows; SS3DS_WildTileKind checks the tile before scanning map objects (same answer); GetIdxOfFirstPartyMonWithMove reuses its answer while the party bytes, move and hm_free are unchanged (FieldInput_Process asks about Waterfall every tick). mi_hwaddr.c joins the staged re-sync list.
+---
+ .../nitromain-perf/mi_hwaddr.c                |  3 ++
+ scripts/ss3ds_game.sh                         |  2 +-
+ scripts/ss3ds_hooks.d/0110_wildvis.py         | 10 +++--
+ .../ss3ds_hooks.d/0279_party_move_cache.py    | 40 +++++++++++++++++++
+ .../ss3ds_hooks.d/0279_party_move_cache.sh    |  5 +++
+ 5 files changed, 55 insertions(+), 5 deletions(-)
+ create mode 100644 scripts/ss3ds_hooks.d/0279_party_move_cache.py
+ create mode 100644 scripts/ss3ds_hooks.d/0279_party_move_cache.sh
+
+diff --git a/port/soulsilver-native-core/nitromain-perf/mi_hwaddr.c b/port/soulsilver-native-core/nitromain-perf/mi_hwaddr.c
+index b829303..ca82821 100644
+--- a/port/soulsilver-native-core/nitromain-perf/mi_hwaddr.c
++++ b/port/soulsilver-native-core/nitromain-perf/mi_hwaddr.c
+@@ -34,6 +34,9 @@ static void *Fix(const void *p, const char *who)
+ {
+     uintptr_t v = (uintptr_t)p;
+     unsigned i;
++    /* 2026-11-17 cloud profile: every MI copy/fill/clear walked all 12 windows (~3% of busy CPU time). All windows lie
++       in 0x027FFC00..0x027FFFFF or 0x05000000..0x07FFFFFF; a 3DS heap/stack pointer is outside both, so it returns at once. */
++    if (v - 0x05000000u >= 0x03000000u && v - 0x027FFC00u >= 0x400u) return (void *)p;
+     for (i = 0; i < sizeof(sWindows) / sizeof(sWindows[0]); i++) {
+         if (v >= sWindows[i].base && v < sWindows[i].base + sWindows[i].size) {
+             if (sLogged < 16) {
+diff --git a/scripts/ss3ds_game.sh b/scripts/ss3ds_game.sh
+index 0a7e0f9..046b120 100644
+--- a/scripts/ss3ds_game.sh
++++ b/scripts/ss3ds_game.sh
+@@ -120,7 +120,7 @@ for f in native-sound-audio/sas_out.c soulsilver-native-assets/render-fastcompar
+          soulsilver-native-core/nitromain-perf/missing.c native-backup-probe/backup.c \
+          native-audio-app/services/mi_dma.c \
+          native-render-opt/native_gpu.cpp native-render-opt/GPU2D_Soft.cpp soulsilver-native-core/nitromain-perf/input.c \
+-         soulsilver-native-core/nitromain-perf/area_data_native.c; do   # missing.c: patches 0118/0125 drop traps, a stale staged copy duplicates them at link
++         soulsilver-native-core/nitromain-perf/area_data_native.c soulsilver-native-core/nitromain-perf/mi_hwaddr.c; do   # missing.c: patches 0118/0125 drop traps, a stale staged copy duplicates them at link
+   cmp -s "$ROOT/port/$f" "$T/$f" || { cp -f "$ROOT/port/$f" "$T/$f"; log "ss3ds: staged $f was stale, re-synced"; }
+ done
+ # SS3DS 0153: particle fixes 0151/0152 land in a tree whose ss-particles step already ran, so re-sync them and rebuild
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index b03fcca..0f19755 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -73,14 +73,16 @@ static BOOL SS3DS_WildBlocked(FieldSystem *fieldSystem) {
+ // 0 = no walking encounters, 1 = land (grass, cave floor...), 2 = surfable water; | 4 = tall grass (drawn half hidden)
+ LocalMapObject *MapObjectManager_GetFirstObjectWithXAndZ(MapObjectManager *manager, u32 x, u32 z, BOOL checkPrevious);
+ int SS3DS_WildTileKind(FieldSystem *fieldSystem, int x, int z) {
+-    // 0221: never on (or walking into) a tile an NPC, the player or the follower stands on or is leaving
+-    if (fieldSystem->mapObjectManager != NULL && MapObjectManager_GetFirstObjectWithXAndZ(fieldSystem->mapObjectManager, x, z, TRUE) != NULL) {
+-        return 0;
+-    }
++    // 2026-11-17: tile check first, object scan only for usable tiles (same answer; the spawn-count pass asks 221 tiles a tick
++    // and each object scan walks every map object, ~3% of busy CPU time in the cloud profile)
+     u8 behavior = GetMetatileBehavior(fieldSystem, x, z);
+     if (!MetatileBehavior_CanGenerateWalkingEncounters(behavior)) {
+         return 0;
+     }
++    // 0221: never on (or walking into) a tile an NPC, the player or the follower stands on or is leaving
++    if (fieldSystem->mapObjectManager != NULL && MapObjectManager_GetFirstObjectWithXAndZ(fieldSystem->mapObjectManager, x, z, TRUE) != NULL) {
++        return 0;
++    }
+     int grass = (MetatileBehavior_IsTallGrass(behavior) || MetatileBehavior_IsVeryTallGrass(behavior)) ? 4 : 0;
+     return (MetatileBehavior_IsSurfableWater(behavior) ? 2 : 1) | grass;
+ }
+diff --git a/scripts/ss3ds_hooks.d/0279_party_move_cache.py b/scripts/ss3ds_hooks.d/0279_party_move_cache.py
+new file mode 100644
+index 0000000..a5593e9
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0279_party_move_cache.py
+@@ -0,0 +1,40 @@
++#!/usr/bin/env python3
++"""ss3ds 0279: GetIdxOfFirstPartyMonWithMove keeps its last answer. FieldInput_Process asks "does a party Pokemon know
++Waterfall?" every tick; each answer decrypts, checksums and re-encrypts every party Pokemon up to five times, and with
++hm_free on and nobody knowing the move, SS3DS_HmFreeSlot does it again for every HM (~0.5 ms a tick in the 2026-11-17
++cloud profile). The answer is reused only while the party's bytes (as stored, encrypted), the move and hm_free are all
++exactly the same, so it is always the answer the full check would give. Idempotent ('SS3DS 0279')."""
++import sys
++
++p = 'src/script_pokemon_util.c'
++s = open(p).read()
++if 'SS3DS 0279' in s:
++    sys.exit(0)
++old = 'int GetIdxOfFirstPartyMonWithMove(Party *party, u16 move) {\n'
++if s.count(old) != 1:
++    sys.exit('0279_party_move_cache: GetIdxOfFirstPartyMonWithMove not found exactly once in ' + p)
++new = ('static int SS3DS_PartyMoveSlotFull(Party *party, u16 move);\n'
++       '// SS3DS 0279: same answer as the full check, reused while the party bytes, the move and hm_free are unchanged.\n'
++       'int GetIdxOfFirstPartyMonWithMove(Party *party, u16 move) {\n'
++       '    extern int P3DS_HmFreeCfg(void);\n'
++       '    static Party sParty;\n'
++       '    static const Party *sWho;\n'
++       '    static u16 sMove;\n'
++       '    static int sHm, sSlot, sValid;\n'
++       '    int hm = P3DS_HmFreeCfg();\n'
++       '    if (sValid && sWho == party && sMove == move && sHm == hm && __builtin_memcmp(&sParty, party, sizeof(Party)) == 0) {\n'
++       '        return sSlot;\n'
++       '    }\n'
++       '    int slot = SS3DS_PartyMoveSlotFull(party, move);\n'
++       '    __builtin_memcpy(&sParty, party, sizeof(Party));\n'
++       '    sWho = party;\n'
++       '    sMove = move;\n'
++       '    sHm = hm;\n'
++       '    sSlot = slot;\n'
++       '    sValid = 1;\n'
++       '    return slot;\n'
++       '}\n\n'
++       'static int SS3DS_PartyMoveSlotFull(Party *party, u16 move) {\n')
++s = s.replace(old, new)
++open(p, 'w').write(s)
++print('0279_party_move_cache: script_pokemon_util.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0279_party_move_cache.sh b/scripts/ss3ds_hooks.d/0279_party_move_cache.sh
+new file mode 100644
+index 0000000..553d39f
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0279_party_move_cache.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0279: GetIdxOfFirstPartyMonWithMove reuses its last answer while the party bytes are unchanged (per-tick Waterfall
++# check). Runs after 0115 (hm_free). Not fatal: without it the game does the full check every tick, as before.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0279_party_move_cache.py" && bash rebuild_game_object.sh src/script_pokemon_util.c script_pokemon_util.o none); then
++  log "ss3ds 0279 party move cache NOT applied (see message above); the full party check runs every tick, as before"
++fi
+-- 
+2.43.0
+
