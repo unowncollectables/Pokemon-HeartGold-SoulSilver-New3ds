@@ -559,10 +559,10 @@ int P3DS_Fps60Skip; static unsigned f60NSkip;
    pictures to "skipped" (the tick after one over 33.3 ms busy). DRAW keeps the in-between there too (the step-down still guards
    real overload). A/B TEST switches SKIP/DRAW every 600 ticks, one [FPS60] line each, marked "slow-tick SKIP/DRAW". */
 static int f60NoSkipCfg = -1, f60NoSkipWin;
-int P3DS_Fps60NoSkipCfg(void) { if (f60NoSkipCfg < 0) { f60NoSkipCfg = P3DS_CfgInt("fps60_noskip", 0); if (f60NoSkipCfg < 0 || f60NoSkipCfg > 2) f60NoSkipCfg = 0;
+int P3DS_Fps60NoSkipCfg(void) { if (f60NoSkipCfg < 0) { f60NoSkipCfg = 0;   /* fps60_noskip ignored since run 916 */ if (f60NoSkipCfg < 0 || f60NoSkipCfg > 2) f60NoSkipCfg = 0;
     PSPNativeMemLog("[FPS60] fps60_noskip=%d (0 skip the in-between after a slow tick, 1 draw it anyway, 2 A/B every 600 ticks)", f60NoSkipCfg); } return f60NoSkipCfg; }
 void P3DS_SetFps60NoSkip(int v) { f60NoSkipCfg = v < 0 || v > 2 ? 0 : v; PSPNativeMemLog("[FPS60] fps60_noskip=%d from settings", f60NoSkipCfg); }
-static int f60NoSkipOn(void) { const int c = P3DS_Fps60NoSkipCfg(); return c == 1 || (c == 2 && (f60NoSkipWin & 1)); }
+static int f60NoSkipOn(void) { return 0; }   /* run 916 A/B: DRAW sent the field to 30 fps for 390-570 of 600 ticks (in-between 4-34%) vs SKIP 46-56%: SKIP kept, setting removed */
 void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int shown, int why, unsigned composeUs, unsigned stripUs) {
     static unsigned n, nShown, nSlow, nWhy[4], nPaused, wN, wSlow, wUs, wFenceIdle, rN, rIdle, sinceOn, downs, ups;
     static u64 sumUs, sumMid, sumComp, sumStrip, idleWindow;
