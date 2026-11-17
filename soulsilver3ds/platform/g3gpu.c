@@ -208,7 +208,7 @@ static void rbQueue(int e) {
 extern unsigned char PSPNative_GfxRegisters[];
 int P3DS_MapOutdoor = 1; int P3DS_CurMap = -1; /* run 76: current map header (field), for Distortion World effects */ /* run 73: set by the follower frame (MapHeader_IsOutdoors) */
 static void stripConv(const u32 *s, unsigned rst, unsigned right, u32 *d);
-/* 2026-11-17 g3_slim_strips (Debug tab, default OFF, A/B TEST): a real wide frame copies only its two 32-px side strips (the 192
+/* 2026-11-17 slim strips (always on since run 920's A/B: real copies -0.35 ms GPU, strip convert -0.3 ms CPU): a real wide frame copies only its two 32-px side strips (the 192
    visible rows, same GX copies as the in-between strips) into rbS[e], instead of reading the whole 320x256 eye back into rb[e].
    slimFrame: this frame's strips are in rbS[]. Anything that needs the full eye (G3G_DirectResolve) still queues the full readback. */
 static u32 *rbS[2], *rbSTiles; static int slimFrame, slimFail;
@@ -861,18 +861,12 @@ static void fps60Probe(void) {
 /* 2026-11-17 one-log GPU diagnostic (Debug tab, all default OFF):
    g3_gputime: every 30th direct 3D frame, G3G_End submits and waits after each pass (in-between L, R, copies; real L, R, copies)
    and logs the GPU time of each. Only that one frame waits; every other frame runs as before.
-   g3_slim_strips / g3_slim_centre: 0 OFF, 1 ON, 2 A/B TEST. A/B steps through OFF/ON every 600 3D frames (~20 s); with both on
-   A/B the four combinations take turns. [GPUT] lines group the numbers by what was actually on, plus the left compose's wait for
-   the GPU (the cost the player feels) and the CPU strip convert time. */
+   [GPUT] lines are grouped by full readback vs slim strips (slim falls back to full only without linear memory), with the
+   left compose's wait for the GPU and the CPU strip convert time. */
 extern int P3DS_CfgInt(const char *, int);
-static int gtCfg = -1, slimStripsCfg = -1, slimCentreCfg = -1;
+static int gtCfg = -1;
 int G3G_GpuTimeCfg(void) { if (gtCfg < 0) { gtCfg = P3DS_CfgInt("g3_gputime", 0) != 0; PSPNativeMemLog("[GPUT] g3_gputime=%d (1 = every 30th 3D frame waits after each GPU pass and logs it)", gtCfg); } return gtCfg; }
 void G3G_SetGpuTime(int v) { gtCfg = v != 0; PSPNativeMemLog("[GPUT] g3_gputime=%d from settings", gtCfg); }
-static int abVal(int v) { return v < 0 ? 0 : v > 2 ? 2 : v; }
-int G3G_SlimStripsCfg(void) { if (slimStripsCfg < 0) { slimStripsCfg = abVal(P3DS_CfgInt("g3_slim_strips", 0)); PSPNativeMemLog("[GPUT] g3_slim_strips=%d (1 = real wide frames copy only the side strips, 2 = A/B)", slimStripsCfg); } return slimStripsCfg; }
-void G3G_SetSlimStrips(int v) { slimStripsCfg = abVal(v); PSPNativeMemLog("[GPUT] g3_slim_strips=%d from settings", slimStripsCfg); }
-int G3G_SlimCentreCfg(void) { if (slimCentreCfg < 0) { slimCentreCfg = abVal(P3DS_CfgInt("g3_slim_centre", 0)); PSPNativeMemLog("[GPUT] g3_slim_centre=%d (1 = centre copies skip the 64 hidden rows, 2 = A/B)", slimCentreCfg); } return slimCentreCfg; }
-void G3G_SetSlimCentre(int v) { slimCentreCfg = abVal(v); PSPNativeMemLog("[GPUT] g3_slim_centre=%d from settings", slimCentreCfg); }
 static int slimAlloc(void) {
     if (rbS[0] && rbS[1] && rbSTiles) return 1;
     if (slimFail) return 0;
@@ -882,9 +876,9 @@ static int slimAlloc(void) {
     PSPNativeMemLog("[GPUT] slim strip buffers ready (3 x 48 KB, linear free %lu)", (unsigned long)linearSpaceFree());
     return 1;
 }
-/* stats by state: bit 0 slim strips used, bit 1 slim centre used */
+/* stats by state: 1 = slim strips used */
 static unsigned abFrames, gtCnt; static int abLast = -1, gtSkipCw;
-static unsigned long long gtSum[4][6], cwSum[4], scSum[4]; static unsigned gtN[4], cwN[4], scN[4], frN[4];
+static unsigned long long gtSum[2][6], cwSum[2], scSum[2]; static unsigned gtN[2], cwN[2], scN[2], frN[2];
 static void abStripUs(unsigned us) { if (abLast >= 0) { scSum[abLast] += us; scN[abLast]++; } }
 void G3G_AbComposeWait(unsigned us) {
     if (abLast < 0) return;
@@ -899,9 +893,9 @@ static void gtMark(unsigned *cur, int slot, int *first) {
 }
 static void gtLog(void) {
     if (abFrames % 600) return;
-    if (!gtCfg && !slimStripsCfg && !slimCentreCfg) return;
-    static const char *nm[4] = { "slim OFF", "slim strips", "slim centre", "slim both" };
-    for (int s = 0; s < 4; s++) {
+    if (gtCfg != 1) return;
+    static const char *nm[2] = { "full readback", "slim strips" };
+    for (int s = 0; s < 2; s++) {
         if (!frN[s]) continue;
         const unsigned n = gtN[s] ? gtN[s] : 1;
         PSPNativeMemLog("[GPUT] %s: %u frames | GPU us (%u samples): mid L %u R %u copy %u | real L %u R %u copy %u | total %u | compose wait %u us (%u) | strip convert %u us (%u)",
@@ -989,13 +983,10 @@ static void stripIssueTo(const void *color, u32 *tiles, u32 *out, int slim, int 
 static void midStripIssue(const void *color, int eye, int sync) { stripIssueTo(color, midStripTiles, rbM[eye], fps60Strips(), sync); }
 static void midStripQueue(const void *color, int eye) { midStripIssue(color, eye, 1); }
 /* Centre 256 columns of a 320-wide tiled target, into a 256x256 tiled texture. Same offsets as the old Sync call.
-   2026-11-17 g3_slim_centre (Debug tab, default OFF, A/B TEST): skip tile rows 0..7 (GPU rows 0..63). The compositor samples
-   v 0..192/256 = GPU rows 255..64 only (DS row y = GPU row 255-y), so those rows are never shown; 1/4 less copied. */
-static int centreSlim;
+   (2026-11-17 run 920 A/B: skipping the 64 hidden rows saved nothing measurable, so the full copy stays.) */
 static void centreCopy(const void *color, void *dest, int sync) {
-    const unsigned skip = centreSlim ? 8u : 0u;
-    issueTexCopy((u32 *)((const u8 *)color + 4 * 256 + skip * 320 * 8 * 4), GX_BUFFER_DIM(8192 >> 4, 2048 >> 4),
-                 (u32 *)((u8 *)dest + skip * 8192), GX_BUFFER_DIM(8192 >> 4, 0), 8192 * (32 - skip), GX_TRANSFER_RAW_COPY(1), sync);
+    issueTexCopy((u32 *)((const u8 *)color + 4 * 256), GX_BUFFER_DIM(8192 >> 4, 2048 >> 4),
+                 (u32 *)dest, GX_BUFFER_DIM(8192 >> 4, 0), 8192 * 32, GX_TRANSFER_RAW_COPY(1), sync);
 }
 /* How many C3D_Sync* calls the legacy wide path makes per eye: each one is its own 3D-list break.
    In-between: centre + (two side packs + readback, or one full readback). Real picture: centre + readback. */
@@ -1253,12 +1244,8 @@ void G3G_End(u32 *outL, u32 *outR) {
     /* Separate wide targets can queue the copies together after either pass. */
     const int pipe = wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
     static unsigned pipeN, pipeKickSum, legacyKickSum;
-    /* one-log diagnostic + slim copies (see G3G_GpuTimeCfg); all OFF = exactly the old copies */
-    const unsigned abPh = (abFrames / 600) & 3;
-    const int ssC = G3G_SlimStripsCfg(), scC = G3G_SlimCentreCfg();
-    const int wantStrips = ssC == 1 || (ssC == 2 && (abPh & 1)), wantCentre = scC == 1 || (scC == 2 && (abPh & 2));
-    slimFrame = wantStrips && direct && wideFrame && curHi == 0 && !r1xFrame && !sharedTgt && slimAlloc();
-    centreSlim = wantCentre && direct && curHi == 0;
+    /* real wide strips: copy only the side strips (see stripConvert) */
+    slimFrame = direct && wideFrame && curHi == 0 && !r1xFrame && !sharedTgt && slimAlloc();   /* falls back to the full readback without memory */
     const int gtS = G3G_GpuTimeCfg() && direct && ++gtCnt % 30 == 0;
     int gtFirst = 1; unsigned gtCur[6] = { 0 };
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
@@ -1315,8 +1302,7 @@ void G3G_End(u32 *outL, u32 *outR) {
             if (!pipe) {
             if (wideFrame) { centreCopy(tgt[e]->frameBuf.colorBuf, midTex[e].data, 1);
                 midStripQueue(tgt[e]->frameBuf.colorBuf, e); }
-            else { const unsigned skip = centreSlim ? 8u * 8192u : 0u;   /* slim centre: the 64 hidden rows stay out */
-                C3D_SyncTextureCopy((u32 *)((u8 *)rt[e].data + skip), GX_BUFFER_DIM(8192 >> 4, 0), (u32 *)((u8 *)midTex[e].data + skip), GX_BUFFER_DIM(8192 >> 4, 0), 256 * 256 * 4 - skip, GX_TRANSFER_RAW_COPY(1)); }
+            else C3D_SyncTextureCopy((u32 *)rt[e].data, GX_BUFFER_DIM(8192 >> 4, 0), (u32 *)midTex[e].data, GX_BUFFER_DIM(8192 >> 4, 0), 256 * 256 * 4, GX_TRANSFER_RAW_COPY(1));
             }
             if (gtS) gtMark(gtCur, e ? 1 : 0, &gtFirst);
             continue; }
@@ -1382,7 +1368,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     if (gtS) {   /* sampled frame: wait for the last pass too, then file the six numbers */
         C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH);
         gtCur[5] = (unsigned)((svcGetSystemTick() - gtA) / 268);
-        const int st = slimFrame | (centreSlim ? 2 : 0);
+        const int st = slimFrame;
         for (int i = 0; i < 6; i++) gtSum[st][i] += gtCur[i];
         gtN[st]++; gtSkipCw = 1;
     }   /* fps_tweaks >= 1: no whole-linear-heap flush (vb[] and textures are flushed by their writers) */
@@ -1394,7 +1380,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         pendRB = 0; for (unsigned i = 0; i < pendN && oldN < 512; i++) oldFree[oldN++] = pendFree[i]; pendN = 0;
         dirValid = dirPend = 1; dirEyes = eyes; dirKey[0] = outL; dirKey[1] = outR; dirOut = 1; dirDirect++;
         dirWide = dirStrip = wideFrame; dirRb = wideFrame && !slimFrame; if (wideFrame) dirWideN++;   /* slim strips: no full readback queued, resolve queues its own */
-        abLast = slimFrame | (centreSlim ? 2 : 0); frN[abLast]++;
+        abLast = slimFrame; frN[abLast]++;
         if (mid) { midValid = 1; midEyes = eyes; midWide = wideFrame; }
         G3G_StripValid = wideFrame ? eyes : 0;   /* wide: G3G_DirectStrips() fills G3G_Strip before present */
         { static int said; if (wideFrame && !said) { said = 1; PSPNativeMemLog("[GPU3D] direct: first wide frame (320x256 targets, %d eye%s): centre copied on the GPU into the compositor texture, only the side strips converted on the CPU", eyes, eyes > 1 ? "s" : ""); } }
