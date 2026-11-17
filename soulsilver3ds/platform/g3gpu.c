@@ -1165,7 +1165,13 @@ void G3G_End(u32 *outL, u32 *outR) {
     fogFrame = 0;
     if (fogCfgOn() && (rs || fogCfg == 1) && (!G3G_Async || fogCfg == 1) && !depthLin && (fogCfg == 1 || (!curHi && !depth16)) && G3G_FogNoW && (*(const u16 *)(PSPNative_GfxRegisters + 0x60) & 0x80)) {
         int fm = fogCfg;
-        if (fm == 1 && rs && !G3G_Async && !curHi && !depth16 && P3DS_FogHoleCfg() && fogHoleFrame()) { fm = 2;
+        /* 2026-11-17 run 919: rain ("town shower") turns on a grey fog and draws translucent no-fog polygons, so those frames took
+           the exact CPU stencil fog (~16 ms per frame: both eyes read back and converted) and 60 fps fell to 30 for the whole
+           shower. The light circle this path exists for is the Dark Cave darkness fog, which is black (FOG_COLOR 0); other fog
+           stays on the free GPU fog unit (fog3d=1), as it was before the cave fix. */
+        if (fm == 1 && (*(const u32 *)(PSPNative_GfxRegisters + 0x358) & 0x7FFF) != 0 && P3DS_FogHoleCfg() && fogHoleFrame()) {
+            static unsigned nk; if (nk++ % 1800 == 0) PSPNativeMemLog("[GPU3D] fog_hole: coloured fog (rain/haze) with a translucent no-fog batch stays on the GPU fog unit (%u frames)", nk); }
+        else if (fm == 1 && rs && !G3G_Async && !curHi && !depth16 && P3DS_FogHoleCfg() && fogHoleFrame()) { fm = 2;
             if (fogHoleN++ % 600 == 0) PSPNativeMemLog("[GPU3D] fog_hole: fog frame with a translucent no-fog batch (Dark Cave / Flash light) -> exact stencil fog (%u frames)", fogHoleN); }
         if (fm == 2 && !drb[0]) { for (int e = 0; e < 2; e++) drb[e] = linearAlloc(320 * 256 * 4);
             if (!drb[0] || !drb[1]) { for (int e = 0; e < 2; e++) { if (drb[e]) linearFree(drb[e]); drb[e] = NULL; }
