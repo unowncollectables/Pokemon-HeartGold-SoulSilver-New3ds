@@ -1727,7 +1727,7 @@ static const SAppTab kTabs[kTotalTabs]={
      {kG3StereoGpuItem,"3D stereo GPU","With 3D stereo share ON: End draws the right eye from the left vb via g3s (prefers gpuRight; hard-clip/translucent keep left+dsh). Log [G3STER] path + reasons. Leave OFF if unsure."},
      {89,"GPU 3D direct","Experimental: keeps the 3D layer on the GPU. Leave OFF."},
      {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."},
-     {kFps60PipeItem,"60 fps pipe","Wide view only. Draws both eyes before the side copies, so those copies do not stop the 3D processor. Same picture. OFF is the original timing."},
+     {kFps60PipeItem,"60 fps pipe","Wide view only. Batches transfers after drawing and skips unused centre copies when the CPU blends the picture."},
      {kFps60HoldItem,"60 fps hold","When the camera, sprites, tiles and 3D are all still, show the real frame again instead of drawing an in-between. OFF skips that repeat."},
      {kFps60StripsItem,"60 fps strips","In-between Wide strips copy only the visible 192 rows. The real picture still copies the full buffer. OFF is the full copy."},
      {kFps60VramItem,"60 fps VRAM","Tries to keep the second screen picture and both in-between pictures in video memory together. If that does not fit, nothing changes. OFF does not try."},

@@ -183,6 +183,19 @@ void P3DS_GcRejLog(void) {
     if (rejOther) PSPNativeMemLog("[GPUC] blend reject: %u more with other combinations", rejOther);
     memset(rejT, 0, sizeof rejT); rejOther = 0;
 }
+static int rejects3DBlend(const u8 *regs, u32 dc, u16 bl) {
+    if (!(bl & 0x3F00) || (dc & 0x108) != 0x108) return 0;
+    /* This battle mode blends the premultiplied 3D target against any lower layer.
+       Other second-target masks with BG0=3D require the CPU blend rules. */
+    return !(P3DS_FpsTweaks() >= 4 && (bl & 0x3F) == 0 &&
+             ((bl >> 6) & 3) == 1 && (bl & 0x3F00) == 0x3F00 &&
+             (rg(regs, 0x350) & 0x7FFF) == 0);
+}
+int P3DS_Gc3DBlendRejects(const u8 *regs) {
+    const u16 bl = rh(regs, 0x50);
+    if (!P3DS_GpuBlendCfg()) return (bl & 0x3F00) != 0 || ((bl & 0xC0) && (bl & 0x3F));
+    return rejects3DBlend(regs, rg(regs, 0), bl);
+}
 /* 0 = this frame can be composed on the GPU; else a reason bit */
 int P3DS_GcEligible(const u8 *regs, const u16 *oam) {
     if (ready < 0) init();  /* reads gpu_blend */
@@ -199,11 +212,9 @@ int P3DS_GcEligible(const u8 *regs, const u16 *oam) {
         if ((c & 0x40) && (mos & 0xFF)) return 32;
         if ((c & 0x80) && (dc & (1u << 30))) return 64; }
     { const u16 bl = rh(regs, 0x50);
-      if (P3DS_GcBlendOn) { if ((bl & 0x3F00) && (dc & 0x108) == 0x108) {
-            /* fps_tweaks 4: the battle case (log run 29: BLDCNT 3f40 = no first target, every layer + backdrop second target, 3D on BG0).
-               Only the 3D engine's own per-pixel alpha blends, with whatever is below: done by the GPU in P3DS_GcComposeA (3D target is
-               premultiplied, so ONE / ONE_MINUS_SRC_ALPHA). Needs a black clear colour (transparent 3D pixels carry the clear RGB). */
-            if (!(P3DS_FpsTweaks() >= 4 && (bl & 0x3F) == 0 && ((bl >> 6) & 3) == 1 && (bl & 0x3F00) == 0x3F00 && (rg(regs, 0x350) & 0x7FFF) == 0)) { rejNote(bl, rh(regs, 0x52), dc, 1); return 128; } } }  /* 3D layer alpha blend stays on melonDS */
+      if (P3DS_GcBlendOn) {
+          if (rejects3DBlend(regs, dc, bl)) { rejNote(bl, rh(regs, 0x52), dc, 1); return 128; }
+      }
       else if ((bl & 0x3F00) || ((bl & 0xC0) && (bl & 0x3F))) return 128; }
     { const u16 mb = rh(regs, 0x6C); const unsigned m = mb >> 14; if ((m == 1 || m == 2) && (mb & 0x1F) && P3DS_FpsTweaks() < 3) return 256; }  /* fps_tweaks 3: applied in the readback pass of P3DS_GcComposeA */
     if (rg(regs, 0x64) & 0x80000000u) return 512;
