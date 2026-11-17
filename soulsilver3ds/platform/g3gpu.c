@@ -3,6 +3,7 @@
  * back and converted into the compositor's 3D layer format (6-bit RGB, 5-bit alpha). */
 #include <3ds.h>
 #include <citro3d.h>
+#include "dcache3ds.h"
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
@@ -213,7 +214,7 @@ static void stripConv(const u32 *s, unsigned rst, unsigned right, u32 *d);
    slimFrame: this frame's strips are in rbS[]. Anything that needs the full eye (G3G_DirectResolve) still queues the full readback. */
 static u32 *rbS[2], *rbSTiles; static int slimFrame, slimFail;
 static void stripConvert(int e) {
-    if (slimFrame && rbS[e]) { GSPGPU_InvalidateDataCache(rbS[e], 64 * 192 * sizeof(u32)); stripConv(rbS[e], 64, 32, G3G_Strip[e]); return; }
+    if (slimFrame && rbS[e]) { P3DS_DcInval(rbS[e], 64 * 192 * sizeof(u32)); stripConv(rbS[e], 64, 32, G3G_Strip[e]); return; }
     stripConv(rb[e], rbStride(e), 288, G3G_Strip[e]); }
 static void stripConv(const u32 *s, const unsigned rst, unsigned right, u32 *d) {
     u16 mb = *(u16 *)(PSPNative_GfxRegisters + 0x6C); unsigned mm = (mb >> 14) & 3, f = mb & 31; if (f > 16) f = 16;
@@ -272,7 +273,7 @@ static void applyFog(int e) {
     unsigned tab[34]; for (int i = 0; i < 32; i++) { unsigned d = R[0x360 + i] & 127; tab[i + 1] = d == 127 ? 128 : d; } tab[0] = tab[1]; tab[33] = tab[32];
     const int fr = (int)((fc & 31) * 255 / 31), fg = (int)(((fc >> 5) & 31) * 255 / 31), fb = (int)(((fc >> 10) & 31) * 255 / 31), fa = (int)(((fc >> 16) & 31) * 255 / 31);
     const unsigned st = rtStride(); u32 *c = rb[e]; const u32 *d = drb[e];
-    GSPGPU_InvalidateDataCache(drb[e], st * 256 * 4);
+    P3DS_DcInval(drb[e], st * 256 * 4);
     for (unsigned i = 0; i < st * 192; i++) { const u32 dv = d[i]; if (!(dv >> 24)) continue;
         u32 z = dv & 0xFFFFFF; unsigned id, fr17;
         if (z < off) { id = 0; fr17 = 0; } else { z -= off; z = (z >> 2) << shift; id = z >> 17; if (id >= 32) { id = 32; fr17 = 0; } else fr17 = z & 0x1FFFF; }
@@ -317,7 +318,7 @@ static void rbConvRows(void *ctx, unsigned k) {
 static void rbConvert(int e, u32 *out) {
     if (fogFrame == 2 && drb[e]) applyFog(e);
     if (!out) return; const unsigned cw = rtStride(), st = rbStride(e), ox = cw == 320 ? 32 : 0;
-    GSPGPU_InvalidateDataCache(rb[e], st * rbRows(e) * 4);
+    P3DS_DcInval(rb[e], st * rbRows(e) * 4);
     RbJob job = { rb[e], out, st, ox, fastConv() };
     P3DS_ParFor(rbConvRows, &job, 8);
     if (cw == 320) stripConvert(e);
@@ -377,7 +378,7 @@ static int setTargets(int w, int hi) {
                     } else
                     tgt[e] = C3D_RenderTargetCreate(tw, th, GPU_RB_RGBA8, -1);
                     if (tgt[e]) { linDepth = linearMemAlign(tw * th * 4, 0x80);
-                        if (!linDepth) okW = 0; else { memset(linDepth, 0xFF, tw * th * 4); GSPGPU_FlushDataCache(linDepth, tw * th * 4);
+                        if (!linDepth) okW = 0; else { memset(linDepth, 0xFF, tw * th * 4); P3DS_DcFlush(linDepth, tw * th * 4);
                             C3D_FrameBufDepth(&tgt[e]->frameBuf, linDepth, GPU_RB_DEPTH24_STENCIL8); depthLin = 1; } }
                     else okW = 0;
                 } else tgt[e] = C3D_RenderTargetCreate(tw, th, GPU_RB_RGBA8, df);
@@ -803,7 +804,7 @@ static void clearQuad(void) {
     const float r = (clearRGBA >> 24) / 255.0f, g = ((clearRGBA >> 16) & 255) / 255.0f, b = ((clearRGBA >> 8) & 255) / 255.0f, a = (clearRGBA & 255) / 255.0f;
     static const float xy[6][2] = { {-1, -1}, {1, -1}, {1, 1}, {-1, -1}, {1, 1}, {-1, 1} };
     for (int i = 0; i < 6; i++) { V *o = &qv[i]; o->x = xy[i][0]; o->y = xy[i][1]; o->z = z; o->w = 1.0f; o->s = o->t = 0; o->r = r; o->g = g; o->b = b; o->a = a; }
-    GSPGPU_FlushDataCache(qv, 6 * sizeof(V));
+    P3DS_DcFlush(qv, 6 * sizeof(V));
     C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, qv, sizeof(V), 3, 0x210);
     C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_PRIMARY_COLOR, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
     C3D_AlphaTest(false, GPU_ALWAYS, 0); C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
@@ -925,7 +926,7 @@ void G3G_DirectResolveWhy(int why) {
         P3DS_FrameEnd(); dirOut = 1; }
     dirSync();
     for (int e = 0; e < dirEyes; e++) if (dirKey[e]) rbConvert(e, dirKey[e]);   /* 320 wide: also converts the strips */
-    if (dirStrip) { for (int e = 0; e < dirEyes; e++) if (!dirKey[e]) { if (!slimFrame) GSPGPU_InvalidateDataCache(rb[e], 320 * 256 * 4); stripConvert(e); } dirStrip = 0; }
+    if (dirStrip) { for (int e = 0; e < dirEyes; e++) if (!dirKey[e]) { if (!slimFrame) P3DS_DcInval(rb[e], 320 * 256 * 4); stripConvert(e); } dirStrip = 0; }
     dirResUs += (unsigned long long)(svcGetSystemTick() - t0) / 268;
     { static unsigned n; if (n < 8 && !(dirResWhy[why & 7] > 1)) { n++; PSPNativeMemLog("[GPU3D] direct: 3D layer pulled back to the CPU (reason %d: %s)%s", why,
         (const char *[]){ "other", "flat stereo shift", "CPU right eye", "CPU composite", "GPU compose rejected", "dump/diagnostic", "wide haze fit", "g3_shot" }[why & 7], dirWide ? " | wide frame" : ""); } }
@@ -936,7 +937,7 @@ void G3G_DirectStrips(void) {
     if (!dirStrip || ok != 1) return;
     u64 t0 = svcGetSystemTick(); dirStrip = 0;
     dirSync();   /* normally a no-op: gpucomp's FrameBegin already waited for the draw, copy and readback */
-    for (int e = 0; e < dirEyes; e++) { if (!slimFrame) GSPGPU_InvalidateDataCache(rb[e], 320 * 256 * 4); stripConvert(e); }
+    for (int e = 0; e < dirEyes; e++) { if (!slimFrame) P3DS_DcInval(rb[e], 320 * 256 * 4); stripConvert(e); }
     const unsigned us = (unsigned)((svcGetSystemTick() - t0) / 268);
     dirStripN++; dirStripUs += us; abStripUs(us);
 }
@@ -1006,7 +1007,7 @@ int G3G_MidStrip(int e, u32 *dst) {
     if (!midValid || !midWide || e < 0 || e >= midEyes || !dst) return 0;
     const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
     dirSync();
-    GSPGPU_InvalidateDataCache(rbM[e], width * 192 * sizeof(u32));
+    P3DS_DcInval(rbM[e], width * 192 * sizeof(u32));
     stripConv(rbM[e], width, midStripTiles ? 32 : 288, dst);
     return 1;
 }
@@ -1045,7 +1046,7 @@ void P3DS_SetFogHole(int v) { fogHoleV = v != 0; PSPNativeMemLog("[GPU3D] fog_ho
 static int fogHoleFrame(void) { for (int e = 0; e < eyes; e++) for (unsigned i = 0; i < bn[e]; i++) if (bt[e][i].count && bt[e][i].blend && !bt[e][i].fog) return 1; return 0; }
 static void r1xCalibrate(void) {
     const unsigned n = 2u * curW * 192; const u32 clr = clearRGBA; unsigned d0 = 0, d1 = 0;
-    GSPGPU_InvalidateDataCache(rb[1], n * 4); GSPGPU_InvalidateDataCache(rbT, n * 4);
+    P3DS_DcInval(rb[1], n * 4); P3DS_DcInval(rbT, n * 4);
     for (unsigned i = 0; i < n; i += 7) { d0 += rb[1][i] != clr; d1 += rbT[i] != clr; }
     if (d0 < 64 && d1 < 64) return;   /* nothing drawn yet: try again on a later frame */
     r1xHalf = d1 > d0;
@@ -1100,7 +1101,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     if (ok != 1) return;
     fps60Probe();
     u64 t0 = svcGetSystemTick();
-    for (int e = 0; e < eyes; e++) GSPGPU_FlushDataCache(vb[e], vn[e] * sizeof(V));
+    for (int e = 0; e < eyes; e++) P3DS_DcFlush(vb[e], vn[e] * sizeof(V));
     const int rs = rbSyncOn();
     { extern int P3DS_CfgInt(const char *, int);
       r1xFrame = curHi == 1 && sharedTgt && eyes == 2 && rs && !G3G_Async && !r1xFail && P3DS_CfgInt("g3_sharp", 0) >= 2 && P3DS_CfgInt("g3_sharp", 0) != 4;
@@ -1172,14 +1173,14 @@ void G3G_End(u32 *outL, u32 *outR) {
             if (stereoGpuEnsure()) {
                 gpuRight = 1;
                 memcpy(stereoDshLin, stereoDsh, vn[0] * sizeof(float));
-                GSPGPU_FlushDataCache(stereoDshLin, vn[0] * sizeof(float));
+                P3DS_DcFlush(stereoDshLin, vn[0] * sizeof(float));
                 __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE);
                 stereoGpuRightN++;
                 sterWhy = -1;
             } else sterWhy = STER_WHY_NOSHAD;
         }
         if (!gpuRight) {
-            if (__atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) { G3G_StereoExpand(); GSPGPU_FlushDataCache(vb[1], vn[1] * sizeof(V)); } /* expand writes vb[1] after the main flush above */
+            if (__atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) { G3G_StereoExpand(); P3DS_DcFlush(vb[1], vn[1] * sizeof(V)); } /* expand writes vb[1] after the main flush above */
             /* Count real fallbacks only (skip empty/no-geom frames that never had share work). */
             if (sterWhy == STER_WHY_NOSHAD || sterWhy == STER_WHY_EYE1 ||
                 (sterWhy == STER_WHY_NOPEND && (vn[0] || vn[1])) ||
@@ -1189,7 +1190,7 @@ void G3G_End(u32 *outL, u32 *outR) {
             }
         }
     } else if (pend0) {
-        G3G_StereoExpand(); GSPGPU_FlushDataCache(vb[1], vn[1] * sizeof(V));
+        G3G_StereoExpand(); P3DS_DcFlush(vb[1], vn[1] * sizeof(V));
     }
     if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
         const unsigned tot = vn[0] + vn[1];

@@ -14,6 +14,7 @@
  * Known CPU passes (flagged): 3D layer -> texture (256x192) and the readback byte swap (256x192). */
 #include <3ds.h>
 #include <citro3d.h>
+#include "dcache3ds.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -144,10 +145,10 @@ static int init(void) {
     if (!tab || !vb || !rb) { PSPNativeMemLog("[GPUC] init: out of memory"); return 0; }
     if (!C3D_TexInit(&atlas, AW, AH, GPU_RGBA8) || !C3D_TexInit(&tex3d, 256, 256, GPU_RGBA8) || !C3D_TexInit(&tex3dB, 256, 256, GPU_RGBA8)) { PSPNativeMemLog("[GPUC] init: tex alloc failed"); return 0; }
     C3D_TexSetFilter(&atlas, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&atlas, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
-    C3D_TexSetFilter(&tex3dB, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&tex3dB, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(tex3dB.data, 0, 256 * 256 * 4); GSPGPU_FlushDataCache(tex3dB.data, 256 * 256 * 4);
+    C3D_TexSetFilter(&tex3dB, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&tex3dB, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(tex3dB.data, 0, 256 * 256 * 4); P3DS_DcFlush(tex3dB.data, 256 * 256 * 4);
     C3D_TexSetFilter(&tex3d, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&tex3d, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
     memset(atlas.data, 0, AW * AH * 4); memset(tex3d.data, 0, 256 * 256 * 4);
-    GSPGPU_FlushDataCache(atlas.data, AW * AH * 4); GSPGPU_FlushDataCache(tex3d.data, 256 * 256 * 4);
+    P3DS_DcFlush(atlas.data, AW * AH * 4); P3DS_DcFlush(tex3d.data, 256 * 256 * 4);
     if (!C3D_TexInitVRAM(&rtTex, 256, 256, GPU_RGBA8)) { PSPNativeMemLog("[GPUC] init: VRAM target failed"); return 0; }
     rt = C3D_RenderTargetCreateFromTex(&rtTex, GPU_TEXFACE_2D, 0, -1); if (!rt) return 0;
     dvlb = DVLB_ParseFile((u32 *)blit_shbin, blit_shbin_size);
@@ -406,7 +407,7 @@ static void conv3dRaw(const u32 *f, C3D_Tex *tx) {
     gcIdle();  /* overlap: a queued draw may still sample this texture */
     C3Job job = { f, (u32 *)tx->data };
     P3DS_ParFor(conv3dRows, &job, 8);
-    GSPGPU_FlushDataCache(tx->data, 256 * 256 * 4);
+    P3DS_DcFlush(tx->data, 256 * 256 * 4);
 }
 
 /* GPU state for one layer's colour effect. 0: plain replace. 1: out = src*EVA/16 + dst*EVB/16 (blend constant: A = EVA, RGB = EVB).
@@ -442,7 +443,7 @@ static void gcOutRows(void *ctx, unsigned k) {   /* 24 rows per chunk */
         for (unsigned x = 0; x < 8; x++) o[x] = __builtin_bswap32(r[x]) | 0xFF000000u; }
 }
 static void gcOutStride(const u32 *rbuf, u16 mbr, u32 *out,unsigned stride) {
-    GSPGPU_InvalidateDataCache(rbuf, stride * 192 * 4);
+    P3DS_DcInval(rbuf, stride * 192 * 4);
     const unsigned mbm = mbr >> 14, mbf = (mbr & 0x1F) > 16 ? 16 : (mbr & 0x1F);
     u8 t[256]; GoJob job = { rbuf, out, NULL, stride };
     if ((mbm == 1 || mbm == 2) && mbf) {
@@ -455,7 +456,7 @@ static void gcOutStride(const u32 *rbuf, u16 mbr, u32 *out,unsigned stride) {
 }
 static void gcOut(const u32*r,u16 m,u32*out){gcOutStride(r,m,out,256);}
 static void titleStripOut(u16 mbr){
- GSPGPU_InvalidateDataCache(titleReadback,512*192*4);unsigned mode=mbr>>14,f=mbr&31;if(f>16)f=16;
+ P3DS_DcInval(titleReadback,512*192*4);unsigned mode=mbr>>14,f=mbr&31;if(f>16)f=16;
  for(unsigned y=0;y<192;y++)for(unsigned side=0;side<2;side++)for(unsigned x=0;x<32;x++){
   u32 c=titleReadback[y*512+(side?288:0)+x];
   if((mode==1||mode==2)&&f){u32 q=0xFF;for(int sh=8;sh<=24;sh+=8){unsigned v=((c>>sh)&255)>>2;v=mode==1?v+(((63-v)*f)>>4):v-((v*f+15)>>4);q|=((v<<2)|(v>>4))<<sh;}c=q;}
@@ -613,8 +614,8 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
         v[0] = (GV){ 0, 0, 0, vt }; v[1] = (GV){ 0, 192, 0, vbm }; v[2] = (GV){ 256, 0, 1, vt };
         v[3] = (GV){ 256, 0, 1, vt }; v[4] = (GV){ 0, 192, 0, vbm }; v[5] = (GV){ 256, 192, 1, vbm };
         conv3d(f3d); }
-    if (dirtyHi > dirtyLo) GSPGPU_FlushDataCache((u8 *)atlas.data + dirtyLo, dirtyHi - dirtyLo);
-    GSPGPU_FlushDataCache(vb, nq * 6 * sizeof(GV));
+    if (dirtyHi > dirtyLo) P3DS_DcFlush((u8 *)atlas.data + dirtyLo, dirtyHi - dirtyLo);
+    P3DS_DcFlush(vb, nq * 6 * sizeof(GV));
     P3DS_GcQuads = nq;
     const u64 t1 = svcGetSystemTick(); P3DS_GcConvUs = (unsigned)((t1 - tw) / 268);
     u32 bd = col8(bgpal[0]);
