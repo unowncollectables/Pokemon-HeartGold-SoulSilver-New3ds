@@ -271,7 +271,7 @@ static int pgOvHit(const SPg &p, int y) { if (!p.ov || y < p.ovListY0 || y >= p.
    Kanto places are recognised by their names (from the ROM via hook 0081); the hidden area starts at the westmost Kanto
    town's column, but places that are not Kanto (Route 26/27, Victory Road, Indigo Plateau, Mt. Silver...) stay visible even
    when they lie further east. The gate opens for good when a Kanto place is in visited.bin or you are standing in one. */
-static bool pgIsKanto(int i) {
+static bool pgIsKantoName(int i) {
   if (i < 0 || i >= kPgN) return false; const char *n = P3DS_PgName[i]; char u[24]; int k = 0;
   for (; n[k] && k < 23; k++) u[k] = (char)(n[k] >= 'a' && n[k] <= 'z' ? n[k] - 32 : n[k]); u[k] = 0;
   static const char *const town[] = { "PALLET", "VIRIDIAN", "PEWTER", "CERULEAN", "VERMILION", "LAVENDER", "CELADON", "FUCHSIA", "SAFFRON", "CINNABAR",
@@ -279,6 +279,13 @@ static bool pgIsKanto(int i) {
   for (const char *t : town) if (!strncmp(u, t, strlen(t))) return true;
   if (!strncmp(u, "ROUTE ", 6)) { const int r = atoi(u + 6); return r >= 1 && r <= 25; }
   return false; }
+/* 2026-11-17 cloud profile: the gate check below runs every frame and upper-cased and compared all 100 names each time
+   (~3% of busy CPU time). The names are fixed once the ROM hook has filled them (P3DS_PgReady), so the answer is kept. */
+static bool pgIsKanto(int i) {
+  static signed char known[kPgN]; static bool init;
+  if (i < 0 || i >= kPgN) return false; if (!P3DS_PgReady) return pgIsKantoName(i);
+  if (!init) { init = true; memset(known, -1, sizeof known); }
+  if (known[i] < 0) known[i] = pgIsKantoName(i) ? 1 : 0; return known[i] != 0; }
 static bool pgIsKantoTown(int i) { return pgIsKanto(i) && strncmp(P3DS_PgName[i], "Route", 5) && strncmp(P3DS_PgName[i], "ROUTE", 5); }
 /* recompute the gate; returns true when it changed (the caller logs and redraws) */
 static bool pgKantoUpdate(SPg &p, int always) {

@@ -64,7 +64,13 @@ int sceKernelWakeupThread(SceUID id) { LightSemaphore_Release(&pts[id - 1].wake,
 int sceKernelDelayThread(SceUInt us) { CRUMB("delay"); while (us) { SceUInt part = us > 10000 ? 10000 : us; svcSleepThread((s64)part * 1000); us -= part; quitCheck(); } return 0; }
 int sceKernelChangeThreadPriority(SceUID id, int p) { pts[id - 1].prio = p; if (pts[id - 1].th) svcSetThreadPriority(threadGetHandle(pts[id - 1].th), toCtrPrio(p)); return 0; }
 int sceKernelRotateThreadReadyQueue(int p) { CRUMB("yield"); (void)p; svcSleepThread(50000); quitCheck(); return 0; } /* real yield: 3DS sleep(0) never runs lower-priority threads */
-SceInt64 sceKernelGetSystemTimeWide(void) { return (SceInt64)(svcGetSystemTick() / CPU_TICKS_PER_USEC); }
+/* 2026-11-17 cloud profile: the double divide here (u64 -> double -> divide -> u64, all soft-float helpers) was ~2% of busy
+   CPU time. Same value from integers: ticks * 1e6 / 268111856 = ticks * 62500 / 16756991, done as the high 64 bits of
+   ticks * K (K = 2^64 * 62500 / 16756991, rounded up). Monotonic; at most 1 us off the old result. */
+static inline u64 mulhi64(u64 a, u64 b) {
+  const u64 al = (u32)a, ah = a >> 32, bl = (u32)b, bh = b >> 32, ll = al * bl, lh = al * bh, hl = ah * bl, hh = ah * bh;
+  const u64 mid = (ll >> 32) + (u32)lh + (u32)hl; return hh + (lh >> 32) + (hl >> 32) + (mid >> 32); }
+SceInt64 sceKernelGetSystemTimeWide(void) { return (SceInt64)mulhi64(svcGetSystemTick(), 0xf46f6f57cb8727ULL); }
 unsigned int sceKernelGetSystemTimeLow(void) { return (unsigned)sceKernelGetSystemTimeWide(); }
 /* Semaphores */
 typedef struct { LightSemaphore s; int used; } PS; static PS sems[64];
