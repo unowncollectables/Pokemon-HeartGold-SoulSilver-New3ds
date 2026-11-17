@@ -90,45 +90,32 @@ static int expand_before_hardclip(void) {
     return pending == 0 && wrote_eye0 && wrote_eye1;
 }
 
-/* End path after e8900f9: prefer gpuRight (skip mid); expand only on hard fallback. Never empty right. */
-static int stereo_gpu_end_never_empty(void) {
-    int want = 1, eyes = 2, mid = 0, vn0 = 100, vn1 = 0, bn0 = 1, pending = 1, shaderOk = 1;
+/* A shader fallback must still populate the right eye and preserve an eligible midpoint. */
+static int stereo_gpu_end_case(int mid, int realShader, int midShader, int rightReady, int expectGpu) {
     int gpuRight = 0, expanded = 0;
-    /* happy path */
-    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending) {
-        if (mid) mid = 0; /* prefer gpuRight over mid */
-        if (shaderOk) { gpuRight = 1; pending = 0; }
-    }
+    int pending = !rightReady;
+    if (pending && realShader && (!mid || midShader)) { gpuRight = 1; pending = 0; }
     if (!gpuRight && pending) { expanded = 1; pending = 0; }
-    int ok1 = gpuRight == 1 && expanded == 0 && pending == 0 && mid == 0;
-    /* mid would have blocked: now skipped so gpuRight wins */
-    want = 1; mid = 1; pending = 1; vn1 = 0; gpuRight = 0; expanded = 0; shaderOk = 1;
-    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending) {
-        if (mid) mid = 0;
-        if (shaderOk) { gpuRight = 1; pending = 0; }
-    }
-    if (!gpuRight && pending) { expanded = 1; pending = 0; }
-    int ok2 = gpuRight == 1 && expanded == 0 && mid == 0;
-    /* eye1 already filled: must expand (or already did); no gpuRight */
-    mid = 0; pending = 0; vn1 = 100; gpuRight = 0; expanded = 0;
-    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending) {
-        if (shaderOk) { gpuRight = 1; pending = 0; }
-    }
-    if (!gpuRight && pending) { expanded = 1; pending = 0; }
-    int ok3 = gpuRight == 0 && vn1 != 0; /* reason eye1 */
-    /* shader fail: expand fallback */
-    vn1 = 0; pending = 1; shaderOk = 0; gpuRight = 0; expanded = 0;
-    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending) {
-        if (shaderOk) { gpuRight = 1; pending = 0; }
-    }
-    if (!gpuRight && pending) { expanded = 1; pending = 0; }
-    int ok4 = gpuRight == 0 && expanded == 1 && pending == 0;
-    /* screen-share dsh matches dual (w=1): right_ndc = left_ndc + dsh/128 */
-    float left_sx = 100.0f, right_sx = 108.0f, dsh = right_sx - left_sx;
-    float Lndc = left_sx / 128.0f - 1.0f, Rdual = right_sx / 128.0f - 1.0f;
-    float Rshare = Lndc + dsh / 128.0f;
-    int ok5 = fabsf(Rdual - Rshare) < 1e-5f;
-    return ok1 && ok2 && ok3 && ok4 && ok5;
+    return !pending && gpuRight == expectGpu && expanded == (!expectGpu && !rightReady);
+}
+
+static int stereo_gpu_midpoint_order(void) {
+    /* K scales x and couples x to w, so applying eye shift after K gives a different result. */
+    const float x = 0.75f, w = 2.0f, dsh = 8.0f, stereoK = 0.8f / 128.0f;
+    const float shifted = x + stereoK * dsh * w;
+    const float midX = 1.5f * shifted - 0.2f * w;
+    const float midW = 0.25f * shifted + w;
+    const float wrongX = 1.5f * x - 0.2f * w + stereoK * dsh * (0.25f * x + w);
+    return near(midX, 0.875f) && near(midW, 2.2125f) && !near(midX, wrongX);
+}
+
+static int stereo_gpu_end_never_empty(void) {
+    const float left = 100.0f, right = 108.0f;
+    const float screenShare = left / 128.0f - 1.0f + (right - left) / 128.0f;
+    return stereo_gpu_end_case(0, 1, 0, 0, 1) && stereo_gpu_end_case(1, 1, 1, 0, 1) &&
+           stereo_gpu_end_case(1, 1, 0, 0, 0) && stereo_gpu_end_case(1, 0, 1, 0, 0) &&
+           stereo_gpu_end_case(1, 1, 1, 1, 0) && stereo_gpu_midpoint_order() &&
+           near(screenShare, right / 128.0f - 1.0f);
 }
 
 int main(void) {
