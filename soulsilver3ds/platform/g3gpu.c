@@ -41,7 +41,15 @@ typedef struct { unsigned v0[2]; int id; float k[16]; } KR;   /* a run of vertic
 static KR kr[KR_MAX]; static unsigned krN; static float kWant[16]; static int kWantId = 1, kCurWant = 1;
 static DVLB_s *dvlbK; static shaderProgram_s progK; static int uK = -1;
 enum { MID_STRIP_WIDTH = 64, MID_TEXTURE_HEIGHT = 256 };
-static u32 *midStripTiles;
+static u32 *wideStripTiles;
+static int wideStripTilesReady(void) {
+    static int tried;
+    if (!tried) {
+        tried = 1;
+        wideStripTiles = linearAlloc(MID_STRIP_WIDTH * MID_TEXTURE_HEIGHT * sizeof(u32));
+    }
+    return wideStripTiles != NULL;
+}
 static C3D_Tex midTex[2]; static u32 *rbM[2]; static int midHave[2], midFail, midOver, midValid, midEyes, midWide;
 static unsigned midTot, midMat, midMov; unsigned G3G_MidWhy[6];   /* why no in-between 3D: 0 not direct, 1 too many matrix runs, 2 CPU fog, 3 nothing moved, 4 too few draws paired, 5 no memory */
 static int fpsHoldFlag;
@@ -59,12 +67,7 @@ static int midAlloc(int n) {
     for (int e = 0; e < n; e++) { if (midHave[e]) continue;
         if (!dvlbK) { dvlbK = DVLB_ParseFile((u32 *)g3k_shbin, g3k_shbin_size);
             if (dvlbK) { shaderProgramInit(&progK); shaderProgramSetVsh(&progK, &dvlbK->DVLE[0]); uK = shaderInstanceGetUniformLocation(progK.vertexShader, "kmtx"); } }
-        static int tileAllocTried;
-        if (!tileAllocTried) {
-            tileAllocTried = 1;
-            midStripTiles = linearAlloc(MID_STRIP_WIDTH * MID_TEXTURE_HEIGHT * sizeof(u32));
-        }
-        const unsigned readWidth = midStripTiles ? MID_STRIP_WIDTH : 320;
+        const unsigned readWidth = wideStripTilesReady() ? MID_STRIP_WIDTH : 320;
         rbM[e] = linearAlloc(readWidth * MID_TEXTURE_HEIGHT * sizeof(u32));
         if (uK < 0 || !rbM[e] || !C3D_TexInit(&midTex[e], 256, 256, GPU_RGBA8)) { midFail = 1; G3G_MidWhy[5]++;
             PSPNativeMemLog("[FPS60] no linear memory or shader for the in-between 3D frame (eye %d, linear free %lu): 60 fps field stays off", e, (unsigned long)linearSpaceFree()); return 0; }
@@ -114,13 +117,13 @@ int G3G_Async = 0; static int pendRB, pendEyes;
    targets are 320x256 plain framebuffers (not textures, 320 is not a power of two), so the compositor cannot sample them.
    G3G_End now also queues, after the draws and in the same GPU queue: (1) a GX texture copy of the centre columns 32..287
    (tile columns 4..35 of every 8-row tile row: 8192 bytes taken, 2048 skipped) into dirTex[e], a 256x256 RGBA8 texture
-   in linear RAM with exactly the layout of the 256 target, which gpucomp samples as before; (2) the usual readback DMA into
-   rb[e]. The CPU then converts only the two 32-px side strips (G3G_DirectStrips, called before present; the GPU work is
+   in linear RAM with exactly the layout of the 256 target, which gpucomp samples as before; (2) the side-strip input into
+   rb[e], packed to 64x192 with Pipe and Strips enabled, or the full target otherwise. The CPU then converts only the two 32-px side strips (G3G_DirectStrips, called before present; the GPU work is
    already done by then because gpucomp's FrameBegin waited) instead of the whole 256x192 centre. dirTex is allocated on
    the first wide direct frame and freed with the wide targets (freeTargets). dirWide: dirTex holds this frame's centre;
    dirStrip: G3G_Strip is not converted yet; dirRb: rb[] readback already queued for this frame. */
 static int dirCfg = -1, dirValid, dirPend, dirEyes, dirOut, ruRt;  /* ruRt: rt[] holds the frame saved in ruKey/ruV (direct reuse) */ static u32 *dirKey[2];
-static int dirWideCfg = -1, dirWide, dirStrip, dirRb, dirTexOk, dirTexFail; static C3D_Tex dirTex[2];
+static int dirWideCfg = -1, dirWide, dirStrip, dirRb, dirPacked, dirTexOk, dirTexFail; static C3D_Tex dirTex[2];
 static unsigned dirDirect, dirReuse, dirResolved, dirUsed, dirPlain, dirWhy[6], dirWideN, dirStripN, dirResWhy[8]; static unsigned long long dirUs, dirResUs, dirPlainUs, dirStripUs;
 extern int P3DS_GpuComposeCfg(void);
 int G3G_DirectCfg(void) { if (dirCfg < 0) { extern int P3DS_CfgInt(const char *, int); dirCfg = P3DS_CfgInt("gpu_direct3d", 0) != 0; PSPNativeMemLog("[GPU3D] gpu_direct3d=%d (1 = 3D layer stays on the GPU: no readback/convert/upload when the GPU compositor takes the frame)", dirCfg); } return dirCfg; }
@@ -305,7 +308,7 @@ static int sharedTgt;
    in linear FCRAM (GPU-addressable; cleared by a full-screen quad because the memory-fill engine is VRAM-only).
    Order: VRAM depth24 -> linear depth24 (res3d_lindepth=1, default) -> VRAM depth16 (correct 16-bit clear) -> 1x. */
 static void *linDepth; static int depthLin, depth16, linDepthCfg = -1; static V *qv;
-static void freeTargets(void) { dirSync(); dirValid = dirPend = ruRt = dirWide = dirStrip = dirRb = 0; if (dirTexOk) { for (int e = 0; e < 2; e++) C3D_TexDelete(&dirTex[e]); memset(dirTex, 0, sizeof dirTex); dirTexOk = 0; } if (tgt[1] == tgt[0]) tgt[1] = NULL; sharedTgt = 0; if (linDepth) linearFree(linDepth); linDepth = NULL; depthLin = depth16 = 0; if (rbT) linearFree(rbT); rbT = NULL; r1xHalf = -1; for (int e = 0; e < 2; e++) { if (tgt[e]) C3D_RenderTargetDelete(tgt[e]); tgt[e] = NULL; if (rt[e].data) C3D_TexDelete(&rt[e]); memset(&rt[e], 0, sizeof rt[e]); if (rb[e]) linearFree(rb[e]); rb[e] = NULL; } }
+static void freeTargets(void) { dirSync(); dirValid = dirPend = ruRt = dirWide = dirStrip = dirRb = dirPacked = 0; if (dirTexOk) { for (int e = 0; e < 2; e++) C3D_TexDelete(&dirTex[e]); memset(dirTex, 0, sizeof dirTex); dirTexOk = 0; } if (tgt[1] == tgt[0]) tgt[1] = NULL; sharedTgt = 0; if (linDepth) linearFree(linDepth); linDepth = NULL; depthLin = depth16 = 0; if (rbT) linearFree(rbT); rbT = NULL; r1xHalf = -1; for (int e = 0; e < 2; e++) { if (tgt[e]) C3D_RenderTargetDelete(tgt[e]); tgt[e] = NULL; if (rt[e].data) C3D_TexDelete(&rt[e]); memset(&rt[e], 0, sizeof rt[e]); if (rb[e]) linearFree(rb[e]); rb[e] = NULL; } }
 /* (re)create the eye targets: w = 256 | 320 compositor width, hi = 2x. GPU idle: called at frame begin, sync path. */
 static int setTargets(int w, int hi) {
     if (w == curW && hi == curHi) return 1;
@@ -834,9 +837,9 @@ static void fps60Probe(void) {
 void G3G_DirectResolveWhy(int why) {
     if (!dirPend || ok != 1) return;
     u64 t0 = svcGetSystemTick(); dirPend = 0; dirResolved++; dirResWhy[why & 7]++;
-    if (!dirRb) {   /* wide direct frames already queued the readback in G3G_End */
+    if (!dirRb) {   /* packed strips omit the centre, so CPU fallback still needs the full frame */
         C3D_FrameBegin(0);
-        for (int e = 0; e < dirEyes; e++) if (dirKey[e]) rbQueue(e);
+        for (int e = 0; e < dirEyes; e++) if (dirKey[e] || (dirWide && dirStrip)) rbQueue(e);
         P3DS_FrameEnd(); dirOut = 1; }
     dirSync();
     for (int e = 0; e < dirEyes; e++) if (dirKey[e]) rbConvert(e, dirKey[e]);   /* 320 wide: also converts the strips */
@@ -851,7 +854,11 @@ void G3G_DirectStrips(void) {
     if (!dirStrip || ok != 1) return;
     u64 t0 = svcGetSystemTick(); dirStrip = 0;
     dirSync();   /* normally a no-op: gpucomp's FrameBegin already waited for the draw, copy and readback */
-    for (int e = 0; e < dirEyes; e++) { GSPGPU_InvalidateDataCache(rb[e], 320 * 256 * 4); stripConvert(e); }
+    const unsigned width = dirPacked ? MID_STRIP_WIDTH : 320;
+    for (int e = 0; e < dirEyes; e++) {
+        GSPGPU_InvalidateDataCache(rb[e], width * 192 * sizeof(u32));
+        stripConv(rb[e], width, dirPacked ? 32 : 288, G3G_Strip[e]);
+    }
     dirStripN++; dirStripUs += (unsigned long long)(svcGetSystemTick() - t0) / 268;
 }
 /* A PICA tile row holds eight scanlines. Copy the first and last four
@@ -869,38 +876,40 @@ static void issueDisp(u32 *in, u32 indim, u32 *out, u32 outdim, u32 flags, int s
 static int stripsCfg = -1;
 static int fps60Strips(void) {
     if (stripsCfg < 0) { extern int P3DS_CfgInt(const char *, int); stripsCfg = P3DS_CfgInt("fps60_strips", 0) != 0;
-        PSPNativeMemLog("[FPS60] fps60_strips=%d (1 = in-between wide strips copy the visible 192 rows)", stripsCfg); }
+        PSPNativeMemLog("[FPS60] fps60_strips=%d (1 = copy the visible 192 rows; pack direct wide real strips with pipe)", stripsCfg); }
     return stripsCfg;
 }
 void G3G_SetFps60Strips(int v) { stripsCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_strips=%d from settings", stripsCfg); }
 /* DS row y is GPU row 255-y, so the visible 192 rows are GPU rows 64..255 (tile rows 8..31).
    A flipped transfer of that span puts DS row 0 at the start, which is what the strip convert reads.
    OFF copies all 32 tile rows from the start of the buffer, as before. */
-static void midStripIssue(const void *color, int eye, int sync) {
-    const int slim = fps60Strips();
+static void wideStripIssue(const void *color, u32 *dest, int slim, int sync) {
     const unsigned row0 = slim ? 8u : 0u;
     const unsigned rows = slim ? 24u : (MID_TEXTURE_HEIGHT / 8);
     const unsigned height = rows * 8;
-    const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
+    const unsigned width = wideStripTiles ? MID_STRIP_WIDTH : 320;
     const u32 *source = color;
-    if (midStripTiles) {
+    if (wideStripTiles) {
         enum { SIDE_BYTES = 32 * 8 * sizeof(u32), WIDE_ROW = 320 * 8 * sizeof(u32) };
         const u8 *base = (const u8 *)color + row0 * WIDE_ROW;
         for (unsigned side = 0; side < 2; side++) {
             const unsigned from = side ? WIDE_ROW - SIDE_BYTES : 0;
             issueTexCopy((u32 *)(base + from),
                          GX_BUFFER_DIM(SIDE_BYTES / 16, (WIDE_ROW - SIDE_BYTES) / 16),
-                         (u32 *)((u8 *)midStripTiles + side * SIDE_BYTES),
+                         (u32 *)((u8 *)wideStripTiles + side * SIDE_BYTES),
                          GX_BUFFER_DIM(SIDE_BYTES / 16, SIDE_BYTES / 16),
                          SIDE_BYTES * rows, GX_TRANSFER_RAW_COPY(1), sync);
         }
-        source = midStripTiles;
+        source = wideStripTiles;
     } else if (row0) {
         const unsigned rowBytes = (320 / 8) * (8 * 8 * 4);
         source = (const u32 *)((const u8 *)color + row0 * rowBytes);
     }
     issueDisp((u32 *)source, GX_BUFFER_DIM(width, height),
-              rbM[eye], GX_BUFFER_DIM(width, height), RB_FLAGS, sync);
+              dest, GX_BUFFER_DIM(width, height), RB_FLAGS, sync);
+}
+static void midStripIssue(const void *color, int eye, int sync) {
+    wideStripIssue(color, rbM[eye], fps60Strips(), sync);
 }
 static void midStripQueue(const void *color, int eye) { midStripIssue(color, eye, 1); }
 /* Centre 256 columns of a 320-wide tiled target, into a 256x256 tiled texture. Same offsets as the old Sync call. */
@@ -911,16 +920,16 @@ static void centreCopy(const void *color, void *dest, int sync) {
 /* How many C3D_Sync* calls the legacy wide path makes per eye: each one is its own 3D-list break.
    In-between: centre + (two side packs + readback, or one full readback). Real picture: centre + readback. */
 static unsigned legacyWideKicks(int nEyes, int mid) {
-    const unsigned midK = mid ? (midStripTiles ? 4 : 2) : 0;
+    const unsigned midK = mid ? (wideStripTiles ? 4 : 2) : 0;
     return nEyes * (midK + 2);
 }
 /* fps60: the in-between frame's side strips (64x192 like G3G_Strip) from the readback G3G_End queued. Call after a FrameBegin has waited. */
 int G3G_MidStrip(int e, u32 *dst) {
     if (!midValid || !midWide || e < 0 || e >= midEyes || !dst) return 0;
-    const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
+    const unsigned width = wideStripTiles ? MID_STRIP_WIDTH : 320;
     dirSync();
     GSPGPU_InvalidateDataCache(rbM[e], width * 192 * sizeof(u32));
-    stripConv(rbM[e], width, midStripTiles ? 32 : 288, dst);
+    stripConv(rbM[e], width, wideStripTiles ? 32 : 288, dst);
     return 1;
 }
 static void dirLog(void) {
@@ -1051,7 +1060,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         else direct = 1;
     }
     if (!direct) { if (dirValid) dirSync(); dirValid = dirPend = 0; }
-    dirWide = dirStrip = dirRb = 0;
+    dirWide = dirStrip = dirRb = dirPacked = 0;
     int mid = 0;
     if (G3G_MidRec) {
         const int holdOn = fps60Hold();
@@ -1152,6 +1161,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     int decalOn = 0;
     /* Separate wide targets can queue the copies together after either pass. */
     const int pipe = wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
+    const int packReal = pipe && fps60Strips() && wideStripTilesReady();
     static unsigned pipeN, pipeKickSum, legacyKickSum;
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
@@ -1222,7 +1232,8 @@ void G3G_End(u32 *outL, u32 *outR) {
         C3D_FrameSplit(0); pipeKickSum++; G3G_PipeKicks++;
         for (int e = 0; e < eyes; e++) {
             centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 0);
-            issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS, 0);
+            if (packReal) wideStripIssue(tgt[e]->frameBuf.colorBuf, rb[e], 1, 0);
+            else issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS, 0);
         }
         const unsigned legacyKicks = legacyWideKicks(eyes, mid);
         legacyKickSum += legacyKicks;
@@ -1250,7 +1261,13 @@ void G3G_End(u32 *outL, u32 *outR) {
     else if (direct) {   /* no wait, no readback: the compositor samples rt[e]. Textures this frame used stay alive until the next frame's FrameBegin has waited */
         pendRB = 0; for (unsigned i = 0; i < pendN && oldN < 512; i++) oldFree[oldN++] = pendFree[i]; pendN = 0;
         dirValid = dirPend = 1; dirEyes = eyes; dirKey[0] = outL; dirKey[1] = outR; dirOut = 1; dirDirect++;
-        dirWide = dirStrip = dirRb = wideFrame; if (wideFrame) dirWideN++;
+        dirWide = dirStrip = wideFrame; dirPacked = packReal; dirRb = wideFrame && !dirPacked;
+        if (wideFrame) dirWideN++;
+        if (dirPacked) {
+            static unsigned packedFrames;
+            if (++packedFrames == 1 || packedFrames % 600 == 0)
+                PSPNativeMemLog("[GPU3D] wide real strips packed: %u frames, 64x192 readback per eye (%d eyes)", packedFrames, eyes);
+        }
         if (mid) { midValid = 1; midEyes = eyes; midWide = wideFrame; }
         G3G_StripValid = wideFrame ? eyes : 0;   /* wide: G3G_DirectStrips() fills G3G_Strip before present */
         { static int said; if (wideFrame && !said) { said = 1; PSPNativeMemLog("[GPU3D] direct: first wide frame (320x256 targets, %d eye%s): centre copied on the GPU into the compositor texture, only the side strips converted on the CPU", eyes, eyes > 1 ? "s" : ""); } }
