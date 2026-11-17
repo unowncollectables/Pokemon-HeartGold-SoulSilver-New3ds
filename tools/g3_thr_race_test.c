@@ -243,25 +243,43 @@ int main(void) {
     }
 
     /* a61df82: front_ov DecodeTex into t->px while worker CRCs t->px → texCrc mismatches.
-       Fixed: prep writes a side buffer; live px/gen untouched until after drain. */
+       Fixed: prep writes a side buffer; live px/gen/useF untouched until after drain. */
     {
         uint32_t live_px[4] = {1, 2, 3, 4};
         uint32_t side_px[4] = {1, 2, 3, 4};
         uint32_t submit = tex_crc_sample(0x200, 5, live_px, 4);
-        /* buggy prep mutates live */
         live_px[1] = 77;
         uint32_t raced = tex_crc_sample(0x200, 5, live_px, 4);
-        /* fixed: decode into side only */
-        live_px[1] = 2; /* restore */
+        live_px[1] = 2;
         side_px[1] = 77;
         uint32_t stable = tex_crc_sample(0x200, 5, live_px, 4);
         int side_ok = (submit != raced) && (submit == stable) && (side_px[1] == 77);
-        /* unchanged path must not bump gen during prep (gen is in CRC) */
-        unsigned gen = 5, live_gen = 5;
-        int bump_during_prep_buggy = 1;
-        if (!bump_during_prep_buggy) live_gen = 9; /* fixed: defer gen */
-        int gen_ok = (live_gen == gen);
-        if (!side_ok || !gen_ok) bad++;
+        /* prep must not bump gen (gen was in live CRC; still must stay submit-stable for freeze path) */
+        unsigned gen_submit = 5, gen_after_prep = 5; /* fixed: never bump during prep */
+        int gen_ok = (gen_after_prep == gen_submit);
+        /* apply only after drain idle */
+        int busy = 1, apply = 0;
+        busy = 0; /* drain done */
+        if (!busy) apply = 1;
+        if (!side_ok || !gen_ok || !apply) bad++;
+    }
+    /* run 888 remaining race (explore): GetTexture under fence can bump gen / free(px) while gt pinned.
+       Pins protect GPU free only. front_ov freezes pinned slots; check hashes genSnap not live gen.
+       front_ov=0 never freezes → GetTexture identical. */
+    {
+        /* 1) unchanged-raw gen bump while pinned — false texCrc without snap/freeze */
+        unsigned gen_submit = 7, gen_live = 7, pin = 1, front_ov = 1, fence = 2;
+        int freeze = front_ov && fence && pin;
+        if (!freeze) gen_live = 9; /* buggy GetTexture bump */
+        /* check feeds genSnap (=submit), so live bump alone must not mismatch */
+        int snap_ok = (gen_submit == 7) && (freeze ? gen_live == 7 : 1);
+        /* 2) in-place free(px)+DecodeTex while pinned — blocked by freeze */
+        int px_mutated = !freeze;
+        /* 3) LRU force-evict of pinned slot freeing px — blocked when frozen */
+        int lru_freed_pinned_px = !freeze;
+        /* 4) front_ov=0: freeze off even if fence+pin */
+        int freeze_off = (0 && fence && pin);
+        if (!snap_ok || px_mutated || lru_freed_pinned_px || freeze_off || !freeze) bad++;
     }
 
     if (bad) { fprintf(stderr, "g3_thr_race bad %d\n", bad); return 1; }

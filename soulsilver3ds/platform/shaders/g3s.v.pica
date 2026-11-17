@@ -1,0 +1,19 @@
+; ss3ds: g3_stereo_gpu ONLY — right eye from left vb: x += stereok * dsh * w
+; Default g3.v.pica is unchanged (run 887: always-on layout blanked 3D).
+.fvec stereok
+.out outpos position
+.out outtc0 texcoord0
+.out outclr color
+.alias inpos v0
+.alias intc v1
+.alias inclr v2
+.alias indsh v3
+.proc main
+	mov r5, inpos
+	mul r6.xyzw, indsh.xxxx, r5.wwww
+	mad r5.x, r6.x, stereok.x, r5.x
+	mov outpos, r5
+	mov outtc0, intc
+	mov outclr, inclr
+	end
+.end

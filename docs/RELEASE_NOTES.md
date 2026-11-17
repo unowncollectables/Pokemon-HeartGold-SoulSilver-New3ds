@@ -3,6 +3,9 @@
 ## Black top with 3D front overlap (run 887)
 `g3_front_ov=1` on main after #498 blanked the top screen from boot. The always-on stereo-GPU vertex/shader change is reverted; front overlap stays race-free with a session auto-OFF if a frame draws no tris after geometry was submitted. Platform rebuild; device retest pending.
 
+## Front overlap texCrc + stereo GPU (run 888)
+`g3_front_ov=1` still had rare texCrc mismatches; those are fixed (freeze pinned textures; check uses submit-time gen). `g3_stereo_gpu` is an isolated shader path again (default layout untouched) to cut stereo expand cost. Platform rebuild; hardware A/B pending.
+
 ## Built-in settings
 
 A fresh or incomplete `config.txt` now starts from the owner's tuned values. A line already in the file is kept, including OFF. Alive wild Pokémon starts at ON + TOWNS, Sharp 3D at FAST AUTO, and Pokéwalker, Ambient weather, Roamer sprites, Tap to Fly, the Pokédex finder, the Breeding tab, Hunt stats, Damage check, Contest helper, Reusable TMs, and Event Pokémon without the event flag start on. Wide view stays on. HeartGold uses the same defaults. Not built in this session.
