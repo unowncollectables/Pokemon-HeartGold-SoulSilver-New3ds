@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Stereo GPU fix + wall cuts (platform-only, defaults OFF): `g3_stereo_gpu` lazily inits g3s in End and always CPU-expands if it cannot take the shader right-eye path (fixes empty-right flash). 60f path counts. New Debug toggles `g3_raw_split` / `g3_xf_map` / `g3_front_bg`. See HANDOFF.md.
+
 - Run 889 (platform-only): fix #500 texCrc regression — freeze GetTexture whenever fence+pin (not only `front_ov`); restore live `t->gen` in thr_check CRC (c2087a3 like-for-like); front_ov safety ignores boot frames that legitimately draw 0 tris. `stereo_gpu` mismatches were the same race. See HANDOFF.md.
 
 - Run 888 follow-up (platform-only, defaults OFF): fix remaining `g3_front_ov` texCrc (freeze pinned textures while front_ov ON; CRC uses submit-time gen; prep no longer stores `useF` during drain — `front_ov=0` GetTexture unchanged). Redo `g3_stereo_gpu` as an isolated path (`g3s.v.pica` + `stereoDsh` attr; default V/shader untouched) so share can skip CPU expand. See HANDOFF.md.
