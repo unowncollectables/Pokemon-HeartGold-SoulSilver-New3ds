@@ -746,7 +746,7 @@ static int f60Pending(void) { return gspIsPresentPending(GFX_TOP) || gspIsPresen
    has finished the two pictures AND the LCD has taken the in-between one (a flip before that would land in the buffer being shown) */
 int P3DS_Fps60Pending(void) { return f60Flip; }
 extern int P3DS_G3ThrBusy(void); /* g3soft: worker has queued jobs; do not open a C3D frame over it */
-/* 2026-11-17 present_defer (Debug > Screen hand-off, default OFF; 2 = A/B every 1200 presents). Run 919: tearfix waited 4-7 ms on
+/* 2026-11-17 screen hand-off (always on since run 921). Run 919: tearfix waited 4-7 ms on
    54-579 of 600 presents, with the game thread blocked AND the GPU idle (the frame's draw commands are only handed to the GPU at
    FrameEnd, after that wait). The only step that must wait for the LCD is the copy into the screen buffer (display transfer). With
    ON, when the last screen swap is still pending, the frame ends WITHOUT that copy: the GPU draws at once into tgtTop/tgtTopR/tgtBot
@@ -756,11 +756,9 @@ extern int P3DS_G3ThrBusy(void); /* g3soft: worker has queued jobs; do not open 
    the old behaviour. Field only (where the poll is proven by fps60). */
 static int dfrCfg = -1, dfrMask, dfrSt, dfrUse; static u64 dfrT0; static unsigned dfrPhase;
 static unsigned dfrN, dfrLate, dfrPolled, dfrNow, dfrMid, dfrSlow; static u64 dfrUsSum, dfrSaved, dfrGapSum, dfrLastEnd;
-int P3DS_PresentDeferCfg(void) {
-    if (dfrCfg < 0) { dfrCfg = P3DS_CfgInt("present_defer", 0); if (dfrCfg < 0 || dfrCfg > 2) dfrCfg = 0;
-        PSPNativeMemLog("[DEFER] present_defer=%d (0 off, 1 GPU starts at once and the screen copy waits for the LCD instead of the game, 2 A/B every 1200 presents)", dfrCfg); }
-    return dfrCfg; }
-void P3DS_SetPresentDefer(int v) { dfrCfg = v < 0 ? 0 : v > 2 ? 2 : v; dfrPhase = 0; dfrSaved = 0; dfrNow = dfrPolled = dfrLate = dfrN = dfrMid = dfrSlow = 0; dfrUsSum = dfrGapSum = 0; dfrLastEnd = 0; PSPNativeMemLog("[DEFER] present_defer=%d from settings", dfrCfg); }
+/* run 921 A/B (Nathan, stereo + Wide, same area): OFF 73% in-between, 103 skipped, 0.6 ms spare per tick; ON 77%, 84 skipped,
+   3.6 ms spare, no hang. Always on since then, setting removed (config key present_defer ignored). */
+int P3DS_PresentDeferCfg(void) { if (dfrCfg < 0) { dfrCfg = 1; PSPNativeMemLog("[DEFER] screen hand-off always on (GPU starts at once, the screen copy waits for the LCD instead of the game)"); } return dfrCfg; }
 static int dfrOn(void) { const int c = P3DS_PresentDeferCfg(); return c == 1 || (c == 2 && ((dfrPhase / 1200) & 1)); }
 /* inside a begun frame: copy the waiting targets to the screens and swap */
 static void dfrCopyNow(void) {
