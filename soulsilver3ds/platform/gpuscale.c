@@ -548,7 +548,7 @@ int P3DS_Fps60Active(void) { return P3DS_Fps60Cfg() && P3DS_InField && !P3DS_InB
 /* once per presented overworld tick while the setting is not OFF. shown: an in-between picture went out. why (when not): 1 no in-between 3D
    this tick (g3gpu.c says which), 2 the picture went through the CPU (toast, save box, fade...), 3 a held or menu picture.
    Step-down (second version): a tick that runs long no longer costs a whole extra V-blank, the pictures just come a little late. So it
-   only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or a quarter of the ticks doing over 33.3 ms of work), and
+   only steps down to 30 where the game itself would run slow (60-tick average over 34.5 ms, or half of the ticks doing over 33.3 ms of work; run 906: 20 of 60 with a 33.4 ms average ran at 30 for hundreds of ticks for nothing), and
    it comes back by measurement, not by a timer: at 30 the spare time per tick (V-blank idle) is known, and once that is back above
    what the in-between picture costs (f60Ov, learned: +1.5 ms when a comeback fails within 6 s, -0.5 ms after 20 s that hold) it is on again. */
 /* Measure the work between presents separately from time spent in the
@@ -572,7 +572,7 @@ void P3DS_Fps60Tick(unsigned frameUs, unsigned idleUs, unsigned fenceIdleUs, int
     else if (f60Pause) nPaused++; else if (act) nWhy[why & 3]++;
     if (act) { wN++; wFenceIdle += fenceIdleUs; wUs += frameUs > 100000 ? 100000 : frameUs; if (overBudget) wSlow++; sinceOn++;
         if (sinceOn == 600 && f60Ov > 4000) f60Ov -= 500;
-        if (wN >= 60) { if (wSlow > 15 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
+        if (wN >= 60) { if (wSlow > 30 || wUs / 60 > 34500) { f60Pause = 1; rN = rIdle = 0; downs++;
                 if (sinceOn < 180 && f60Ov < 14000) f60Ov += 1500;
                 f60DownTotal++;
                 PSPNativeMemLog("[FPS60] too heavy here (%u of 60 ticks busy over 33.3 ms, avg tick %u us, display wait %u us/tick): 30 fps until the spare time per tick is back over %u us", wSlow, wUs / 60, wFenceIdle / 60, f60Ov + 1500); }
