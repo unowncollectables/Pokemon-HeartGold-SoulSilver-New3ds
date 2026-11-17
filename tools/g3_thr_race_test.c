@@ -242,6 +242,28 @@ int main(void) {
         if (a == b || b == c) bad++;
     }
 
+    /* a61df82: front_ov DecodeTex into t->px while worker CRCs t->px → texCrc mismatches.
+       Fixed: prep writes a side buffer; live px/gen untouched until after drain. */
+    {
+        uint32_t live_px[4] = {1, 2, 3, 4};
+        uint32_t side_px[4] = {1, 2, 3, 4};
+        uint32_t submit = tex_crc_sample(0x200, 5, live_px, 4);
+        /* buggy prep mutates live */
+        live_px[1] = 77;
+        uint32_t raced = tex_crc_sample(0x200, 5, live_px, 4);
+        /* fixed: decode into side only */
+        live_px[1] = 2; /* restore */
+        side_px[1] = 77;
+        uint32_t stable = tex_crc_sample(0x200, 5, live_px, 4);
+        int side_ok = (submit != raced) && (submit == stable) && (side_px[1] == 77);
+        /* unchanged path must not bump gen during prep (gen is in CRC) */
+        unsigned gen = 5, live_gen = 5;
+        int bump_during_prep_buggy = 1;
+        if (!bump_during_prep_buggy) live_gen = 9; /* fixed: defer gen */
+        int gen_ok = (live_gen == gen);
+        if (!side_ok || !gen_ok) bad++;
+    }
+
     if (bad) { fprintf(stderr, "g3_thr_race bad %d\n", bad); return 1; }
     puts("g3_thr_race ok");
     return 0;

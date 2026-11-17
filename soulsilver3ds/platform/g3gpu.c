@@ -12,7 +12,8 @@
 extern int P3DS_GpuInit(void);
 extern void PSPNativeMemLog(const char *, ...);
 extern void P3DS_FrameEnd(void);  /* gpuscale.c: C3D_FrameEnd, lean flush with fps_tweaks >= 1 */
-typedef struct { float x, y, z, w, s, t, r, g, b, a; } V;
+/* dsh: (shR-shL) for g3_stereo_gpu (shader x += stereok * dsh * w). pad keeps 16-byte attr alignment. */
+typedef struct { float x, y, z, w, s, t, dsh, pad; float r, g, b, a; } V;
 typedef struct { C3D_Tex *tex; int wrapS, wrapT, blend, dwrite, dfunc, late, fog; unsigned first, count; } B;
 /* 2026-10-25: 3*8192 -> 3*16384 (+1 MiB linear per eye) for the removed GPU SPLIT mode; kept at 3*16384 until a device test shows 3*8192 is enough again. */
 #define MAXV (3 * 16384)
@@ -22,7 +23,10 @@ static V *vb[2]; static B bt[2][MAXB]; static unsigned bn[2];
 /* stereoShareOn: game thread writes at Begin / SetStereoShare; worker reads in TriClip2 (g3_thread core 2).
    Must be atomic — plain store was invisible to the worker so share stayed dual forever (explore after 9bbfcd1). */
 static volatile int stereoShareOn, stereoPending; /* g3_stereo_share: left-only verts until G3G_StereoExpand */
+static int stereoGpuOn; /* g3_stereo_gpu: draw right from left vb via shader; skip CPU expand when set */
 static float *stereoDsh;
+static unsigned lastExpandUs;
+static int uStereo = -1, uStereoK = -1; /* stereok uniform in g3 / g3k shaders */
 /* fps60 (2026-11-15, Settings > Display > 60 fps field, default OFF): in-between 3D frames, like pokeplatinum-3ds's 60 fps field.
    The game still runs 30 ticks a second. For every raw draw call g3soft.cpp pairs this tick's clip matrix with the same draw's matrix of
    the tick before and hands G3G_MidK the matrix K that carries this tick's clip coordinates halfway back (K = average * inverse(now)).
@@ -55,7 +59,8 @@ static int midAlloc(int n) {
     if (midFail) return 0;
     for (int e = 0; e < n; e++) { if (midHave[e]) continue;
         if (!dvlbK) { dvlbK = DVLB_ParseFile((u32 *)g3k_shbin, g3k_shbin_size);
-            if (dvlbK) { shaderProgramInit(&progK); shaderProgramSetVsh(&progK, &dvlbK->DVLE[0]); uK = shaderInstanceGetUniformLocation(progK.vertexShader, "kmtx"); } }
+            if (dvlbK) { shaderProgramInit(&progK); shaderProgramSetVsh(&progK, &dvlbK->DVLE[0]); uK = shaderInstanceGetUniformLocation(progK.vertexShader, "kmtx");
+                uStereoK = shaderInstanceGetUniformLocation(progK.vertexShader, "stereok"); } }
         static int tileAllocTried;
         if (!tileAllocTried) {
             tileAllocTried = 1;
@@ -374,6 +379,7 @@ int G3G_Init(void) {
     if (ok >= 0) return ok;
     ok = 0; if (!P3DS_GpuInit()) return 0;
     dvlb = DVLB_ParseFile((u32 *)g3_shbin, g3_shbin_size); shaderProgramInit(&prog); shaderProgramSetVsh(&prog, &dvlb->DVLE[0]);
+    uStereo = shaderInstanceGetUniformLocation(prog.vertexShader, "stereok");
     for (int e = 0; e < 2; e++) {
         vb[e] = linearAlloc(MAXV * sizeof(V)); rb[e] = linearAlloc(256 * 256 * 4);
         if (!vb[e] || !rb[e] || !C3D_TexInitVRAM(&rt[e], 256, 256, GPU_RGBA8)) { PSPNativeMemLog("[GPU3D] init failed (alloc)"); return 0; }
@@ -381,7 +387,7 @@ int G3G_Init(void) {
         if (!tgt[e]) { PSPNativeMemLog("[GPU3D] init failed (target)"); return 0; }
         C3D_TexSetFilter(&rt[e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&rt[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
     }
-    ok = 1; PSPNativeMemLog("[GPU3D] PICA200 3D path ready"); return 1;
+    ok = 1; PSPNativeMemLog("[GPU3D] PICA200 3D path ready (stereok loc %d)", uStereo); return 1;
 }
 /* RGBA8 (u32 R | G<<8 | B<<16 | A<<24, DS row 0 first) -> tiled PICA texture. */
 unsigned long long P3DS_SpkTexTicks; unsigned P3DS_SpkTexN; /* run 43 [SPIKE] diag */
@@ -413,6 +419,7 @@ static void texFill(C3D_Tex *t, const u32 *px, unsigned w, unsigned h) {
 }
 void G3G_TexFree(void *t) { if (!t) return; if (pendN < 512) pendFree[pendN++] = t; else { C3D_TexDelete(t); free(t); } }
 void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
+    lastExpandUs = 0;
     dirSync();   /* gpu_direct3d: the previous frame's draw may still be running; the vertex buffers and textures are about to change */
     unsigned r = nativeClear & 63, g = (nativeClear >> 8) & 63, b = (nativeClear >> 16) & 63, a = (nativeClear >> 24) & 31;
     clearRGBA = ((r << 2 | r >> 4) << 24) | ((g << 2 | g >> 4) << 16) | ((b << 2 | b >> 4) << 8) | (a * 255 / 31);
@@ -536,7 +543,7 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
         o->y = hiFrame ? (G3G_FlipY ? y : -y) : G3G_FlipY ? (0.25f * w + 0.75f * y) : (-0.25f * w - 0.75f * y);  /* res3d: full-height 384 target */
         o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
         if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w;   /* g3_wdepth: W-buffer mode wants the undivided depth (-d) */
-        o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k];
+        o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k]; o->dsh = 0; o->pad = 0;
         u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
     }
     last->count += 3;
@@ -544,7 +551,8 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
 /* 2026-11-04 (solid-30 fps thread): both eyes of a stereo raw triangle in one pass. Same values as two G3G_TriClip calls (only x
    differs between the eyes), but y, z, uv and colour are worked out once instead of twice.
    g3_stereo_share: write left only + (shR-shL); G3G_StereoExpand fills right (after drain, or before any non-share write
-   such as hard-clip). Bit-identical to dual TriClip2. Cuts ~half the vb store traffic on the raw miss path. */
+   such as hard-clip). Bit-identical to dual TriClip2. Cuts ~half the vb store traffic on the raw miss path.
+   g3_stereo_gpu: also store dsh on the left vert; G3G_End draws right from left vb with stereok=scale/128 (skip expand). */
 /* stereoDsh[i] = shR-shL for left vert i (DS px). CPU-only: use malloc, NOT linearAlloc (run 9bbfcd1:
    linearAlloc of MAXV floats ~192 KiB often failed silently → stereoShareOn cleared → no raw cut). */
 static unsigned stereoShareTris, stereoDualTris, stereoShareExpands, stereoShareExpVerts;
@@ -552,6 +560,10 @@ void G3G_SetStereoShare(int on) {
     __atomic_store_n(&stereoShareOn, on != 0, __ATOMIC_RELEASE);
     if (!on) __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE);
 }
+void G3G_SetStereoGpu(int on) { stereoGpuOn = on != 0; }
+int G3G_StereoGpuOn(void) { return stereoGpuOn; }
+int G3G_StereoPending(void) { return __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE); }
+unsigned G3G_LastExpandUs(void) { return lastExpandUs; }
 void G3G_StereoShareStats(unsigned *leftTris, unsigned *dualTris, unsigned *expands, unsigned *expVerts) {
     if (leftTris) *leftTris = stereoShareTris;
     if (dualTris) *dualTris = stereoDualTris;
@@ -562,11 +574,12 @@ void G3G_StereoShareStats(unsigned *leftTris, unsigned *dualTris, unsigned *expa
 void G3G_StereoExpand(void) {
     if (!__atomic_load_n(&stereoShareOn, __ATOMIC_ACQUIRE) || !stereoDsh || !__atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) return;
     if (vn[0] > MAXV || bn[0] > MAXB) return;
+    const u64 t0 = svcGetSystemTick();
     const float scale = wideFrame ? 0.8f : 1.0f;
     const unsigned v0 = vn[1], b0 = bn[1];
     if (vn[0] > vn[1]) {
         memcpy(vb[1] + v0, vb[0] + v0, (vn[0] - v0) * sizeof(V));
-        for (unsigned i = v0; i < vn[0]; i++) vb[1][i].x += scale * (stereoDsh[i] / 128.0f) * vb[0][i].w;
+        for (unsigned i = v0; i < vn[0]; i++) { vb[1][i].x += scale * (stereoDsh[i] / 128.0f) * vb[0][i].w; vb[1][i].dsh = 0; }
         stereoShareExpVerts += vn[0] - v0;
     }
     /* Incremental batch sync: update in-place count growth, then copy only new batches (not the whole table). */
@@ -574,6 +587,7 @@ void G3G_StereoExpand(void) {
     if (bn[0] > b0) memcpy(bt[1] + b0, bt[0] + b0, (bn[0] - b0) * sizeof(B));
     vn[1] = vn[0]; bn[1] = bn[0];
     __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE); stereoShareExpands++;
+    lastExpandUs = (unsigned)((svcGetSystemTick() - t0) / 268);
 }
 void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                   int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shL, const float *shR) {
@@ -600,8 +614,9 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
                 o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
                 if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w;
                 o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k];
+                o->dsh = shR[k] - shL[k]; o->pad = 0; /* shader right eye: x += stereok * dsh * w */
                 u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
-                stereoDsh[vn[0]] = shR[k] - shL[k];
+                stereoDsh[vn[0]] = o->dsh;
                 vn[0]++;
             }
             l0->count += 3; stereoShareTris++; __atomic_store_n(&stereoPending, 1, __ATOMIC_RELEASE); return;
@@ -617,9 +632,9 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
         o->y = hiFrame ? (G3G_FlipY ? y : -y) : G3G_FlipY ? (0.25f * w + 0.75f * y) : (-0.25f * w - 0.75f * y);
         o->z = G3G_ZInv ? 0.5f * z - 0.5f * w : -0.5f * z - 0.5f * w; o->w = w;
         if (G3G_WDepth == 2 && w > 1e-6f) o->z /= w;
-        o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k];
+        o->s = su[k]; o->t = G3G_TexFlip ? sv[k] : 1.0f - sv[k]; o->dsh = 0; o->pad = 0;
         u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
-        q->y = o->y; q->z = o->z; q->w = w; q->s = o->s; q->t = o->t; q->r = o->r; q->g = o->g; q->b = o->b; q->a = o->a;
+        q->y = o->y; q->z = o->z; q->w = w; q->s = o->s; q->t = o->t; q->dsh = 0; q->pad = 0; q->r = o->r; q->g = o->g; q->b = o->b; q->a = o->a;
     }
     l0->count += 3; l1->count += 3;
 }
@@ -633,7 +648,7 @@ void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const f
     for (int k = 0; k < 3; k++) {
         V *o = &vb[eye][vn[eye]++]; float z = sz[k] / 65535.0f; if (z < 0) z = 0; if (z > 1) z = 1;
         o->x = wideFrame ? (sx[k] + 32.0f) / 160.0f - 1.0f : sx[k] / 128.0f - 1.0f; o->y = (G3G_FlipY ? 192.0f - sy[k] : sy[k]) / (hiFrame ? 96.0f : 128.0f) - 1.0f; o->z = G3G_ZInv ? z - 1.0f : -z; o->w = 1.0f;
-        o->s = su[k] * itw; o->t = G3G_TexFlip ? sv[k] * ith : 1.0f - sv[k] * ith;  /* run 17: billboards were upside down with 1-v */
+        o->s = su[k] * itw; o->t = G3G_TexFlip ? sv[k] * ith : 1.0f - sv[k] * ith; o->dsh = 0; o->pad = 0; /* run 17: billboards were upside down with 1-v */
         u32 c = col[k]; o->r = L[c & 255]; o->g = L[(c >> 8) & 255]; o->b = L[(c >> 16) & 255]; o->a = L[c >> 24];
     }
     last->count += 3;
@@ -649,7 +664,7 @@ static void clearQuad(void) {
     const float d = clearD < 0.9999990f ? clearD : 0.9999990f, z = -d;
     const float r = (clearRGBA >> 24) / 255.0f, g = ((clearRGBA >> 16) & 255) / 255.0f, b = ((clearRGBA >> 8) & 255) / 255.0f, a = (clearRGBA & 255) / 255.0f;
     static const float xy[6][2] = { {-1, -1}, {1, -1}, {1, 1}, {-1, -1}, {1, 1}, {-1, 1} };
-    for (int i = 0; i < 6; i++) { V *o = &qv[i]; o->x = xy[i][0]; o->y = xy[i][1]; o->z = z; o->w = 1.0f; o->s = o->t = 0; o->r = r; o->g = g; o->b = b; o->a = a; }
+    for (int i = 0; i < 6; i++) { V *o = &qv[i]; o->x = xy[i][0]; o->y = xy[i][1]; o->z = z; o->w = 1.0f; o->s = o->t = o->dsh = o->pad = 0; o->r = r; o->g = g; o->b = b; o->a = a; }
     GSPGPU_FlushDataCache(qv, 6 * sizeof(V));
     C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, qv, sizeof(V), 3, 0x210);
     C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_PRIMARY_COLOR, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
@@ -896,7 +911,9 @@ void G3G_End(u32 *outL, u32 *outR) {
     if (ok != 1) return;
     fps60Probe();
     u64 t0 = svcGetSystemTick();
-    for (int e = 0; e < eyes; e++) GSPGPU_FlushDataCache(vb[e], vn[e] * sizeof(V));
+    /* g3_stereo_gpu: right eye may reuse left vb — only flush eyes that hold verts. */
+    for (int e = 0; e < eyes; e++) if (vn[e]) GSPGPU_FlushDataCache(vb[e], vn[e] * sizeof(V));
+    else if (stereoGpuOn && e == 1 && vn[0]) { /* right drawn from left: left already flushed */ }
     const int rs = rbSyncOn();
     { extern int P3DS_CfgInt(const char *, int);
       r1xFrame = curHi == 1 && sharedTgt && eyes == 2 && rs && !G3G_Async && !r1xFail && P3DS_CfgInt("g3_sharp", 0) >= 2 && P3DS_CfgInt("g3_sharp", 0) != 4;
@@ -990,7 +1007,9 @@ void G3G_End(u32 *outL, u32 *outR) {
     }
     C3D_BindProgram(&prog);
     C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
-    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 2, GPU_FLOAT, 4);
+    /* pos.xyzw | uv.st + dsh + pad | rgba  (V is 12 floats; stereok shifts x for shared-left right eye) */
+    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 2, GPU_FLOAT, 4);
+    if (uStereo >= 0) C3D_FVUnifSet(GPU_VERTEX_SHADER, uStereo, 0, 0, 0, 0);
     C3D_CullFace(GPU_CULL_NONE); C3D_DepthMap(G3G_WDepthOn() != 2, -1.0f, 0.0f);
     C3D_AlphaTest(true, GPU_GREATER, 3);   /* DS: texel alpha 0 / final 5-bit alpha 0 are not drawn */
     for (int k = 1; k < 6; k++) C3D_TexEnvInit(C3D_GetTexEnv(k));
@@ -1002,20 +1021,29 @@ void G3G_End(u32 *outL, u32 *outR) {
     /* Wide + direct + in-between only. Anything else, including fps60_pipe OFF, keeps the loop below byte for byte. */
     const int pipe = mid && wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
     static unsigned pipeN, pipeKickSum;
+    /* g3_stereo_gpu: right eye from left vb when share left verts exist and CPU expand was skipped (vn[1]==0).
+       Skip when mid/fps60 is active (kr runs are per-eye; fall back to CPU expand that frame). */
+    const int gpuR = stereoGpuOn && !mid && eyes == 2 && vn[1] == 0 && vn[0] > 0 && bn[0] > 0;
+    if (gpuR) __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE); /* End consumes share; Begin also clears */
+    else if (stereoGpuOn && mid && __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) G3G_StereoExpand();
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
     for (int e = 0; e < eyes; e++) {
+        const int src = (gpuR && e == 1) ? 0 : e;
+        const float sk = (gpuR && e == 1) ? ((wideFrame ? 0.8f : 1.0f) / 128.0f) : 0.0f;
         if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
         if (!ph) for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]);
+        /* stereok: 0 for left/mono/CPU-expanded right; scale/128 for shared-left right eye */
+        { const int uloc = (mid && !ph) ? uStereoK : uStereo; if (uloc >= 0) C3D_FVUnifSet(GPU_VERTEX_SHADER, uloc, sk, 0, 0, 0); }
         if (!depthLin) C3D_RenderTargetClear(tgt[e], C3D_CLEAR_ALL, fogFrame == 1 ? fogClr : clearRGBA, depth16 ? (u32)(clearD * 0xFFFF) : ((u32)(clearD * 0xFFFFFF) | (fogFrame == 2 && (*(const u16 *)(PSPNative_GfxRegisters + 0x350) & 0x8000) ? 0x01000000u : 0)));
         C3D_FrameDrawOn(tgt[e]);   /* viewport = whole target (256/320 x 256, or 2x x 384) */
         const int small = r1xFrame && e == 1;   /* FAST 3D right eye: 1x viewport in the corner of the 2x target */
         if (small) C3D_SetViewport(0, 0, curW, 192);
         const int hx = curHi == 1 && !small;
         if (depthLin) clearQuad();
-        C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, vb[e], sizeof(V), 3, 0x210);
+        C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi); BufInfo_Add(bi, vb[src], sizeof(V), 3, 0x210);
         int kSet = -1;
-        for (int pass = 0; pass < 2; pass++) for (unsigned i = 0; i < bn[e]; i++) {
-            B *b = &bt[e][i]; if (!b->count || b->late != pass) continue;
+        for (int pass = 0; pass < 2; pass++) for (unsigned i = 0; i < bn[src]; i++) {
+            B *b = &bt[src][i]; if (!b->count || b->late != pass) continue;
             C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
             if (b->tex) { C3D_TexSetWrap(b->tex, b->wrapS, b->wrapT); C3D_TexBind(0, b->tex);
                 C3D_TexEnvSrc(env, C3D_Both, GPU_PRIMARY_COLOR, GPU_TEXTURE0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_MODULATE); }

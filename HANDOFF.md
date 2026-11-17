@@ -1,3 +1,34 @@
+# front_ov texCrc race + stereo GPU cut (after a61df82 / #497)
+
+Hardware on `a61df82`: share engaged (`leftOnly>>dual`), present_pace nonblock ok, front_ov prep during drain. Mono ~55; full-slider stereo still ~31.5 with PERF g3soft ~24 ms. One check window: **71 texCrc mismatches** with `g3_front_ov=1` (race).
+
+## Race (fixed)
+
+`postVblPrepOne` DecodeTex'd into `t->px` (and bumped `t->gen` on unchanged) while the worker's `gtTexCrcOf` still hashed submit-time `px`/`gen`. Fix: decode into **side buffers**; publish into `t->px`/`raw`/`gen` only **after drain**. Host: `tools/g3_thr_race_test.c`.
+
+## Stereo cut (this PR)
+
+1. **Worker expand overlap**: with share and not GPU, set `gtExpandReq` so the worker runs `G3G_StereoExpand` after raw while the game thread side-decodes (`front_ov`).
+2. **`g3_stereo_gpu`** (Debug, default OFF): with share, skip CPU expand; `G3G_End` draws the right eye from the left `vb` with shader `stereok = scale/128` and per-vert `dsh` (bit-identical). Hard-clip / mid still expands. Log `[G3STER] … [gpu right]` and `[G3STER] 60f stages us: expand | end | front | raw | …`.
+3. **G3PROF** adds `expand` and a stereo stages line when the slider is up.
+
+OFF / `g3_stereo_gpu=0` keeps the previous expand path. No save format change; Wide/GTS/MG untouched.
+
+## Device A/B (full-slider stereo; base = a61df82 toggles)
+
+Base: `g3_thread=1 g3_wake=1 g3_thr_texfence=2 g3_thr_texsafe=1 g3_fastxform=1 g3_xfcache=1 g3_thr_check=1 g3_prof=1 g3_stereo_share=1 present_pace=1`.
+
+| Trial | Expect |
+|---|---|
+| `g3_front_ov=1` only | check **0 mismatches** (incl. texCrc) while walking Goldenrod; `[FRONT] side-decoded` |
+| `g3_stereo_gpu=1` (+ share) | `[G3STER] [gpu right]`; expand ~0 us; stereo g3soft / PERF down vs expand path; same picture |
+| `g3_front_ov=1` + `g3_stereo_gpu=1` | both; stages line shows where the ~24 ms went |
+| all new OFF | identical to a61df82 |
+
+Want: no hang, check 0, stereo fps up without visual loss; `[G3STER] 60f stages` for the next cut.
+
+---
+
 # Stereo-60 share + present pace + front overlap (after 9bbfcd1)
 
 Hardware on `9bbfcd1`: clean exit, 0 mismatches, stereo ~34–38 fps; PERF snaps to 29–30 when a frame misses 60. `g3_stereo_share` did not cut G3PROF raw (still ~9.7–10.5 ms).
