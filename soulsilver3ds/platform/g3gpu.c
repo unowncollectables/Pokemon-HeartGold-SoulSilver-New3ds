@@ -905,30 +905,45 @@ static void gtMark(unsigned *cur, int slot, int *first) {
    time, a full-target quad is drawn with a 64-row scissor and read back once; if neither end matches, the scissor stays off.
    [GPUT] lines are grouped by scissor OFF / ON (A/B steps every 600 3D frames). */
 static int scisCfg = -1, scisMode = -1;   /* scisMode: -1 not calibrated, 0 hidden = window rows 0..63, 1 = rows 192..255, 2 failed */
-int G3G_ScissorCfg(void) { if (scisCfg < 0) { scisCfg = P3DS_CfgInt("g3_scissor", 0); if (scisCfg < 0 || scisCfg > 2) scisCfg = 0; PSPNativeMemLog("[G3SCI] g3_scissor=%d (1 = GPU skips the 64 hidden rows, 2 = A/B)", scisCfg); } return scisCfg; }
+#define SCIS_PENDING "sdmc:/3ds/soulsilver3ds/g3sci_pending"   /* exists while a calibration is in flight: a hang there never repeats */
+int G3G_ScissorCfg(void) { if (scisCfg < 0) { scisCfg = P3DS_CfgInt("g3_scissor", 0); if (scisCfg < 0 || scisCfg > 2) scisCfg = 0;
+      { FILE *f = fopen(SCIS_PENDING, "r"); if (f) { fclose(f); remove(SCIS_PENDING); scisMode = 2; PSPNativeMemLog("[G3SCI] the last session stopped during the calibration: scissor stays OFF this session"); } } PSPNativeMemLog("[G3SCI] g3_scissor=%d (1 = GPU skips the 64 hidden rows, 2 = A/B)", scisCfg); } return scisCfg; }
 void G3G_SetScissor(int v) { scisCfg = v < 0 || v > 2 ? 0 : v; PSPNativeMemLog("[G3SCI] g3_scissor=%d from settings", scisCfg); }
 static void clearQuad(void);
+/* run 912: the first version waited for the GPU in the middle of G3G_End (FrameEnd + FrameBegin) and the boot hung on
+   the first 3D frame. Now the test quad and its copy are only queued in front of the frame's own work, and the result
+   is read after the next frame's FrameBegin (which has waited for this one anyway). scisMode 3 = result pending. */
+static u32 *scisBuf; static int scisW;
 static void scisCalibrate(int gpuR) {
     if (!qv) qv = linearAlloc(6 * sizeof(V));
-    if (!qv || !tgt[0] || !rb[0]) { scisMode = 2; PSPNativeMemLog("[G3SCI] calibration skipped (no buffers): scissor stays OFF"); return; }
+    if (!scisBuf) { scisBuf = linearAlloc((size_t)curW * 256 * 4); scisW = curW; }
+    if (!qv || !tgt[0] || !scisBuf) { scisMode = 2; PSPNativeMemLog("[G3SCI] calibration skipped (no buffers): scissor stays OFF"); return; }
+    P3DS_Crumb("g3sci-queue", 0);
+    { FILE *f = fopen(SCIS_PENDING, "w"); if (f) fclose(f); }
     const u32 keepClr = clearRGBA; const float keepD = clearD;
     C3D_RenderTargetClear(tgt[0], C3D_CLEAR_ALL, 0x000000FF, 0xFFFFFF);
     C3D_FrameDrawOn(tgt[0]);
-    if (gpuR) {   /* run 911: the stereo GPU right eye binds g3s every frame; the quad uses the plain program (3 loaders), restored after */
-        C3D_BindProgram(&prog); C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
-        AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 2, GPU_FLOAT, 4); }
+    C3D_BindProgram(&prog); C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
+    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 2, GPU_FLOAT, 4);
     C3D_SetScissor(GPU_SCISSOR_NORMAL, 0, 0, (u32)curW, 64);
     clearRGBA = 0xFFFFFFFF; clearD = 0.5f; clearQuad(); clearRGBA = keepClr; clearD = keepD;
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
-    C3D_SyncDisplayTransfer((u32 *)tgt[0]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[0], GX_BUFFER_DIM(curW, 256), RB_FLAGS);
-    C3D_FrameEnd(GX_CMDLIST_FLUSH); C3D_FrameBegin(0);
-    P3DS_DcInval(rb[0], (u32)curW * 256 * 4);
-    if (gpuR) { C3D_BindProgram(&progS); C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
-        AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 2, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 3, GPU_FLOAT, 1); }
-    /* rb row r = memory row 255-r (flipped readback). Hidden memory rows 0..63 = rb rows 192..255. */
-    const u32 lo = rb[0][250 * curW + curW / 2], hi = rb[0][5 * curW + curW / 2];
+    C3D_SyncDisplayTransfer((u32 *)tgt[0]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), scisBuf, GX_BUFFER_DIM(curW, 256), RB_FLAGS);   /* in frame: queued only */
+    C3D_BindProgram(gpuR ? &progS : &prog); ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);   /* same binding G3G_End made before the call */
+    AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 2, GPU_FLOAT, 4);
+    if (gpuR) AttrInfo_AddLoader(ai, 3, GPU_FLOAT, 1);
+    scisMode = 3;
+}
+/* called right after G3G_End's FrameBegin: the queued test copy is finished */
+static void scisResult(void) {
+    if (scisMode != 3) return;
+    P3DS_DcInval(scisBuf, (u32)scisW * 256 * 4);
+    /* scisBuf row r = memory row 255-r (flipped readback). Hidden memory rows 0..63 = rows 192..255. */
+    const u32 lo = scisBuf[250 * scisW + scisW / 2], hi = scisBuf[5 * scisW + scisW / 2];
     const int loW = (lo >> 8) == 0xFFFFFF, hiW = (hi >> 8) == 0xFFFFFF;
     scisMode = loW && !hiW ? 0 : hiW && !loW ? 1 : 2;
+    if (scisMode < 2 && scisW != curW) scisMode = 2;   /* target width changed in between: not trusted */
+    linearFree(scisBuf); scisBuf = NULL; remove(SCIS_PENDING);
     PSPNativeMemLog("[G3SCI] calibration: 64-row scissor lands %s (mem row 5 %08lx, mem row 250 %08lx)%s", scisMode == 0 ? "on the hidden rows" : scisMode == 1 ? "on the shown end (flipped)" : "nowhere clear",
         (unsigned long)lo, (unsigned long)hi, scisMode == 2 ? ": scissor stays OFF" : "");
 }
@@ -1270,6 +1285,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     P3DS_Crumb("g3e-begin", 0); /* run 65: locate the boot g3 stall */
     ruRt = 0;
     C3D_FrameBegin(0);
+    scisResult();
     P3DS_Crumb("g3e-draw", 0);
     if (!G3G_Async && oldN) { for (unsigned i = 0; i < oldN; i++) { C3D_TexDelete(oldFree[i]); free(oldFree[i]); } oldN = 0; }   /* gpu_direct3d: textures held back from the previous frame; the FrameBegin above waited for it */
     if (G3G_Async) { /* previous frame's GPU work is finished (FrameBegin waited): read it back, then free its textures */
@@ -1297,7 +1313,8 @@ void G3G_End(u32 *outL, u32 *outR) {
     const int gtS = G3G_GpuTimeCfg() && direct && ++gtCnt % 30 == 0;
     const int scOn = 1;   /* state cache: always on since run 910's A/B (End -0.15..0.37 ms, same picture) */
     const int sciC = G3G_ScissorCfg();
-    if (sciC && scisMode < 0 && direct && curHi == 0 && !r1xFrame && !sharedTgt) scisCalibrate(gpuRight);   /* run 911: !gpuRight kept it from ever running (stereo GPU right eye is on every frame) */
+    static unsigned sciWait;
+    if (sciC && scisMode < 0 && direct && curHi == 0 && !r1xFrame && !sharedTgt && ++sciWait > 300) scisCalibrate(gpuRight);   /* not during boot */   /* run 911: !gpuRight kept it from ever running (stereo GPU right eye is on every frame) */
     const int scisOn = (sciC == 1 || (sciC == 2 && ((abFrames / 600) & 1))) && (scisMode == 0 || scisMode == 1) && direct && curHi == 0 && !r1xFrame && !sharedTgt;
     int gtFirst = 1; unsigned gtCur[6] = { 0 };
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
