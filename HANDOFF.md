@@ -1,3 +1,10 @@
+## Lugia title flashes and experimental worker follow-up
+
+- Mono Azahar frame capture reproduced large cyan polygons on the same title animation pose with Raw Split disabled, the worker disabled, and supersampling disabled. Disabling CPU clipping cleared the matching pose. Routing only side guard-band triangles to GPU clipping still reproduced the flash.
+- In the title overlay's W-buffer mode, GPU Z now keeps hard triangles in clip space for the GPU to clip. Other depth modes and scenes keep their existing clipping path.
+- Raw Split caused separate white/orange texture flashes. Its second worker is parked, and the legacy config key is ignored. XF Map reuse is also disabled for transient map batches. The regular 3D worker and replay transform cache remain available.
+- Hardware check pending: watch the title through its full loop, then load the save and walk between Goldenrod and Route 34 with the usual 3D settings.
+
 # Stereo GPU path flip + raw_split live (after #502 / e8900f9)
 
 Hardware on main `e8900f9` (New 3DS, slider 1.0, Goldenrod walk): thr_check **0** mismatches, clean exit. Stereo wall still ~20–23 ms (raw ~10, front ~4.5, expand ~0.85, end ~1.2–1.5, flush ~1.0).

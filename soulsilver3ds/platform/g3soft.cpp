@@ -1010,12 +1010,18 @@ static void gtWaitPinned(void*gt){
   /* Timed out without abandoning the whole thread: force-unpin this gt so LRU can proceed. */
   while(gtPinGet(gt))gtPinRel(gt);
   PSPNativeMemLog("[G3THR] pin wait timeout gt=%p: force-unpinned",gt);}}
+extern "C" int P3DS_InTitle;
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  extern int P3DS_InField,P3DS_InBattle;
  J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=J.replay?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
  memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
  J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.texGen=0;J.texGpuGen=0;J.texCrc=0;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;
- J.hasK=false;J.sprDepth=P3DS_SpriteDepthCfg()!=0;J.cull3d=cull3dCfg();J.cpuClip=gpuCpuClip()!=0;J.guardClip=guardClip()!=0;J.guardBat=guardBattle();
+ // The title's W-buffer triangles must retain their clip-space w in GPU Z
+ // mode. CPU clipping sends hard triangles through the screen-space path.
+ const bool titleGpuZ=P3DS_InTitle&&J.wbuf&&G3G_WDepthOn()==3;
+ J.hasK=false;J.sprDepth=P3DS_SpriteDepthCfg()!=0;J.cull3d=cull3dCfg();
+ J.cpuClip=gpuCpuClip()!=0&&!titleGpuZ;J.guardClip=guardClip()!=0;J.guardBat=guardBattle();
+ if(titleGpuZ){static bool said;if(!said){said=true;PSPNativeMemLog("[LUGIA] GPU clips title W-buffer triangles in GPU Z mode");}}
  J.edgeFix=edgeFixCfg()!=0;J.fieldSpr=(P3DS_InField!=0&&P3DS_InBattle==0);J.snapCrc=0;J.xformCrc=0;
  J.stereoShare=stereoSd&&P3DS_G3StereoShareCfg();}
 static void gtResolveTex(GJob&J){
