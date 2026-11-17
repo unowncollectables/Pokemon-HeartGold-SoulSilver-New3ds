@@ -65,7 +65,7 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    g3_front_bg (Debug, default OFF): side-buffer prep during the worker drain.
    Host: tools/g3_thr_race_test.c, tools/g3_stereo_share_test.c, tools/g3_fastxform_test.c. */
 static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1,g3TexFenceCfg=-1,g3TexSafeCfg=-1,g3StereoShareCfg=-1,g3FrontOvCfg=-1,g3StereoGpuCfg=-1;
-static int g3RawSplitCfg=-1,g3FrontBgCfg=-1;
+static int g3FrontBgCfg=-1;
 /* Hot path for g3packet: 0 until g3_prof is read/on, so GeBuffer pays nothing when profiling is OFF. */
 extern "C" volatile int P3DS_G3ProfLive;
 volatile int P3DS_G3ProfLive;
@@ -89,7 +89,6 @@ extern "C" int P3DS_G3FrontOvCfg(void){if(g3FrontOvCfg<0){g3FrontOvCfg=P3DS_CfgI
 extern "C" void P3DS_SetG3FrontOv(int v){g3FrontOvCfg=v!=0;PSPNativeMemLog("[FRONT] g3_front_ov=%d from settings",g3FrontOvCfg);}
 extern "C" int P3DS_G3StereoGpuCfg(void){if(g3StereoGpuCfg<0){g3StereoGpuCfg=P3DS_CfgInt("g3_stereo_gpu",0)!=0;PSPNativeMemLog("[G3STER] g3_stereo_gpu=%d (1 = with share, shader right eye; End inits g3s lazily; default V untouched)",g3StereoGpuCfg);}return g3StereoGpuCfg;}
 extern "C" void P3DS_SetG3StereoGpu(int v){g3StereoGpuCfg=v!=0;PSPNativeMemLog("[G3STER] g3_stereo_gpu=%d from settings",g3StereoGpuCfg);}
-extern "C" int P3DS_G3RawSplitCfg(void){if(g3RawSplitCfg<0){g3RawSplitCfg=P3DS_CfgInt("g3_raw_split",0)!=0;PSPNativeMemLog("[G3THR] g3_raw_split=%d (1 = second raw worker on core 3; OFF = one worker)",g3RawSplitCfg);}return g3RawSplitCfg;}
 /* Live apply defined with gtApplyRawSplit below (drain + Start2/Stop2). */
 extern "C" void P3DS_SetG3RawSplit(int v);
 extern "C" int P3DS_G3FrontBgCfg(void){if(g3FrontBgCfg<0){g3FrontBgCfg=P3DS_CfgInt("g3_front_bg",0)!=0;PSPNativeMemLog("[FRONT] g3_front_bg=%d (1 = side-buffer postvblank prep during drain without wake-every; OFF = front_ov-only)",g3FrontBgCfg);}return g3FrontBgCfg;}
@@ -900,14 +899,14 @@ static int gtCfgWant=-1,gtThreadOk=0;static unsigned gtAbN;   /* g3_thread 2 = A
 enum{GT_N=1024,GT_MASK=GT_N-1,GT_ARENA=96*1024};          /* 96K verts (~2.2 MB): fewer mid-frame arena drains that reset depth */
 static GJob gtRing[GT_N];static GuVertex*gtArena;static u8*gtCmArena;static unsigned gtArenaPos,gtCmPos;
 static volatile unsigned gtHead,gtTail,gtDone,gtKicked,gtSleep,gtExpandReq; /* gtDone: completed claims (g3_raw_split); gtExpandReq: worker expand */
-extern "C" {int G3T_Start(void(*)(void*));int G3T_Start2(void(*)(void*));void G3T_Stop2(void);void G3T_Wait(void);void G3T_Signal(void);void G3T_Wait2(void);void G3T_Signal2(void);void G3T_SleepNs(long long);int G3T_SplitOn(void);void*memalign(size_t,size_t);}
+extern "C" {int G3T_Start(void(*)(void*));void G3T_Wait(void);void G3T_Signal(void);void G3T_SleepNs(long long);void*memalign(size_t,size_t);}
 extern "C" {int P3DS_BigLockDropForWait(void);void P3DS_BigLockRestoreAfterWait(int);int P3DS_BigLockDepth(void);}
-static u64 gtBusyTicks,gtBusyTicks2,gtWaitTicks;static unsigned gtJobs,gtJobs2,gtDrains[6],gtFrames;static const char*const gtWhy[6]={"screen","frame","listfree","texfree","ringfull","arena"};
+static u64 gtBusyTicks,gtWaitTicks;static unsigned gtJobs,gtDrains[6],gtFrames;static const char*const gtWhy[6]={"screen","frame","listfree","texfree","ringfull","arena"};
 extern "C" void P3DS_ThreadGuard(const char*);
 /* Conditional wake (publish path): only Signal if the worker marked itself asleep. */
-static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0)==1){G3T_Signal();if(G3T_SplitOn())G3T_Signal2();}}
+static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0)==1){G3T_Signal();}}
 /* Drain/pin waits: always Signal so a lost TAS cannot leave the worker asleep with work queued (run 883). */
-static void gtWakeForce(){__sync_synchronize();__sync_lock_test_and_set(&gtSleep,0);G3T_Signal();if(G3T_SplitOn())G3T_Signal2();}
+static void gtWakeForce(){__sync_synchronize();__sync_lock_test_and_set(&gtSleep,0);G3T_Signal();}
 /* ~1 s at 268 MHz. On timeout: log, abandon queue / force-unpin, turn g3_thread OFF for the rest of the session. */
 enum{GT_WAIT_TICKS=268111856ull};
 static inline bool gtBusy();
@@ -923,7 +922,7 @@ static void gtFallbackInline(const char*why){
   __atomic_store_n(&gtHead,t,__ATOMIC_RELEASE);
   __atomic_store_n(&gtDone,t,__ATOMIC_RELEASE);
   PSPNativeMemLog("[G3THR] force-empty queue after timeout (worker may skip leftover jobs)");}
- gtSleep=0;G3T_Signal();if(G3T_SplitOn())G3T_Signal2();}
+ gtSleep=0;G3T_Signal();}
 /* Claim next job (CAS on gtHead). Returns 1 and fills *outH, or 0 if empty. */
 static int gtClaim(unsigned*outH){
  for(;;){
@@ -932,13 +931,11 @@ static int gtClaim(unsigned*outH){
   if(h==t)return 0;
   if(__atomic_compare_exchange_n(&gtHead,&h,h+1,0,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED)){*outH=h;return 1;}
  }}
-static void gtRunOne(unsigned h,int worker2){
+static void gtRunOne(unsigned h){
  const u64 t0=svcGetSystemTick();
  {const GJob J=gtRing[h&GT_MASK];if(J.screen)DrawScreenJ(J,J.v,J.n,J.deferOk);else GpuRawJ(J);
   if(J.gt&&gtCfg&&P3DS_G3TexFenceCfg()){if(P3DS_G3TexSafeCfg())gtPinDonePush(J.gt);else gtPinRel(J.gt);}}
- const u64 dt=svcGetSystemTick()-t0;
- if(worker2){gtBusyTicks2+=dt;__atomic_fetch_add(&gtJobs2,1,__ATOMIC_RELAXED);}
- else gtBusyTicks+=dt;
+ gtBusyTicks+=svcGetSystemTick()-t0;
  __atomic_fetch_add(&gtDone,1,__ATOMIC_RELEASE);}
 static void gtTryExpand(void){
  if(__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE)){
@@ -951,52 +948,23 @@ static void gtMain(void*){P3DS_ThreadGuard("g3thread");gtInWorker=true;
   if(!gtClaim(&h)){
    gtTryExpand();
    gtSleep=1;__sync_synchronize();
-   if(gtClaim(&h)){gtSleep=0;gtRunOne(h,0);continue;}
+   if(gtClaim(&h)){gtSleep=0;gtRunOne(h);continue;}
    if(__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE)){gtSleep=0;continue;}
    G3T_Wait();continue;}
-  gtRunOne(h,0);
- }}
-static void gtMain2(void*){P3DS_ThreadGuard("g3thread2");gtInWorker=true;
- for(;;){
-  unsigned h;
-  if(!gtClaim(&h)){
-   gtSleep=1;__sync_synchronize();
-   if(gtClaim(&h)){gtSleep=0;gtRunOne(h,1);continue;}
-   G3T_Wait2();continue;}
-  gtRunOne(h,1);
+  gtRunOne(h);
  }}
 /* Midpoint pairing mutates md* tables: must run on the game thread after cull, before the arena copy. */
 static void gtFinishMid(GJob&J){
  J.hasK=false;if(!J.mid||J.n<3||J.wbuf)return;
  float K[16];if(mdK(J,K)){memcpy(J.K,K,sizeof J.K);J.hasK=true;}}
 static int edgeFixCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("stereo_edgefix",1)!=0;PSPNativeMemLog("[G3] stereo_edgefix=%d",v);}return v;}
-static void gtDrain(int why); /* fwd: gtApplyRawSplit drains before Start2/Stop2 */
-/* Drain then start/park worker 2. Safe from Settings (game thread) and from gtStart.
-   Uses gtThreadOk (not gtCfg): gtStart runs before gtCfg is flipped ON. */
-static void gtApplyRawSplit(int want){
- if(gtThreadOk<=0){
-  PSPNativeMemLog("[G3THR] g3_raw_split=%d: will apply when g3_thread worker starts",want);return;}
- gtDrain(1);
- if(want){
-  if(G3T_SplitOn()){PSPNativeMemLog("[G3THR] g3_raw_split=1: second worker already on core 3");return;}
-  if(G3T_Start2(gtMain2)){gtWakeForce();PSPNativeMemLog("[G3THR] g3_raw_split: second worker on core 3");}
-  else PSPNativeMemLog("[G3THR] g3_raw_split: core 3 worker failed — single worker only");
- }else{
-  if(!G3T_SplitOn()){PSPNativeMemLog("[G3THR] g3_raw_split=0: second worker already parked");return;}
-  G3T_Stop2();PSPNativeMemLog("[G3THR] g3_raw_split=0: second worker parked (core 3 sleeps; primary only)");
- }}
-extern "C" void P3DS_SetG3RawSplit(int v){
- const int want=v!=0;const int was=g3RawSplitCfg>0;
- g3RawSplitCfg=want;
- PSPNativeMemLog("[G3THR] g3_raw_split=%d from settings",g3RawSplitCfg);
- if(want!=was)gtApplyRawSplit(want);}
+static void gtDrain(int why);
 static bool gtStart(){
  if(gtThreadOk!=0)return gtThreadOk>0;
  gtArena=(GuVertex*)memalign(16,GT_ARENA*sizeof(GuVertex));gtCmArena=(u8*)malloc(64*1024);
  bool started=false;if(gtArena&&gtCmArena)started=G3T_Start(gtMain)!=0;
  if(!started){free(gtArena);free(gtCmArena);gtArena=nullptr;gtCmArena=nullptr;gtThreadOk=-1;PSPNativeMemLog("[G3THR] worker thread could not start: g3_thread stays OFF");return false;}
  gtThreadOk=1;PSPNativeMemLog("[G3THR] worker thread started on core 2 (queue %d jobs, arena %u KB)",GT_N,(unsigned)(GT_ARENA*sizeof(GuVertex)>>10));
- if(P3DS_G3RawSplitCfg())gtApplyRawSplit(1);
  return true;}
 /* Busy until every claimed job has finished (gtDone), not merely claimed (gtHead). */
 static inline bool gtBusy(){return __atomic_load_n(&gtDone,__ATOMIC_ACQUIRE)!=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);}
@@ -1105,11 +1073,6 @@ static void gtPush(GJob&J,bool chunked){
   {const unsigned every=(P3DS_G3WakeCfg()||P3DS_G3TexFenceCfg()>=2||P3DS_G3FrontOvCfg())?1u:6u;if((tail+1)-gtKicked>=every){gtKicked=tail+1;gtWake();if(every==1)prWake++;}}}}
 static void gtFrameStats(){
  if(++gtFrames%300)return;
- if(G3T_SplitOn()||gtJobs2||gtBusyTicks2){
-  const unsigned w2=gtJobs2,w1=gtJobs>w2?gtJobs-w2:0;
-  PSPNativeMemLog("[G3THR] %s split=%d | 300 frames: jobs w1~%u w2=%u (submit %u), busy us/f w1=%u w2=%u, game waited %u us/frame at drains (frame %u screen %u listfree %u texfree %u ringfull %u arena %u)",
-   gtCfg?"ON":"OFF",G3T_SplitOn(),w1,w2,gtJobs,(unsigned)(gtBusyTicks/268/300),(unsigned)(gtBusyTicks2/268/300),(unsigned)(gtWaitTicks/268/300),gtDrains[1],gtDrains[0],gtDrains[2],gtDrains[3],gtDrains[4],gtDrains[5]);}
- else
   PSPNativeMemLog("[G3THR] %s | 300 frames: %u jobs, worker busy %u us/frame, game thread waited %u us/frame at drains (frame %u screen %u listfree %u texfree %u ringfull %u arena %u)",gtCfg?"ON":"OFF",gtJobs,(unsigned)(gtBusyTicks/268/300),(unsigned)(gtWaitTicks/268/300),gtDrains[1],gtDrains[0],gtDrains[2],gtDrains[3],gtDrains[4],gtDrains[5]);
  if(P3DS_G3TexFenceCfg()){const unsigned avgD=gtFenceDepthN?gtFenceDepthSum/gtFenceDepthN:0;
   PSPNativeMemLog("[G3THR] texfence: max in-flight %u, avg depth %u, pins %u, pin-waits %u, TexCreate wait %u skip %u, defer-free %u, wait-timeouts %u (level %d; depth>1 means front/cmd overlapped raw)",gtInFlightMax,avgD,gtPinHits,gtPinWaits,texCreateWait,texCreateSkip,gtTexDeferHits,gtWaitTimeouts,P3DS_G3TexFenceCfg());
@@ -1118,7 +1081,7 @@ static void gtFrameStats(){
     in-place postvblank while thread ON (not a CRC mismatch; was wrongly lumped into "(N tex)" before). */
  if(P3DS_G3ThrCheckCfg()){PSPNativeMemLog("[G3THR] check: %u jobs, %u mismatches (%u texCrc, %u flashRisk) (want 0 mismatches)",gtCheckN,gtCheckBad,gtTexBad,gtFlashRisk);gtCheckN=gtCheckBad=gtTexBad=gtFlashRisk=0;}
  if(postReplace|postInPlace){PSPNativeMemLog("[G3THR] tex_postvblank 300f: replace %u in-place %u (texsafe wants replace when thread ON)",postReplace,postInPlace);postReplace=postInPlace=0;}
- gtJobs=gtJobs2=0;gtBusyTicks=gtBusyTicks2=gtWaitTicks=0;memset(gtDrains,0,sizeof gtDrains);}
+ gtJobs=0;gtBusyTicks=gtWaitTicks=0;memset(gtDrains,0,sizeof gtDrains);}
 extern "C" int P3DS_G3ThreadCfg(void){if(gtCfgWant<0){gtCfgWant=P3DS_CfgInt("g3_thread",0);if(gtCfgWant<0||gtCfgWant>2)gtCfgWant=0;PSPNativeMemLog("[G3THR] g3_thread=%d (raw 3D transform on a worker thread on core 2; OFF = on the game thread)",gtCfgWant);}return gtCfgWant;}
 extern "C" void P3DS_SetG3Thread(int v){gtCfgWant=v<0?0:v>2?2:v;gtAbN=0;PSPNativeMemLog("[G3THR] g3_thread=%d from settings (applies at the next 3D frame)",gtCfgWant);}
 static void Draw(const GuVertex*v,unsigned n,bool deferOk){
@@ -1381,7 +1344,7 @@ void P3DS_G3BeginFrame(void){CRUMB("g3-begin");g3FrameNo++;usedN=0;frameTicks=sv
  else wasB=0;}
  u32 cc=*(u32*)(PSPNative_GfxRegisters+0x350);u16 cd=*(u16*)(PSPNative_GfxRegisters+0x354);
  unsigned r=cc&31,g=(cc>>5)&31,b=(cc>>10)&31,a=(cc>>16)&31;u32 v=(r<<1|r>>4)|((g<<1|g>>4)<<8)|((b<<1|b>>4)<<16)|(a<<24);
- if(gpuOn<0){if(P3DS_CfgInt("g3_xf_map",0))PSPNativeMemLog("[G3XF] legacy g3_xf_map ignored: transform cache is list replay only");int want=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");if(f){char l[64];int x;while(fgets(l,sizeof l,f)){if(sscanf(l,"gpu3d=%d",&x)==1)want=x;if(sscanf(l,"gpu3d_texflip=%d",&x)==1)G3G_TexFlip=x;if(sscanf(l,"gpu3d_flipy=%d",&x)==1)G3G_FlipY=x;if(sscanf(l,"gpu3d_zinv=%d",&x)==1)G3G_ZInv=x;if(sscanf(l,"gpu3d_async=%d",&x)==1)G3G_Async=x!=0;}fclose(f);}
+ if(gpuOn<0){if(P3DS_CfgInt("g3_raw_split",0))PSPNativeMemLog("[G3THR] legacy g3_raw_split ignored: using one 3D worker");if(P3DS_CfgInt("g3_xf_map",0))PSPNativeMemLog("[G3XF] legacy g3_xf_map ignored: transform cache is list replay only");int want=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");if(f){char l[64];int x;while(fgets(l,sizeof l,f)){if(sscanf(l,"gpu3d=%d",&x)==1)want=x;if(sscanf(l,"gpu3d_texflip=%d",&x)==1)G3G_TexFlip=x;if(sscanf(l,"gpu3d_flipy=%d",&x)==1)G3G_FlipY=x;if(sscanf(l,"gpu3d_zinv=%d",&x)==1)G3G_ZInv=x;if(sscanf(l,"gpu3d_async=%d",&x)==1)G3G_Async=x!=0;}fclose(f);}
   gpuOn=want&&G3G_Init()?1:0;if(want&&!gpuOn)PSPNativeMemLog("[GPU3D] GPU 3D init FAILED -> automatic CPU 3D fallback");PSPNativeMemLog("[GPU3D] gpu3d=%d (config wants %d) texflip=%d zinv=%d async=%d",gpuOn,want,G3G_TexFlip,G3G_ZInv,G3G_Async);}
  if(gpuReq>=0){gpuOn=gpuReq&&G3G_Init()?1:0;gpuReq=-1;PSPNativeMemLog("[GPU3D] L+R+Y: gpu3d=%d",gpuOn);}
  /* CPU renderer (GPU 3D init failed or turned off with L+R+Y): DS W-buffer frames (title Lugia) use the perspective-correct raster TriWPersp */
