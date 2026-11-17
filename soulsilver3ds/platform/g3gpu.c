@@ -221,8 +221,14 @@ static void stripConv(const u32 *s, const unsigned rst, unsigned right, u32 *d) 
     /* The old edge search required a second sample 32 periods (1024 pixels)
        away in a 320-pixel row. It could never replace a pixel. */
     const int fade = f && (mm == 1 || mm == 2);
+    /* 2026-11-17 run 920: ~0.35 ms per eye here, almost all of it waiting on FCRAM cache-line fills of the freshly
+       invalidated readback (the loop itself is a few cycles a pixel). PLD the same strip 4 rows ahead so the line
+       fills overlap the work. Hints only: same pixels, same picture. */
+#define STRIP_PLD(p) __builtin_prefetch((const void *)(p), 0, 0)
+    for (unsigned y = 0; y < 4 && y < 192; y++) { const u32 *r = s + y * rst; for (int k = 0; k < 32; k += 8) { STRIP_PLD(r + k); STRIP_PLD(r + right + k); } }
     for (unsigned y = 0; y < 192; y++) {
         const u32 *row = s + y * rst;
+        if (y + 4 < 192) { const u32 *r = row + 4 * rst; for (int k = 0; k < 32; k += 8) { STRIP_PLD(r + k); STRIP_PLD(r + right + k); } }
         for (unsigned side = 0; side < 2; side++) {
             const unsigned start = side ? right : 0;
             u32 *out = d + y * 64 + side * 32;
@@ -250,6 +256,7 @@ static void stripConv(const u32 *s, const unsigned rst, unsigned right, u32 *d) 
             }
         }
     }
+#undef STRIP_PLD
 }
 /* run 55 fog3d=1 (default): DS 3D fog (DISP3DCNT bit 7) on the GPU path. Each opaque polygon writes its POLYGON_ATTR fog
    bit into the stencil buffer (clear plane: CLEAR_COLOR bit 15); after the draw the D24S8 buffer is copied out with
