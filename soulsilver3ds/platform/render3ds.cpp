@@ -1357,7 +1357,7 @@ static const MItem mItems[]={
  {"PRESENT PACE","present_pace",2,{"OFF","ON"}},
  /* g3_front_ov: wake every job + side-buffer postvblank decode during drain wait. Default OFF. */
  {"3D FRONT OVERLAP","g3_front_ov",2,{"OFF","ON"}},
- /* g3_stereo_gpu: with share, draw right from left vb via shader (skip CPU expand). Default OFF. */
+ /* g3_stereo_gpu: shader right-eye parked after run 887 black screen; CPU expand only. Default OFF. */
  {"3D STEREO GPU","g3_stereo_gpu",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
@@ -1736,8 +1736,8 @@ static const SAppTab kTabs[7]={
       {kG3TexSafeItem,"3D tex safe","With 3D worker thread ON: after VBlank, upload a new GPU texture instead of updating one this frame already queued (stops brief texture flashes while walking). Safe with 3D tex fence (defers frees while pins are held). Leave OFF if unsure."},
       {kG3StereoShareItem,"3D stereo share","With the 3D slider up: TriClip2 writes left only, then expands the right eye after the worker drains (bit-identical). Heap stereoDsh (not linearAlloc). Log [G3STER] leftOnly>>dual when engaged. Leave OFF if unsure."},
       {kPresentPaceItem,"Present pace","NONBLOCK GPU FrameBegin so a frame that just misses 60 does not snap to 30. tearfree still waits before swap (no tearing). Leave OFF if unsure."},
-      {kG3FrontOvItem,"3D front overlap","With 3D worker thread ON: wake every job and side-buffer decode post-VBlank textures while waiting for the worker (never mutates submit-time px; check stays 0). Leave OFF if unsure."},
-      {kG3StereoGpuItem,"3D stereo GPU","With 3D stereo share ON: skip CPU right-eye expand; draw the right eye from the left vertex buffer with a shader x-shift (bit-identical). Cuts stereo g3soft. Leave OFF if unsure."}}},
+      {kG3FrontOvItem,"3D front overlap","With 3D worker thread ON: wake every job and side-buffer decode post-VBlank textures while waiting for the worker (never mutates submit-time px; check stays 0). Auto-OFF for the session if a frame submits geometry but draws 0 tris. Leave OFF if unsure."},
+      {kG3StereoGpuItem,"3D stereo GPU","Intended shader right-eye with share; parked after run 887 black screen (always-on vertex layout broke PICA attrs). Toggle logs once and keeps CPU expand. Leave OFF."}}},
 };
 static void prettyLab(char*d,const char*s,int n){/* run 64: "WIDE VIEW FX" -> "Wide view FX" (acronyms kept) */
  static const char*const acr[]={"FPS","GPU","ZL","ZR","FX","3D","1X","2X","25X","5X","ROM","IV","EV","TM","HM","LED","UI","OK","KB","MB","Y","X","A","B","L","R"};

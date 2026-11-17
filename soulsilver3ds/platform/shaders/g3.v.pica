@@ -1,6 +1,4 @@
 ; platinum3ds: G3 passthrough (pos already in clip space, uv normalised, colour 0..1)
-; stereok.x = 0 (left / mono) or scale/128 (right eye from shared left vb: x += k * dsh * w)
-.fvec stereok
 .out outpos position
 .out outtc0 texcoord0
 .out outclr color
@@ -8,10 +6,7 @@
 .alias intc v1
 .alias inclr v2
 .proc main
-	mov r0, inpos
-	mul r1.x, intc.z, r0.w
-	mad outpos.x, r1.x, stereok.x, r0.x
-	mov outpos.yzw, r0.yzw
+	mov outpos, inpos
 	mov outtc0, intc
 	mov outclr, inclr
 	end
