@@ -90,30 +90,45 @@ static int expand_before_hardclip(void) {
     return pending == 0 && wrote_eye0 && wrote_eye1;
 }
 
-/* Run after #501: FlushDeferred may skip expand when wantGpu; End must take gpuRight OR expand — never empty right. */
+/* End path after e8900f9: prefer gpuRight (skip mid); expand only on hard fallback. Never empty right. */
 static int stereo_gpu_end_never_empty(void) {
     int want = 1, eyes = 2, mid = 0, vn0 = 100, vn1 = 0, bn0 = 1, pending = 1, shaderOk = 1;
     int gpuRight = 0, expanded = 0;
-    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending && !mid && shaderOk) {
-        gpuRight = 1; pending = 0;
+    /* happy path */
+    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending) {
+        if (mid) mid = 0; /* prefer gpuRight over mid */
+        if (shaderOk) { gpuRight = 1; pending = 0; }
     }
     if (!gpuRight && pending) { expanded = 1; pending = 0; }
-    int ok1 = gpuRight == 1 && expanded == 0 && pending == 0;
-    /* mid frame: must expand, not gpuRight */
-    want = 1; mid = 1; pending = 1; vn1 = 0; gpuRight = 0; expanded = 0;
-    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending && !mid && shaderOk) {
-        gpuRight = 1; pending = 0;
+    int ok1 = gpuRight == 1 && expanded == 0 && pending == 0 && mid == 0;
+    /* mid would have blocked: now skipped so gpuRight wins */
+    want = 1; mid = 1; pending = 1; vn1 = 0; gpuRight = 0; expanded = 0; shaderOk = 1;
+    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending) {
+        if (mid) mid = 0;
+        if (shaderOk) { gpuRight = 1; pending = 0; }
     }
     if (!gpuRight && pending) { expanded = 1; pending = 0; }
-    int ok2 = gpuRight == 0 && expanded == 1 && pending == 0;
+    int ok2 = gpuRight == 1 && expanded == 0 && mid == 0;
+    /* eye1 already filled: must expand (or already did); no gpuRight */
+    mid = 0; pending = 0; vn1 = 100; gpuRight = 0; expanded = 0;
+    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending) {
+        if (shaderOk) { gpuRight = 1; pending = 0; }
+    }
+    if (!gpuRight && pending) { expanded = 1; pending = 0; }
+    int ok3 = gpuRight == 0 && vn1 != 0; /* reason eye1 */
     /* shader fail: expand fallback */
-    mid = 0; pending = 1; shaderOk = 0; gpuRight = 0; expanded = 0;
-    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending && !mid && shaderOk) {
-        gpuRight = 1; pending = 0;
+    vn1 = 0; pending = 1; shaderOk = 0; gpuRight = 0; expanded = 0;
+    if (want && eyes == 2 && vn0 && bn0 && vn1 == 0 && pending) {
+        if (shaderOk) { gpuRight = 1; pending = 0; }
     }
     if (!gpuRight && pending) { expanded = 1; pending = 0; }
-    int ok3 = gpuRight == 0 && expanded == 1 && pending == 0;
-    return ok1 && ok2 && ok3;
+    int ok4 = gpuRight == 0 && expanded == 1 && pending == 0;
+    /* screen-share dsh matches dual (w=1): right_ndc = left_ndc + dsh/128 */
+    float left_sx = 100.0f, right_sx = 108.0f, dsh = right_sx - left_sx;
+    float Lndc = left_sx / 128.0f - 1.0f, Rdual = right_sx / 128.0f - 1.0f;
+    float Rshare = Lndc + dsh / 128.0f;
+    int ok5 = fabsf(Rdual - Rshare) < 1e-5f;
+    return ok1 && ok2 && ok3 && ok4 && ok5;
 }
 
 int main(void) {

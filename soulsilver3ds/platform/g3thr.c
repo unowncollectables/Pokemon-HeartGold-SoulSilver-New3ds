@@ -3,19 +3,22 @@
 static LightSemaphore sem;
 static LightSemaphore sem2;
 static LightLock vbLk;
-static int vbLkInit, splitOn;
+static int vbLkInit, splitOn, splitStarted;
 int G3T_Start(void (*fn)(void *)) {
     LightSemaphore_Init(&sem, 0, 32767);
     if (!vbLkInit) { LightLock_Init(&vbLk); vbLkInit = 1; }
     return threadCreate(fn, NULL, 0x8000, 0x30, 2, false) != NULL;   /* core 2 */
 }
-/* g3_raw_split: second raw worker on core 3 (New 3DS). Same entry as primary; callers use G3T_Signal2/Wait2. */
+/* g3_raw_split: second raw worker on core 3 (New 3DS). Idempotent — live Settings toggle may call again. */
 int G3T_Start2(void (*fn)(void *)) {
+    if (splitStarted) { splitOn = 1; return 1; } /* already running: just re-enable wake/lock */
     LightSemaphore_Init(&sem2, 0, 32767);
     if (!vbLkInit) { LightLock_Init(&vbLk); vbLkInit = 1; }
     if (threadCreate(fn, NULL, 0x8000, 0x30, 3, false) == NULL) return 0;   /* core 3 */
-    splitOn = 1; return 1;
+    splitStarted = 1; splitOn = 1; return 1;
 }
+/* Park worker 2: stop waking it / locking vb. Thread stays asleep on Wait2 (no join — 3DS threads are sticky). */
+void G3T_Stop2(void) { splitOn = 0; }
 void G3T_Wait(void) { LightSemaphore_Acquire(&sem, 1); }
 void G3T_Signal(void) { LightSemaphore_Release(&sem, 1); }
 void G3T_Wait2(void) { LightSemaphore_Acquire(&sem2, 1); }

@@ -3,6 +3,9 @@
 ## Black top with 3D front overlap (run 887)
 `g3_front_ov=1` on main after #498 blanked the top screen from boot. The always-on stereo-GPU vertex/shader change is reverted; front overlap stays race-free with a session auto-OFF if a frame draws no tris after geometry was submitted. Platform rebuild; device retest pending.
 
+## Stereo GPU path flip + raw_split live toggle
+On main e8900f9, `g3_stereo_gpu=1` still flipped gpuRight↔cpuExpand (~half the frames) so the right eye jumped; `g3_raw_split` Settings ON logged the cfg but never started worker 2. Hard-clip/translucent now write left+dsh; End prefers gpuRight (skips mid); 60f path log includes fallback reasons. Live raw_split drains then Start2/park and logs per-worker busy us. Platform rebuild; device A/B pending.
+
 ## Stereo GPU flash + next wall cuts
 `g3_stereo_gpu=1` could skip CPU expand while End did not take the shader right-eye path, leaving an empty right eye (flash / stereo died). End now inits g3s lazily and always expands as fallback; log shows gpuRight vs cpuExpand frame counts. New Debug toggles (default OFF): `g3_raw_split`, `g3_xf_map`, `g3_front_bg`. Platform rebuild; device A/B pending.
 
