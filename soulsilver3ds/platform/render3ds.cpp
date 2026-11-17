@@ -1343,8 +1343,6 @@ static const MItem mItems[]={
  {"3D PROFILE","g3_prof",2,{"OFF","ON"}},
  /* g3_wake: with g3_thread ON, wake the worker on every queued job (not every 6). Same picture. Default OFF. */
  {"3D WAKE EVERY JOB","g3_wake",2,{"OFF","ON"}},
- /* g3_thr_check: CRC job POD at submit vs worker. Logs [G3THR] snap mismatch. Default OFF. */
- {"3D THREAD CHECK","g3_thr_check",2,{"OFF","ON"}},
  /* g3_fastxform: hoist clip matrix in the raw loop. Same picture. Default OFF. */
  {"3D FAST XFORM","g3_fastxform",2,{"OFF","ON"}},
  /* g3_thr_texfence: 0 depth-1, 1 pin, 2 DEEP (pin + TexCreate without idle wait). Default OFF. */
@@ -1367,14 +1365,14 @@ static const MItem mItems[]={
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {int G3G_GpuTimeCfg(void);void G3G_SetGpuTime(int);void G3G_AbComposeWait(unsigned);}
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
-enum{kGtsPickerItem=MENU_N-22,kWideLayItem=MENU_N-21,kG3ThrItem=MENU_N-20,kFps60Item=MENU_N-19,kFps60PipeItem=MENU_N-18,kFps60HoldItem=MENU_N-17,kFps60StripsItem=MENU_N-16,kFps60VramItem=MENU_N-15,kFps60AreaItem=MENU_N-14,kG3XfItem=MENU_N-13,kG3ProfItem=MENU_N-12,kG3WakeItem=MENU_N-11,kG3ThrCheckItem=MENU_N-10,kG3FastXfItem=MENU_N-9,kG3TexFenceItem=MENU_N-8,kG3TexSafeItem=MENU_N-7,kG3StereoShareItem=MENU_N-6,kPresentPaceItem=MENU_N-5,kG3FrontOvItem=MENU_N-4,kG3StereoGpuItem=MENU_N-3,kG3FrontBgItem=MENU_N-2,kGpuTimeItem=MENU_N-1};
+enum{kGtsPickerItem=MENU_N-21,kWideLayItem=MENU_N-20,kG3ThrItem=MENU_N-19,kFps60Item=MENU_N-18,kFps60PipeItem=MENU_N-17,kFps60HoldItem=MENU_N-16,kFps60StripsItem=MENU_N-15,kFps60VramItem=MENU_N-14,kFps60AreaItem=MENU_N-13,kG3XfItem=MENU_N-12,kG3ProfItem=MENU_N-11,kG3WakeItem=MENU_N-10,kG3FastXfItem=MENU_N-9,kG3TexFenceItem=MENU_N-8,kG3TexSafeItem=MENU_N-7,kG3StereoShareItem=MENU_N-6,kPresentPaceItem=MENU_N-5,kG3FrontOvItem=MENU_N-4,kG3StereoGpuItem=MENU_N-3,kG3FrontBgItem=MENU_N-2,kGpuTimeItem=MENU_N-1};
 extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);int P3DS_G3XfCacheCfg(void);void P3DS_SetG3XfCache(int);int P3DS_G3ProfCfg(void);void P3DS_SetG3Prof(int);int P3DS_G3WakeCfg(void);void P3DS_SetG3Wake(int);int P3DS_G3ThrCheckCfg(void);void P3DS_SetG3ThrCheck(int);int P3DS_G3FastXformCfg(void);void P3DS_SetG3FastXform(int);int P3DS_G3TexFenceCfg(void);void P3DS_SetG3TexFence(int);int P3DS_G3TexSafeCfg(void);void P3DS_SetG3TexSafe(int);int P3DS_G3StereoShareCfg(void);void P3DS_SetG3StereoShare(int);int P3DS_PresentPaceCfg(void);void P3DS_SetPresentPace(int);int P3DS_G3FrontOvCfg(void);void P3DS_SetG3FrontOv(int);int P3DS_G3StereoGpuCfg(void);void P3DS_SetG3StereoGpu(int);int P3DS_G3FrontBgCfg(void);void P3DS_SetG3FrontBg(int);}
 /* fps60 (g3gpu.c, gpucomp.c, gpuscale.c): in-between pictures for the overworld */
 extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);void G3G_SetFps60Pipe(int);void G3G_SetFps60Hold(int);void G3G_SetFps60Strips(int);void P3DS_SetFps60Vram(int);void P3DS_SetFps60Area(int);void P3DS_Fps60Area(unsigned,int);int G3G_FpsHold(void);
  u32*P3DS_GpuMidStripBuffer(int);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
 static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
-enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-44&&kPgFindItem==MENU_N-43&&kBreedItem==MENU_N-42&&kBatchCullItem==MENU_N-41&&kGcDirectItem==MENU_N-40&&kWildAliveItem==MENU_N-39&&kEventAnyItem==MENU_N-38&&kSteadyItem==MENU_N-37&&kEvenItem==MENU_N-36&&kFlyTapItem==MENU_N-35&&kContestItem==MENU_N-34,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
+enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-43&&kPgFindItem==MENU_N-42&&kBreedItem==MENU_N-41&&kBatchCullItem==MENU_N-40&&kGcDirectItem==MENU_N-39&&kWildAliveItem==MENU_N-38&&kEventAnyItem==MENU_N-37&&kSteadyItem==MENU_N-36&&kEvenItem==MENU_N-35&&kFlyTapItem==MENU_N-34&&kContestItem==MENU_N-33,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
 extern "C" {extern volatile int P3DS_AudioGainV,P3DS_AudioLimiterV,P3DS_AudioStallFadeV;void P3DS_SetAudioGain(int);void P3DS_SetAudioLimiter(int);void P3DS_SetAudioStallFade(int);}
 static const int kVolGain[7]={4,5,6,7,8,9,10};
 static int volIdx(){int g=P3DS_AudioGainV;if(g<0)g=P3DS_CfgInt("audio_gain",7);int b=0;for(int k=1;k<7;k++)if(abs(kVolGain[k]-g)<abs(kVolGain[b]-g))b=k;return b;}
@@ -1477,7 +1475,6 @@ static int menuGet(int i){
  if(i==kG3XfItem)return P3DS_G3XfCacheCfg();
  if(i==kG3ProfItem)return P3DS_G3ProfCfg();
  if(i==kG3WakeItem)return P3DS_G3WakeCfg();
- if(i==kG3ThrCheckItem)return P3DS_G3ThrCheckCfg();
  if(i==kG3FastXfItem)return P3DS_G3FastXformCfg();
  if(i==kG3TexFenceItem)return P3DS_G3TexFenceCfg();
  if(i==kG3TexSafeItem)return P3DS_G3TexSafeCfg();
@@ -1506,7 +1503,6 @@ static void menuSet(int i,int v){
  if(i==kG3XfItem){P3DS_SetG3XfCache(v);P3DS_CfgWrite("g3_xfcache",v);return;}
  if(i==kG3ProfItem){P3DS_SetG3Prof(v);P3DS_CfgWrite("g3_prof",v);return;}
  if(i==kG3WakeItem){P3DS_SetG3Wake(v);P3DS_CfgWrite("g3_wake",v);return;}
- if(i==kG3ThrCheckItem){P3DS_SetG3ThrCheck(v);P3DS_CfgWrite("g3_thr_check",v);return;}
  if(i==kG3FastXfItem){P3DS_SetG3FastXform(v);P3DS_CfgWrite("g3_fastxform",v);return;}
  if(i==kG3TexFenceItem){P3DS_SetG3TexFence(v);P3DS_CfgWrite("g3_thr_texfence",v);return;}
  if(i==kG3TexSafeItem){P3DS_SetG3TexSafe(v);P3DS_CfgWrite("g3_thr_texsafe",v);return;}
@@ -1714,13 +1710,12 @@ static const SAppTab kTabs[kTotalTabs]={
      {119,"Grey unsupported menu","Title menu: greys Connect to Wii / Nintendo WFC Settings / Wii Message Settings / Ranger / Migrate AGB (dead on 3DS). A/touch buzzes. Mystery Gift greys receive methods unavailable in the current Wireless mode. OFF = original."},
      {kGtsPickerItem,"GTS server picker","Experimental. Adds Online Settings to the title menu."},
      {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app. Experimental."}}},
- {9,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
+ {8,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
      {86,"Audio limiter","Pulls loud moments down instead of letting them crackle."},
      {87,"Audio stall fade","Fades sound out when the game stops making any, instead of buzzing."},
      {94,"Speed tweaks","Experimental speed-ups, each level adds more. +PARALLEL splits the 3D pixel passes over two cores (for 3D slider on). Leave OFF if unsure."},
      {96,"Skip cache flushes","Experimental: ignores the game's own cache flushes. Leave OFF."},
      {kG3ProfItem,"3D profile","Every 60 3D frames, one log line: idle, front, wait (worker stalls), cmd, raw, flush, expand, end. OFF writes the older 300-frame average only."},
-     {kG3ThrCheckItem,"3D thread check","With 3D worker thread ON: CRC job POD, xform, and texture identity/content at submit vs draw. Logs [G3THR] snap/tex mismatch. Leave OFF for normal play."},
      {kPresentPaceItem,"Present pace","NONBLOCK GPU FrameBegin so a frame that just misses 60 does not snap to 30. tearfree still waits before swap (no tearing). Leave OFF if unsure."},
      {kGpuTimeItem,"GPU pass timing","Log only: every 30th 3D frame waits after each GPU pass and writes how long each took ([GPUT] lines). Costs a little speed on that one frame. Leave OFF for normal play."}}},
  {26,{{kG3ThrItem,"3D worker thread","Experimental: does the 3D vertex work on a second core. A/B TEST switches it OFF and ON every ~40 s so one log compares both. If the game hangs or looks wrong, turn it OFF."},
