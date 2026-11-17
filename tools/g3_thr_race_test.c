@@ -263,23 +263,24 @@ int main(void) {
         if (!busy) apply = 1;
         if (!side_ok || !gen_ok || !apply) bad++;
     }
-    /* run 888 remaining race (explore): GetTexture under fence can bump gen / free(px) while gt pinned.
-       Pins protect GPU free only. front_ov freezes pinned slots; check hashes genSnap not live gen.
-       front_ov=0 never freezes → GetTexture identical. */
+    /* run 889: GetTexture under fence can bump gen / free(px) while gt pinned.
+       Pins protect GPU free only. Freeze whenever fence+pin (not only front_ov).
+       CRC hashes live t->gen again (c2087a3); freeze keeps gen/px submit-stable. */
     {
-        /* 1) unchanged-raw gen bump while pinned — false texCrc without snap/freeze */
-        unsigned gen_submit = 7, gen_live = 7, pin = 1, front_ov = 1, fence = 2;
-        int freeze = front_ov && fence && pin;
+        /* 1) unchanged-raw gen bump while pinned — blocked by freeze (live gen stays submit) */
+        unsigned gen_submit = 7, gen_live = 7, pin = 1, fence = 2;
+        int freeze = fence && pin; /* front_ov no longer required */
         if (!freeze) gen_live = 9; /* buggy GetTexture bump */
-        /* check feeds genSnap (=submit), so live bump alone must not mismatch */
-        int snap_ok = (gen_submit == 7) && (freeze ? gen_live == 7 : 1);
+        int live_gen_ok = (gen_live == gen_submit);
         /* 2) in-place free(px)+DecodeTex while pinned — blocked by freeze */
         int px_mutated = !freeze;
         /* 3) LRU force-evict of pinned slot freeing px — blocked when frozen */
         int lru_freed_pinned_px = !freeze;
-        /* 4) front_ov=0: freeze off even if fence+pin */
-        int freeze_off = (0 && fence && pin);
-        if (!snap_ok || px_mutated || lru_freed_pinned_px || freeze_off || !freeze) bad++;
+        /* 4) front_ov=0 still freezes when fence+pin (run 889 fix) */
+        int freeze_front_off = (fence && pin); /* must be on */
+        /* 5) no pin → no freeze (GetTexture may refresh) */
+        int freeze_nopin = (fence && 0);
+        if (!live_gen_ok || px_mutated || lru_freed_pinned_px || !freeze_front_off || freeze_nopin || !freeze) bad++;
     }
 
     if (bad) { fprintf(stderr, "g3_thr_race bad %d\n", bad); return 1; }

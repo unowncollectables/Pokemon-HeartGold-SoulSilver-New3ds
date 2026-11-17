@@ -55,7 +55,8 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    worker store cut shows as lower [G3THR] worker busy / wait, not always lower raw.
    g3_front_ov (Debug tab, default OFF): with g3_thread ON, wake every job and run post-VBlank GatherRaw/Decode
    into SIDE pixel buffers while waiting for the worker drain (never mutates t->px/gen/raw/useF until after drain).
-   Also freezes pinned textures so GetTexture cannot redecode mid-flight (run 888). front_ov=0 unchanged. Log [FRONT].
+   Log [FRONT]. Run 889: fence+pin freezes GetTexture for ALL thread paths (not only front_ov) so thr_check
+   texCrc stays 0; CRC hashes live t->gen again (c2087a3 like-for-like). Safety ignores boot 0-tris frames.
    g3_stereo_gpu (Debug tab, default OFF): with share, skip CPU expand; End draws the right eye from the left vb
    via g3s.v.pica (stereok * dsh * w). Vertex layout for the default path is untouched (run 887 lesson).
    Host: tools/g3_thr_race_test.c, tools/g3_stereo_share_test.c, tools/g3_fastxform_test.c. */
@@ -100,7 +101,7 @@ static bool Gather(unsigned address,unsigned size,bool palette,u8*dst){
  return true;
 }
 static inline u32 c555(u16 c,unsigned a){unsigned r=c&31,g=(c>>5)&31,b=(c>>10)&31;return (r<<3|r>>2)|((g<<3|g>>2)<<8)|((b<<3|b>>2)<<16)|(a<<24);}
-struct Tex{unsigned off,pal,fmt,w,h,c0,gen;u32*px;unsigned lru;u8*raw;unsigned rawN;void*gt;u64 cnt;unsigned useF;unsigned gpuGen;unsigned freeze;}; /* freeze: front_ov holds px/gen while gt pinned */
+struct Tex{unsigned off,pal,fmt,w,h,c0,gen;u32*px;unsigned lru;u8*raw;unsigned rawN;void*gt;u64 cnt;unsigned useF;unsigned gpuGen;unsigned freeze;}; /* freeze: hold px/gen while gt pinned (fence) */
 static bool gtInWorker=false;static int gtCfg=0;static void gtDrainIfBusy(int why);extern "C" {static void ListFreeNow(void*p);}static void*gtPendFree[512];static unsigned gtPendN;
 static void gtPinRel(void*gt); /* defined with the fence pin table */
 /* Pins released after G3G_End (not when the worker finishes GpuRawJ): batches still sample gt until End. */
@@ -283,9 +284,9 @@ static Tex*GetTextureImpl(){
  unsigned w=p.textureSSize,h=p.textureTSize;if(w<8||h<8||w>1024||h>1024)return nullptr;
  for(unsigned i=0;i<texN;i++){Tex&t=texCache[i];if(t.off==p.textureOffset&&t.pal==s_texPlttBase&&t.fmt==fmt&&t.w==w&&t.h==h&&t.c0==p.color0){
    if(t.gen==PSPNativeVramGen){t.lru=++texTick;return &t;}
-   /* front_ov only: while this gt is pinned by an in-flight job, keep submit-time px/gen (CRC + J.gt).
-      front_ov=0 skips this — GetTextureImpl stays byte-identical to pre-fix behaviour. */
-   if(t.freeze||(gtCfg&&P3DS_G3FrontOvCfg()&&P3DS_G3TexFenceCfg()&&t.gt&&gtPinGet(t.gt))){
+   /* Fence+pin: keep submit-time px/gen while an in-flight job still CRCs / samples this gt.
+      Run 889: was front_ov-only; rare redecode under pin → texCrc with front_ov=0 (and after safety killed front_ov). */
+   if(t.freeze||(gtCfg&&P3DS_G3TexFenceCfg()&&t.gt&&gtPinGet(t.gt))){
     t.freeze=1;t.lru=++texTick;return &t;}
    {int pc=texPageCfg();if(pc&&t.px&&t.cnt==VramCnt()&&TexPageGen(fmt,w,h,p.textureOffset,s_texPlttBase)<=t.gen){
      if(pc==1){t.gen=PSPNativeVramGen;t.lru=++texTick;texPageSkips++;return &t;}
@@ -358,13 +359,13 @@ static int stereoDepth=-1;static inline float parOf(float zf){if(stereoDepth<0){
  if(lock){parN++;return kBattlePar;}
  if(!stereoDepth)return 0.65f;if(zf<0)zf=0;if(zf>1)zf=1;float z2=zf*zf,z4=z2*z2,z8=z4*z4;float p=0.3f+0.7f*z8;if(!gtCur&&parTrack){parN++;if(zf<parZMin)parZMin=zf;if(zf>parZMax)parZMax=zf;}return p;}
 static void*G3SIM_GpuTex(Tex*t){void*g=G3G_TexCreate(t->px,t->w,t->h);if(g)t->gpuGen++;return g;}
-/* Identity + sampled px content + gpu upload gen. genSnap is the submit-time t->gen (J.texGen) so a later
-   GetTexture gen bump cannot false-positive the check; px must still match the submit-time image. */
-static u32 gtTexCrcOf(const Tex*t,void*gt,unsigned tw,unsigned th,unsigned gpuGen,unsigned genSnap){
+/* Identity + sampled px content + gpu upload gen. Hashes live t->gen (c2087a3 like-for-like); freeze-on-pin
+   keeps gen/px stable for in-flight jobs so thr_check does not false-positive. */
+static u32 gtTexCrcOf(const Tex*t,void*gt,unsigned tw,unsigned th,unsigned gpuGen){
  u32 h=2166136261u;auto feed=[&](const void*p,unsigned n){const u8*b=(const u8*)p;for(unsigned i=0;i<n;i++)h=(h^b[i])*16777619u;};
  if(!t){feed(&gt,sizeof gt);feed(&tw,sizeof tw);feed(&th,sizeof th);feed(&gpuGen,sizeof gpuGen);return h;}
  feed(&t->off,sizeof t->off);feed(&t->pal,sizeof t->pal);feed(&t->fmt,sizeof t->fmt);feed(&t->w,sizeof t->w);feed(&t->h,sizeof t->h);
- feed(&t->c0,sizeof t->c0);feed(&genSnap,sizeof genSnap);feed(&gt,sizeof gt);feed(&gpuGen,sizeof gpuGen);
+ feed(&t->c0,sizeof t->c0);feed(&t->gen,sizeof t->gen);feed(&gt,sizeof gt);feed(&gpuGen,sizeof gpuGen);
  if(t->px&&t->w&&t->h){const unsigned n=t->w*t->h;const unsigned step=n>64u?(n/64u):1u;
   for(unsigned i=0;i<n;i+=step)feed(&t->px[i],sizeof(u32));
   feed(&t->px[n-1],sizeof(u32));}
@@ -751,7 +752,7 @@ static void GpuRawJ(const GJob&J0){
   if(J.hasTex&&!J.gt){gtCheckBad++;static unsigned nt;if(nt++<8)PSPNativeMemLog("[G3THR] snap mismatch empty gt n=%u tw=%u (hasTex but no GPU tex)",J.n,J.tw);}
   if(J.hasTex&&J.texCrc){
    const unsigned liveGpu=J.tex?J.tex->gpuGen:0;
-   const u32 live=gtTexCrcOf(J.tex,J.gt,J.tw,J.th,liveGpu,J.texGen);
+   const u32 live=gtTexCrcOf(J.tex,J.gt,J.tw,J.th,liveGpu);
    if(live!=J.texCrc||(J.texGpuGen&&liveGpu!=J.texGpuGen)){
     gtTexBad++;gtCheckBad++;
     static unsigned tm;if(tm++<16)PSPNativeMemLog("[G3THR] tex mismatch off=%x gt=%p gpuGen %u->%u crc %08x->%08x (px/gpu changed between submit and draw)",
@@ -986,7 +987,7 @@ static void gtResolveTex(GJob&J){
   else if(fence>=2)texCreateSkip++;
   t->gt=G3SIM_GpuTex(t);}
  J.tex=t;J.hasTex=t!=nullptr;J.gt=t?t->gt:nullptr;J.tw=t?t->w:0;J.th=t?t->h:0;J.texGen=t?t->gen:0;J.texGpuGen=t?t->gpuGen:0;
- J.texCrc=(t&&J.gt)?gtTexCrcOf(t,J.gt,J.tw,J.th,J.texGpuGen,J.texGen):0;
+ J.texCrc=(t&&J.gt)?gtTexCrcOf(t,J.gt,J.tw,J.th,J.texGpuGen):0;
  if(fence&&J.gt)gtPinAdd(J.gt);}
 static void gtPush(GJob&J,bool chunked);
 static void gtSubmit(GJob&J){
@@ -1175,9 +1176,10 @@ void G3SIM_FlushDeferred(){
   frontOvPrepUs+=(unsigned)((svcGetSystemTick()-tp0)/268);frontOvPrepN+=did;if(did)frontOvFrames++;
  }
  gtDrain(1);gtFrameStats();
- if(frontOv){
-  for(unsigned i=0;i<usedN;i++)if(usedTex[i])usedTex[i]->freeze=0;
-  static unsigned n;if(++n>=300){PSPNativeMemLog("[FRONT] 300f: prep during drain on %u frames, %u tex side-decoded, %u us (freeze+side; overlaps raw/expand)",frontOvFrames,frontOvPrepN,frontOvPrepUs);frontOvPrepN=frontOvPrepUs=frontOvFrames=n=0;}}
+ /* Clear freeze after drain (pins may still be held until End under texsafe; GpuRawJ CRC is done). */
+ for(unsigned i=0;i<texN;i++)texCache[i].freeze=0;
+ for(unsigned i=0;i<64;i++)folTex[i].freeze=0;
+ if(frontOv){static unsigned n;if(++n>=300){PSPNativeMemLog("[FRONT] 300f: prep during drain on %u frames, %u tex side-decoded, %u us (freeze+side; overlaps raw/expand)",frontOvFrames,frontOvPrepN,frontOvPrepUs);frontOvPrepN=frontOvPrepUs=frontOvFrames=n=0;}}
  /* Stereo share: expand on game thread if worker did not (GPU stereo leaves pending for End). */
  {u64 tExp0=svcGetSystemTick();
   if(shareOn&&!stereoGpu)G3G_StereoExpand();
@@ -1225,10 +1227,14 @@ void G3SIM_FlushDeferred(){
  usedN=0;
  if(doProf)prFlush+=svcGetSystemTick()-tFlush0;
  if(gpuOn==1){u64 t=doProf?svcGetSystemTick():0;G3G_FogNoW=!wbufOn();G3G_MidInfo(mdTot,mdMat,mdMov);G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);if(doProf){prEnd+=svcGetSystemTick()-t;prN++;}}
- /* Safety: front_ov on + game submitted geometry but End drew 0 tris → blank top risk (run 887). Kill for session. */
- if(frontOv&&frameHadGeom&&!drawnTris){
-  static int said;if(!said){said=1;PSPNativeMemLog("[FRONT] safety: 0 tris after geometry submit — g3_front_ov OFF for this session (was blanking top)");}
-  g3FrontOvCfg=0;}
+ /* Safety: front_ov on + geometry submitted but 0 tris after we have already drawn successfully this
+    session → blank top risk (run 887). Ignore title/boot frames that legitimately submit then cull to 0
+    (run 889 false trip turned front_ov off and exposed texCrc). */
+ {static int frontSawDraw;
+  if(drawnTris)frontSawDraw=1;
+  if(frontOv&&frontSawDraw&&frameHadGeom&&!drawnTris){
+   static int said;if(!said){said=1;PSPNativeMemLog("[FRONT] safety: 0 tris after geometry submit — g3_front_ov OFF for this session (was blanking top)");}
+   g3FrontOvCfg=0;}}
  frameHadGeom=0;
  /* Release fence pins held for texsafe (after End finished sampling those gts), then GPU-free any
     cache evictions that were deferred because those pins were still held (run 883 hang fix). */
