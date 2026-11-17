@@ -1246,9 +1246,20 @@ void G3G_End(u32 *outL, u32 *outR) {
     }
     if (wideCpuBlend) {
         C3D_FrameSplit(0);
+        /* After the Y flip the CPU reads only the first 192 rows. Start on
+           the same visible tile row as the in-between strips transfer. */
+        const unsigned rows = fps60Strips() ? 192 : 256;
+        const u32 dims = GX_BUFFER_DIM(curW, rows);
         for (int e = 0; e < eyes; e++) {
-            const u32 dims = GX_BUFFER_DIM(curW, 256);
-            issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, dims, rb[e], dims, RB_FLAGS, 0);
+            u32 *source = (u32 *)tgt[e]->frameBuf.colorBuf + (256 - rows) * curW;
+            issueDisp(source, dims, rb[e], dims, RB_FLAGS, 0);
+        }
+        if (rows == 192) {
+            static int said;
+            if (!said) {
+                said = 1;
+                PSPNativeMemLog("[GPU3D] wide CPU blend readback: 320x192 visible rows");
+            }
         }
     } else if (rs && !sharedTgt && !direct) {
         for (int e = 0; e < eyes; e++) rbQueue(e);

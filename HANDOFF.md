@@ -1,7 +1,7 @@
 ## Wide readback on CPU-blended field frames
 
 - Recent hardware logs show BLDCNT 2144 / BLDALPHA 0709 triggering the GPU compositor’s BG0 3D blend rejection for hundreds of frames in a row. Wide GPU-direct previously copied each eye's centre to a texture even though the CPU compositor only consumed the linear readback.
-- With the existing 60 fps pipe setting, separate wide targets batch real-frame transfer commands. Recognized CPU blend fallback on the field skips the unused GPU centre copies and batches only the unchanged full-height eye readbacks. The compositor eligibility rules and pixel conversion are unchanged.
+- With the existing 60 fps pipe setting, separate wide targets batch real-frame transfer commands. Recognized CPU blend fallback on the field skips the unused GPU centre copies and batches the eye readbacks. When 60 fps strips is also on, each CPU-blended wide readback transfers only its visible 192 rows. The compositor eligibility rules and pixel conversion are unchanged.
 - Hardware A/B timing is pending. Compare with 60 fps pipe OFF and ON at the same location and slider position.
 
 ## Renderer settings and Route 34 follow-up
