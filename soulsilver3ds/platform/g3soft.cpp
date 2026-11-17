@@ -57,10 +57,13 @@ extern "C" volatile unsigned long long P3DS_VblIdleTicks;
    into SIDE pixel buffers while waiting for the worker drain (never mutates t->px/gen/raw/useF until after drain).
    Log [FRONT]. Run 889: fence+pin freezes GetTexture for ALL thread paths (not only front_ov) so thr_check
    texCrc stays 0; CRC hashes live t->gen again (c2087a3 like-for-like). Safety ignores boot 0-tris frames.
-   g3_stereo_gpu (Debug tab, default OFF): with share, skip CPU expand; End draws the right eye from the left vb
-   via g3s.v.pica (stereok * dsh * w). Vertex layout for the default path is untouched (run 887 lesson).
+   g3_stereo_gpu (Debug tab, default OFF): with share, FlushDeferred may skip CPU expand; End lazily inits g3s and
+   draws the right eye from vb[0] (stereok * dsh * w), or CPU-expands if it cannot — never an empty right eye.
+   Default V/g3.v.pica untouched. Log [G3STER] g3s ready + 60f gpuRight vs expand frame counts.
+   g3_raw_split / g3_xf_map / g3_front_bg (Debug, default OFF): next stereo wall cuts; OFF = unchanged.
    Host: tools/g3_thr_race_test.c, tools/g3_stereo_share_test.c, tools/g3_fastxform_test.c. */
 static int g3ProfCfg=-1,g3XfCfg=-1,g3WakeCfg=-1,g3ThrCheckCfg=-1,g3FastXformCfg=-1,g3TexFenceCfg=-1,g3TexSafeCfg=-1,g3StereoShareCfg=-1,g3FrontOvCfg=-1,g3StereoGpuCfg=-1;
+static int g3RawSplitCfg=-1,g3XfMapCfg=-1,g3FrontBgCfg=-1;
 /* Hot path for g3packet: 0 until g3_prof is read/on, so GeBuffer pays nothing when profiling is OFF. */
 extern "C" volatile int P3DS_G3ProfLive;
 volatile int P3DS_G3ProfLive;
@@ -82,8 +85,14 @@ extern "C" int P3DS_G3StereoShareCfg(void){if(g3StereoShareCfg<0){g3StereoShareC
 extern "C" void P3DS_SetG3StereoShare(int v){g3StereoShareCfg=v!=0;PSPNativeMemLog("[G3STER] g3_stereo_share=%d from settings",g3StereoShareCfg);}
 extern "C" int P3DS_G3FrontOvCfg(void){if(g3FrontOvCfg<0){g3FrontOvCfg=P3DS_CfgInt("g3_front_ov",0)!=0;PSPNativeMemLog("[FRONT] g3_front_ov=%d (1 = wake every job + side-buffer postvblank decode during drain; no t->px race)",g3FrontOvCfg);}return g3FrontOvCfg;}
 extern "C" void P3DS_SetG3FrontOv(int v){g3FrontOvCfg=v!=0;PSPNativeMemLog("[FRONT] g3_front_ov=%d from settings",g3FrontOvCfg);}
-extern "C" int P3DS_G3StereoGpuCfg(void){if(g3StereoGpuCfg<0){g3StereoGpuCfg=P3DS_CfgInt("g3_stereo_gpu",0)!=0;PSPNativeMemLog("[G3STER] g3_stereo_gpu=%d (1 = with share, shader right eye; default V/shader untouched)",g3StereoGpuCfg);}return g3StereoGpuCfg;}
+extern "C" int P3DS_G3StereoGpuCfg(void){if(g3StereoGpuCfg<0){g3StereoGpuCfg=P3DS_CfgInt("g3_stereo_gpu",0)!=0;PSPNativeMemLog("[G3STER] g3_stereo_gpu=%d (1 = with share, shader right eye; End inits g3s lazily; default V untouched)",g3StereoGpuCfg);}return g3StereoGpuCfg;}
 extern "C" void P3DS_SetG3StereoGpu(int v){g3StereoGpuCfg=v!=0;PSPNativeMemLog("[G3STER] g3_stereo_gpu=%d from settings",g3StereoGpuCfg);}
+extern "C" int P3DS_G3RawSplitCfg(void){if(g3RawSplitCfg<0){g3RawSplitCfg=P3DS_CfgInt("g3_raw_split",0)!=0;PSPNativeMemLog("[G3THR] g3_raw_split=%d (1 = second raw worker on core 3; OFF = one worker)",g3RawSplitCfg);}return g3RawSplitCfg;}
+extern "C" void P3DS_SetG3RawSplit(int v){g3RawSplitCfg=v!=0;PSPNativeMemLog("[G3THR] g3_raw_split=%d from settings",g3RawSplitCfg);}
+extern "C" int P3DS_G3XfMapCfg(void){if(g3XfMapCfg<0){g3XfMapCfg=P3DS_CfgInt("g3_xf_map",0)!=0;PSPNativeMemLog("[G3XF] g3_xf_map=%d (1 = xfcache static map draws too; OFF = replay-only)",g3XfMapCfg);}return g3XfMapCfg;}
+extern "C" void P3DS_SetG3XfMap(int v){g3XfMapCfg=v!=0;PSPNativeMemLog("[G3XF] g3_xf_map=%d from settings",g3XfMapCfg);}
+extern "C" int P3DS_G3FrontBgCfg(void){if(g3FrontBgCfg<0){g3FrontBgCfg=P3DS_CfgInt("g3_front_bg",0)!=0;PSPNativeMemLog("[FRONT] g3_front_bg=%d (1 = side-buffer postvblank prep during drain without wake-every; OFF = front_ov-only)",g3FrontBgCfg);}return g3FrontBgCfg;}
+extern "C" void P3DS_SetG3FrontBg(int v){g3FrontBgCfg=v!=0;PSPNativeMemLog("[FRONT] g3_front_bg=%d from settings",g3FrontBgCfg);}
 static u64 idleAtBegin,prWall,prExpand;static unsigned prFrames,prTrisSum,prXfHitSum,prXfMissSum;
 static unsigned frameHadGeom; /* Draw() saw geometry this 3D frame — front_ov safety net */
 static unsigned postReplace,postInPlace; /* tex_postvblank: replace vs in-place counts */
@@ -118,7 +127,7 @@ static void gtPinReleaseDone(void){
  __atomic_store_n(&gtPinDoneH,h,__ATOMIC_RELAXED);}
 extern "C" {int G3G_Init(void);void*G3G_TexCreate(const u32*,unsigned,unsigned);void G3G_TexFree(void*);void G3G_Begin(u32,unsigned,int);
  void G3G_Tri(int,const float*,const float*,const float*,const float*,const float*,const u32*,void*,unsigned,unsigned,int,int,int,int,int,int,int);
- void G3G_End(u32*,u32*);void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectInvalidate(void);void G3G_TexUpdate(void*,const u32*,unsigned,unsigned);int G3G_RbSyncOn(void);void G3G_TriClip(int,const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*);void G3G_TriClip2(const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*,const float*);void G3G_SetStereoShare(int);void G3G_StereoExpand(void);void G3G_StereoShareStats(unsigned*,unsigned*,unsigned*,unsigned*);void G3G_SetStereoGpu(int);int G3G_StereoGpuOn(void);int G3G_StereoPending(void);unsigned G3G_LastUs(void);unsigned G3G_LastExpandUs(void);extern int G3G_TexFlip,G3G_FlipY,G3G_ZInv,G3G_Async,G3G_Wide,G3G_CurFog,G3G_FogNoW;}
+ void G3G_End(u32*,u32*);void G3G_DirectResolve(void);void G3G_DirectResolveWhy(int);void G3G_DirectInvalidate(void);void G3G_TexUpdate(void*,const u32*,unsigned,unsigned);int G3G_RbSyncOn(void);void G3G_TriClip(int,const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*);void G3G_TriClip2(const float*,const float*,const float*,const u32*,void*,int,int,int,int,int,int,int,const float*,const float*);void G3G_SetStereoShare(int);void G3G_StereoExpand(void);void G3G_StereoShareStats(unsigned*,unsigned*,unsigned*,unsigned*);void G3G_StereoPathStats(unsigned*,unsigned*);void G3G_SetStereoGpu(int);int G3G_StereoGpuOn(void);int G3G_StereoPending(void);unsigned G3G_LastUs(void);unsigned G3G_LastExpandUs(void);extern int G3G_TexFlip,G3G_FlipY,G3G_ZInv,G3G_Async,G3G_Wide,G3G_CurFog,G3G_FogNoW;}
 /* g3_thr_texfence: refcount GPU tex pointers held by in-flight ring jobs. GetTexture must not free a pinned gt
    (that was the deep-queue white-water / ghost-billboard bug: LRU/re-decode freed a gt the worker still used). */
 enum{GT_PIN_N=128};
@@ -777,8 +786,9 @@ static void GpuRawJ(const GJob&J0){
  bool dw=!translucent||J.tdw;unsigned dtest=J.depthTest;
  const float*M=J.M;
  const unsigned xfGen=xfGenOf(sd,mid,wide,J.cullFace);
- /* g3_xfcache hit: list-cache replay with the same clip matrix as last time -> queue the stored triangles. */
- if(doXf&&J.replay&&n>=3&&!J.wbuf){
+ /* g3_xfcache hit: same clip matrix as last time -> queue the stored triangles.
+    Default: list-cache replay only. g3_xf_map also keys static map draws by the source vert pointer. */
+ if(doXf&&J.xfKey&&n>=3&&!J.wbuf){
   XfSlot&slot=xfTab[xfHash(xfKey)];
   if(slot.key==xfKey&&slot.n==n&&slot.gen==xfGen&&slot.cullFace==(unsigned)J.cullFace&&!memcmp(slot.M,M,sizeof slot.M)&&slot.base+slot.nTri<=XF_TRIS){
    xfHits++;
@@ -809,9 +819,9 @@ static void GpuRawJ(const GJob&J0){
    if(ok&&zfLo>=0.0f&&zfLo<=1.0f){sprZf=zfLo;sprN++;sprSpread+=parOf(zfMax)-parOf(zfMin);
     if(sprN==1||sprN%3000==0){PSPNativeMemLog("[SPRDEPTH] sprite quads fixed %u (skipped %u), avg parallax spread removed %.4f of the shift, feet zf %.4f, shift %d px",sprN,sprSkip,sprSpread/sprN,zfLo,sd);}}
    else sprSkip++;}
- /* optional store into xfcache: only for list-cache replay, no hard tris, and room in the arena */
+ /* optional store into xfcache: replay (or g3_xf_map), no hard tris, room in the arena */
  XfSlot*xfOut=nullptr;unsigned xfBase=0,xfNTri=0;bool xfHard=false;
- if(doXf&&J.replay&&n>=3&&!J.wbuf){
+ if(doXf&&J.xfKey&&n>=3&&!J.wbuf){
   xfMiss++;
   if(xfArenaN+n/3>XF_TRIS){xfClear();xfBase=0;}
   if(xfArenaN+n/3<=XF_TRIS){xfOut=&xfTab[xfHash(xfKey)];xfBase=xfArenaN;}}
@@ -869,15 +879,15 @@ static GuVertex scrBuf[8192];
 static int gtCfgWant=-1,gtThreadOk=0;static unsigned gtAbN;   /* g3_thread 2 = A/B test: OFF and ON alternate every 1200 3D frames (~40 s) in one session */
 enum{GT_N=1024,GT_MASK=GT_N-1,GT_ARENA=96*1024};          /* 96K verts (~2.2 MB): fewer mid-frame arena drains that reset depth */
 static GJob gtRing[GT_N];static GuVertex*gtArena;static u8*gtCmArena;static unsigned gtArenaPos,gtCmPos;
-static volatile unsigned gtHead,gtTail,gtKicked,gtSleep,gtExpandReq; /* gtExpandReq: worker runs G3G_StereoExpand after raw */
-extern "C" {int G3T_Start(void(*)(void*));void G3T_Wait(void);void G3T_Signal(void);void G3T_SleepNs(long long);void*memalign(size_t,size_t);}
+static volatile unsigned gtHead,gtTail,gtDone,gtKicked,gtSleep,gtExpandReq; /* gtDone: completed claims (g3_raw_split); gtExpandReq: worker expand */
+extern "C" {int G3T_Start(void(*)(void*));int G3T_Start2(void(*)(void*));void G3T_Wait(void);void G3T_Signal(void);void G3T_Wait2(void);void G3T_Signal2(void);void G3T_SleepNs(long long);int G3T_SplitOn(void);void*memalign(size_t,size_t);}
 extern "C" {int P3DS_BigLockDropForWait(void);void P3DS_BigLockRestoreAfterWait(int);int P3DS_BigLockDepth(void);}
 static u64 gtBusyTicks,gtWaitTicks;static unsigned gtJobs,gtDrains[6],gtFrames;static const char*const gtWhy[6]={"screen","frame","listfree","texfree","ringfull","arena"};
 extern "C" void P3DS_ThreadGuard(const char*);
 /* Conditional wake (publish path): only Signal if the worker marked itself asleep. */
-static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0)==1)G3T_Signal();}
+static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0)==1){G3T_Signal();if(G3T_SplitOn())G3T_Signal2();}}
 /* Drain/pin waits: always Signal so a lost TAS cannot leave the worker asleep with work queued (run 883). */
-static void gtWakeForce(){__sync_synchronize();__sync_lock_test_and_set(&gtSleep,0);G3T_Signal();}
+static void gtWakeForce(){__sync_synchronize();__sync_lock_test_and_set(&gtSleep,0);G3T_Signal();if(G3T_SplitOn())G3T_Signal2();}
 /* ~1 s at 268 MHz. On timeout: log, abandon queue / force-unpin, turn g3_thread OFF for the rest of the session. */
 enum{GT_WAIT_TICKS=268111856ull};
 static inline bool gtBusy();
@@ -891,27 +901,47 @@ static void gtFallbackInline(const char*why){
  if(gtBusy()){
   unsigned t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);
   __atomic_store_n(&gtHead,t,__ATOMIC_RELEASE);
+  __atomic_store_n(&gtDone,t,__ATOMIC_RELEASE);
   PSPNativeMemLog("[G3THR] force-empty queue after timeout (worker may skip leftover jobs)");}
- gtSleep=0;G3T_Signal();}
-static void gtMain(void*){P3DS_ThreadGuard("g3thread");gtInWorker=true;
+ gtSleep=0;G3T_Signal();if(G3T_SplitOn())G3T_Signal2();}
+/* Claim next job (CAS on gtHead). Returns 1 and fills *outH, or 0 if empty. */
+static int gtClaim(unsigned*outH){
  for(;;){
   unsigned h=__atomic_load_n(&gtHead,__ATOMIC_RELAXED);
-  unsigned t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE); /* acquire: see producer's ring/arena stores */
-  if(h==t){
-   /* After raw jobs: optional stereo expand on the worker so the game thread can prep front_ov side buffers. */
-   if(__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE)){
-    const u64 t0=svcGetSystemTick();G3G_StereoExpand();
-    gtBusyTicks+=svcGetSystemTick()-t0;
-    __atomic_store_n(&gtExpandReq,0,__ATOMIC_RELEASE);continue;}
-   gtSleep=1;__sync_synchronize();t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);if(h!=t){gtSleep=0;continue;}
+  unsigned t=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);
+  if(h==t)return 0;
+  if(__atomic_compare_exchange_n(&gtHead,&h,h+1,0,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED)){*outH=h;return 1;}
+ }}
+static void gtRunOne(unsigned h){
+ const u64 t0=svcGetSystemTick();
+ {const GJob J=gtRing[h&GT_MASK];if(J.screen)DrawScreenJ(J,J.v,J.n,J.deferOk);else GpuRawJ(J);
+  if(J.gt&&gtCfg&&P3DS_G3TexFenceCfg()){if(P3DS_G3TexSafeCfg())gtPinDonePush(J.gt);else gtPinRel(J.gt);}}
+ gtBusyTicks+=svcGetSystemTick()-t0;
+ __atomic_fetch_add(&gtDone,1,__ATOMIC_RELEASE);}
+static void gtTryExpand(void){
+ if(__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE)){
+  const u64 t0=svcGetSystemTick();G3G_StereoExpand();
+  gtBusyTicks+=svcGetSystemTick()-t0;
+  __atomic_store_n(&gtExpandReq,0,__ATOMIC_RELEASE);}}
+static void gtMain(void*){P3DS_ThreadGuard("g3thread");gtInWorker=true;
+ for(;;){
+  unsigned h;
+  if(!gtClaim(&h)){
+   gtTryExpand();
+   gtSleep=1;__sync_synchronize();
+   if(gtClaim(&h)){gtSleep=0;gtRunOne(h);continue;}
    if(__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE)){gtSleep=0;continue;}
    G3T_Wait();continue;}
-  const u64 t0=svcGetSystemTick();
-  {const GJob J=gtRing[h&GT_MASK];if(J.screen)DrawScreenJ(J,J.v,J.n,J.deferOk);else GpuRawJ(J);
-   /* Fence pins: release after worker by default. texsafe holds until after G3G_End (batches still sample gt). */
-   if(J.gt&&gtCfg&&P3DS_G3TexFenceCfg()){if(P3DS_G3TexSafeCfg())gtPinDonePush(J.gt);else gtPinRel(J.gt);}}
-  gtBusyTicks+=svcGetSystemTick()-t0;
-  __atomic_store_n(&gtHead,h+1,__ATOMIC_RELEASE); /* release: vb[] / batch writes visible before head advances */
+  gtRunOne(h);
+ }}
+static void gtMain2(void*){P3DS_ThreadGuard("g3thread2");gtInWorker=true;
+ for(;;){
+  unsigned h;
+  if(!gtClaim(&h)){
+   gtSleep=1;__sync_synchronize();
+   if(gtClaim(&h)){gtSleep=0;gtRunOne(h);continue;}
+   G3T_Wait2();continue;}
+  gtRunOne(h);
  }}
 /* Midpoint pairing mutates md* tables: must run on the game thread after cull, before the arena copy. */
 static void gtFinishMid(GJob&J){
@@ -923,8 +953,12 @@ static bool gtStart(){
  gtArena=(GuVertex*)memalign(16,GT_ARENA*sizeof(GuVertex));gtCmArena=(u8*)malloc(64*1024);
  bool started=false;if(gtArena&&gtCmArena)started=G3T_Start(gtMain)!=0;
  if(!started){free(gtArena);free(gtCmArena);gtArena=nullptr;gtCmArena=nullptr;gtThreadOk=-1;PSPNativeMemLog("[G3THR] worker thread could not start: g3_thread stays OFF");return false;}
+ if(P3DS_G3RawSplitCfg()){
+  if(G3T_Start2(gtMain2))PSPNativeMemLog("[G3THR] g3_raw_split: second worker on core 3");
+  else PSPNativeMemLog("[G3THR] g3_raw_split: core 3 worker failed — single worker only");}
  gtThreadOk=1;PSPNativeMemLog("[G3THR] worker thread started on core 2 (queue %d jobs, arena %u KB)",GT_N,(unsigned)(GT_ARENA*sizeof(GuVertex)>>10));return true;}
-static inline bool gtBusy(){return __atomic_load_n(&gtHead,__ATOMIC_ACQUIRE)!=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);}
+/* Busy until every claimed job has finished (gtDone), not merely claimed (gtHead). */
+static inline bool gtBusy(){return __atomic_load_n(&gtDone,__ATOMIC_ACQUIRE)!=__atomic_load_n(&gtTail,__ATOMIC_ACQUIRE);}
 extern "C" int P3DS_G3ThrBusy(void){return gtCfg&&(gtBusy()||__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE));}
 /* Spin/sleep until pred(); drop big lock around the wait. Returns 0 on timeout (fallback already applied if fallBack). */
 static int gtWaitLoop(int(*pred)(void*),void*arg,const char*why,int fallBack){
@@ -969,7 +1003,7 @@ static void gtWaitPinned(void*gt){
   PSPNativeMemLog("[G3THR] pin wait timeout gt=%p: force-unpinned",gt);}}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n){
  extern int P3DS_InField,P3DS_InBattle;
- J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=J.replay?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
+ J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=(J.replay||P3DS_G3XfMapCfg())?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
  memcpy(J.M,rawM,sizeof J.M);J.cullAll=cullAll;J.cullFace=cullFace;J.fog=s_curPolygonAttr.fogEnable?1:0;J.depthTest=s_curPolygonAttr.depthTest;
  J.tp=s_texImageParam;J.tdw=s_SIM_transDepthWrite!=0;J.wbuf=wbufOn();J.tex=nullptr;J.gt=nullptr;J.hasTex=false;J.tw=J.th=0;J.texGen=0;J.texGpuGen=0;J.texCrc=0;J.chunked=false;J.cmask=nullptr;J.screen=false;J.deferOk=false;
  J.hasK=false;J.sprDepth=P3DS_SpriteDepthCfg()!=0;J.cull3d=cull3dCfg();J.cpuClip=gpuCpuClip()!=0;J.guardClip=guardClip()!=0;J.guardBat=guardBattle();
@@ -1002,11 +1036,11 @@ static void gtPush(GJob&J,bool chunked){
     MPCore the worker must not race the game thread's next use of that pointer, and a fresh arena write pairs with the
     publish barrier below. xfKey keeps the list identity for g3_xfcache. */
  const unsigned nc = chunked ? (J.n + kChunkV - 1) / kChunkV : 0;
- unsigned head = __atomic_load_n(&gtHead, __ATOMIC_ACQUIRE);
+ unsigned done = __atomic_load_n(&gtDone, __ATOMIC_ACQUIRE);
  unsigned tail = __atomic_load_n(&gtTail, __ATOMIC_RELAXED);
- /* A drain rewinds both arenas. Reserve ring + arenas before any copy; re-read tail after a drain. */
- if (tail - head >= GT_N) { gtDrain(4); head = __atomic_load_n(&gtHead, __ATOMIC_ACQUIRE); tail = __atomic_load_n(&gtTail, __ATOMIC_RELAXED); }
- else if (gtArenaPos + J.n > GT_ARENA || gtCmPos + nc > 64 * 1024) { gtDrain(5); head = __atomic_load_n(&gtHead, __ATOMIC_ACQUIRE); tail = __atomic_load_n(&gtTail, __ATOMIC_RELAXED); }
+ /* Ring full vs completed jobs (gtDone), not claimed (gtHead): a claimed slot is still live until gtRunOne finishes. */
+ if (tail - done >= GT_N) { gtDrain(4); done = __atomic_load_n(&gtDone, __ATOMIC_ACQUIRE); tail = __atomic_load_n(&gtTail, __ATOMIC_RELAXED); }
+ else if (gtArenaPos + J.n > GT_ARENA || gtCmPos + nc > 64 * 1024) { gtDrain(5); done = __atomic_load_n(&gtDone, __ATOMIC_ACQUIRE); tail = __atomic_load_n(&gtTail, __ATOMIC_RELAXED); }
  if (J.n) {
   GuVertex *dst = gtArena + gtArenaPos;
   memcpy(dst, J.v, J.n * sizeof(GuVertex));
@@ -1166,15 +1200,17 @@ void G3SIM_FlushDeferred(){
  /* Worker expand after raw unless GPU stereo skips expand (shader right eye). */
  if(shareOn&&!stereoGpu&&gtCfg&&G3G_StereoPending()){
   __atomic_store_n(&gtExpandReq,1,__ATOMIC_RELEASE);gtWakeForce();}
- /* g3_front_ov: side-buffer decode while worker finishes raw (+ optional expand). */
- if(frontOv&&(gtBusy()||__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE))&&gpuOn==1&&!G3G_Async&&G3G_RbSyncOn()&&postVblCfg()){
-  gtWakeForce();
-  const u64 tp0=svcGetSystemTick();unsigned did=0;
-  for(unsigned i=0;i<usedN;i++){
-   if(!gtBusy()&&!__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE))break;
-   if(postVblPrepOne(usedTex[i]))did++;}
-  frontOvPrepUs+=(unsigned)((svcGetSystemTick()-tp0)/268);frontOvPrepN+=did;if(did)frontOvFrames++;
- }
+ /* g3_front_ov / g3_front_bg: side-buffer decode while worker finishes raw (+ optional expand).
+    front_bg = prep only (no wake-every / freeze-all); front_ov also wakes every job. */
+ {const int frontPrep=frontOv||(gtCfg&&P3DS_G3FrontBgCfg());
+  if(frontPrep&&(gtBusy()||__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE))&&gpuOn==1&&!G3G_Async&&G3G_RbSyncOn()&&postVblCfg()){
+   if(frontOv)gtWakeForce();
+   const u64 tp0=svcGetSystemTick();unsigned did=0;
+   for(unsigned i=0;i<usedN;i++){
+    if(!gtBusy()&&!__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE))break;
+    if(postVblPrepOne(usedTex[i]))did++;}
+   frontOvPrepUs+=(unsigned)((svcGetSystemTick()-tp0)/268);frontOvPrepN+=did;if(did)frontOvFrames++;
+  }}
  gtDrain(1);gtFrameStats();
  /* Clear freeze after drain (pins may still be held until End under texsafe; GpuRawJ CRC is done). */
  for(unsigned i=0;i<texN;i++)texCache[i].freeze=0;
@@ -1189,9 +1225,10 @@ void G3SIM_FlushDeferred(){
   unsigned a=0,b=0,c=0,d=0;G3G_StereoShareStats(&a,&b,&c,&d);
   accL+=a;accD+=b;accE+=c;accV+=d;accExpUs+=expUs;
   if(++accN>=60){
+   /* Path counts (gpuRight vs cpuExpand) are logged after End — see sterPathAcc below. */
    if(accL|accD|accE|stereoGpu)
     PSPNativeMemLog("[G3STER] 60f: leftOnly %u tris, dual %u, expands %u (%u verts)%s | expand %u us/f — want leftOnly>>dual",
-     accL,accD,accE,accV,stereoGpu?" [gpu right]":"",accExpUs/accN);
+     accL,accD,accE,accV,stereoGpu?" [want gpu]":"",accExpUs/accN);
    accL=accD=accE=accV=accN=accExpUs=0;}}
  G3SIM_TexImageParam_t save=s_texImageParam;
  const int fogSave=G3G_CurFog;
@@ -1226,7 +1263,14 @@ void G3SIM_FlushDeferred(){
   fl();memcpy(prv,cur,cn*sizeof(E));pn=cn;}}
  usedN=0;
  if(doProf)prFlush+=svcGetSystemTick()-tFlush0;
- if(gpuOn==1){u64 t=doProf?svcGetSystemTick():0;G3G_FogNoW=!wbufOn();G3G_MidInfo(mdTot,mdMat,mdMov);G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);if(doProf){prEnd+=svcGetSystemTick()-t;prN++;}}
+ if(gpuOn==1){u64 t=doProf?svcGetSystemTick():0;G3G_FogNoW=!wbufOn();G3G_MidInfo(mdTot,mdMat,mdMov);G3G_End(GPU3D::NativeFrame,stereoSd?frameR:nullptr);if(doProf){prEnd+=svcGetSystemTick()-t;prN++;}
+  /* After End: count frames that took shader right eye vs CPU expand under stereo_gpu want. */
+  {static unsigned accGR,accCE,accPN;
+   unsigned gr=0,ce=0;G3G_StereoPathStats(&gr,&ce);accGR+=gr;accCE+=ce;
+   if(++accPN>=60){if(accGR|accCE|P3DS_G3StereoGpuCfg())
+     PSPNativeMemLog("[G3STER] 60f path: gpuRight %u frames, cpuExpand %u frames (want=%d) — want gpuRight>>cpuExpand when stereo_gpu ON",
+      accGR,accCE,P3DS_G3StereoGpuCfg());
+    accGR=accCE=accPN=0;}}}
  /* Safety: front_ov on + geometry submitted but 0 tris after we have already drawn successfully this
     session → blank top risk (run 887). Ignore title/boot frames that legitimately submit then cull to 0
     (run 889 false trip turned front_ov off and exposed texCrc). */
@@ -1266,7 +1310,7 @@ void G3SIM_FlushDeferred(){
      frameUs,idleUs,frontUs,waitUs,cmdUs,rawUs,U(prCull),U(prPair),U(prXform),U(prClip),U(prQueue),U(prTex),flushUs,expUs,endUs,
      prTrisSum/n,prXfHitSum/n,prXfMissSum/n);
     if(stereoSd)
-     PSPNativeMemLog("[G3STER] 60f stages us: expand %u | end %u | front %u | raw %u | flush %u | wait %u | idle %u | wall %u | gpuRight %d | tris %u",
+     PSPNativeMemLog("[G3STER] 60f stages us: expand %u | end %u | front %u | raw %u | flush %u | wait %u | idle %u | wall %u | wantGpu %d | tris %u",
       expUs,endUs,frontUs,rawUs,flushUs,waitUs,idleUs,frameUs,P3DS_G3StereoGpuCfg(),prTrisSum/n);
     prCull=prPair=prXform=prClip=prQueue=prTex=prRaw=prEnd=prFlush=prIdle=prCmd=prWall=prExpand=0;prN=0;prFrames=prTrisSum=prXfHitSum=prXfMissSum=0;}
   }

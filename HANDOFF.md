@@ -1,3 +1,39 @@
+# Stereo GPU fix + next wall cuts (after #501 / eedf0f0)
+
+Hardware on main `eedf0f0`: thr_check **0 texCrc** (~100k+ jobs, front_ov=1). Azahar mismatches look emu-only.
+
+## Stereo GPU bug (fixed)
+
+With `g3_stereo_gpu=1` from boot (share+front_ov+slider up): 3D flashed each eye then stereo died. Log never showed `g3s shader ready` / `unavailable` / `[gpu right]`. After Settings OFF, stages showed `gpuRight 0` (that field was the **cfg**, not the path).
+
+**Root cause (plain):** FlushDeferred skipped CPU expand whenever the **config** bit was on, but `G3G_End` only used the shader right-eye path when more conditions held (left-only `vn[1]==0`, pending, not mid/K, shader ready). When they disagreed — or when hard-clip/`G3G_Tri` expanded mid-frame — the right eye drew empty/partial → flash / stereo gone. Shader init also ran from FlushDeferred (too early); readiness logs often never appeared.
+
+**Fix:** End lazily inits `g3s` on first use; if it cannot take gpuRight it **always** CPU-expands when pending. 60f log: `gpuRight N frames, cpuExpand M frames`. Default V/shaders untouched.
+
+## Next wall cuts (Debug, default OFF)
+
+Stereo wall still ~23–24 ms (raw 10–17, front 1–7, expand 1–2). New toggles:
+
+| Key | What |
+|---|---|
+| `g3_raw_split` | second raw worker on core 3 |
+| `g3_xf_map` | xfcache for static map draws (not only list-cache replay) |
+| `g3_front_bg` | side-buffer postvblank prep during drain without wake-every |
+
+## Device A/B
+
+Base: `g3_thread=1 g3_wake=1 g3_thr_check=1 g3_fastxform=1 g3_xfcache=1 g3_prof=1 g3_thr_texfence=2 g3_thr_texsafe=1 g3_stereo_share=1 present_pace=1 g3_front_ov=1` (slider up).
+
+| Trial | Expect |
+|---|---|
+| `g3_stereo_gpu=1` only | `[G3STER] g3s shader ready`; `60f path: gpuRight >> cpuExpand`; same picture as share alone; expand ~0 when gpuRight |
+| + `g3_raw_split=1` | `[G3THR] g3_raw_split`; lower raw / wall |
+| + `g3_xf_map=1` | `[G3XF]` hits up when camera still |
+| + `g3_front_bg=1` | `[FRONT]` prep without wake-every; lower front |
+| all new OFF | same as eedf0f0 |
+
+---
+
 # Run 889 front_ov check regression (after #500 / 70fae58)
 
 Azahar run 889 on main `70fae58`: with `front_ov=0`, `[G3THR] check` reports **texCrc** (18,006 jobs / 2 mismatches and 17,947 / 1; all texCrc, 0 flashRisk). Same walk on `c2087a3` (run 888) was **0** / 19,220. With `front_ov=1`: 2 texCrc plus `[FRONT] safety: 0 tris after geometry submit` during boot. With `g3_stereo_gpu=1`: 3 more texCrc.

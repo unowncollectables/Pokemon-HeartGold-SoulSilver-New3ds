@@ -13,6 +13,7 @@
 extern int P3DS_GpuInit(void);
 extern void PSPNativeMemLog(const char *, ...);
 extern void P3DS_FrameEnd(void);  /* gpuscale.c: C3D_FrameEnd, lean flush with fps_tweaks >= 1 */
+extern void G3T_VbLock(void); extern void G3T_VbUnlock(void); /* g3_raw_split: serialise vb appends */
 typedef struct { float x, y, z, w, s, t, r, g, b, a; } V;
 typedef struct { C3D_Tex *tex; int wrapS, wrapT, blend, dwrite, dfunc, late, fog; unsigned first, count; } B;
 /* 2026-10-25: 3*8192 -> 3*16384 (+1 MiB linear per eye) for the removed GPU SPLIT mode; kept at 3*16384 until a device test shows 3*8192 is enough again. */
@@ -531,7 +532,9 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
                  int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shiftPx) {
     G3G_StereoExpand(); /* pending share must land before any single-eye write */
     if (G3G_MidRec && !kCurWant) { krStart(kWantId ? NULL : kWant); kCurWant = 1; }
-    B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend); if (!last) return;
+    G3T_VbLock();
+    B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend);
+    if (!last) { G3T_VbUnlock(); return; }
     const float *L = lut255();
     for (int k = 0; k < 3; k++) {
         V *o = &vb[eye][vn[eye]++]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
@@ -543,6 +546,7 @@ void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, cons
         u32 cc = col[k]; o->r = L[cc & 255]; o->g = L[(cc >> 8) & 255]; o->b = L[(cc >> 16) & 255]; o->a = L[cc >> 24];
     }
     last->count += 3;
+    G3T_VbUnlock();
 }
 /* 2026-11-04 (solid-30 fps thread): both eyes of a stereo raw triangle in one pass. Same values as two G3G_TriClip calls (only x
    differs between the eyes), but y, z, uv and colour are worked out once instead of twice.
@@ -556,32 +560,46 @@ void G3G_SetStereoShare(int on) {
     if (!on) __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE);
 }
 /* g3_stereo_gpu: isolated path — default V / g3.v.pica / AttrInfo 4-2-4 never change (run 887).
-   When ON + share left-only: skip CPU expand; End draws both eyes from vb[0] with g3s + stereok * dsh * w. */
-static int stereoGpuOn, stereoGpuSaid;
+   When ON + share left-only: FlushDeferred may skip CPU expand; End lazily inits g3s and draws both eyes
+   from vb[0] with stereok * dsh * w. If End cannot take that path (mid/K, hard-clip filled eye 1, shader
+   fail), it expands first — never leave the right eye empty (hw run after #501: flash / stereo died). */
+static int stereoGpuWant; /* FlushDeferred: cfg+share this frame — skip game-thread expand, leave pending for End */
+static int stereoGpuSaid, stereoGpuFailSaid;
 static DVLB_s *dvlbS; static shaderProgram_s progS; static int uStereoK = -1, progSOk;
+static unsigned stereoGpuRightN, stereoGpuExpandN; /* frames that took each path (summed into 60f stage log) */
 static int stereoGpuEnsure(void) {
     if (progSOk) return 1;
     dvlbS = DVLB_ParseFile((u32 *)g3s_shbin, g3s_shbin_size);
-    if (!dvlbS) { PSPNativeMemLog("[G3STER] g3s shader parse FAILED: stereo_gpu stays CPU expand"); return 0; }
+    if (!dvlbS) {
+        if (!stereoGpuFailSaid) { stereoGpuFailSaid = 1; PSPNativeMemLog("[G3STER] g3s shader parse FAILED: stereo_gpu stays CPU expand"); }
+        return 0;
+    }
     shaderProgramInit(&progS); shaderProgramSetVsh(&progS, &dvlbS->DVLE[0]);
     uStereoK = shaderInstanceGetUniformLocation(progS.vertexShader, "stereok");
-    if (uStereoK < 0) { PSPNativeMemLog("[G3STER] g3s stereok uniform missing: stereo_gpu stays CPU expand"); return 0; }
+    if (uStereoK < 0) {
+        if (!stereoGpuFailSaid) { stereoGpuFailSaid = 1; PSPNativeMemLog("[G3STER] g3s stereok uniform missing: stereo_gpu stays CPU expand"); }
+        return 0;
+    }
     progSOk = 1; PSPNativeMemLog("[G3STER] g3s shader ready (stereo_gpu path; default g3 untouched)");
     return 1;
 }
 void G3G_SetStereoGpu(int on) {
-    stereoGpuOn = on != 0 && stereoGpuEnsure();
-    if (on && !stereoGpuOn && !stereoGpuSaid) {
+    /* Want only — do not parse/bind g3s here (may run before the first C3D frame). End ensures lazily. */
+    const int was = stereoGpuWant;
+    stereoGpuWant = on != 0;
+    if (stereoGpuWant && !was && !stereoGpuSaid) {
         stereoGpuSaid = 1;
-        PSPNativeMemLog("[G3STER] g3_stereo_gpu requested but shader unavailable — CPU expand");
-    } else if (stereoGpuOn && !stereoGpuSaid) {
-        stereoGpuSaid = 1;
-        PSPNativeMemLog("[G3STER] g3_stereo_gpu ON: shader right eye, CPU expand skipped when share left-only");
+        PSPNativeMemLog("[G3STER] g3_stereo_gpu ON: End will use shader right eye when left-only; else CPU expand");
     }
 }
-int G3G_StereoGpuOn(void) { return stereoGpuOn; }
+int G3G_StereoGpuOn(void) { return stereoGpuWant; }
 int G3G_StereoPending(void) { return __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE); }
 unsigned G3G_LastExpandUs(void) { return lastExpandUs; }
+void G3G_StereoPathStats(unsigned *gpuRight, unsigned *cpuExpand) {
+    if (gpuRight) *gpuRight = stereoGpuRightN;
+    if (cpuExpand) *cpuExpand = stereoGpuExpandN;
+    stereoGpuRightN = stereoGpuExpandN = 0;
+}
 void G3G_StereoShareStats(unsigned *leftTris, unsigned *dualTris, unsigned *expands, unsigned *expVerts) {
     if (leftTris) *leftTris = stereoShareTris;
     if (dualTris) *dualTris = stereoDualTris;
@@ -591,7 +609,8 @@ void G3G_StereoShareStats(unsigned *leftTris, unsigned *dualTris, unsigned *expa
 }
 void G3G_StereoExpand(void) {
     if (!__atomic_load_n(&stereoShareOn, __ATOMIC_ACQUIRE) || !stereoDsh || !__atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) return;
-    if (vn[0] > MAXV || bn[0] > MAXB) return;
+    G3T_VbLock();
+    if (!__atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE) || vn[0] > MAXV || bn[0] > MAXB) { G3T_VbUnlock(); return; }
     const u64 t0 = svcGetSystemTick();
     const float scale = wideFrame ? 0.8f : 1.0f;
     const unsigned v0 = vn[1], b0 = bn[1];
@@ -605,11 +624,14 @@ void G3G_StereoExpand(void) {
     if (bn[0] > b0) memcpy(bt[1] + b0, bt[0] + b0, (bn[0] - b0) * sizeof(B));
     vn[1] = vn[0]; bn[1] = bn[0];
     __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE); stereoShareExpands++;
+    if (stereoGpuWant) stereoGpuExpandN++; /* wanted gpu right but took CPU expand (mid/hard-clip/fallback) */
     lastExpandUs = (unsigned)((svcGetSystemTick() - t0) / 268);
+    G3T_VbUnlock();
 }
 void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                   int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shL, const float *shR) {
     if (G3G_MidRec && !kCurWant) { krStart(kWantId ? NULL : kWant); kCurWant = 1; }
+    G3T_VbLock();
     if (__atomic_load_n(&stereoShareOn, __ATOMIC_ACQUIRE)) {
         if (!stereoDsh) {
             stereoDsh = (float *)malloc(MAXV * sizeof(float));
@@ -623,7 +645,7 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
         }
         if (stereoDsh && vn[0] + 3 <= MAXV) {
             B *l0 = batchFor(0, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend);
-            if (!l0) return;
+            if (!l0) { G3T_VbUnlock(); return; }
             const float *L = lut255();
             for (int k = 0; k < 3; k++) {
                 V *o = &vb[0][vn[0]]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
@@ -636,12 +658,18 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
                 stereoDsh[vn[0]] = shR[k] - shL[k];
                 vn[0]++;
             }
-            l0->count += 3; stereoShareTris++; __atomic_store_n(&stereoPending, 1, __ATOMIC_RELEASE); return;
+            l0->count += 3; stereoShareTris++; __atomic_store_n(&stereoPending, 1, __ATOMIC_RELEASE);
+            G3T_VbUnlock(); return;
         }
     }
     stereoDualTris++;
     B *l0 = batchFor(0, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend), *l1 = batchFor(1, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, blend);
-    if (!l0 || !l1) { if (l0) { G3G_TriClip(0, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shL); } if (l1) G3G_TriClip(1, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shR); return; }
+    if (!l0 || !l1) {
+        G3T_VbUnlock();
+        if (l0) G3G_TriClip(0, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shL);
+        if (l1) G3G_TriClip(1, c, su, sv, col, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, shR);
+        return;
+    }
     const float *L = lut255();
     for (int k = 0; k < 3; k++) {
         V *o = &vb[0][vn[0]++], *q = &vb[1][vn[1]++]; float x = c[4 * k], y = c[4 * k + 1], z = c[4 * k + 2], w = c[4 * k + 3];
@@ -654,13 +682,16 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
         q->y = o->y; q->z = o->z; q->w = w; q->s = o->s; q->t = o->t; q->r = o->r; q->g = o->g; q->b = o->b; q->a = o->a;
     }
     l0->count += 3; l1->count += 3;
+    G3T_VbUnlock();
 }
 /* v: 3 x {sx, sy, z(0..65535), u(texels), v(texels), color RGBA8 as u32 R|G<<8|B<<16|A<<24} */
 void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const float *su, const float *sv, const u32 *col,
              void *tex, unsigned tw, unsigned th, int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest) {
     G3G_StereoExpand(); /* expand share before hard-clip / any screen-space write (either eye) */
     if (G3G_MidRec && !kWantId && kCurWant) { krStart(NULL); kCurWant = 0; }   /* screen-space triangle (CPU-clipped): same place in both pictures */
-    B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, 0); if (!last) return;
+    G3T_VbLock();
+    B *last = batchFor(eye, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, 0);
+    if (!last) { G3T_VbUnlock(); return; }
     float itw = tw ? 1.0f / tw : 0, ith = th ? 1.0f / th : 0; const float *L = lut255();
     for (int k = 0; k < 3; k++) {
         V *o = &vb[eye][vn[eye]++]; float z = sz[k] / 65535.0f; if (z < 0) z = 0; if (z > 1) z = 1;
@@ -669,6 +700,7 @@ void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const f
         u32 c = col[k]; o->r = L[c & 255]; o->g = L[(c >> 8) & 255]; o->b = L[(c >> 16) & 255]; o->a = L[c >> 24];
     }
     last->count += 3;
+    G3T_VbUnlock();
 }
 static unsigned lastUs;
 unsigned G3G_LastUs(void) { return lastUs; }
@@ -975,17 +1007,20 @@ void G3G_End(u32 *outL, u32 *outR) {
         else if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
         else if (!midTot || !midMov) G3G_MidWhy[3]++; else if (midMat * 4 < midTot * 3) G3G_MidWhy[4]++; else mid = 1;
     }
-    /* g3_stereo_gpu: left-only share — draw right from vb[0] via g3s. Mid/K needs both eye tables → CPU expand. */
+    /* g3_stereo_gpu: left-only share → shader right eye. Else always CPU-expand if still pending
+       (FlushDeferred skipped expand when want was set; hard-clip/G3G_Tri may already have expanded). */
     int gpuRight = 0;
-    if (stereoGpuOn && eyes == 2 && stereoDsh && vn[0] && bn[0] && vn[1] == 0 &&
-        __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) {
-        if (mid) G3G_StereoExpand();
-        else {
+    if (stereoGpuWant && eyes == 2 && stereoDsh && vn[0] && bn[0] && vn[1] == 0 &&
+        __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE) && !mid) {
+        if (stereoGpuEnsure()) {
             gpuRight = 1;
             GSPGPU_FlushDataCache(stereoDsh, vn[0] * sizeof(float));
             __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE);
+            stereoGpuRightN++;
         }
     }
+    if (!gpuRight && __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE))
+        G3G_StereoExpand(); /* counts stereoGpuExpandN when want */
     if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
         const unsigned tot = vn[0] + vn[1];
         if (tot == 0 && fogFrame == 0 && !ruVerify && !direct) {
