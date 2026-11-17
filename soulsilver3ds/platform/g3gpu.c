@@ -585,7 +585,7 @@ void G3G_SetStereoShare(int on) {
    in 60f path log (hw e8900f9: path flipped ~half the frames → right eye jump). */
 static int stereoGpuWant; /* FlushDeferred: cfg+share this frame — skip game-thread expand, leave pending for End */
 static int stereoGpuSaid, stereoGpuFailSaid;
-static DVLB_s *dvlbS; static shaderProgram_s progS; static int uStereoK = -1, progSOk;
+static DVLB_s *dvlbS; static shaderProgram_s progS; static int uStereoK = -1, uKS = -1, progSOk;
 static unsigned stereoGpuRightN, stereoGpuExpandN; /* frames that took each path (summed into 60f stage log) */
 /* Fallback reason counts (cpuExpand frames only): mid skipped so unused; eye1 = dual/overflow; nopend;
    noshad; nogeom; eyes. */
@@ -600,7 +600,8 @@ static int stereoGpuEnsure(void) {
     }
     shaderProgramInit(&progS); shaderProgramSetVsh(&progS, &dvlbS->DVLE[0]);
     uStereoK = shaderInstanceGetUniformLocation(progS.vertexShader, "stereok");
-    if (uStereoK < 0) {
+    uKS = shaderInstanceGetUniformLocation(progS.vertexShader, "kmtx");
+    if (uStereoK < 0 || uKS < 0) {
         if (!stereoGpuFailSaid) { stereoGpuFailSaid = 1; PSPNativeMemLog("[G3STER] g3s stereok uniform missing: stereo_gpu stays CPU expand"); }
         return 0;
     }
@@ -1103,7 +1104,6 @@ void G3G_End(u32 *outL, u32 *outR) {
         else if (vn[1] != 0 || bn[1] != 0) sterWhy = STER_WHY_EYE1; /* dual TriClip2 overflow / legacy expand */
         else if (!pend0) sterWhy = STER_WHY_NOPEND;
         else {
-            if (mid) mid = 0; /* prefer stable gpuRight over mid in-between */
             if (stereoGpuEnsure()) {
                 gpuRight = 1;
                 memcpy(stereoDshLin, stereoDsh, vn[0] * sizeof(float));
@@ -1192,6 +1192,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         if (gpuRight) {
             C3D_BindProgram(&progS);
             C3D_FVUnifSet(GPU_VERTEX_SHADER, uStereoK, e ? (stereoScale / 128.0f) : 0.0f, 0, 0, 0);
+            for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uKS + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]); /* real frame: identity (also resets the last in-between K) */
         } else if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
         if (!ph && !gpuRight) for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]);
         if (!depthLin) C3D_RenderTargetClear(tgt[e], C3D_CLEAR_ALL, fogFrame == 1 ? fogClr : clearRGBA, depth16 ? (u32)(clearD * 0xFFFF) : ((u32)(clearD * 0xFFFFFF) | (fogFrame == 2 && (*(const u16 *)(PSPNative_GfxRegisters + 0x350) & 0x8000) ? 0x01000000u : 0)));
@@ -1226,11 +1227,12 @@ void G3G_End(u32 *outL, u32 *outR) {
             if (ph) { C3D_DrawArrays(GPU_TRIANGLES, b->first, b->count); continue; }
             /* in-between picture: the batch in pieces, one per run of vertices that share K */
             unsigned a = b->first; const unsigned end = b->first + b->count;
-            unsigned lo = 0, hi = krN - 1; while (lo < hi) { const unsigned m = (lo + hi + 1) / 2; if (kr[m].v0[e] <= a) lo = m; else hi = m - 1; }
+            const int ge = gpuRight ? 0 : e; /* gpuRight draws vb[0] for both eyes, so the runs recorded on eye 0 apply */
+            unsigned lo = 0, hi = krN - 1; while (lo < hi) { const unsigned m = (lo + hi + 1) / 2; if (kr[m].v0[ge] <= a) lo = m; else hi = m - 1; }
             for (unsigned r = lo; a < end; r++) {
-                while (r + 1 < krN && kr[r + 1].v0[e] <= a) r++;
-                const unsigned stop = (r + 1 < krN && kr[r + 1].v0[e] < end) ? kr[r + 1].v0[e] : end;
-                if ((int)r != kSet) { kSet = (int)r; const float *k = kr[r].k; for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, k[i], k[4 + i], k[8 + i], k[12 + i]); }
+                while (r + 1 < krN && kr[r + 1].v0[ge] <= a) r++;
+                const unsigned stop = (r + 1 < krN && kr[r + 1].v0[ge] < end) ? kr[r + 1].v0[ge] : end;
+                if ((int)r != kSet) { kSet = (int)r; const float *k = kr[r].k; const int uk = gpuRight ? uKS : uK; for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uk + i, k[i], k[4 + i], k[8 + i], k[12 + i]); }
                 C3D_DrawArrays(GPU_TRIANGLES, a, stop - a); a = stop; }
         }
         if (fogFrame == 1) C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
