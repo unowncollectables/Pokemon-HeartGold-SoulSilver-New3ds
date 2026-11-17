@@ -274,6 +274,8 @@ static int folLoadSlot(int sl,int spr,int shiny){
  FILE*f=fopen(FOL_PATH,"rb");bool ok=f&&!fseek(f,off,SEEK_SET)&&fread(b,1,n,f)==n;if(f)fclose(f);
  if(!ok){free(b);PSPNativeMemLog("[FOL] read fail spr %d",spr);return 0;}
  const u8*pp=b+8*fs+(shiny?32:0);u16 pal[16];for(int i=0;i<16;i++)pal[i]=pp[i*2]|pp[i*2+1]<<8;
+ // Replacing a slot mutates the CPU pixels the worker may still read.
+ gtDrainIfBusy(3);
  for(int k=0;k<8;k++){Tex&t=folTex[sl*8+k];if(!t.px||t.w!=w){free(t.px);t.px=(u32*)malloc(w*h*4);}if(!t.px){free(b);return 0;}
   const u8*s=b+k*fs;for(unsigned i=0;i<w*h;i++){unsigned ix=(s[i>>1]>>((i&1)*4))&15;t.px[i]=ix?c555(pal[ix],255):0;}
   texFree(t.gt);t.gt=nullptr;t.off=0x7FFF8-sl*8;t.pal=0x1FF00+k*16;t.fmt=3;t.w=w;t.h=h;t.c0=1;t.gen=0;t.raw=nullptr;t.rawN=0;}
@@ -284,7 +286,13 @@ extern "C" int P3DS_WildLoad(int sl,int spr,int shiny){return sl>=1&&sl<=7?folLo
 extern "C" void *P3DS_WildMemV2(void){static u32 m[144];return m;}
 /* winFlag of the last battle, set by the game hook in encounter.c (sub_02050724); a visible one the player ran from stays */
 extern "C" {volatile int P3DS_WildBattleResult=-1;}
-extern "C" void P3DS_WildFree(int sl){if(sl<1||sl>7)return;for(int k=0;k<8;k++){Tex&t=folTex[sl*8+k];texFree(t.gt);t.gt=nullptr;free(t.px);t.px=nullptr;}folCurS[sl]=-1;}
+extern "C" void P3DS_WildFree(int sl){
+ if(sl<1||sl>7)return;
+ // GPU pins defer the GPU free through End. Drain the jobs before freeing CPU pixels.
+ gtDrainIfBusy(3);
+ for(int k=0;k<8;k++){Tex&t=folTex[sl*8+k];texFree(t.gt);t.gt=nullptr;free(t.px);t.px=nullptr;}
+ folCurS[sl]=-1;
+}
 static inline Tex*folLookup(const G3SIM_TexImageParam_t&p){if(p.textureOffset>0x7FFF8||p.textureOffset<0x7FFC0||p.textureFormat!=3||(s_texPlttBase&~0x70u)!=0x1FF00)return nullptr;Tex*t=&folTex[((0x7FFF8-p.textureOffset)/8)*8+((s_texPlttBase>>4)&7)];return t->px?t:nullptr;}
 static Tex*GetTextureImpl(){
  const auto&p=s_texImageParam;unsigned fmt=p.textureFormat;if(!fmt)return nullptr;
