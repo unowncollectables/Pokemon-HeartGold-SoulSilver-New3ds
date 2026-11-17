@@ -3,8 +3,11 @@
 ## Black top with 3D front overlap (run 887)
 `g3_front_ov=1` on main after #498 blanked the top screen from boot. The always-on stereo-GPU vertex/shader change is reverted; front overlap stays race-free with a session auto-OFF if a frame draws no tris after geometry was submitted. Platform rebuild; device retest pending.
 
+## Front overlap check regression (run 889)
+After #500, `front_ov=0` thr_check showed rare texCrc (0 on c2087a3). Cause: GetTexture could still redecode under a fence pin; freeze was front_ov-only and the check formula changed. Fixed by freezing on any fence pin, restoring the live-gen CRC, and ignoring legit boot 0-tris in the front_ov safety net. `stereo_gpu` texCrc was the same race. Platform rebuild; device retest pending.
+
 ## Front overlap texCrc + stereo GPU (run 888)
-`g3_front_ov=1` still had rare texCrc mismatches; those are fixed (freeze pinned textures; check uses submit-time gen). `g3_stereo_gpu` is an isolated shader path again (default layout untouched) to cut stereo expand cost. Platform rebuild; hardware A/B pending.
+`g3_front_ov=1` still had rare texCrc mismatches; #500 froze pinned textures under front_ov and used submit-time gen (superseded by run 889). `g3_stereo_gpu` is an isolated shader path (default layout untouched). Platform rebuild; hardware A/B pending.
 
 ## Built-in settings
 

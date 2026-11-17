@@ -1,30 +1,43 @@
-# Run 888 front_ov texCrc + isolated stereo_gpu (after #499 / c2087a3)
+# Run 889 front_ov check regression (after #500 / 70fae58)
 
-Emulator run 888 on main: `front_ov=0` → 0 mismatches / 19220 jobs, clean exit, 3D back. `front_ov=1` → 1–2 **texCrc** per ~17–18k jobs (0 flashRisk, no safety line). Full-slider stereo ~29–31 fps (mono ~55); share engaged (leftOnly).
+Azahar run 889 on main `70fae58`: with `front_ov=0`, `[G3THR] check` reports **texCrc** (18,006 jobs / 2 mismatches and 17,947 / 1; all texCrc, 0 flashRisk). Same walk on `c2087a3` (run 888) was **0** / 19,220. With `front_ov=1`: 2 texCrc plus `[FRONT] safety: 0 tris after geometry submit` during boot. With `g3_stereo_gpu=1`: 3 more texCrc.
 
-## Remaining texCrc (fixed)
+## Root cause (plain)
 
-Side buffers already kept `t->px` stable during prep. Remaining mismatches: **GetTextureImpl could still bump `t->gen` / redecode `t->px` while a job’s gt was pinned** (DEEP fence), and the check hashed **live** `t->gen`. Fix (front_ov ON only for freeze so OFF stays identical):
+1. **Real race, not a check false positive.** Fence pins only stop GPU *free*; `GetTextureImpl` could still redecode / bump `gen` / replace `px` while a worker job CRCs the live `Tex`. #500 froze that path only when `front_ov=1`, and changed the CRC to hash submit-time `gen` (genSnap) always — so `front_ov=0` was **not** identical to c2087a3, and the px race could still trip texCrc. `stereo_gpu` only changes drain/expand timing; same race.
+2. **Safety false trip.** Boot/title can submit 3D that culls to 0 tris. Safety treated that as “blank top” and turned `front_ov` OFF for the session, so the rest of the walk ran without front_ov freeze and looked like front_ov=1 still mismatched.
 
-1. Freeze pinned textures while `front_ov` (no redecode/gen bump mid-flight).
-2. CRC uses submit-time `J.texGen` (genSnap), not live gen.
-3. Prep marks via `frontPrep[]` only — no `useF` store during drain.
+## Fix (platform-only)
 
-## Stereo fps (this PR)
-
-1. **`g3_stereo_gpu` redone, isolated**: default `V` / `g3.v.pica` / AttrInfo `4/2/4` never change. When ON + share left-only, skip CPU expand; `G3G_End` draws both eyes from `vb[0]` with `g3s.v.pica` (`stereok * dsh * w`, `dsh` from `stereoDsh` as a 2nd vertex buffer). Mid/K frames still CPU-expand. Log `[gpu right]`.
-2. Keep `[G3STER]` stage timings (expand / end / front / raw / …).
+1. Freeze whenever `g3_thread` + tex fence + gt pinned (not only `front_ov`); clear freeze after every drain.
+2. CRC hashes live `t->gen` again (c2087a3 like-for-like); freeze keeps gen/px stable for in-flight jobs.
+3. Safety only after this session has already drawn tris once (ignore legit boot 0-tris).
+4. `front_ov` still does side-buffer prep + pre-FlushArray freeze of `usedTex`.
 
 ## Device A/B
 
-Base: run 888 toggles (`thread/wake/check/fastxform/xfcache/prof/texfence=2/texsafe/share/present_pace`).
+Base: `g3_thread/wake/thr_check/fastxform/xfcache/prof/texfence=2/texsafe/share/present_pace=1`.
 
 | Trial | Expect |
 |---|---|
-| `front_ov=0` | identical to c2087a3; check 0 |
-| `front_ov=1` | same picture; check **0** mismatches; `[FRONT]` freeze+side |
-| `g3_stereo_gpu=1` (+ share, slider up) | `[G3STER] [gpu right]`; expand ~0; stereo fps up; same picture |
-| all new OFF | same as c2087a3 |
+| `front_ov=0` | check **0** texCrc; same picture as c2087a3 (+ pin freeze) |
+| `front_ov=1` | check **0**; no boot safety kill; `[FRONT]` prep ok |
+| `g3_stereo_gpu=1` | same 0 texCrc (same race fixed); `[gpu right]` |
+
+---
+
+# Run 888 front_ov texCrc + isolated stereo_gpu (after #499 / c2087a3) — superseded by run 889
+
+Emulator run 888 on main: `front_ov=0` → 0 mismatches / 19220 jobs, clean exit, 3D back. `front_ov=1` → 1–2 **texCrc** per ~17–18k jobs (0 flashRisk, no safety line). Full-slider stereo ~29–31 fps (mono ~55); share engaged (leftOnly).
+
+## Remaining texCrc (#500; incomplete — see run 889)
+
+Side buffers already kept `t->px` stable during prep. Remaining mismatches: **GetTextureImpl could still bump `t->gen` / redecode `t->px` while a job’s gt was pinned** (DEEP fence). #500 froze only under `front_ov` and used genSnap; run 889 still saw texCrc with `front_ov=0`.
+
+## Stereo fps (kept from #500)
+
+1. **`g3_stereo_gpu` isolated**: default `V` / `g3.v.pica` / AttrInfo `4/2/4` never change. When ON + share left-only, skip CPU expand; `G3G_End` draws both eyes from `vb[0]` with `g3s.v.pica`.
+2. Keep `[G3STER]` stage timings.
 
 ---
 
