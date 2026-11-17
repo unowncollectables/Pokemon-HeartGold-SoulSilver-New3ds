@@ -75,7 +75,7 @@ extern "C" int P3DS_G3XfCacheCfg(void){if(g3XfCfg<0){g3XfCfg=P3DS_CfgInt("g3_xfc
 extern "C" void P3DS_SetG3XfCache(int v); /* defined with xfClear below */
 extern "C" int P3DS_G3WakeCfg(void){if(g3WakeCfg<0){g3WakeCfg=P3DS_CfgInt("g3_wake",0)!=0;PSPNativeMemLog("[G3THR] g3_wake=%d (1 = wake worker every job when g3_thread is ON)",g3WakeCfg);}return g3WakeCfg;}
 extern "C" void P3DS_SetG3Wake(int v){g3WakeCfg=v!=0;PSPNativeMemLog("[G3THR] g3_wake=%d from settings",g3WakeCfg);}
-extern "C" int P3DS_G3ThrCheckCfg(void){if(g3ThrCheckCfg<0){g3ThrCheckCfg=P3DS_CfgInt("g3_thr_check",0)!=0;PSPNativeMemLog("[G3THR] g3_thr_check=%d (1 = CRC job POD at submit vs worker; logs mismatches)",g3ThrCheckCfg);}return g3ThrCheckCfg;}
+extern "C" int P3DS_G3ThrCheckCfg(void){if(g3ThrCheckCfg<0){g3ThrCheckCfg=0;   /* 2026-11-17: always off (run 916: 0 mismatches in 17 checks; cloud profile: its CRCs were ~15% of the busy samples) */PSPNativeMemLog("[G3THR] g3_thr_check=%d (1 = CRC job POD at submit vs worker; logs mismatches)",g3ThrCheckCfg);}return g3ThrCheckCfg;}
 extern "C" void P3DS_SetG3ThrCheck(int v){g3ThrCheckCfg=v!=0;PSPNativeMemLog("[G3THR] g3_thr_check=%d from settings",g3ThrCheckCfg);}
 extern "C" int P3DS_G3FastXformCfg(void){if(g3FastXformCfg<0){g3FastXformCfg=P3DS_CfgInt("g3_fastxform",0)!=0;PSPNativeMemLog("[G3XF] g3_fastxform=%d (1 = hoist clip matrix in the raw transform loop; same picture)",g3FastXformCfg);}return g3FastXformCfg;}
 extern "C" void P3DS_SetG3FastXform(int v){g3FastXformCfg=v!=0;PSPNativeMemLog("[G3XF] g3_fastxform=%d from settings",g3FastXformCfg);}
