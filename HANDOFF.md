@@ -1,3 +1,9 @@
+## Renderer settings and Route 34 follow-up
+
+- 3D now has five appearance controls. Press SELECT inside Settings to reveal Debug and Render. Render contains the existing worker, texture, stereo and 60 fps tuning controls. This menu change preserves their config keys and values.
+- Route 34 texture CRC mismatches lined up with wild Pokémon and flyer retirement. Drain pending 3D jobs before replacing or freeing their CPU pixels. GPU texture pins keep the GPU copies alive through frame End.
+- Skip submit texture hashing when worker checks are off, and keep the submit-side transform hash across the arena copy. Hardware timing is pending.
+
 ## Lugia title flashes and experimental worker follow-up
 
 - Mono Azahar frame capture reproduced large cyan polygons on the same title animation pose with Raw Split disabled, the worker disabled, and supersampling disabled. Disabling CPU clipping cleared the matching pose. Routing only side guard-band triangles to GPU clipping still reproduced the flash.

@@ -1638,36 +1638,24 @@ static void drawTypeHint(u32*img){
 /* Settings app tabs. Each row = mItems index, short name, tooltip (shown under the list; keep each under ~80 characters).
    Rows may be more than one screen long (the list scrolls). */
 struct SAppRow{int it;const char*nm,*tip;};
-struct SAppTab{int n;SAppRow r[22];};
+enum { kMaxTabRows = 26 };
+struct SAppTab{int n;SAppRow r[kMaxTabRows];};
 /* the Wide tab was removed (its rows stay in config.txt: wide_battle, wide_boxes, wide_menus ... all default ON, wide_fx default OFF) */
-static const char*const kTabNm[7]={"Display","3D","Input","Battle","Play","Setup","Debug"};
-static const SAppTab kTabs[7]={
- {14,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+enum { kPlayerTabs = 6, kTotalTabs = 8 };
+static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Play","Setup","Debug","Render"};
+static const SAppTab kTabs[kTotalTabs]={
+ {7,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
      {kWideLayItem,"Wide layouts","Experimental. Menu screens are laid out for the full 400 px width instead of filling the sides."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
-     {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."},
      {139,"Title layout","Classic uses plain borders. Wide fills the screen with the animated backdrop and keeps the logo proportional."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
      {kSeasonalTreesItem,"Seasonal trees","Changes common outdoor tree colors. Applies when the area reloads."},
-     {kFps60Item,"60 fps field","Experimental. Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth. A/B TEST switches it OFF and ON every ~40 s so one log compares both. Needs GPU 3D direct and Direct screen ON."},
-     {kFps60PipeItem,"60 fps pipe","Wide view only. Draws both eyes before the side copies, so those copies do not stop the 3D processor. Same picture. OFF is the original timing."},
-     {kFps60HoldItem,"60 fps hold","When the camera, sprites, tiles and 3D are all still, show the real frame again instead of drawing an in-between. OFF skips that repeat."},
-     {kFps60StripsItem,"60 fps strips","In-between Wide strips copy only the visible 192 rows. The real picture still copies the full buffer. OFF is the full copy."},
-     {kFps60VramItem,"60 fps VRAM","Tries to keep the second screen picture and both in-between pictures in video memory together. If that does not fit, nothing changes. OFF does not try."},
-     {kFps60AreaItem,"60 fps area","Writes one log line per area: about every 10 seconds, and when the zone or map changes. OFF writes none."},
-     {kG3XfItem,"3D transform cache","Speed: when a cached 3D model is drawn again with the same matrix, reuse its transformed triangles. Same picture. OFF never reuses."}}},
- {12,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
+     {kFps60Item,"60 fps field","Experimental. Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth. A/B TEST switches it OFF and ON every ~40 s so one log compares both. Needs GPU 3D direct and Direct screen ON."}}},
+ {5,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up."},
-     {13,"Split top (mono)","Experimental: two CPU cores draw the top screen when 3D is off."},
      {81,"Smooth title 3D","Draws the title screen 3D at double size for smoother edges."},
      {117,"Sharp 3D","Experimental: 3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps. CRISP (test): 3D drawn at the final screen size where nothing is on top of it; needs Wide view off and the 3D slider at 0."},
-     {115,"Sprite depth","Walking sprites (following Pokemon, NPCs, you) stand on the ground in 3D instead of leaning. Experimental."},
-     {126,"Off-screen skip","Speed: 3D scenery that is wholly off screen is skipped before any work is done on it. Same picture. Turn OFF only if 3D bits go missing."},
-     {134,"Command shortcut","Experimental speed improvement: handles small 3D setup commands with less CPU work. Keeps the same geometry and stereo view."},
-     {135,"Bounds shortcut","Experimental speed improvement: calculates the same off-screen bounds with less CPU work. Keeps wide scenery and stereo depth."},
-     {136,"Second screen GPU","Experimental: draws compatible second-screen frames on the GPU, with automatic CPU fallback. CHECK compares pixels while showing the original picture."},
-     {137,"Affine object GPU","Experimental: preserves fixed-point sprite sampling while composing rotating and scaling sprites through the GPU tile atlas."},
-     {138,"Second screen fades","Experimental: exact brightness and alpha endpoints on the second screen. Unsupported alpha effects keep CPU fallback."}}},
+     {115,"Sprite depth","Walking sprites (following Pokemon, NPCs, you) stand on the ground in 3D instead of leaning. Experimental."}}},
  {13,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
      {112,"Pokegear tabs","Original opens the game Phone and Radio in the Johto panel. Previews shows contact and station lists. Off hides the tabs."},
      {120,"Party in panel","PARTY tab opens the real Pokemon menu inside the left panel; the field stays on the top screen. OFF = full-screen Party (run 119). Summary and reorder use the game's own menus. Experimental."},
@@ -1709,7 +1697,7 @@ static const SAppTab kTabs[7]={
       {69,"Hold B skips text","Holding B prints text instantly and moves on. Never picks a choice."},
       {70,"Auto-advance text","Text boxes move on by themselves after a moment."},
       {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions. Experimental."}}},
- {13,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
+ {12,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
      {130,"Steady music","Keeps the field music at one volume. The game fades it down near water, trees and waterfalls and back up after. Ambient sounds still play."},
      {18,"Menu music","Keeps music playing while this settings screen is open."},
      {125,"Breeding tab","Adds an EGGS tab to the Johto panel (needs Pokegear tabs enabled): what is in the Day-Care, levels gained, whether an egg is waiting, and steps left on the eggs in your party. Read-only. Experimental."},
@@ -1717,32 +1705,44 @@ static const SAppTab kTabs[7]={
      {109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
      {52,"Log size limit","Largest log.txt written to the SD card."},
      {8,"Log detail","SHORT is normal. FULL writes much more and can slow the game."},
-     {71,"3D frame reuse","Reuses the last 3D picture when nothing changed, to save time."},
      {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS), very early test."},
      {119,"Grey unsupported menu","Title menu: greys Connect to Wii / Nintendo WFC Settings / Wii Message Settings / Ranger / Migrate AGB (dead on 3DS). A/touch buzzes. Mystery Gift greys receive methods unavailable in the current Wireless mode. OFF = original."},
      {kGtsPickerItem,"GTS server picker","Experimental. Adds Online Settings to the title menu."},
      {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app. Experimental."}}},
- /* hidden unless SELECT is pressed inside the app. Fast upload, Fast 3D convert, GPU compose and GPU compose 3D were removed once proven
-    (defaults ON/2; config.txt keys gpu_swizzle, fast_conv, gpu_compose, gpu_compose_stereo still work, mItems 11/12/15/19 unchanged). */
- {19,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
-      {88,"GPU compose 3D menus","Same, for battles and menus."},
-      {89,"GPU 3D direct","Experimental: keeps the 3D layer on the GPU. Leave OFF."},
-      {86,"Audio limiter","Pulls loud moments down instead of letting them crackle."},
-      {87,"Audio stall fade","Fades sound out when the game stops making any, instead of buzzing."},
-      {94,"Speed tweaks","Experimental speed-ups, each level adds more. +PARALLEL splits the 3D pixel passes over two cores (for 3D slider on). Leave OFF if unsure."},
-      {96,"Skip cache flushes","Experimental: ignores the game's own cache flushes. Leave OFF."},
-      {kG3ThrItem,"3D worker thread","Experimental: does the 3D vertex work on a second core. A/B TEST switches it OFF and ON every ~40 s so one log compares both. If the game hangs or looks wrong, turn it OFF."},
-      {kG3WakeItem,"3D wake every job","With 3D worker thread ON: wake the worker on every queued draw instead of every 6. Same picture; may cut wait time. Leave OFF if unsure."},
-      {kG3ProfItem,"3D profile","Every 60 3D frames, one log line: idle, front, wait (worker stalls), cmd, raw, flush, expand, end. OFF writes the older 300-frame average only."},
-      {kG3ThrCheckItem,"3D thread check","With 3D worker thread ON: CRC job POD, xform, and texture identity/content at submit vs draw. Logs [G3THR] snap/tex mismatch. Leave OFF for normal play."},
-      {kG3FastXfItem,"3D fast xform","Hoists the clip matrix in the raw transform loop (less VFP reload). Same picture. New 3DS has no NEON; stereo already transforms once for both eyes."},
-      {kG3TexFenceItem,"3D tex fence","With 3D worker thread ON: OFF = depth-1. ON = pin in-flight textures so GetTexture need not wait. DEEP = also skip TexCreate idle wait (deeper front/cmd vs raw overlap). Leave OFF if unsure."},
-      {kG3TexSafeItem,"3D tex safe","With 3D worker thread ON: after VBlank, upload a new GPU texture instead of updating one this frame already queued (stops brief texture flashes while walking). Safe with 3D tex fence (defers frees while pins are held). Leave OFF if unsure."},
-      {kG3StereoShareItem,"3D stereo share","With the 3D slider up: TriClip2 writes left only, then expands the right eye after the worker drains (bit-identical). Heap stereoDsh (not linearAlloc). Log [G3STER] leftOnly>>dual when engaged. Leave OFF if unsure."},
-      {kPresentPaceItem,"Present pace","NONBLOCK GPU FrameBegin so a frame that just misses 60 does not snap to 30. tearfree still waits before swap (no tearing). Leave OFF if unsure."},
-      {kG3FrontOvItem,"3D front overlap","With 3D worker thread ON: wake every job and side-buffer decode post-VBlank textures while waiting for the worker. Freezes pinned textures so check stays 0. Auto-OFF if a frame submits geometry but draws 0 tris. Leave OFF if unsure."},
-      {kG3StereoGpuItem,"3D stereo GPU","With 3D stereo share ON: End draws the right eye from the left vb via g3s (prefers gpuRight; hard-clip/translucent keep left+dsh). Log [G3STER] path + reasons. Leave OFF if unsure."},
-      {kG3FrontBgItem,"3D front bg","With 3D worker thread ON: side-buffer post-VBlank prep during drain without wake-every (lighter than front overlap). Leave OFF if unsure."}}},
+ {8,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
+     {86,"Audio limiter","Pulls loud moments down instead of letting them crackle."},
+     {87,"Audio stall fade","Fades sound out when the game stops making any, instead of buzzing."},
+     {94,"Speed tweaks","Experimental speed-ups, each level adds more. +PARALLEL splits the 3D pixel passes over two cores (for 3D slider on). Leave OFF if unsure."},
+     {96,"Skip cache flushes","Experimental: ignores the game's own cache flushes. Leave OFF."},
+     {kG3ProfItem,"3D profile","Every 60 3D frames, one log line: idle, front, wait (worker stalls), cmd, raw, flush, expand, end. OFF writes the older 300-frame average only."},
+     {kG3ThrCheckItem,"3D thread check","With 3D worker thread ON: CRC job POD, xform, and texture identity/content at submit vs draw. Logs [G3THR] snap/tex mismatch. Leave OFF for normal play."},
+     {kPresentPaceItem,"Present pace","NONBLOCK GPU FrameBegin so a frame that just misses 60 does not snap to 30. tearfree still waits before swap (no tearing). Leave OFF if unsure."}}},
+ {26,{{kG3ThrItem,"3D worker thread","Experimental: does the 3D vertex work on a second core. A/B TEST switches it OFF and ON every ~40 s so one log compares both. If the game hangs or looks wrong, turn it OFF."},
+     {kG3TexSafeItem,"3D tex safe","With 3D worker thread ON: after VBlank, upload a new GPU texture instead of updating one this frame already queued (stops brief texture flashes while walking). Safe with 3D tex fence (defers frees while pins are held). Leave OFF if unsure."},
+     {kG3TexFenceItem,"3D tex fence","With 3D worker thread ON: OFF = depth-1. ON = pin in-flight textures so GetTexture need not wait. DEEP = also skip TexCreate idle wait (deeper front/cmd vs raw overlap). Leave OFF if unsure."},
+     {kG3WakeItem,"3D wake every job","With 3D worker thread ON: wake the worker on every queued draw instead of every 6. Same picture; may cut wait time. Leave OFF if unsure."},
+     {kG3FrontOvItem,"3D front overlap","With 3D worker thread ON: wake every job and side-buffer decode post-VBlank textures while waiting for the worker. Freezes pinned textures so check stays 0. Auto-OFF if a frame submits geometry but draws 0 tris. Leave OFF if unsure."},
+     {kG3FrontBgItem,"3D front bg","With 3D worker thread ON: side-buffer post-VBlank prep during drain without wake-every (lighter than front overlap). Leave OFF if unsure."},
+     {kG3StereoShareItem,"3D stereo share","With the 3D slider up: TriClip2 writes left only, then expands the right eye after the worker drains (bit-identical). Heap stereoDsh (not linearAlloc). Log [G3STER] leftOnly>>dual when engaged. Leave OFF if unsure."},
+     {kG3StereoGpuItem,"3D stereo GPU","With 3D stereo share ON: End draws the right eye from the left vb via g3s (prefers gpuRight; hard-clip/translucent keep left+dsh). Log [G3STER] path + reasons. Leave OFF if unsure."},
+     {89,"GPU 3D direct","Experimental: keeps the 3D layer on the GPU. Leave OFF."},
+     {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."},
+     {kFps60PipeItem,"60 fps pipe","Wide view only. Draws both eyes before the side copies, so those copies do not stop the 3D processor. Same picture. OFF is the original timing."},
+     {kFps60HoldItem,"60 fps hold","When the camera, sprites, tiles and 3D are all still, show the real frame again instead of drawing an in-between. OFF skips that repeat."},
+     {kFps60StripsItem,"60 fps strips","In-between Wide strips copy only the visible 192 rows. The real picture still copies the full buffer. OFF is the full copy."},
+     {kFps60VramItem,"60 fps VRAM","Tries to keep the second screen picture and both in-between pictures in video memory together. If that does not fit, nothing changes. OFF does not try."},
+     {kFps60AreaItem,"60 fps area","Writes one log line per area: about every 10 seconds, and when the zone or map changes. OFF writes none."},
+     {kG3XfItem,"3D transform cache","Speed: when a cached 3D model is drawn again with the same matrix, reuse its transformed triangles. Same picture. OFF never reuses."},
+     {13,"Split top (mono)","Experimental: two CPU cores draw the top screen when 3D is off."},
+     {126,"Off-screen skip","Speed: 3D scenery that is wholly off screen is skipped before any work is done on it. Same picture. Turn OFF only if 3D bits go missing."},
+     {134,"Command shortcut","Experimental speed improvement: handles small 3D setup commands with less CPU work. Keeps the same geometry and stereo view."},
+     {135,"Bounds shortcut","Experimental speed improvement: calculates the same off-screen bounds with less CPU work. Keeps wide scenery and stereo depth."},
+     {136,"Second screen GPU","Experimental: draws compatible second-screen frames on the GPU, with automatic CPU fallback. CHECK compares pixels while showing the original picture."},
+     {137,"Affine object GPU","Experimental: preserves fixed-point sprite sampling while composing rotating and scaling sprites through the GPU tile atlas."},
+     {138,"Second screen fades","Experimental: exact brightness and alpha endpoints on the second screen. Unsupported alpha effects keep CPU fallback."},
+     {71,"3D frame reuse","Reuses the last 3D picture when nothing changed, to save time."},
+     {88,"GPU compose 3D menus","Same, for battles and menus."},
+     {kG3FastXfItem,"3D fast xform","Hoists the clip matrix in the raw transform loop (less VFP reload). Same picture. New 3DS has no NEON; stereo already transforms once for both eyes."}}},
 };
 static void prettyLab(char*d,const char*s,int n){/* run 64: "WIDE VIEW FX" -> "Wide view FX" (acronyms kept) */
  static const char*const acr[]={"FPS","GPU","ZL","ZR","FX","3D","1X","2X","25X","5X","ROM","IV","EV","TM","HM","LED","UI","OK","KB","MB","Y","X","A","B","L","R"};
@@ -1904,13 +1904,13 @@ static void runApp(const u32*top,int mode,bool gpu){
  enum{N=MENU_N};int val[N];for(int i=0;i<N;i++)val[i]=menuGet(i);int old[N];memcpy(old,val,sizeof old);
  for(int i=0;i<256*192;i++){u32 c=base[i];base[i]=((c>>1)&0x007F7F7Fu)|(c&0xFF000000u);}
  P3DS_MenuOpen=1;P3DS_OvN=0;P3DS_BmOn=0;P3DS_Toast("");toastAt=0; /* the JOHTO icon overlay is drawn by the GPU present; clear it so it cannot sit on top of the settings screen */
- static bool dbgTabs=false;static int tab=0;int NT=dbgTabs?7:6;if(tab>=NT)tab=0;int sel=0,ltop=0;
+ static bool dbgTabs=false;static int tab=0;int NT=dbgTabs?kTotalTabs:kPlayerTabs;if(tab>=NT)tab=0;int sel=0,ltop=0;
  PSPNativeMemLog("[APP] settings open (tab %s, font %d, frame %d)",kTabNm[tab],P3DS_GameFontReady(),P3DS_GameBoxReady());
  u32 held=hidKeysHeld();bool wasTouch=(held&KEY_TOUCH)!=0;u64 t0=svcGetSystemTick();
  while(aptMainLoop()){
   hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
   if(kd&(KEY_B|KEY_START))break;if((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R))break;
-  if(kd&KEY_SELECT){dbgTabs=!dbgTabs;NT=dbgTabs?7:6;if(tab>=NT)tab=0;sel=0;PSPNativeMemLog("[APP] debug tab %s",dbgTabs?"shown":"hidden");}
+  if(kd&KEY_SELECT){dbgTabs=!dbgTabs;NT=dbgTabs?kTotalTabs:kPlayerTabs;if(tab>=NT)tab=0;sel=0;PSPNativeMemLog("[APP] debug tabs %s",dbgTabs?"shown":"hidden");}
   if(kd&KEY_L){tab=(tab+NT-1)%NT;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}if(kd&KEY_R){tab=(tab+1)%NT;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}
   const SAppTab&T=kTabs[tab];const int cnt=T.n;
   /* Up/Down = row, Left/X = value back, Right/A = value forward */
@@ -1928,11 +1928,11 @@ static void runApp(const u32*top,int mode,bool gpu){
   /* top: dimmed game + title box with version */
   memcpy(img,base,PX*4);
   if(useGF()){P3DS_GameBoxDraw(img,256,256,192,16,16,216,32);gtxt(img,18,16,"Settings  (game paused)",kMsgFg,kMsgSh);gtxt(img,18,32,kAppVer,0x00787878u,0x00D0D0D0u);
-   P3DS_GameBoxDraw(img,256,256,192,16,152,216,32);gtxt(img,18,152,"Up/Down: setting  Left/Right: change",kMsgFg,kMsgSh);gtxt(img,18,168,"L/R: tab   B: close",kMsgFg,kMsgSh);}
+   P3DS_GameBoxDraw(img,256,256,192,16,152,216,32);gtxt(img,18,152,"Up/Down: setting  Left/Right: change",kMsgFg,kMsgSh);gtxt(img,18,168,"L/R: tab   SELECT: advanced   B: close",kMsgFg,kMsgSh);}
   else{menuBox(img,8,10,248,52,0x00703020u,0x00F0E0D0u);drawBig(img,16,18,"SETTINGS (PAUSED)",0x00F8F0E0u);drawBig(img,16,34,"SOULSILVER 3DS",0x00E0C8B0u);}
   /* bottom: the app */
   suiBackground(bimg);suiHeader(bimg,kSuiText,kTabNm,NT,tab,nullptr);
-  SUiCell cells[22];char labs[22][24];static_assert(sizeof(((SAppTab*)0)->r)/sizeof(SAppRow)==22,"cells/labs must hold a full tab");
+  SUiCell cells[kMaxTabRows];char labs[kMaxTabRows][24];
   for(int i=0;i<cnt;i++){const int it=T.r[i].it;prettyLab(labs[i],mItems[it].lab[val[it]],sizeof labs[i]);cells[i]={T.r[i].nm,labs[i],i==sel,val[it]!=old[it]};}
   if(sel<ltop)ltop=sel;if(sel>=ltop+kSuiRows)ltop=sel-kSuiRows+1;if(ltop>cnt-kSuiRows)ltop=cnt>kSuiRows?cnt-kSuiRows:0;if(ltop<0)ltop=0;
   suiList(bimg,kSuiText,cells,cnt,ltop);suiTip(bimg,kSuiText,T.r[sel].tip);
