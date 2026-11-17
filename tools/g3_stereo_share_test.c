@@ -5,7 +5,7 @@
 #include <string.h>
 #include <math.h>
 
-typedef struct { float x, y, z, w, s, t, r, g, b, a; } V;
+typedef struct { float x, y, z, w, s, t, dsh, pad, r, g, b, a; } V;
 typedef struct { unsigned first, count; } B;
 
 /* Dual TriClip2 (reference): both eyes from clip + shL/shR. */
@@ -19,12 +19,28 @@ static void dual(V *L, V *R, float x, float y, float z, float w, float shL, floa
 static void share(V *L, V *R, float x, float y, float z, float w, float shL, float shR, int wide) {
     float dsh = shR - shL;
     L->x = x + shL / 128.0f * w; if (wide) L->x *= 0.8f;
-    L->y = y; L->z = z; L->w = w;
+    L->y = y; L->z = z; L->w = w; L->dsh = dsh; L->pad = 0;
     *R = *L;
     R->x += (wide ? 0.8f : 1.0f) * (dsh / 128.0f) * w;
+    R->dsh = 0;
 }
-
 static int near(float a, float b) { return fabsf(a - b) < 1e-5f; }
+
+/* g3_stereo_gpu: right = left.x + (scale/128) * dsh * w (shader stereok). */
+static void gpu_right(V *L, V *R, float scale) {
+    *R = *L;
+    R->x = L->x + (scale / 128.0f) * L->dsh * L->w;
+    R->dsh = 0;
+}
+static int gpu_matches_expand(void) {
+    V L = {0}, Rcpu = {0}, Rgpu = {0};
+    share(&L, &Rcpu, 1.0f, 0.5f, 0.2f, 2.0f, -4.0f, 4.0f, 0);
+    gpu_right(&L, &Rgpu, 1.0f);
+    V Lw = {0}, RcW = {0}, RgW = {0};
+    share(&Lw, &RcW, 1.0f, 0.5f, 0.2f, 2.0f, -4.0f, 4.0f, 1);
+    gpu_right(&Lw, &RgW, 0.8f);
+    return near(Rcpu.x, Rgpu.x) && near(RcW.x, RgW.x);
+}
 
 /* DEEP texfence: TexCreate wait only at level 1, skipped at 2. */
 static int deep_skips_texcreate_wait(void) {
@@ -98,6 +114,7 @@ int main(void) {
     if (!expand_before_hardclip()) bad++;
     if (!share_stats_engage()) bad++;
     if (!job_publishes_share()) bad++;
+    if (!gpu_matches_expand()) bad++;
     if (bad) { fprintf(stderr, "g3_stereo_share bad %d\n", bad); return 1; }
     puts("g3_stereo_share ok");
     return 0;
