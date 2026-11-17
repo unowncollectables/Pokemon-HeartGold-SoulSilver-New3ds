@@ -6,6 +6,7 @@ extern void PSPNativeMemLog(const char *, ...);
  * Modes: 1 = bottom 320x240, top 320x240 pillarboxed; 2 = bottom 320x240, top stretched 400x240. */
 #include <3ds.h>
 #include <citro3d.h>
+#include "dcache3ds.h"
 #include <string.h>
 #include "blit_shbin.h"
 #define TEXW 256
@@ -167,13 +168,13 @@ static int isLinear(const void *p) { u32 a = (u32)p; return a >= __ctru_linear_h
 static void upload(int i, const u32 *src) {
     u64 t0 = svcGetSystemTick();
     if (P3DS_GpuSwizzle() && isLinear(src)) { swz[i] = 1;
-        GSPGPU_FlushDataCache(src, TEXW * 192 * 4);
+        P3DS_DcFlush(src, TEXW * 192 * 4);
         C3D_SyncDisplayTransfer((u32 *)src, GX_BUFFER_DIM(TEXW, TEXH), tex[i].data, GX_BUFFER_DIM(TEXW, TEXH), TEX_FLAGS);
         upTicks += svcGetSystemTick() - t0; return; }
     swz[i] = 0;
     u32 *d = lin[i];
     for (int k = 0; k < 256 * 192; k++) { u32 c = src[k]; d[k] = __builtin_bswap32(c) | 0xFF;  /* == R<<24|G<<16|B<<8|FF (box-verified), one REV */ }
-    GSPGPU_FlushDataCache(d, TEXW * 192 * 4);
+    P3DS_DcFlush(d, TEXW * 192 * 4);
     C3D_SyncDisplayTransfer(d, GX_BUFFER_DIM(TEXW, TEXH), tex[i].data, GX_BUFFER_DIM(TEXW, TEXH), TEX_FLAGS);
     upTicks += svcGetSystemTick() - t0;
 }
@@ -189,14 +190,14 @@ static int crispPrepare(const u32 *top) {
         PSPNativeMemLog("[CRISP] 512x512 texture %s", hiTexOk ? "ok" : "FAILED (CRISP 3D off)"); }
     if (hiTexOk != 1) return 0;
     const u64 t0 = svcGetSystemTick();
-    GSPGPU_InvalidateDataCache(buf, 512 * 384 * 4);
+    P3DS_DcInval(buf, 512 * 384 * 4);
     unsigned cnt = 0;
     for (int y = 0; y < 192; y++) for (int x = 0; x < 256; x++) {
         const u32 t = top[y * 256 + x], n = nf[y * 256 + x]; int m = (n >> 24) >= 31;
         for (int c = 0; c < 24 && m; c += 8) { const int nc = (n >> c) & 63, d = (int)((t >> c) & 255) - ((nc << 2) | (nc >> 4)); if (d < -6 || d > 6) m = 0; }
         cnt += m; u32 *p = buf + (2 * y) * 512 + 2 * x; const u32 a = m ? 0xFFu : 0;
         p[0] = (p[0] & ~0xFFu) | a; p[1] = (p[1] & ~0xFFu) | a; p[512] = (p[512] & ~0xFFu) | a; p[513] = (p[513] & ~0xFFu) | a; }
-    GSPGPU_FlushDataCache(buf, 512 * 384 * 4);
+    P3DS_DcFlush(buf, 512 * 384 * 4);
     C3D_SyncDisplayTransfer(buf, GX_BUFFER_DIM(512, 384), hiTex.data, GX_BUFFER_DIM(512, 384), TEX_FLAGS);
     crOn++; crMask += cnt; crTicks += svcGetSystemTick() - t0; return 1;
 }
@@ -360,7 +361,7 @@ static void strips(C3D_RenderTarget *t, int eye) {
         if (fDir == 1) { r += (255 - r) * fAmt / 16; g += (255 - g) * fAmt / 16; b += (255 - b) * fAmt / 16; } else { r -= r * fAmt / 16; g -= g * fAmt / 16; b -= b * fAmt / 16; }
         sLin[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF; }
     { extern u32 P3DS_WeatherObj[]; extern int P3DS_WeatherOn; if (P3DS_WeatherOn && !fAmt) for (unsigned i = 0; i < 64 * 192; i++) if (P3DS_WeatherObj[i]) sLin[i] = P3DS_WeatherObj[i]; } /* run 70 wide_weather */
-    GSPGPU_FlushDataCache(sLin, 64 * 192 * 4);
+    P3DS_DcFlush(sLin, 64 * 192 * 4);
     C3D_SyncDisplayTransfer(sLin, GX_BUFFER_DIM(64, 256), sTx->data, GX_BUFFER_DIM(64, 256), TEX_FLAGS);
     C3D_FrameDrawOn(t);
     C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
@@ -426,7 +427,7 @@ static void ovDraw(C3D_RenderTarget *t) {
     if (ovOk < 0) { ovOk = C3D_TexInit(&ovTex, 512, 256, GPU_RGBA8) ? 1 : 0; if (ovOk) { C3D_TexSetFilter(&ovTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&ovTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_OvDirty = 1; }
         PSPNativeMemLog("[ICONS] native overlay texture %s", ovOk ? "ready" : "FAILED (icons stay in the DS picture)"); }
     if (!ovOk) return;
-    if (P3DS_OvDirty) { P3DS_OvDirty = 0; GSPGPU_FlushDataCache(P3DS_OvAtlas, 512 * 256 * 4);
+    if (P3DS_OvDirty) { P3DS_OvDirty = 0; P3DS_DcFlush(P3DS_OvAtlas, 512 * 256 * 4);
         C3D_SyncDisplayTransfer(P3DS_OvAtlas, GX_BUFFER_DIM(512, 256), ovTex.data, GX_BUFFER_DIM(512, 256), TEX_FLAGS); }
     C3D_FrameDrawOn(t);
     C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 320.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
@@ -459,7 +460,7 @@ static void topOvDraw(C3D_RenderTarget *t) {
     if (!P3DS_TopOvBuf || P3DS_TopOvW < 1 || P3DS_TopOvH < 1 || P3DS_TopOvW > 512 || P3DS_TopOvH > 64) return;
     P3DS_TopOvInit();
     if (!tovOk) return;
-    if (P3DS_TopOvDirty) { P3DS_TopOvDirty = 0; GSPGPU_FlushDataCache(P3DS_TopOvBuf, 512 * 64 * 4);
+    if (P3DS_TopOvDirty) { P3DS_TopOvDirty = 0; P3DS_DcFlush(P3DS_TopOvBuf, 512 * 64 * 4);
         C3D_SyncDisplayTransfer(P3DS_TopOvBuf, GX_BUFFER_DIM(512, 64), tovTex.data, GX_BUFFER_DIM(512, 64), TEX_FLAGS); }
     C3D_FrameDrawOn(t);
     C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
@@ -487,7 +488,7 @@ static void topOv2Draw(C3D_RenderTarget *t) {
     if (!P3DS_TopOv2Buf || P3DS_TopOv2W < 1 || P3DS_TopOv2H < 1 || P3DS_TopOv2W > 64 || P3DS_TopOv2H > 32) return;
     P3DS_TopOvInit();
     if (!tov2Ok) return;
-    if (P3DS_TopOv2Dirty) { P3DS_TopOv2Dirty = 0; GSPGPU_FlushDataCache(P3DS_TopOv2Buf, 64 * 32 * 4);
+    if (P3DS_TopOv2Dirty) { P3DS_TopOv2Dirty = 0; P3DS_DcFlush(P3DS_TopOv2Buf, 64 * 32 * 4);
         C3D_SyncDisplayTransfer(P3DS_TopOv2Buf, GX_BUFFER_DIM(64, 32), tov2Tex.data, GX_BUFFER_DIM(64, 32), TEX_FLAGS); }
     C3D_FrameDrawOn(t);
     C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
@@ -515,7 +516,7 @@ static void pnDraw(C3D_RenderTarget *t) {
     if (pnOk < 0) { pnOk = C3D_TexInit(&pnTex, 256, 256, GPU_RGBA8) ? 1 : 0; if (pnOk) { C3D_TexSetFilter(&pnTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&pnTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_PnDirty = 1; }
         PSPNativeMemLog("[PANEL] final-res panel texture %s", pnOk ? "ready" : "FAILED (panel picture stays in the DS bottom)"); }
     if (!pnOk) return;
-    if (P3DS_PnDirty) { P3DS_PnDirty = 0; GSPGPU_FlushDataCache(P3DS_PnBuf, 256 * 256 * 4);
+    if (P3DS_PnDirty) { P3DS_PnDirty = 0; P3DS_DcFlush(P3DS_PnBuf, 256 * 256 * 4);
         C3D_SyncDisplayTransfer(P3DS_PnBuf, GX_BUFFER_DIM(256, 256), pnTex.data, GX_BUFFER_DIM(256, 256), TEX_FLAGS); }
     C3D_FrameDrawOn(t);
     C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 320.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
