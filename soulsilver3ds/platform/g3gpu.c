@@ -25,7 +25,7 @@ static V *vb[2]; static B bt[2][MAXB]; static unsigned bn[2];
 /* stereoShareOn: game thread writes at Begin / SetStereoShare; worker reads in TriClip2 (g3_thread core 2).
    Must be atomic — plain store was invisible to the worker so share stayed dual forever (explore after 9bbfcd1). */
 static volatile int stereoShareOn, stereoPending; /* g3_stereo_share: left-only verts until G3G_StereoExpand */
-static float *stereoDsh;
+static float *stereoDsh; static float *stereoDshLin; /* linear copy for the GPU: the PICA reads vertex buffers by physical address, a malloc heap pointer has none */
 static unsigned lastExpandUs; /* G3G_StereoExpand wall time (us); 0 until expand runs this frame */
 /* fps60 (2026-11-15, Settings > Display > 60 fps field, default OFF): in-between 3D frames, like pokeplatinum-3ds's 60 fps field.
    The game still runs 30 ticks a second. For every raw draw call g3soft.cpp pairs this tick's clip matrix with the same draw's matrix of
@@ -604,6 +604,11 @@ static int stereoGpuEnsure(void) {
         if (!stereoGpuFailSaid) { stereoGpuFailSaid = 1; PSPNativeMemLog("[G3STER] g3s stereok uniform missing: stereo_gpu stays CPU expand"); }
         return 0;
     }
+    if (!stereoDshLin) stereoDshLin = (float *)linearAlloc(MAXV * sizeof(float));
+    if (!stereoDshLin) {
+        if (!stereoGpuFailSaid) { stereoGpuFailSaid = 1; PSPNativeMemLog("[G3STER] linear dsh buffer alloc FAILED: stereo_gpu stays CPU expand"); }
+        return 0;
+    }
     progSOk = 1; PSPNativeMemLog("[G3STER] g3s shader ready (stereo_gpu path; default g3 untouched)");
     return 1;
 }
@@ -1101,7 +1106,8 @@ void G3G_End(u32 *outL, u32 *outR) {
             if (mid) mid = 0; /* prefer stable gpuRight over mid in-between */
             if (stereoGpuEnsure()) {
                 gpuRight = 1;
-                GSPGPU_FlushDataCache(stereoDsh, vn[0] * sizeof(float));
+                memcpy(stereoDshLin, stereoDsh, vn[0] * sizeof(float));
+                GSPGPU_FlushDataCache(stereoDshLin, vn[0] * sizeof(float));
                 __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE);
                 stereoGpuRightN++;
                 sterWhy = -1;
@@ -1197,7 +1203,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi);
         if (gpuRight) {
             BufInfo_Add(bi, vb[0], sizeof(V), 3, 0x210);
-            BufInfo_Add(bi, stereoDsh, sizeof(float), 1, 0x3);
+            BufInfo_Add(bi, stereoDshLin, sizeof(float), 1, 0x3);
         } else BufInfo_Add(bi, vb[e], sizeof(V), 3, 0x210);
         const unsigned drawBn = gpuRight ? bn[0] : bn[e];
         B *drawBt = gpuRight ? bt[0] : bt[e];
