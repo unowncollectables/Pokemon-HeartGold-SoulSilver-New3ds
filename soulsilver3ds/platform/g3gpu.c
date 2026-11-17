@@ -908,18 +908,23 @@ static int scisCfg = -1, scisMode = -1;   /* scisMode: -1 not calibrated, 0 hidd
 int G3G_ScissorCfg(void) { if (scisCfg < 0) { scisCfg = P3DS_CfgInt("g3_scissor", 0); if (scisCfg < 0 || scisCfg > 2) scisCfg = 0; PSPNativeMemLog("[G3SCI] g3_scissor=%d (1 = GPU skips the 64 hidden rows, 2 = A/B)", scisCfg); } return scisCfg; }
 void G3G_SetScissor(int v) { scisCfg = v < 0 || v > 2 ? 0 : v; PSPNativeMemLog("[G3SCI] g3_scissor=%d from settings", scisCfg); }
 static void clearQuad(void);
-static void scisCalibrate(void) {
+static void scisCalibrate(int gpuR) {
     if (!qv) qv = linearAlloc(6 * sizeof(V));
     if (!qv || !tgt[0] || !rb[0]) { scisMode = 2; PSPNativeMemLog("[G3SCI] calibration skipped (no buffers): scissor stays OFF"); return; }
     const u32 keepClr = clearRGBA; const float keepD = clearD;
     C3D_RenderTargetClear(tgt[0], C3D_CLEAR_ALL, 0x000000FF, 0xFFFFFF);
     C3D_FrameDrawOn(tgt[0]);
+    if (gpuR) {   /* run 911: the stereo GPU right eye binds g3s every frame; the quad uses the plain program (3 loaders), restored after */
+        C3D_BindProgram(&prog); C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
+        AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 2, GPU_FLOAT, 4); }
     C3D_SetScissor(GPU_SCISSOR_NORMAL, 0, 0, (u32)curW, 64);
     clearRGBA = 0xFFFFFFFF; clearD = 0.5f; clearQuad(); clearRGBA = keepClr; clearD = keepD;
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
     C3D_SyncDisplayTransfer((u32 *)tgt[0]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[0], GX_BUFFER_DIM(curW, 256), RB_FLAGS);
     C3D_FrameEnd(GX_CMDLIST_FLUSH); C3D_FrameBegin(0);
     P3DS_DcInval(rb[0], (u32)curW * 256 * 4);
+    if (gpuR) { C3D_BindProgram(&progS); C3D_AttrInfo *ai = C3D_GetAttrInfo(); AttrInfo_Init(ai);
+        AttrInfo_AddLoader(ai, 0, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 1, GPU_FLOAT, 2); AttrInfo_AddLoader(ai, 2, GPU_FLOAT, 4); AttrInfo_AddLoader(ai, 3, GPU_FLOAT, 1); }
     /* rb row r = memory row 255-r (flipped readback). Hidden memory rows 0..63 = rb rows 192..255. */
     const u32 lo = rb[0][250 * curW + curW / 2], hi = rb[0][5 * curW + curW / 2];
     const int loW = (lo >> 8) == 0xFFFFFF, hiW = (hi >> 8) == 0xFFFFFF;
@@ -1292,7 +1297,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     const int gtS = G3G_GpuTimeCfg() && direct && ++gtCnt % 30 == 0;
     const int scOn = 1;   /* state cache: always on since run 910's A/B (End -0.15..0.37 ms, same picture) */
     const int sciC = G3G_ScissorCfg();
-    if (sciC && scisMode < 0 && !gpuRight && direct && curHi == 0 && !r1xFrame && !sharedTgt) scisCalibrate();   /* gpuRight binds g3s (needs the dsh stream): calibrate on a later frame */
+    if (sciC && scisMode < 0 && direct && curHi == 0 && !r1xFrame && !sharedTgt) scisCalibrate(gpuRight);   /* run 911: !gpuRight kept it from ever running (stereo GPU right eye is on every frame) */
     const int scisOn = (sciC == 1 || (sciC == 2 && ((abFrames / 600) & 1))) && (scisMode == 0 || scisMode == 1) && direct && curHi == 0 && !r1xFrame && !sharedTgt;
     int gtFirst = 1; unsigned gtCur[6] = { 0 };
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
