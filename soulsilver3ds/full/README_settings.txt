@@ -195,11 +195,12 @@ CONTROLS / TOUCH
                     Default 0. Log: [PACE] 600f nonblock ok/blocked.  [2026-11-16]
   g3_front_ov=0     3D front overlap (Debug tab): with g3_thread ON, wake every job and GatherRaw/DecodeTex into
                     SIDE pixel buffers while waiting for the worker drain (never mutates t->px/gen/raw until after
-                    drain — fixes a61df82 texCrc race). GPU upload still after drain. Same picture. Default 0.
-                    Log: [FRONT].  [2026-11-17]
-  g3_stereo_gpu=0   3D stereo GPU (Debug tab): with g3_stereo_share ON, skip CPU right-eye expand; G3G_End draws
-                    the right eye from the left vb with shader stereok=scale/128 (bit-identical). Hard-clip still
-                    expands. Default 0. Log: [G3STER] stages / [gpu right].  [2026-11-17]
+                    drain — fixes a61df82 texCrc race). GPU upload still after drain. Same picture as OFF.
+                    Safety: if ON and a frame submits geometry but draws 0 tris, logs once and turns OFF for the
+                    session (run 887 black-screen guard). Default 0. Log: [FRONT].  [2026-11-17]
+  g3_stereo_gpu=0   3D stereo GPU (Debug tab): intended shader right-eye with share; parked after run 887 — the
+                    always-on V/shader change blanked all 3D. Toggle logs once and keeps CPU expand (same as
+                    share alone). Default 0. Log: [G3STER].  [2026-11-17]
   pm_shortcuts=1    In the Pokemon menu: X = Move Reminder, Y = Move Tutor on the highlighted Pokemon. Default 0.
   zl_run=1          ZL toggles running (SoulSilver: swaps what B does). 0 = off. Default 0.
   cstick_mode=2     C-stick: 0 = off, 1 = up/down flick presses the Poketch button (overworld only),

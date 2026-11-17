@@ -5,7 +5,8 @@
 #include <string.h>
 #include <math.h>
 
-typedef struct { float x, y, z, w, s, t, dsh, pad, r, g, b, a; } V;
+/* Pre-#498 / run 887 restore: 10 floats (no dsh/pad in V). stereoDsh is a side float table. */
+typedef struct { float x, y, z, w, s, t, r, g, b, a; } V;
 typedef struct { unsigned first, count; } B;
 
 /* Dual TriClip2 (reference): both eyes from clip + shL/shR. */
@@ -15,31 +16,27 @@ static void dual(V *L, V *R, float x, float y, float z, float w, float shL, floa
     L->y = R->y = y; L->z = R->z = z; L->w = R->w = w;
 }
 
-/* Share path: left as dual, then right = left + scale*(shR-shL)/128*w. */
-static void share(V *L, V *R, float x, float y, float z, float w, float shL, float shR, int wide) {
+/* Share path: left as dual, then right = left + scale*(shR-shL)/128*w (stereoDsh side table). */
+static void share(V *L, V *R, float *dshOut, float x, float y, float z, float w, float shL, float shR, int wide) {
     float dsh = shR - shL;
     L->x = x + shL / 128.0f * w; if (wide) L->x *= 0.8f;
-    L->y = y; L->z = z; L->w = w; L->dsh = dsh; L->pad = 0;
+    L->y = y; L->z = z; L->w = w;
+    *dshOut = dsh;
     *R = *L;
     R->x += (wide ? 0.8f : 1.0f) * (dsh / 128.0f) * w;
-    R->dsh = 0;
 }
 static int near(float a, float b) { return fabsf(a - b) < 1e-5f; }
 
-/* g3_stereo_gpu: right = left.x + (scale/128) * dsh * w (shader stereok). */
-static void gpu_right(V *L, V *R, float scale) {
-    *R = *L;
-    R->x = L->x + (scale / 128.0f) * L->dsh * L->w;
-    R->dsh = 0;
-}
+/* Parked g3_stereo_gpu formula (shader path disabled after run 887): right.x = left.x + (scale/128)*dsh*w. */
 static int gpu_matches_expand(void) {
-    V L = {0}, Rcpu = {0}, Rgpu = {0};
-    share(&L, &Rcpu, 1.0f, 0.5f, 0.2f, 2.0f, -4.0f, 4.0f, 0);
-    gpu_right(&L, &Rgpu, 1.0f);
-    V Lw = {0}, RcW = {0}, RgW = {0};
-    share(&Lw, &RcW, 1.0f, 0.5f, 0.2f, 2.0f, -4.0f, 4.0f, 1);
-    gpu_right(&Lw, &RgW, 0.8f);
-    return near(Rcpu.x, Rgpu.x) && near(RcW.x, RgW.x);
+    V L = {0}, Rcpu = {0};
+    float dsh = 0;
+    share(&L, &Rcpu, &dsh, 1.0f, 0.5f, 0.2f, 2.0f, -4.0f, 4.0f, 0);
+    float Rgpu = L.x + (1.0f / 128.0f) * dsh * L.w;
+    V Lw = {0}, RcW = {0}; float dshW = 0;
+    share(&Lw, &RcW, &dshW, 1.0f, 0.5f, 0.2f, 2.0f, -4.0f, 4.0f, 1);
+    float RgW = Lw.x + (0.8f / 128.0f) * dshW * Lw.w;
+    return near(Rcpu.x, Rgpu) && near(RcW.x, RgW);
 }
 
 /* DEEP texfence: TexCreate wait only at level 1, skipped at 2. */
@@ -84,7 +81,7 @@ static int job_publishes_share(void) {
     return workerShare == 1;
 }
 
-/* Hard-clip gate: expand before any non-share write so eye-0 Tri cannot leave stale dsh verts. */
+/* Hard-clip gate: expand before any non-share write so eye-0 Tri cannot leave stale pending. */
 static int expand_before_hardclip(void) {
     int pending = 1;
     /* G3G_Tri / G3G_TriClip always call Expand first when pending */
@@ -102,9 +99,9 @@ int main(void) {
     };
     for (int wide = 0; wide < 2; wide++) {
         for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
-            V Ld, Rd, Ls, Rs;
+            V Ld, Rd, Ls, Rs; float dsh = 0;
             dual(&Ld, &Rd, cases[i][0], cases[i][1], cases[i][2], cases[i][3], cases[i][4], cases[i][5], wide);
-            share(&Ls, &Rs, cases[i][0], cases[i][1], cases[i][2], cases[i][3], cases[i][4], cases[i][5], wide);
+            share(&Ls, &Rs, &dsh, cases[i][0], cases[i][1], cases[i][2], cases[i][3], cases[i][4], cases[i][5], wide);
             if (!near(Ld.x, Ls.x) || !near(Rd.x, Rs.x) || !near(Ld.y, Ls.y) || !near(Rd.y, Rs.y)) bad++;
             if (!near(Ld.z, Ls.z) || !near(Rd.z, Rs.z) || !near(Ld.w, Ls.w) || !near(Rd.w, Rs.w)) bad++;
         }

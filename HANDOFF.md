@@ -1,31 +1,55 @@
-# front_ov texCrc race + stereo GPU cut (after a61df82 / #497)
+# Run 887 black top with front_ov (main 5ff16cf / #498) — fix
+
+Hardware run 887 on `5ff16cf`: `g3_front_ov=1` (`g3_stereo_gpu=0`) → **top screen fully black from boot** (title Lugia too). G3PROF often `tris 0` / `cmd 0`; `[G3THR] 0 jobs` most windows; a few windows had jobs/tris 200–700 and still blank; ~59 fps empty. `[FRONT] prep … 0`. Slider 0 at boot.
+
+## Root cause (plain)
+
+PR #498 grew every G3 vertex from 10 to 12 floats and rewrote the G3 shaders for `g3_stereo_gpu`, **always**, not only when that toggle was on. PICA AttrInfo no longer matched how verts were packed, so every GPU 3D draw was blank. `front_ov` was the toggle under test; side-buffer prep often did nothing (`prep 0`), so it was not the blank cause. `front_ov=0` on that build was also not bit-identical to pre-#498 until V/shaders were restored.
+
+## Fix (platform-only; defaults OFF)
+
+1. **Restore pre-#498** `V` / AttrInfo `4/2/4` / `g3.v.pica` / `g3k.v.pica` / `G3G_End` draw path (same as `a61df82`).
+2. Keep **side-buffer** `g3_front_ov` (race-free) + worker expand overlap via `gtExpandReq`.
+3. **`g3_stereo_gpu`**: toggle kept; logs once and **forces CPU expand** (shader right-eye parked).
+4. **Safety**: if `front_ov` is on and a frame submitted geometry but drew **0 tris**, log once and turn `front_ov` OFF for the session.
+
+`front_ov=0` matches pre-#498 GPU path again. No save / patch / version bump.
+
+## Device A/B
+
+Base: `g3_thread=1 g3_wake=1 g3_thr_check=1 g3_fastxform=1 g3_xfcache=1 g3_prof=1 g3_thr_texfence=2 g3_thr_texsafe=1 g3_stereo_share=1 present_pace=1`.
+
+| Trial | Expect |
+|---|---|
+| `g3_front_ov=0` | same picture as pre-#498 / a61; title Lugia visible |
+| `g3_front_ov=1` | same picture as OFF; check **0 mismatches**; `[FRONT]` may show side-decoded; no black top |
+| blank regression | `[FRONT] safety: 0 tris…` once → front_ov OFF for session |
+
+---
+
+# front_ov texCrc race + stereo GPU cut (after a61df82 / #497) — superseded for shader path
 
 Hardware on `a61df82`: share engaged (`leftOnly>>dual`), present_pace nonblock ok, front_ov prep during drain. Mono ~55; full-slider stereo still ~31.5 with PERF g3soft ~24 ms. One check window: **71 texCrc mismatches** with `g3_front_ov=1` (race).
 
-## Race (fixed)
+## Race (fixed; kept)
 
-`postVblPrepOne` DecodeTex'd into `t->px` (and bumped `t->gen` on unchanged) while the worker's `gtTexCrcOf` still hashed submit-time `px`/`gen`. Fix: decode into **side buffers**; publish into `t->px`/`raw`/`gen` only **after drain**. Host: `tools/g3_thr_race_test.c`.
+`postVblPrepOne` DecodeTex'd into `t->px` while the worker's `gtTexCrcOf` still hashed submit-time `px`/`gen`. Fix: decode into **side buffers**; publish only **after drain**. Host: `tools/g3_thr_race_test.c`.
 
-## Stereo cut (this PR)
+## Stereo cut (#498; shader path parked after run 887)
 
-1. **Worker expand overlap**: with share and not GPU, set `gtExpandReq` so the worker runs `G3G_StereoExpand` after raw while the game thread side-decodes (`front_ov`).
-2. **`g3_stereo_gpu`** (Debug, default OFF): with share, skip CPU expand; `G3G_End` draws the right eye from the left `vb` with shader `stereok = scale/128` and per-vert `dsh` (bit-identical). Hard-clip / mid still expands. Log `[G3STER] … [gpu right]` and `[G3STER] 60f stages us: expand | end | front | raw | …`.
-3. **G3PROF** adds `expand` and a stereo stages line when the slider is up.
+1. **Worker expand overlap**: `gtExpandReq` so the worker runs `G3G_StereoExpand` after raw while the game thread side-decodes (`front_ov`). **Kept.**
+2. **`g3_stereo_gpu`**: shader right-eye **parked** (always-on V/shader blanked 3D). Toggle logs; CPU expand only.
+3. **G3PROF** expand / stereo stages lines. **Kept.**
 
-OFF / `g3_stereo_gpu=0` keeps the previous expand path. No save format change; Wide/GTS/MG untouched.
-
-## Device A/B (full-slider stereo; base = a61df82 toggles)
+## Device A/B (historical; see run 887 section above for current)
 
 Base: `g3_thread=1 g3_wake=1 g3_thr_texfence=2 g3_thr_texsafe=1 g3_fastxform=1 g3_xfcache=1 g3_thr_check=1 g3_prof=1 g3_stereo_share=1 present_pace=1`.
 
 | Trial | Expect |
 |---|---|
-| `g3_front_ov=1` only | check **0 mismatches** (incl. texCrc) while walking Goldenrod; `[FRONT] side-decoded` |
-| `g3_stereo_gpu=1` (+ share) | `[G3STER] [gpu right]`; expand ~0 us; stereo g3soft / PERF down vs expand path; same picture |
-| `g3_front_ov=1` + `g3_stereo_gpu=1` | both; stages line shows where the ~24 ms went |
-| all new OFF | identical to a61df82 |
-
-Want: no hang, check 0, stereo fps up without visual loss; `[G3STER] 60f stages` for the next cut.
+| `g3_front_ov=1` only | check **0 mismatches**; same picture as OFF; no black top |
+| `g3_stereo_gpu=1` | `[G3STER] … disabled after run 887`; CPU expand; same as share alone |
+| all new OFF | identical to a61df82 GPU path |
 
 ---
 
