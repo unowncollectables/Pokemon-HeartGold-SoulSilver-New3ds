@@ -1747,8 +1747,8 @@ static const SAppTab kTabs[7]={
       {kG3StereoShareItem,"3D stereo share","With the 3D slider up: TriClip2 writes left only, then expands the right eye after the worker drains (bit-identical). Heap stereoDsh (not linearAlloc). Log [G3STER] leftOnly>>dual when engaged. Leave OFF if unsure."},
       {kPresentPaceItem,"Present pace","NONBLOCK GPU FrameBegin so a frame that just misses 60 does not snap to 30. tearfree still waits before swap (no tearing). Leave OFF if unsure."},
       {kG3FrontOvItem,"3D front overlap","With 3D worker thread ON: wake every job and side-buffer decode post-VBlank textures while waiting for the worker. Freezes pinned textures so check stays 0. Auto-OFF if a frame submits geometry but draws 0 tris. Leave OFF if unsure."},
-      {kG3StereoGpuItem,"3D stereo GPU","With 3D stereo share ON: End lazily loads g3s and draws the right eye from the left vb (or CPU-expands if it cannot). Same picture as share alone when it works. Log [G3STER] g3s ready + path counts. Leave OFF if unsure."},
-      {kG3RawSplitItem,"3D raw split","With 3D worker thread ON: second raw worker on core 3 (New 3DS). Cuts raw transform wall time. Leave OFF if unsure."},
+      {kG3StereoGpuItem,"3D stereo GPU","With 3D stereo share ON: End draws the right eye from the left vb via g3s (prefers gpuRight; hard-clip/translucent keep left+dsh). Log [G3STER] path + reasons. Leave OFF if unsure."},
+      {kG3RawSplitItem,"3D raw split","With 3D worker thread ON: second raw worker on core 3 (New 3DS). Live toggle drains then starts/parks it. Log [G3THR] per-worker busy us. Leave OFF if unsure."},
       {kG3XfMapItem,"3D xf map","With 3D xf cache ON: also cache static map draws (not only list-cache replay). Same picture when the matrix is unchanged. Leave OFF if unsure."},
       {kG3FrontBgItem,"3D front bg","With 3D worker thread ON: side-buffer post-VBlank prep during drain without wake-every (lighter than front overlap). Leave OFF if unsure."}}},
 };

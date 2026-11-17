@@ -199,11 +199,12 @@ CONTROLS / TOUCH
                     front_ov=0 GetTexture path unchanged. Safety: 0 tris after geometry → OFF for session.
                     Default 0. Log: [FRONT].  [2026-11-17]
   g3_stereo_gpu=0   3D stereo GPU (Debug tab): with g3_stereo_share ON, End lazily inits g3s and draws the right
-                    eye from the left vb (stereok * dsh * w), or CPU-expands if it cannot (never empty right eye).
-                    Default V / g3.v.pica untouched. Default 0. Log: [G3STER] g3s ready + 60f path counts.
-                    [2026-11-17]
-  g3_raw_split=0    3D raw split (Debug tab): with g3_thread ON, second raw worker on core 3 (New 3DS). Default 0.
-                    Log: [G3THR] g3_raw_split.  [2026-11-17]
+                    eye from the left vb (stereok * dsh * w). Prefers gpuRight (skips mid; hard-clip/translucent
+                    write left+dsh). CPU-expand only on hard fallback; 60f path log includes reason counts.
+                    Default V / g3.v.pica untouched. Default 0. Log: [G3STER].  [2026-11-17]
+  g3_raw_split=0    3D raw split (Debug tab): with g3_thread ON, second raw worker on core 3 (New 3DS). Live
+                    Settings toggle drains then starts/parks worker 2. Default 0. Log: [G3THR] second worker +
+                    per-worker busy us.  [2026-11-17]
   g3_xf_map=0       3D xf map (Debug tab): with g3_xfcache ON, also cache static map draws (not only list-cache
                     replay). Default 0. Log: [G3XF] g3_xf_map.  [2026-11-17]
   g3_front_bg=0     3D front bg (Debug tab): side-buffer postvblank prep during drain without wake-every.

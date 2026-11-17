@@ -528,6 +528,8 @@ static B *batchFor(int eye, void *tex, int repS, int repT, int flipS, int flipT,
 static float k255[256];
 static inline const float *lut255(void) { if (k255[255] == 0.0f) for (int i = 0; i < 256; i++) k255[i] = i / 255.0f; return k255; }
 void G3G_StereoExpand(void); /* sync right from left before any non-share write */
+void G3G_Tri(int eye, const float *sx, const float *sy, const float *sz, const float *su, const float *sv, const u32 *col,
+             void *tex, unsigned tw, unsigned th, int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest);
 void G3G_TriClip(int eye, const float *c, const float *su, const float *sv, const u32 *col, void *tex,
                  int repS, int repT, int flipS, int flipT, int blend, int dwrite, int dtest, const float *shiftPx) {
     G3G_StereoExpand(); /* pending share must land before any single-eye write */
@@ -561,12 +563,17 @@ void G3G_SetStereoShare(int on) {
 }
 /* g3_stereo_gpu: isolated path — default V / g3.v.pica / AttrInfo 4-2-4 never change (run 887).
    When ON + share left-only: FlushDeferred may skip CPU expand; End lazily inits g3s and draws both eyes
-   from vb[0] with stereok * dsh * w. If End cannot take that path (mid/K, hard-clip filled eye 1, shader
-   fail), it expands first — never leave the right eye empty (hw run after #501: flash / stereo died). */
+   from vb[0] with stereok * dsh * w. Prefer gpuRight: skip mid/K when left-only pending; hard-clip /
+   translucent screen tris write left+dsh (no expand) so eye 1 stays empty. Fallback reasons counted
+   in 60f path log (hw e8900f9: path flipped ~half the frames → right eye jump). */
 static int stereoGpuWant; /* FlushDeferred: cfg+share this frame — skip game-thread expand, leave pending for End */
 static int stereoGpuSaid, stereoGpuFailSaid;
 static DVLB_s *dvlbS; static shaderProgram_s progS; static int uStereoK = -1, progSOk;
 static unsigned stereoGpuRightN, stereoGpuExpandN; /* frames that took each path (summed into 60f stage log) */
+/* Fallback reason counts (cpuExpand frames only): mid skipped so unused; eye1 = dual/overflow; nopend;
+   noshad; nogeom; eyes. */
+enum { STER_WHY_EYE1 = 0, STER_WHY_NOPEND, STER_WHY_NOSHAD, STER_WHY_NOGEOM, STER_WHY_EYES, STER_WHY_N };
+static unsigned stereoGpuWhy[STER_WHY_N];
 static int stereoGpuEnsure(void) {
     if (progSOk) return 1;
     dvlbS = DVLB_ParseFile((u32 *)g3s_shbin, g3s_shbin_size);
@@ -594,11 +601,25 @@ void G3G_SetStereoGpu(int on) {
 }
 int G3G_StereoGpuOn(void) { return stereoGpuWant; }
 int G3G_StereoPending(void) { return __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE); }
+/* True when stereo_gpu can keep writing left+dsh (eye1 still empty, pending share). Hard-clip / translucent
+   screen draws use this to avoid Expand+dual which would force cpuExpand for the rest of the frame. */
+int G3G_StereoGpuLeftOnly(void) {
+    return stereoGpuWant && stereoDsh && vn[1] == 0 && bn[1] == 0 &&
+           __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE);
+}
 unsigned G3G_LastExpandUs(void) { return lastExpandUs; }
 void G3G_StereoPathStats(unsigned *gpuRight, unsigned *cpuExpand) {
     if (gpuRight) *gpuRight = stereoGpuRightN;
     if (cpuExpand) *cpuExpand = stereoGpuExpandN;
     stereoGpuRightN = stereoGpuExpandN = 0;
+}
+/* whyOut[5]: eye1, nopend, noshad, nogeom, eyes — only meaningful for cpuExpand frames. */
+void G3G_StereoPathWhy(unsigned *whyOut, unsigned n) {
+    if (whyOut && n) {
+        unsigned i; for (i = 0; i < n && i < STER_WHY_N; i++) whyOut[i] = stereoGpuWhy[i];
+        for (; i < n; i++) whyOut[i] = 0;
+    }
+    memset(stereoGpuWhy, 0, sizeof stereoGpuWhy);
 }
 void G3G_StereoShareStats(unsigned *leftTris, unsigned *dualTris, unsigned *expands, unsigned *expVerts) {
     if (leftTris) *leftTris = stereoShareTris;
@@ -624,7 +645,7 @@ void G3G_StereoExpand(void) {
     if (bn[0] > b0) memcpy(bt[1] + b0, bt[0] + b0, (bn[0] - b0) * sizeof(B));
     vn[1] = vn[0]; bn[1] = bn[0];
     __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE); stereoShareExpands++;
-    if (stereoGpuWant) stereoGpuExpandN++; /* wanted gpu right but took CPU expand (mid/hard-clip/fallback) */
+    /* Path frame counts live in G3G_End (with fallback reasons); do not bump expandN here. */
     lastExpandUs = (unsigned)((svcGetSystemTick() - t0) / 268);
     G3T_VbUnlock();
 }
@@ -682,6 +703,38 @@ void G3G_TriClip2(const float *c, const float *su, const float *sv, const u32 *c
         q->y = o->y; q->z = o->z; q->w = w; q->s = o->s; q->t = o->t; q->r = o->r; q->g = o->g; q->b = o->b; q->a = o->a;
     }
     l0->count += 3; l1->count += 3;
+    G3T_VbUnlock();
+}
+/* Screen-space stereo under stereo_gpu left-only: write left eye + dsh (right_sx - left_sx in DS px).
+   Same parallax as dual G3G_Tri + expand (w=1 → NDC delta = dsh/128, wide uses 0.8). Keeps vn[1]==0 so End
+   can stay on gpuRight instead of flip-flopping after hard-clip / translucent. */
+void G3G_TriScreenShare(const float *sxL, const float *sy, const float *sz, const float *su, const float *sv, const u32 *col,
+                        const float *dshPx, void *tex, unsigned tw, unsigned th, int repS, int repT, int flipS, int flipT,
+                        int blend, int dwrite, int dtest) {
+    if (!stereoDsh || vn[0] + 3 > MAXV) {
+        /* Overflow: fall back to expand + dual write via G3G_Tri. */
+        float sxR[3];
+        for (int k = 0; k < 3; k++) sxR[k] = sxL[k] + (dshPx ? dshPx[k] : 0.0f);
+        G3G_Tri(0, sxL, sy, sz, su, sv, col, tex, tw, th, repS, repT, flipS, flipT, blend, dwrite, dtest);
+        G3G_Tri(1, sxR, sy, sz, su, sv, col, tex, tw, th, repS, repT, flipS, flipT, blend, dwrite, dtest);
+        return;
+    }
+    if (G3G_MidRec && !kWantId && kCurWant) { krStart(NULL); kCurWant = 0; }
+    G3T_VbLock();
+    B *last = batchFor(0, tex, repS, repT, flipS, flipT, blend, dwrite, dtest, 0);
+    if (!last) { G3T_VbUnlock(); return; }
+    float itw = tw ? 1.0f / tw : 0, ith = th ? 1.0f / th : 0; const float *L = lut255();
+    for (int k = 0; k < 3; k++) {
+        V *o = &vb[0][vn[0]]; float z = sz[k] / 65535.0f; if (z < 0) z = 0; if (z > 1) z = 1;
+        o->x = wideFrame ? (sxL[k] + 32.0f) / 160.0f - 1.0f : sxL[k] / 128.0f - 1.0f;
+        o->y = (G3G_FlipY ? 192.0f - sy[k] : sy[k]) / (hiFrame ? 96.0f : 128.0f) - 1.0f;
+        o->z = G3G_ZInv ? z - 1.0f : -z; o->w = 1.0f;
+        o->s = su[k] * itw; o->t = G3G_TexFlip ? sv[k] * ith : 1.0f - sv[k] * ith;
+        u32 c = col[k]; o->r = L[c & 255]; o->g = L[(c >> 8) & 255]; o->b = L[(c >> 16) & 255]; o->a = L[c >> 24];
+        stereoDsh[vn[0]] = dshPx ? dshPx[k] : 0.0f;
+        vn[0]++;
+    }
+    last->count += 3; __atomic_store_n(&stereoPending, 1, __ATOMIC_RELEASE);
     G3T_VbUnlock();
 }
 /* v: 3 x {sx, sy, z(0..65535), u(texels), v(texels), color RGBA8 as u32 R|G<<8|B<<16|A<<24} */
@@ -1007,20 +1060,39 @@ void G3G_End(u32 *outL, u32 *outR) {
         else if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
         else if (!midTot || !midMov) G3G_MidWhy[3]++; else if (midMat * 4 < midTot * 3) G3G_MidWhy[4]++; else mid = 1;
     }
-    /* g3_stereo_gpu: left-only share → shader right eye. Else always CPU-expand if still pending
-       (FlushDeferred skipped expand when want was set; hard-clip/G3G_Tri may already have expanded). */
+    /* g3_stereo_gpu: prefer shader right eye whenever left-only pending. Skip mid/K (incompatible with
+       g3s) so walking does not flip-flop mid↔gpuRight. Hard fallbacks keep CPU expand; reasons in 60f log. */
     int gpuRight = 0;
-    if (stereoGpuWant && eyes == 2 && stereoDsh && vn[0] && bn[0] && vn[1] == 0 &&
-        __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE) && !mid) {
-        if (stereoGpuEnsure()) {
-            gpuRight = 1;
-            GSPGPU_FlushDataCache(stereoDsh, vn[0] * sizeof(float));
-            __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE);
-            stereoGpuRightN++;
+    int sterWhy = -1; /* -1 = took gpuRight or no want; else STER_WHY_* */
+    const int pend0 = __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE);
+    if (stereoGpuWant) {
+        if (eyes != 2) sterWhy = STER_WHY_EYES;
+        else if (!stereoDsh || !vn[0] || !bn[0]) sterWhy = STER_WHY_NOGEOM;
+        else if (vn[1] != 0 || bn[1] != 0) sterWhy = STER_WHY_EYE1; /* dual TriClip2 overflow / legacy expand */
+        else if (!pend0) sterWhy = STER_WHY_NOPEND;
+        else {
+            if (mid) mid = 0; /* prefer stable gpuRight over mid in-between */
+            if (stereoGpuEnsure()) {
+                gpuRight = 1;
+                GSPGPU_FlushDataCache(stereoDsh, vn[0] * sizeof(float));
+                __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE);
+                stereoGpuRightN++;
+                sterWhy = -1;
+            } else sterWhy = STER_WHY_NOSHAD;
         }
+        if (!gpuRight) {
+            if (__atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE)) G3G_StereoExpand();
+            /* Count real fallbacks only (skip empty/no-geom frames that never had share work). */
+            if (sterWhy == STER_WHY_NOSHAD || sterWhy == STER_WHY_EYE1 ||
+                (sterWhy == STER_WHY_NOPEND && (vn[0] || vn[1])) ||
+                sterWhy == STER_WHY_EYES) {
+                stereoGpuExpandN++;
+                if (sterWhy >= 0 && sterWhy < STER_WHY_N) stereoGpuWhy[sterWhy]++;
+            }
+        }
+    } else if (pend0) {
+        G3G_StereoExpand();
     }
-    if (!gpuRight && __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE))
-        G3G_StereoExpand(); /* counts stereoGpuExpandN when want */
     if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
         const unsigned tot = vn[0] + vn[1];
         if (tot == 0 && fogFrame == 0 && !ruVerify && !direct) {

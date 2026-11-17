@@ -1,24 +1,27 @@
-# Stereo GPU fix + next wall cuts (after #501 / eedf0f0)
+# Stereo GPU path flip + raw_split live (after #502 / e8900f9)
 
-Hardware on main `eedf0f0`: thr_check **0 texCrc** (~100k+ jobs, front_ov=1). Azahar mismatches look emu-only.
+Hardware on main `e8900f9` (New 3DS, slider 1.0, Goldenrod walk): thr_check **0** mismatches, clean exit. Stereo wall still ~20–23 ms (raw ~10, front ~4.5, expand ~0.85, end ~1.2–1.5, flush ~1.0).
 
-## Stereo GPU bug (fixed)
+## Bug 1: `g3_stereo_gpu` path flip-flop (fixed)
 
-With `g3_stereo_gpu=1` from boot (share+front_ov+slider up): 3D flashed each eye then stereo died. Log never showed `g3s shader ready` / `unavailable` / `[gpu right]`. After Settings OFF, stages showed `gpuRight 0` (that field was the **cfg**, not the path).
+`60f path` showed `gpuRight 8 / cpuExpand 47`, `31/29`, only some stretches `60/0`. When it stayed on gpuRight wall dropped ~20→~16.8 ms (expand ~0). Alternating paths made the right eye visibly swap/jump.
 
-**Root cause (plain):** FlushDeferred skipped CPU expand whenever the **config** bit was on, but `G3G_End` only used the shader right-eye path when more conditions held (left-only `vn[1]==0`, pending, not mid/K, shader ready). When they disagreed — or when hard-clip/`G3G_Tri` expanded mid-frame — the right eye drew empty/partial → flash / stereo gone. Shader init also ran from FlushDeferred (too early); readiness logs often never appeared.
+**Root cause (plain):** End only took gpuRight when `vn[1]==0 && pending && !mid`. Hard-clip and deferred translucent `Tri` → `G3G_Tri` **Expanded** and filled eye 1 before End, so those frames fell to cpuExpand. Mid/K (fps60 in-between) also blocked gpuRight on other frames. Result: path flipped frame-to-frame during normal walking.
 
-**Fix:** End lazily inits `g3s` on first use; if it cannot take gpuRight it **always** CPU-expands when pending. 60f log: `gpuRight N frames, cpuExpand M frames`. Default V/shaders untouched.
+**Fix:**
+1. Prefer gpuRight: when left-only pending, **skip mid** (g3s vs g3k incompatible).
+2. Hard-clip / translucent screen draws under stereo_gpu left-only use `G3G_TriScreenShare` (left + dsh = right_sx−left_sx) — same parallax as dual+expand, keeps `vn[1]==0`.
+3. 60f path log adds fallback reason counts: `eye1 nopend noshad nogeom eyes`.
 
-## Next wall cuts (Debug, default OFF)
+## Bug 2: `g3_raw_split` Settings toggle did nothing (fixed)
 
-Stereo wall still ~23–24 ms (raw 10–17, front 1–7, expand 1–2). New toggles:
+Log showed `g3_raw_split=1 from settings` but never `second worker on core 3`; raw stayed ~10 ms. `SetG3RawSplit` only stored the cfg; `G3T_Start2` ran only inside the one-shot `gtStart()`.
 
-| Key | What |
-|---|---|
-| `g3_raw_split` | second raw worker on core 3 |
-| `g3_xf_map` | xfcache for static map draws (not only list-cache replay) |
-| `g3_front_bg` | side-buffer postvblank prep during drain without wake-every |
+**Fix:** live toggle drains then `Start2` / park (`Stop2`); boot cfg still starts worker 2 from `gtStart`. `[G3THR] 300f` logs per-worker busy us when split is on.
+
+## Not reworked this PR (hw note)
+
+`g3_front_bg` left front ~4.3 ms (no gain). `g3_xf_map` barely moved hit rate. Ideas for later: longer xf keys / camera-stable map batches; move more Gather/Decode off the game thread with a real second queue (not just drain overlap).
 
 ## Device A/B
 
@@ -26,11 +29,17 @@ Base: `g3_thread=1 g3_wake=1 g3_thr_check=1 g3_fastxform=1 g3_xfcache=1 g3_prof=
 
 | Trial | Expect |
 |---|---|
-| `g3_stereo_gpu=1` only | `[G3STER] g3s shader ready`; `60f path: gpuRight >> cpuExpand`; same picture as share alone; expand ~0 when gpuRight |
-| + `g3_raw_split=1` | `[G3THR] g3_raw_split`; lower raw / wall |
-| + `g3_xf_map=1` | `[G3XF]` hits up when camera still |
-| + `g3_front_bg=1` | `[FRONT]` prep without wake-every; lower front |
-| all new OFF | same as eedf0f0 |
+| `g3_stereo_gpu=1` | `g3s shader ready`; `60f path: gpuRight ≈60, cpuExpand ≈0` (reasons near 0); no right-eye jump; expand ~0; wall ~16–17 ms when stable |
+| + `g3_raw_split=1` (Settings or boot) | `second worker on core 3`; `busy us/f w1=… w2=…` with w2>0; lower raw |
+| `g3_raw_split` OFF after ON | `second worker parked`; w2 busy → 0 |
+| `g3_xf_map` / `g3_front_bg` | optional; expect little gain (known) |
+| all new OFF | same as e8900f9 share-only |
+
+---
+
+# Stereo GPU fix + next wall cuts (after #501 / eedf0f0) — superseded by path-flip fix above
+
+Hardware on main `eedf0f0`: thr_check **0 texCrc** (~100k+ jobs, front_ov=1). Empty-right flash when stereo_gpu ON from boot: End now inits g3s lazily and always expands if it cannot take gpuRight. New Debug toggles `g3_raw_split` / `g3_xf_map` / `g3_front_bg` (defaults OFF).
 
 ---
 
