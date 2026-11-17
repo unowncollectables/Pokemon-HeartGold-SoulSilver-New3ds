@@ -910,8 +910,8 @@ static void centreCopy(const void *color, void *dest, int sync) {
 }
 /* How many C3D_Sync* calls the legacy wide path makes per eye: each one is its own 3D-list break.
    In-between: centre + (two side packs + readback, or one full readback). Real picture: centre + readback. */
-static int legacyWideKicks(int nEyes) {
-    const int midK = midStripTiles ? 4 : 2;
+static unsigned legacyWideKicks(int nEyes, int mid) {
+    const unsigned midK = mid ? (midStripTiles ? 4 : 2) : 0;
     return nEyes * (midK + 2);
 }
 /* fps60: the in-between frame's side strips (64x192 like G3G_Strip) from the readback G3G_End queued. Call after a FrameBegin has waited. */
@@ -981,7 +981,7 @@ const u32 *G3G_CrispHi(const u32 **nf) {
 static int pipeCfg = -1;
 static int fps60Pipe(void) {
     if (pipeCfg < 0) { extern int P3DS_CfgInt(const char *, int); pipeCfg = P3DS_CfgInt("fps60_pipe", 0) != 0;
-        PSPNativeMemLog("[FPS60] fps60_pipe=%d (1 = wide in-between copies do not split the 3D draws)", pipeCfg); }
+        PSPNativeMemLog("[FPS60] fps60_pipe=%d (1 = batch wide copies after each 3D pass)", pipeCfg); }
     return pipeCfg;
 }
 void G3G_SetFps60Pipe(int v) { pipeCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_pipe=%d from settings", pipeCfg); }
@@ -1150,9 +1150,9 @@ void G3G_End(u32 *outL, u32 *outR) {
         const int f = (int)fogDens((u32)(clearD * 0xFFFFFF)); const int fc3[3] = { (int)((fc & 31) * 255 / 31), (int)(((fc >> 5) & 31) * 255 / 31), (int)(((fc >> 10) & 31) * 255 / 31) };
         fogClr = clearRGBA & 255; for (int c = 0; c < 3; c++) { int v = (clearRGBA >> (24 - 8 * c)) & 255; v = (fc3[c] * f + v * (128 - f)) >> 7; fogClr |= (u32)v << (24 - 8 * c); } }
     int decalOn = 0;
-    /* Wide + direct + in-between only. Anything else, including fps60_pipe OFF, keeps the loop below byte for byte. */
-    const int pipe = mid && wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
-    static unsigned pipeN, pipeKickSum;
+    /* Separate wide targets can queue the copies together after either pass. */
+    const int pipe = wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
+    static unsigned pipeN, pipeKickSum, legacyKickSum;
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
     for (int e = 0; e < eyes; e++) {
@@ -1224,8 +1224,14 @@ void G3G_End(u32 *outL, u32 *outR) {
             centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 0);
             issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS, 0);
         }
-        if (++pipeN >= 600) { PSPNativeMemLog("[FPS60] pipe kicks %u per frame over %u frames (legacy %d, %d eyes) tris %u batches %u",
-            pipeKickSum / pipeN, pipeN, legacyWideKicks(eyes), eyes, vn[0] / 3, bn[0]); pipeN = pipeKickSum = 0; }
+        const unsigned legacyKicks = legacyWideKicks(eyes, mid);
+        legacyKickSum += legacyKicks;
+        if (!mid) {
+            static int said;
+            if (!said) { said = 1; PSPNativeMemLog("[FPS60] wide real-only copy batch: 1 list break (legacy %u, %d eyes)", legacyKicks, eyes); }
+        }
+        if (++pipeN >= 600) { PSPNativeMemLog("[FPS60] pipe kicks %u per frame over %u frames (legacy %u) tris %u batches %u",
+            pipeKickSum / pipeN, pipeN, legacyKickSum / pipeN, vn[0] / 3, bn[0]); pipeN = pipeKickSum = legacyKickSum = 0; }
     } else if (direct && wideFrame) for (int e = 0; e < eyes; e++) {   /* wide direct: centre 256 columns -> dirTex[e] (texture copy, tiled to tiled), then the strip readback */
         centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 1);
         rbQueue(e); }
