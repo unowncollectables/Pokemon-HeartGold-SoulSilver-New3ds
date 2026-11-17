@@ -10,6 +10,7 @@
 #include "g3_shbin.h"
 #include "g3k_shbin.h"
 #include "g3s_shbin.h" /* g3_stereo_gpu only — never bound unless that toggle is on */
+#include "g3sk_shbin.h"
 extern int P3DS_GpuInit(void);
 extern void PSPNativeMemLog(const char *, ...);
 extern void P3DS_FrameEnd(void);  /* gpuscale.c: C3D_FrameEnd, lean flush with fps_tweaks >= 1 */
@@ -563,14 +564,14 @@ void G3G_SetStereoShare(int on) {
 }
 /* g3_stereo_gpu: isolated path — default V / g3.v.pica / AttrInfo 4-2-4 never change (run 887).
    When ON + share left-only: FlushDeferred may skip CPU expand; End lazily inits g3s and draws both eyes
-   from vb[0] with stereok * dsh * w. Prefer gpuRight: skip mid/K when left-only pending; hard-clip /
+   from vb[0] with stereok * dsh * w. A midpoint pass applies K after that same eye shift. Hard-clip /
    translucent screen tris write left+dsh (no expand) so eye 1 stays empty. Fallback reasons counted
    in 60f path log (hw e8900f9: path flipped ~half the frames → right eye jump). */
 static int stereoGpuWant; /* FlushDeferred: cfg+share this frame — skip game-thread expand, leave pending for End */
 static int stereoGpuSaid, stereoGpuFailSaid;
 static DVLB_s *dvlbS; static shaderProgram_s progS; static int uStereoK = -1, progSOk;
 static unsigned stereoGpuRightN, stereoGpuExpandN; /* frames that took each path (summed into 60f stage log) */
-/* Fallback reason counts (cpuExpand frames only): mid skipped so unused; eye1 = dual/overflow; nopend;
+/* Fallback reason counts (cpuExpand frames only): eye1 = dual/overflow; nopend;
    noshad; nogeom; eyes. */
 enum { STER_WHY_EYE1 = 0, STER_WHY_NOPEND, STER_WHY_NOSHAD, STER_WHY_NOGEOM, STER_WHY_EYES, STER_WHY_N };
 static unsigned stereoGpuWhy[STER_WHY_N];
@@ -588,6 +589,28 @@ static int stereoGpuEnsure(void) {
         return 0;
     }
     progSOk = 1; PSPNativeMemLog("[G3STER] g3s shader ready (stereo_gpu path; default g3 untouched)");
+    return 1;
+}
+static DVLB_s *dvlbSK;
+static shaderProgram_s progSK;
+static int uStereoMid = -1, uStereoMidK = -1;
+static int stereoMidEnsure(void) {
+    static int tried;
+    if (tried) return uStereoMid >= 0 && uStereoMidK >= 0;
+    tried = 1;
+    dvlbSK = DVLB_ParseFile((u32 *)g3sk_shbin, g3sk_shbin_size);
+    if (!dvlbSK) {
+        PSPNativeMemLog("[G3STER] g3sk shader parse FAILED: midpoint uses CPU stereo expand");
+        return 0;
+    }
+    shaderProgramInit(&progSK); shaderProgramSetVsh(&progSK, &dvlbSK->DVLE[0]);
+    uStereoMid = shaderInstanceGetUniformLocation(progSK.vertexShader, "stereok");
+    uStereoMidK = shaderInstanceGetUniformLocation(progSK.vertexShader, "kmtx");
+    if (uStereoMid < 0 || uStereoMidK < 0) {
+        PSPNativeMemLog("[G3STER] g3sk uniform missing: midpoint uses CPU stereo expand");
+        return 0;
+    }
+    PSPNativeMemLog("[G3STER] g3sk shader ready (GPU right eye with midpoint)");
     return 1;
 }
 void G3G_SetStereoGpu(int on) {
@@ -1060,8 +1083,8 @@ void G3G_End(u32 *outL, u32 *outR) {
         else if (!direct) G3G_MidWhy[0]++; else if (midOver) G3G_MidWhy[1]++; else if (fogFrame == 2) G3G_MidWhy[2]++;
         else if (!midTot || !midMov) G3G_MidWhy[3]++; else if (midMat * 4 < midTot * 3) G3G_MidWhy[4]++; else mid = 1;
     }
-    /* g3_stereo_gpu: prefer shader right eye whenever left-only pending. Skip mid/K (incompatible with
-       g3s) so walking does not flip-flop mid↔gpuRight. Hard fallbacks keep CPU expand; reasons in 60f log. */
+    /* Keep both passes on the shared vertex buffer. If either required shader is unavailable,
+       expand the right eye and use the existing midpoint path. */
     int gpuRight = 0;
     int sterWhy = -1; /* -1 = took gpuRight or no want; else STER_WHY_* */
     const int pend0 = __atomic_load_n(&stereoPending, __ATOMIC_ACQUIRE);
@@ -1071,8 +1094,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         else if (vn[1] != 0 || bn[1] != 0) sterWhy = STER_WHY_EYE1; /* dual TriClip2 overflow / legacy expand */
         else if (!pend0) sterWhy = STER_WHY_NOPEND;
         else {
-            if (mid) mid = 0; /* prefer stable gpuRight over mid in-between */
-            if (stereoGpuEnsure()) {
+            if (stereoGpuEnsure() && (!mid || stereoMidEnsure())) {
                 gpuRight = 1;
                 GSPGPU_FlushDataCache(stereoDsh, vn[0] * sizeof(float));
                 __atomic_store_n(&stereoPending, 0, __ATOMIC_RELEASE);
@@ -1093,7 +1115,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     } else if (pend0) {
         G3G_StereoExpand();
     }
-    if (rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
+    if (!(mid && gpuRight) && rs && !G3G_Async && curW == 256 && curHi == 0 && fogFrame != 2 && P3DS_G3ReuseCfg() && (outL || outR)) {
         const unsigned tot = vn[0] + vn[1];
         if (tot == 0 && fogFrame == 0 && !ruVerify && !direct) {
             const u32 w = convWord(clearRGBA);
@@ -1156,11 +1178,14 @@ void G3G_End(u32 *outL, u32 *outR) {
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
     for (int e = 0; e < eyes; e++) {
+        const int midK = gpuRight ? uStereoMidK : uK;
+        const int runEye = gpuRight ? 0 : e;
         if (gpuRight) {
-            C3D_BindProgram(&progS);
-            C3D_FVUnifSet(GPU_VERTEX_SHADER, uStereoK, e ? (stereoScale / 128.0f) : 0.0f, 0, 0, 0);
+            C3D_BindProgram(ph ? &progS : &progSK);
+            C3D_FVUnifSet(GPU_VERTEX_SHADER, ph ? uStereoK : uStereoMid,
+                          e ? (stereoScale / 128.0f) : 0.0f, 0, 0, 0);
         } else if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
-        if (!ph && !gpuRight) for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]);
+        if (!ph) for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, midK + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]);
         if (!depthLin) C3D_RenderTargetClear(tgt[e], C3D_CLEAR_ALL, fogFrame == 1 ? fogClr : clearRGBA, depth16 ? (u32)(clearD * 0xFFFF) : ((u32)(clearD * 0xFFFFFF) | (fogFrame == 2 && (*(const u16 *)(PSPNative_GfxRegisters + 0x350) & 0x8000) ? 0x01000000u : 0)));
         C3D_FrameDrawOn(tgt[e]);   /* viewport = whole target (256/320 x 256, or 2x x 384) */
         const int small = r1xFrame && e == 1;   /* FAST 3D right eye: 1x viewport in the corner of the 2x target */
@@ -1193,11 +1218,11 @@ void G3G_End(u32 *outL, u32 *outR) {
             if (ph) { C3D_DrawArrays(GPU_TRIANGLES, b->first, b->count); continue; }
             /* in-between picture: the batch in pieces, one per run of vertices that share K */
             unsigned a = b->first; const unsigned end = b->first + b->count;
-            unsigned lo = 0, hi = krN - 1; while (lo < hi) { const unsigned m = (lo + hi + 1) / 2; if (kr[m].v0[e] <= a) lo = m; else hi = m - 1; }
+            unsigned lo = 0, hi = krN - 1; while (lo < hi) { const unsigned m = (lo + hi + 1) / 2; if (kr[m].v0[runEye] <= a) lo = m; else hi = m - 1; }
             for (unsigned r = lo; a < end; r++) {
-                while (r + 1 < krN && kr[r + 1].v0[e] <= a) r++;
-                const unsigned stop = (r + 1 < krN && kr[r + 1].v0[e] < end) ? kr[r + 1].v0[e] : end;
-                if ((int)r != kSet) { kSet = (int)r; const float *k = kr[r].k; for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, k[i], k[4 + i], k[8 + i], k[12 + i]); }
+                while (r + 1 < krN && kr[r + 1].v0[runEye] <= a) r++;
+                const unsigned stop = (r + 1 < krN && kr[r + 1].v0[runEye] < end) ? kr[r + 1].v0[runEye] : end;
+                if ((int)r != kSet) { kSet = (int)r; const float *k = kr[r].k; for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, midK + i, k[i], k[4 + i], k[8 + i], k[12 + i]); }
                 C3D_DrawArrays(GPU_TRIANGLES, a, stop - a); a = stop; }
         }
         if (fogFrame == 1) C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
@@ -1245,7 +1270,14 @@ void G3G_End(u32 *outL, u32 *outR) {
         pendRB = 0; for (unsigned i = 0; i < pendN && oldN < 512; i++) oldFree[oldN++] = pendFree[i]; pendN = 0;
         dirValid = dirPend = 1; dirEyes = eyes; dirKey[0] = outL; dirKey[1] = outR; dirOut = 1; dirDirect++;
         dirWide = dirStrip = dirRb = wideFrame; if (wideFrame) dirWideN++;
-        if (mid) { midValid = 1; midEyes = eyes; midWide = wideFrame; }
+        if (mid) {
+            midValid = 1; midEyes = eyes; midWide = wideFrame;
+            if (gpuRight) {
+                static unsigned stereoMids;
+                if (++stereoMids == 1 || stereoMids % 120 == 0)
+                    PSPNativeMemLog("[G3STER] GPU stereo midpoints rendered: %u", stereoMids);
+            }
+        }
         G3G_StripValid = wideFrame ? eyes : 0;   /* wide: G3G_DirectStrips() fills G3G_Strip before present */
         { static int said; if (wideFrame && !said) { said = 1; PSPNativeMemLog("[GPU3D] direct: first wide frame (320x256 targets, %d eye%s): centre copied on the GPU into the compositor texture, only the side strips converted on the CPU", eyes, eyes > 1 ? "s" : ""); } }
     }
