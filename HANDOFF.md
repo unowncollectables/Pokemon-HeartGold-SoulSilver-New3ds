@@ -1,3 +1,8 @@
+## CPU scanline sprite walk
+
+- The CPU compositor now collects the enabled OAM entries in one pass per scanline. The draw order remains priority 3 to 0, with descending OAM index within each priority. Affine sprite sizing, window sprites and mosaic still use the same draw routines.
+- This affects both eyes on stereo CPU fallback and Engine B when it uses CPU composition. Physical timing is pending.
+
 ## Wide readback on CPU-blended field frames
 
 - Recent hardware logs show BLDCNT 2144 / BLDALPHA 0709 triggering the GPU compositor’s BG0 3D blend rejection for hundreds of frames in a row. Wide GPU-direct previously copied each eye's centre to a texture even though the CPU compositor only consumed the linear readback.
