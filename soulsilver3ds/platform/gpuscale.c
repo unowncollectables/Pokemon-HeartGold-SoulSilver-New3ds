@@ -390,7 +390,8 @@ static void strips(C3D_RenderTarget *t, int eye) {
    and console/bottom toggles. 0 = always upload. */
 int P3DS_GpuBotSame; static int skipBotCfg = -1; static unsigned botSkips;
 void P3DS_GpuInvalidateBot(void) { botValid = 0; } /* run 64: settings app drew its own bottom picture */
-void P3DS_GpuQuiesce(void) { botValid = 0;
+static void dfrFlush(void);
+void P3DS_GpuQuiesce(void) { botValid = 0; if (ready) dfrFlush();
     if (ready) { C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH); gspWaitForVBlank(); }
     stereoOn = 0; gfxSet3D(false);
 }
@@ -745,10 +746,53 @@ static int f60Pending(void) { return gspIsPresentPending(GFX_TOP) || gspIsPresen
    has finished the two pictures AND the LCD has taken the in-between one (a flip before that would land in the buffer being shown) */
 int P3DS_Fps60Pending(void) { return f60Flip; }
 extern int P3DS_G3ThrBusy(void); /* g3soft: worker has queued jobs; do not open a C3D frame over it */
+/* 2026-11-17 present_defer (Debug > Screen hand-off, default OFF; 2 = A/B every 1200 presents). Run 919: tearfix waited 4-7 ms on
+   54-579 of 600 presents, with the game thread blocked AND the GPU idle (the frame's draw commands are only handed to the GPU at
+   FrameEnd, after that wait). The only step that must wait for the LCD is the copy into the screen buffer (display transfer). With
+   ON, when the last screen swap is still pending, the frame ends WITHOUT that copy: the GPU draws at once into tgtTop/tgtTopR/tgtBot
+   (off-screen VRAM targets, never scanned out) and the copy + swap is started later by P3DS_Fps60Poll (game thread, at every VBlank
+   wait and 3D draw call) as soon as GSP has taken the previous swap. Same pictures, same order: an fps60 real-picture flip waits
+   behind it. Anything that presents next (P3DS_Fps60Flush) first finishes it the old way (wait, then copy), so the worst case is
+   the old behaviour. Field only (where the poll is proven by fps60). */
+static int dfrCfg = -1, dfrMask, dfrSt, dfrUse; static u64 dfrT0; static unsigned dfrPhase;
+static unsigned dfrN, dfrLate, dfrPolled, dfrNow, dfrMid, dfrSlow; static u64 dfrUsSum, dfrSaved, dfrGapSum, dfrLastEnd;
+int P3DS_PresentDeferCfg(void) {
+    if (dfrCfg < 0) { dfrCfg = P3DS_CfgInt("present_defer", 0); if (dfrCfg < 0 || dfrCfg > 2) dfrCfg = 0;
+        PSPNativeMemLog("[DEFER] present_defer=%d (0 off, 1 GPU starts at once and the screen copy waits for the LCD instead of the game, 2 A/B every 1200 presents)", dfrCfg); }
+    return dfrCfg; }
+void P3DS_SetPresentDefer(int v) { dfrCfg = v < 0 ? 0 : v > 2 ? 2 : v; dfrPhase = 0; dfrSaved = 0; dfrNow = dfrPolled = dfrLate = dfrN = dfrMid = dfrSlow = 0; dfrUsSum = dfrGapSum = 0; dfrLastEnd = 0; PSPNativeMemLog("[DEFER] present_defer=%d from settings", dfrCfg); }
+static int dfrOn(void) { const int c = P3DS_PresentDeferCfg(); return c == 1 || (c == 2 && ((dfrPhase / 1200) & 1)); }
+/* inside a begun frame: copy the waiting targets to the screens and swap */
+static void dfrCopyNow(void) {
+    if (dfrMask & 1) C3D_FrameDrawOn(tgtTop);
+    if (dfrMask & 2) C3D_FrameDrawOn(tgtTopR);
+    if (dfrMask & 4) C3D_FrameDrawOn(tgtBot);
+    P3DS_FrameEnd();
+    dfrUsSum += (svcGetSystemTick() - dfrT0) / 268; dfrN++; dfrMask = 0; dfrSt = 0;
+}
+static int dfrPoll(void) { /* 1 = still waiting (nothing else may present) */
+    if (!dfrMask) return 0;
+    if (dfrSt == 0) { if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) return 1; dfrSt = 1;
+        if (f60Pending()) { C3D_FrameEnd(GX_CMDLIST_FLUSH); return 1; }
+        dfrPolled++; dfrCopyNow(); return 1; }  /* the f60 flip waits for this swap to be taken */
+    if (f60Pending()) return 1;
+    if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) return 1;
+    dfrPolled++; dfrCopyNow(); return 1;
+}
+static void dfrFlush(void) {
+    if (!dfrMask) return;
+    C3D_FrameBegin(0);
+    const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
+    { const unsigned w = (unsigned)((svcGetSystemTick() - t0) / 268); P3DS_GpTearUs += w; P3DS_GpFenceIdleUs += w; }
+    dfrLate++; dfrCopyNow();
+}
+void P3DS_PresentDeferSettle(void) { dfrFlush(); }
 void P3DS_Fps60Poll(void) {
-    if (!f60Flip) return;
+    if (!f60Flip && !dfrMask) return;
     if (P3DS_G3ThrBusy()) return; /* g3_thread: FrameBegin while the worker fills vb[] reorders GPU work vs inline */
     const u64 now = svcGetSystemTick(); if (now - f60PollT < 268 * 300) return; f60PollT = now;
+    if (dfrMask) { dfrPoll(); return; }
+    if (!f60Flip) return;
     if (f60FlipSt == 0) { if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) return; f60FlipSt = 1;
         if (f60Pending()) { C3D_FrameEnd(GX_CMDLIST_FLUSH); return; }
         f60FlipNow(); return; }
@@ -757,6 +801,7 @@ void P3DS_Fps60Poll(void) {
 }
 /* before anything else is presented: the flip that no poll got to (a short tick), waited for */
 void P3DS_Fps60Flush(void) {
+    dfrFlush();
     if (!f60Flip) return;
     C3D_FrameBegin(0);
     const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
@@ -841,7 +886,14 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
          new frame, the rest the old (run 27 report, both screens). Make sure ~2 vblanks passed since the last present. */
       static int tf = -1; if (tf < 0) { tf = 2; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "tearfix=%d", &x) == 1) tf = x < 0 ? 0 : x > 2 ? 2 : x; fclose(f); } PSPNativeMemLog("[3DS] tearfix=%d", tf); }
       static u64 lastEnd; static unsigned waits, n; static u64 waitTicks;
-      if (tf == 2) { /* run 32: tearfix=2 (default). C3D_FrameBegin above waited for the previous queue, so citro3d has
+      dfrUse = 0;
+      if (tf == 2 && P3DS_InField && !P3DS_InBattle && dfrOn() && f60Pending()) {
+        /* present_defer: hand the draw to the GPU now, copy to the screens later (see dfrPoll) */
+        dfrUse = 1; dfrMask = 0;
+        if (tgtTop->used) { tgtTop->used = false; dfrMask |= 1; }
+        if (tgtTopR && tgtTopR->used) { tgtTopR->used = false; dfrMask |= 2; }
+        if (tgtBot->used) { tgtBot->used = false; dfrMask |= 4; }
+      } else if (tf == 2) { /* run 32: tearfix=2 (default). C3D_FrameBegin above waited for the previous queue, so citro3d has
            requested the previous swap (gfxScreenSwapBuffers -> gspPresentBuffer); GSP applies it only at the next
            vblank. Until then the "back" buffer that this frame's display transfer writes is STILL ON SCREEN: the
            transfer overwrites it while the LCD scans it -> the first-scanned rows lag (both screens, also 2D video).
@@ -858,8 +910,19 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
             if (elapsed < timeout) P3DS_GpFenceIdleUs = P3DS_GpTearUs;
         }
       } else if (tf && lastEnd) { u64 el = svcGetSystemTick() - lastEnd; if (el < (u64)(2 * 16.713 * 268111.856)) { if (el < (u64)(16.713 * 268111.856)) gspWaitForVBlank(); gspWaitForVBlank(); waits++; } }
-      if (tf && ++n % 600 == 0) { PSPNativeMemLog("[3DS] tearfix=%d: waited on %u of 600 presents, avg wait %u us", tf, waits, waits ? (unsigned)(waitTicks / waits / 268) : 0); waits = 0; waitTicks = 0; }
+      if (P3DS_PresentDeferCfg()) { const int ab = P3DS_PresentDeferCfg() == 2; dfrPhase++;
+        if (dfrUse) dfrNow++;
+        if (f60) dfrMid++;
+        { const u64 now = svcGetSystemTick(); if (dfrLastEnd) { const u64 g = now - dfrLastEnd; dfrGapSum += g; if (g > (u64)(34 * 268111.856)) dfrSlow++; } dfrLastEnd = now; }
+        if (++dfrSaved >= 600 || (ab && dfrPhase % 1200 == 0)) {
+          PSPNativeMemLog("[DEFER] %s%s | %u presents, avg %u us apart, %u over 34 ms | in-between pictures %u (%u%%) | tearfix waited on %u (avg %u us) | GPU started at once %u: copied by poll %u, by next present %u, avg %u us later",
+            (dfrCfg == 1 || (((dfrPhase - 1) / 1200) & 1)) ? "ON" : "OFF", ab ? " (A/B)" : "", (unsigned)dfrSaved, (unsigned)(dfrGapSum / dfrSaved / 268), dfrSlow,
+            dfrMid, (unsigned)(dfrMid * 100 / dfrSaved), waits, waits ? (unsigned)(waitTicks / waits / 268) : 0,
+            dfrNow, dfrPolled, dfrLate, dfrN ? (unsigned)(dfrUsSum / dfrN) : 0);
+          dfrSaved = 0; dfrNow = dfrPolled = dfrLate = dfrN = dfrMid = dfrSlow = 0; dfrUsSum = dfrGapSum = 0; waits = 0; waitTicks = 0; } }
+      if (tf && ++n % 600 == 0) { PSPNativeMemLog("[3DS] tearfix=%d: waited on %u of 600 presents, avg wait %u us", tf, waits, waits ? (unsigned)(waitTicks / waits / 268) : 0); if (!P3DS_PresentDeferCfg()) { waits = 0; waitTicks = 0; } }
       if (f60 && tf != 2) { const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000); }
       P3DS_FpsGuardFrame(); P3DS_Crumb("gp-end", 0); { const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); lastEnd = svcGetSystemTick(); P3DS_GpEndUs = (unsigned)((lastEnd - te) / 268); } P3DS_Crumb("gp-done", 0);
+      if (dfrUse) { dfrT0 = lastEnd; dfrSt = 0; f60PollT = 0; }
       if (f60) { f60Flip = st ? 2 : 1; f60FlipSt = 0; f60FlipT0 = lastEnd; f60PollT = 0; } }
 }
