@@ -899,10 +899,43 @@ static void gtMark(unsigned *cur, int slot, int *first) {
     C3D_FrameBegin(0);   /* waits for the queue: this pass's GPU time */
     cur[slot] = (unsigned)((svcGetSystemTick() - a) / 268);
 }
+/* 2026-11-17 g3_scissor (Debug tab, default OFF, A/B TEST): the eye targets are 256 rows, but only 192 are ever shown or read
+   (GPU rows 64..255: compositor v 0..0.75, strips, readbacks). Triangles that cross the bottom edge of the DS screen still fill the
+   64 hidden rows. A scissor rectangle stops the GPU filling them. Which window rows are the hidden ones is not assumed: the first
+   time, a full-target quad is drawn with a 64-row scissor and read back once; if neither end matches, the scissor stays off.
+   [GPUT] lines are grouped by scissor OFF / ON (A/B steps every 600 3D frames). */
+static int scisCfg = -1, scisMode = -1;   /* scisMode: -1 not calibrated, 0 hidden = window rows 0..63, 1 = rows 192..255, 2 failed */
+int G3G_ScissorCfg(void) { if (scisCfg < 0) { scisCfg = P3DS_CfgInt("g3_scissor", 0); if (scisCfg < 0 || scisCfg > 2) scisCfg = 0; PSPNativeMemLog("[G3SCI] g3_scissor=%d (1 = GPU skips the 64 hidden rows, 2 = A/B)", scisCfg); } return scisCfg; }
+void G3G_SetScissor(int v) { scisCfg = v < 0 || v > 2 ? 0 : v; PSPNativeMemLog("[G3SCI] g3_scissor=%d from settings", scisCfg); }
+static void clearQuad(void);
+static void scisCalibrate(void) {
+    if (!qv) qv = linearAlloc(6 * sizeof(V));
+    if (!qv || !tgt[0] || !rb[0]) { scisMode = 2; PSPNativeMemLog("[G3SCI] calibration skipped (no buffers): scissor stays OFF"); return; }
+    const u32 keepClr = clearRGBA; const float keepD = clearD;
+    C3D_RenderTargetClear(tgt[0], C3D_CLEAR_ALL, 0x000000FF, 0xFFFFFF);
+    C3D_FrameDrawOn(tgt[0]);
+    C3D_SetScissor(GPU_SCISSOR_NORMAL, 0, 0, (u32)curW, 64);
+    clearRGBA = 0xFFFFFFFF; clearD = 0.5f; clearQuad(); clearRGBA = keepClr; clearD = keepD;
+    C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+    C3D_SyncDisplayTransfer((u32 *)tgt[0]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[0], GX_BUFFER_DIM(curW, 256), RB_FLAGS);
+    C3D_FrameEnd(GX_CMDLIST_FLUSH); C3D_FrameBegin(0);
+    P3DS_DcInval(rb[0], (u32)curW * 256 * 4);
+    /* rb row r = memory row 255-r (flipped readback). Hidden memory rows 0..63 = rb rows 192..255. */
+    const u32 lo = rb[0][250 * curW + curW / 2], hi = rb[0][5 * curW + curW / 2];
+    const int loW = (lo >> 8) == 0xFFFFFF, hiW = (hi >> 8) == 0xFFFFFF;
+    scisMode = loW && !hiW ? 0 : hiW && !loW ? 1 : 2;
+    PSPNativeMemLog("[G3SCI] calibration: 64-row scissor lands %s (mem row 5 %08lx, mem row 250 %08lx)%s", scisMode == 0 ? "on the hidden rows" : scisMode == 1 ? "on the shown end (flipped)" : "nowhere clear",
+        (unsigned long)lo, (unsigned long)hi, scisMode == 2 ? ": scissor stays OFF" : "");
+}
+static void scisApply(int on) {
+    if (!on) { C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0); return; }
+    if (scisMode == 0) C3D_SetScissor(GPU_SCISSOR_NORMAL, 0, 64, (u32)curW, 256);
+    else C3D_SetScissor(GPU_SCISSOR_NORMAL, 0, 0, (u32)curW, 192);
+}
 static void gtLog(void) {
     if (abFrames % 600) return;
     if (gtCfg != 1) return;
-    static const char *nm[2] = { "full readback", "slim strips" };
+    static const char *nm[2] = { "scissor OFF", "scissor ON" };
     for (int s = 0; s < 2; s++) {
         if (!frN[s]) continue;
         const unsigned n = gtN[s] ? gtN[s] : 1;
@@ -1258,6 +1291,9 @@ void G3G_End(u32 *outL, u32 *outR) {
     slimFrame = direct && wideFrame && curHi == 0 && !r1xFrame && !sharedTgt && slimAlloc();   /* falls back to the full readback without memory */
     const int gtS = G3G_GpuTimeCfg() && direct && ++gtCnt % 30 == 0;
     const int scOn = 1;   /* state cache: always on since run 910's A/B (End -0.15..0.37 ms, same picture) */
+    const int sciC = G3G_ScissorCfg();
+    if (sciC && scisMode < 0 && !gpuRight && direct && curHi == 0 && !r1xFrame && !sharedTgt) scisCalibrate();   /* gpuRight binds g3s (needs the dsh stream): calibrate on a later frame */
+    const int scisOn = (sciC == 1 || (sciC == 2 && ((abFrames / 600) & 1))) && (scisMode == 0 || scisMode == 1) && direct && curHi == 0 && !r1xFrame && !sharedTgt;
     int gtFirst = 1; unsigned gtCur[6] = { 0 };
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
@@ -1272,6 +1308,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         C3D_FrameDrawOn(tgt[e]);   /* viewport = whole target (256/320 x 256, or 2x x 384) */
         const int small = r1xFrame && e == 1;   /* FAST 3D right eye: 1x viewport in the corner of the 2x target */
         if (small) C3D_SetViewport(0, 0, curW, 192);
+        if (scisOn) scisApply(1);
         const int hx = curHi == 1 && !small;
         if (depthLin) clearQuad();
         C3D_BufInfo *bi = C3D_GetBufInfo(); BufInfo_Init(bi);
@@ -1375,6 +1412,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 1);
         if (slimFrame) stripIssueTo(tgt[e]->frameBuf.colorBuf, rbSTiles, rbS[e], 1, 1);
         else rbQueue(e); }
+    if (scisOn) scisApply(0);   /* never leave a scissor for the compositor */
     crispPend = 0;
     { extern int P3DS_CfgInt(const char *, int);
       if (P3DS_CfgInt("g3_sharp", 0) == 4 && curHi == 1 && eyes == 1 && !wideFrame && rs && !direct && !G3G_Async && !crispFail) {
@@ -1387,7 +1425,7 @@ void G3G_End(u32 *outL, u32 *outR) {
     if (gtS) {   /* sampled frame: wait for the last pass too, then file the six numbers */
         C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH);
         gtCur[5] = (unsigned)((svcGetSystemTick() - gtA) / 268);
-        const int st = slimFrame;
+        const int st = scisOn;
         for (int i = 0; i < 6; i++) gtSum[st][i] += gtCur[i];
         gtN[st]++; gtSkipCw = 1;
     }   /* fps_tweaks >= 1: no whole-linear-heap flush (vb[] and textures are flushed by their writers) */
@@ -1399,7 +1437,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         pendRB = 0; for (unsigned i = 0; i < pendN && oldN < 512; i++) oldFree[oldN++] = pendFree[i]; pendN = 0;
         dirValid = dirPend = 1; dirEyes = eyes; dirKey[0] = outL; dirKey[1] = outR; dirOut = 1; dirDirect++;
         dirWide = dirStrip = wideFrame; dirRb = wideFrame && !slimFrame; if (wideFrame) dirWideN++;   /* slim strips: no full readback queued, resolve queues its own */
-        abLast = slimFrame; frN[abLast]++;
+        abLast = scisOn; frN[abLast]++;
         if (mid) { midValid = 1; midEyes = eyes; midWide = wideFrame; }
         G3G_StripValid = wideFrame ? eyes : 0;   /* wide: G3G_DirectStrips() fills G3G_Strip before present */
         { static int said; if (wideFrame && !said) { said = 1; PSPNativeMemLog("[GPU3D] direct: first wide frame (320x256 targets, %d eye%s): centre copied on the GPU into the compositor texture, only the side strips converted on the CPU", eyes, eyes > 1 ? "s" : ""); } }
