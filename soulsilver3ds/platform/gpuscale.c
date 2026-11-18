@@ -8,7 +8,6 @@ extern void PSPNativeMemLog(const char *, ...);
 #include <citro3d.h>
 #include "dcache3ds.h"
 #include <string.h>
-#include <stdlib.h>
 #include "blit_shbin.h"
 #define TEXW 256
 #define TEXH 256
@@ -59,92 +58,6 @@ int P3DS_FpsTweakRow(void) { int l = P3DS_FpsTweaks(); return l >= 2 ? l - 1 : 0
 unsigned long long P3DS_FeTicks; unsigned P3DS_FeN;
 /* C3D_FrameEnd(0) also flushes the whole linear heap from the cache on every call; fps_leanflush=1 ends frames with GX_CMDLIST_FLUSH only (hung on hardware, see above) */
 void P3DS_FrameEnd(void) { P3DS_FpsTweaks(); const u64 t0 = svcGetSystemTick(); C3D_FrameEnd(fpsLean > 0 ? GX_CMDLIST_FLUSH : 0); P3DS_FeTicks += svcGetSystemTick() - t0; P3DS_FeN++; }
-/* 2026-11-18 g3_overlap (Debug "Overlap 3D wait": OFF default / ON / A-B TEST every 1200 presents; field only).
-   Before: G3G_End sent the 3D frame to the GPU, then the left compose's C3D_FrameBegin waited ~6.5-7 ms for it with the game
-   thread idle (citro3d reuses one command buffer from the start, so a new frame must wait for the GPU), and the wide side strips
-   were read back and converted on the CPU before present. Now G3G_End and both composes KICK their commands (linear heap flushed,
-   list split, queue started) and leave the citro3d frame open; the next compose and the present carry on in the same frame and
-   command buffer, so the GPU works through 3D -> compose -> present in order while the CPU prepares the next step. The strips
-   come straight from the GPU (g3gpu sgTex). Present ends the frame normally.
-   Safety: any other C3D_FrameBegin / C3D_Sync* while the frame is left open first ends it (then waits as it always did), and
-   non-blocking polls just report "busy". G3G_Begin's dirSync still waits for the GPU before the next 3D frame writes its vertex
-   buffers and textures. The command queue gets 128 entries (citro3d: 32) and the frame is ended normally when it or the command
-   buffer is getting full. A hang marker turns the setting OFF at the next boot. [OVL] log lines. */
-static gxCmdQueue_s *chQ; static int chOpen, ovCfg = -1; static unsigned ovPhase;
-static unsigned chKicks, chConts, chCloses[5], chMaxQ, chMaxBuf, chArmed;
-enum { CH_BEGIN, CH_SYNC, CH_END, CH_ROOM, CH_FINISH };
-#define OVL_PENDING "sdmc:/3ds/soulsilver3ds/g3ovl_pending"
-void __real_GX_BindQueue(gxCmdQueue_s *q);
-void __wrap_GX_BindQueue(gxCmdQueue_s *q) {
-    if (q && q->maxEntries < 128 && !q->numEntries) { gxCmdEntry_s *n = malloc(128 * sizeof *n); if (n) { free(q->entries); q->entries = n; q->maxEntries = 128; } }
-    chQ = q; __real_GX_BindQueue(q); }
-bool __real_C3D_FrameBegin(u8 flags); void __real_C3D_FrameEnd(u8 flags);
-void __real_C3D_SyncDisplayTransfer(u32 *, u32, u32 *, u32, u32); void __real_C3D_SyncTextureCopy(u32 *, u32, u32 *, u32, u32, u32);
-void __real_C3D_SyncMemoryFill(u32 *, u32, u32 *, u16, u32 *, u32, u32 *, u16);
-static void chEnd(int why) { if (!chOpen) return; chOpen = 0; chCloses[why]++; __real_C3D_FrameEnd(GX_CMDLIST_FLUSH); }
-static void *chWho[4]; static unsigned chWhoN[4];   /* who ended the open frame by waiting (return addresses, for the log) */
-static void chNoteWho(void *a) { for (int i = 0; i < 4; i++) { if (chWho[i] == a || !chWho[i]) { chWho[i] = a; chWhoN[i]++; return; } } chWhoN[3]++; }
-/* run 926 hang: if the GPU is still not done 300 ms into a wait while the overlap is on, say once what the queue holds (the wait then goes on) */
-int P3DS_OverlapOn(void); extern void P3DS_LogFlushSync(void);
-static void ovHangNote(void) {
-    static int said; if (said || !chQ || !P3DS_OverlapOn() || gxCmdQueueWait(chQ, 80400000LL /* ticks: 300 ms */)) return;
-    said = 1; PSPNativeMemLog("[OVL] GPU still busy after 300 ms: queue entries %u, done %u, last %u, max %u | kicks %u", (unsigned)chQ->numEntries, (unsigned)chQ->curEntry, (unsigned)chQ->lastEntry, (unsigned)chQ->maxEntries, chKicks);
-    P3DS_LogFlushSync(); }
-bool __wrap_C3D_FrameBegin(u8 flags) { if (!(flags & C3D_FRAME_NONBLOCK)) ovHangNote(); if (chOpen) { if (flags & C3D_FRAME_NONBLOCK) return false; chNoteWho(__builtin_return_address(0)); chEnd(CH_BEGIN); } return __real_C3D_FrameBegin(flags); }
-void __wrap_C3D_FrameEnd(u8 flags) { if (chOpen) { chOpen = 0; chCloses[CH_END]++; } __real_C3D_FrameEnd(flags); }
-void __wrap_C3D_SyncDisplayTransfer(u32 *i, u32 id, u32 *o, u32 od, u32 f) { chEnd(CH_SYNC); __real_C3D_SyncDisplayTransfer(i, id, o, od, f); }
-void __wrap_C3D_SyncTextureCopy(u32 *i, u32 id, u32 *o, u32 od, u32 sz, u32 f) { chEnd(CH_SYNC); __real_C3D_SyncTextureCopy(i, id, o, od, sz, f); }
-void __wrap_C3D_SyncMemoryFill(u32 *a, u32 av, u32 *ae, u16 c0, u32 *b, u32 bv, u32 *be, u16 c1) { chEnd(CH_SYNC); __real_C3D_SyncMemoryFill(a, av, ae, c0, b, bv, be, c1); }
-int P3DS_OverlapCfg(void) {
-    if (ovCfg < 0) { ovCfg = P3DS_CfgInt("g3_overlap", 0); if (ovCfg < 0 || ovCfg > 2) ovCfg = 0;
-        FILE *f = fopen(OVL_PENDING, "r");
-        if (f) { fclose(f); remove(OVL_PENDING); if (ovCfg) { ovCfg = 0; P3DS_CfgWrite("g3_overlap", 0); PSPNativeMemLog("[OVL] the last session with Overlap 3D wait ON did not finish: turned OFF"); } }
-        PSPNativeMemLog("[OVL] g3_overlap=%d (0 OFF, 1 ON, 2 A/B every 1200 presents)", ovCfg); }
-    return ovCfg; }
-void P3DS_SetOverlap(int v) { P3DS_OverlapCfg(); ovCfg = v < 0 || v > 2 ? 0 : v; ovPhase = 0; PSPNativeMemLog("[OVL] g3_overlap=%d from settings", ovCfg); }
-int P3DS_OverlapOn(void) { const int c = P3DS_OverlapCfg(); return chQ && (c == 1 || (c == 2 && ((ovPhase / 1200) & 1))); }
-/* end of a chain-aware part (G3G_End direct frame, direct compose): send it to the GPU and keep the frame open.
-   Returns 0 when the caller must end the frame itself (toggle off this tick). */
-int P3DS_ChainKick(void) {
-    extern int P3DS_OverlapTick;
-    if (!P3DS_OverlapTick || !chQ) return 0;
-    if (!chArmed) { chArmed = 1; FILE *f = fopen(OVL_PENDING, "w"); if (f) { fputs("1", f); fclose(f); } }
-    const u64 t0 = svcGetSystemTick();
-    if (fpsLean <= 0) { extern u32 __ctru_linear_heap, __ctru_linear_heap_size; GSPGPU_FlushDataCache((void *)__ctru_linear_heap, __ctru_linear_heap_size); }
-    C3D_FrameSplit(GX_CMDLIST_FLUSH);
-    const unsigned buf = (unsigned)(C3D_GetCmdBufUsage() * 100.0f + 0.5f); if (buf > chMaxBuf) chMaxBuf = buf;
-    if (chQ->numEntries > chMaxQ) chMaxQ = chQ->numEntries;
-    chKicks++;
-    if (buf >= 60 || chQ->numEntries + 48 > chQ->maxEntries) { chCloses[CH_ROOM]++; __real_C3D_FrameEnd(GX_CMDLIST_FLUSH); }
-    else { gxCmdQueueRun(chQ); chOpen = 1; }
-    P3DS_FeTicks += svcGetSystemTick() - t0; P3DS_FeN++;
-    if (chArmed == 1 && chKicks >= 1800) { chArmed = 2; remove(OVL_PENDING); PSPNativeMemLog("[OVL] 1800 kicks without a hang: hang marker removed"); }
-    return 1;
-}
-/* start of a chain-aware part: carry on in the open frame (returns 1; the caller now owns it like after C3D_FrameBegin) */
-int P3DS_ChainContinue(void) { if (!chOpen) return 0; chOpen = 0; chConts++; return 1; }
-/* after the present: nothing may stay open into the next tick */
-void P3DS_ChainFinish(void) { chEnd(CH_FINISH); }
-extern unsigned P3DS_GpBeginUs;
-static unsigned ovN, ovMid, ovSlow, ovCwN, ovPbN; static u64 ovGap, ovLast, ovCw, ovPb;
-extern void G3G_StripStats(unsigned *, unsigned *, unsigned *, unsigned *);
-void P3DS_OvlComposeWait(unsigned us) { ovCw += us; ovCwN++; }
-static void ovlTick(int f60) {
-    if (!P3DS_OverlapCfg()) return;
-    const int ab = ovCfg == 2, on = ovCfg == 1 || (ab && ((ovPhase / 1200) & 1));
-    ovPhase++; ovN++; if (f60) ovMid++; ovPb += P3DS_GpBeginUs; ovPbN++;
-    const u64 now = svcGetSystemTick(); if (ovLast) { const u64 g = now - ovLast; ovGap += g; if (g > (u64)(34 * 268111.856)) ovSlow++; } ovLast = now;
-    if (ovN >= (ab ? 1200u : 600u) || (ab && ovPhase % 1200 == 0)) {
-        unsigned gr, gm, cr, cm; G3G_StripStats(&gr, &gm, &cr, &cm);
-        PSPNativeMemLog("[OVL] %s%s | %u presents, avg %u us apart, %u over 34 ms | in-between pictures %u (%u%%) | left compose waited avg %u us, present waited avg %u us | kicks %u, carried on %u, ended by: wait %u, sync %u, end %u, room %u, finish %u | queue max %u, cmd buffer max %u%% | strips on GPU real %u in-between %u, CPU real %u in-between %u",
-            on ? "ON" : "OFF", ab ? " (A/B)" : "", ovN, ovN ? (unsigned)(ovGap / ovN / 268) : 0, ovSlow, ovMid, ovN ? ovMid * 100 / ovN : 0,
-            ovCwN ? (unsigned)(ovCw / ovCwN) : 0, ovPbN ? (unsigned)(ovPb / ovPbN) : 0,
-            chKicks, chConts, chCloses[CH_BEGIN], chCloses[CH_SYNC], chCloses[CH_END], chCloses[CH_ROOM], chCloses[CH_FINISH], chMaxQ, chMaxBuf, gr, gm, cr, cm);
-        if (chWhoN[0]) PSPNativeMemLog("[OVL] waits came from %p x%u, %p x%u, %p x%u, %p x%u", chWho[0], chWhoN[0], chWho[1], chWhoN[1], chWho[2], chWhoN[2], chWho[3], chWhoN[3]);
-        memset(chWho, 0, sizeof chWho); memset(chWhoN, 0, sizeof chWhoN);
-        ovN = ovMid = ovSlow = ovCwN = ovPbN = 0; ovGap = ovCw = ovPb = 0; chConts = 0; memset(chCloses, 0, sizeof chCloses); chMaxQ = chMaxBuf = 0;
-        if (chArmed == 2) chKicks = 0; }
-}
 /* called once per presented frame */
 /* clean exit: a short healthy session must not count as a failed boot (it used to reset fps_tweaks=7 to 0 after any quick test or unrelated crash) */
 void P3DS_FpsGuardClean(void) { remove(FPS_PENDING); }
@@ -426,47 +339,6 @@ int P3DS_HazeOn; unsigned P3DS_HazeK, P3DS_HazeB; /* ABGR constants for the comb
 static int hazeCfg = -1;
 int P3DS_WideHazeCfg(void) { if (hazeCfg < 0) { hazeCfg = 1; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "wide_haze=%d", &x) == 1) hazeCfg = x != 0; fclose(f); } PSPNativeMemLog("[WIDE] wide_haze=%d", hazeCfg); } return hazeCfg; }
 void P3DS_SetWideHazeCfg(int v) { hazeCfg = v != 0; }
-/* g3_overlap GPU strips: raw (the 3D target's side tiles, g3gpu sgTex) -> dst (this picture's strip texture), 1:1. Same rule as
-   the CPU convert: alpha < 8 -> opaque black, else the colour with alpha 255 (black pass, then the texture with alpha test
-   >= 8 writing only RGB). The caller then draws dst exactly as on the CPU route. */
-/* run 926 hung (no frame for 10 s, stuck waiting for the GPU) about 45 ticks after the GPU strips started: the prepass rendered into the
-   strip texture in linear RAM (FCRAM) through a swapped colour pointer, which the emulator accepts but no hardware run had ever done.
-   The prepass now renders into its own VRAM texture per picture and eye (4 x 64 KB VRAM), which is then drawn exactly like the CPU strip
-   texture. No VRAM: strips stay on the CPU. */
-static C3D_Tex sgVt[2][2]; static C3D_RenderTarget *sgRT[2][2]; static int sgFail;
-static void sgQuad(void) {
-    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
-    C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
-    C3D_ImmSendAttrib(0, 256, 0, 0); C3D_ImmSendAttrib(0, 1, 0, 0);
-    C3D_ImmSendAttrib(64, 0, 0, 0); C3D_ImmSendAttrib(1, 0, 0, 0);
-    C3D_ImmSendAttrib(64, 256, 0, 0); C3D_ImmSendAttrib(1, 1, 0, 0);
-    C3D_ImmDrawEnd(); }
-int P3DS_StripRtOk(void) { return !sgFail; }
-static C3D_Tex *sgPrepass(C3D_Tex *raw, int mid, int eye) {
-    if (sgFail) return NULL;
-    const int p = mid & 1, e = eye & 1;
-    if (!sgRT[p][e]) {
-        if (!C3D_TexInitVRAM(&sgVt[p][e], 64, 256, GPU_RGBA8)) sgVt[p][e].data = NULL;
-        else if (!(sgRT[p][e] = C3D_RenderTargetCreateFromTex(&sgVt[p][e], GPU_TEXFACE_2D, 0, -1))) { C3D_TexDelete(&sgVt[p][e]); sgVt[p][e].data = NULL; }
-        if (!sgRT[p][e]) { sgFail = 1; PSPNativeMemLog("[OVL] no VRAM for the GPU strip targets (VRAM free %lu): strips stay on the CPU", (unsigned long)vramSpaceFree()); return NULL; }
-        C3D_TexSetFilter(&sgVt[p][e], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&sgVt[p][e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
-        { static int said; if (!said) { said = 1; PSPNativeMemLog("[OVL] GPU strip targets in VRAM (VRAM free %lu)", (unsigned long)vramSpaceFree()); } } }
-    C3D_FrameDrawOn(sgRT[p][e]);
-    C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, 64.0f, 0.0f, 256.0f, 1.0f, -1.0f, true);
-    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
-    C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
-    C3D_TexEnvSrc(env, C3D_Both, GPU_CONSTANT, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE); C3D_TexEnvColor(env, 0xFF000000u);
-    sgQuad();
-    C3D_TexBind(0, raw);
-    env = C3D_GetTexEnv(0);   /* again: only C3D_GetTexEnv marks the stage dirty, the first draw already sent it */
-    C3D_TexEnvInit(env); C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
-    C3D_AlphaTest(true, GPU_GEQUAL, 8);
-    C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_RED | GPU_WRITE_GREEN | GPU_WRITE_BLUE);
-    sgQuad();
-    C3D_AlphaTest(false, GPU_ALWAYS, 0); C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
-    tevPlain();
-    return &sgVt[p][e];
-}
 static void strips(C3D_RenderTarget *t, int eye) {
     const u32 *src = P3DS_WideStrip[eye]; if (!src) return;
     static int hDir; static unsigned hAmt, hLeft; int fDir = 0; unsigned fAmt = 0;
@@ -484,39 +356,26 @@ static void strips(C3D_RenderTarget *t, int eye) {
     if (stripMid && !stripLinM[eye] && !P3DS_GpuMidStripBuffer(eye)) return;
     u32 *const sLin = stripMid ? stripLinM[eye] : stripLin[eye];
     C3D_Tex *const sTx = stripMid ? &stripTexM[eye] : &stripTex[eye];
-    extern C3D_Tex *G3G_StripGpuTex(int, int);
-    C3D_Tex *const raw = G3G_StripGpuTex(stripMid, eye);   /* g3_overlap: this picture's strips are on the GPU (not converted on the CPU) */
-    const int gpuStrip = raw != NULL; C3D_Tex *drawTx = sTx;
-    if (raw) { C3D_Tex *const v = sgPrepass(raw, stripMid, eye); drawTx = v ? v : raw; }   /* no target: this once the raw tiles as they are (the CPU copy was not made) */
-    if (gpuStrip) { }
-    else if (!fAmt) {
+    if (!fAmt) {
         if (sLin != src) memcpy(sLin, src, 64 * 192 * sizeof(u32));
     }
     else if (fAmt >= 16) { const u32 c = fDir == 1 ? 0xFFFFFFFFu : 0x000000FFu; for (unsigned i = 0; i < 64 * 192; i++) sLin[i] = c; }
     else for (unsigned i = 0; i < 64 * 192; i++) { u32 c = src[i]; unsigned r = c >> 24, g = (c >> 16) & 255, b = (c >> 8) & 255;
         if (fDir == 1) { r += (255 - r) * fAmt / 16; g += (255 - g) * fAmt / 16; b += (255 - b) * fAmt / 16; } else { r -= r * fAmt / 16; g -= g * fAmt / 16; b -= b * fAmt / 16; }
         sLin[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF; }
-    if (!gpuStrip) {
     { extern u32 P3DS_WeatherObj[]; extern int P3DS_WeatherOn; if (P3DS_WeatherOn && !fAmt) for (unsigned i = 0; i < 64 * 192; i++) if (P3DS_WeatherObj[i]) sLin[i] = P3DS_WeatherObj[i]; } /* run 70 wide_weather */
     P3DS_DcFlush(sLin, 64 * 192 * 4);
-    C3D_SyncDisplayTransfer(sLin, GX_BUFFER_DIM(64, 256), sTx->data, GX_BUFFER_DIM(64, 256), TEX_FLAGS); }
+    C3D_SyncDisplayTransfer(sLin, GX_BUFFER_DIM(64, 256), sTx->data, GX_BUFFER_DIM(64, 256), TEX_FLAGS);
     C3D_FrameDrawOn(t);
     C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
-    C3D_TexBind(0, drawTx);
+    C3D_TexBind(0, sTx);
     const int haze = P3DS_HazeOn && !fAmt;
     if (haze) { C3D_TexEnv *e0 = C3D_GetTexEnv(0), *e1 = C3D_GetTexEnv(1); C3D_TexEnvInit(e0); C3D_TexEnvInit(e1);
         C3D_TexEnvSrc(e0, C3D_RGB, GPU_TEXTURE0, GPU_CONSTANT, 0); C3D_TexEnvFunc(e0, C3D_RGB, GPU_MODULATE); C3D_TexEnvColor(e0, P3DS_HazeK);
         C3D_TexEnvSrc(e0, C3D_Alpha, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(e0, C3D_Alpha, GPU_REPLACE);
         C3D_TexEnvSrc(e1, C3D_RGB, GPU_PREVIOUS, GPU_CONSTANT, 0); C3D_TexEnvFunc(e1, C3D_RGB, GPU_ADD); C3D_TexEnvColor(e1, P3DS_HazeB);
         C3D_TexEnvSrc(e1, C3D_Alpha, GPU_PREVIOUS, 0, 0); C3D_TexEnvFunc(e1, C3D_Alpha, GPU_REPLACE); }
-    const int gfade = gpuStrip && fAmt;   /* the CPU route bakes the fade into the texels; here the combiner does it: mix(tex, colour, amt/16) */
-    if (gfade) { C3D_TexEnv *e0 = C3D_GetTexEnv(0); C3D_TexEnvInit(e0);
-        const unsigned k = fAmt >= 16 ? 255u : (fAmt * 255u + 8u) / 16u;
-        C3D_TexEnvSrc(e0, C3D_RGB, GPU_CONSTANT, GPU_TEXTURE0, GPU_CONSTANT);
-        C3D_TexEnvOpRgb(e0, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_ALPHA);
-        C3D_TexEnvFunc(e0, C3D_RGB, GPU_INTERPOLATE); C3D_TexEnvColor(e0, (k << 24) | (fDir == 1 ? 0xFFFFFFu : 0u));
-        C3D_TexEnvSrc(e0, C3D_Alpha, GPU_TEXTURE0, 0, 0); C3D_TexEnvFunc(e0, C3D_Alpha, GPU_REPLACE); }
     const float t1 = 192.0f / 256.0f, hx = 0.5f / 64.0f; /* half-texel inset so LINEAR does not bleed across the 32|32 seam */
     for (int side = 0; side < 2; side++) { float x0 = side ? 360 : 0, x1 = side ? 400 : 40, s0 = side ? 0.5f + hx : 0.0f, s1 = side ? 1.0f : 0.5f - hx;
         C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
@@ -525,7 +384,7 @@ static void strips(C3D_RenderTarget *t, int eye) {
         C3D_ImmSendAttrib(x1, 0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
         C3D_ImmSendAttrib(x1, 240, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
         C3D_ImmDrawEnd(); }
-    if (haze || gfade) tevPlain();
+    if (haze) tevPlain();
 }
 /* run 38: called when leaving the GPU-scaled path (mode 0): wait until citro3d's queue (last transfer + its async
    gfxScreenSwapBuffers) is done, and turn 3D off so the never-written right-eye buffer isn't shown. */
@@ -921,15 +780,8 @@ static int dfrPoll(void) { /* 1 = still waiting (nothing else may present) */
     if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) return 1;
     dfrPolled++; dfrCopyNow(); return 1;
 }
-/* g3_overlap: with the GPU frame still open, wait for the LCD first (the GPU keeps working meanwhile), then end the frame */
-static void chLcdWait(void) {
-    if (!chOpen) return;
-    const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
-    const unsigned w = (unsigned)((svcGetSystemTick() - t0) / 268); P3DS_GpTearUs += w; P3DS_GpFenceIdleUs += w;
-}
 static void dfrFlush(void) {
     if (!dfrMask) return;
-    chLcdWait();
     C3D_FrameBegin(0);
     const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
     { const unsigned w = (unsigned)((svcGetSystemTick() - t0) / 268); P3DS_GpTearUs += w; P3DS_GpFenceIdleUs += w; }
@@ -952,7 +804,6 @@ void P3DS_Fps60Poll(void) {
 void P3DS_Fps60Flush(void) {
     dfrFlush();
     if (!f60Flip) return;
-    chLcdWait();
     C3D_FrameBegin(0);
     const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000);
     f60FlipLate++; f60LateTotal++; f60FlipNow();
@@ -967,8 +818,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     static int vs = -1; if (vs < 0) { vs = 0; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); char l[64]; int x; if (f) { while (fgets(l, sizeof l, f)) if (sscanf(l, "vsync=%d", &x) == 1) vs = x != 0; fclose(f); } PSPNativeMemLog("[3DS] vsync (tear-free present) %d", vs); }
     { const u64 tb = svcGetSystemTick();
       const int pace = P3DS_PresentPaceCfg();
-      if (P3DS_ChainContinue()) { /* g3_overlap: the 3D + compose frame is still open; carry on in it, no wait */ }
-      else if (pace) {
+      if (pace) {
           /* NONBLOCK: if previous GPU work is done, start immediately (no SYNCDRAW half-rate snap).
              If still busy, wait for the queue only — never an extra vblank align. */
           if (C3D_FrameBegin(C3D_FRAME_NONBLOCK)) paceNbOk++;
@@ -1074,8 +924,6 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
       if (tf && ++n % 600 == 0) { PSPNativeMemLog("[3DS] tearfix=%d: waited on %u of 600 presents, avg wait %u us", tf, waits, waits ? (unsigned)(waitTicks / waits / 268) : 0); if (!P3DS_PresentDeferCfg()) { waits = 0; waitTicks = 0; } }
       if (f60 && tf != 2) { const u64 t0 = svcGetSystemTick(); while (f60Pending() && svcGetSystemTick() - t0 < (u64)(40 * 268111.856)) svcSleepThread(250000); }
       P3DS_FpsGuardFrame(); P3DS_Crumb("gp-end", 0); { const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); lastEnd = svcGetSystemTick(); P3DS_GpEndUs = (unsigned)((lastEnd - te) / 268); } P3DS_Crumb("gp-done", 0);
-      { extern void G3G_StripGpuDone(void); extern int P3DS_OverlapTick; extern C3D_Tex *G3G_StripGpuTex(int, int);
-        G3G_StripGpuDone(); ovlTick(f60); P3DS_OverlapTick = 0; }
       if (dfrUse) { dfrT0 = lastEnd; dfrSt = 0; f60PollT = 0; }
       if (f60) { f60Flip = st ? 2 : 1; f60FlipSt = 0; f60FlipT0 = lastEnd; f60PollT = 0; } }
 }
