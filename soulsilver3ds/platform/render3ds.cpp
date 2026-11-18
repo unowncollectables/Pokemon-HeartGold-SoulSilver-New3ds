@@ -859,7 +859,9 @@ static void wideWeatherRun(){memset(P3DS_WeatherObj,0,sizeof P3DS_WeatherObj);wi
    frame's final picture, so fades/flashes follow; nothing is stretched, the centre stays native size. 0 = black bars. */
 extern "C" { u32 P3DS_WideFillBuf[64*192]; int P3DS_CfgInt(const char*,int); extern int P3DS_InIntroMovie; }
 static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",1)!=0; /* 2026-11-05 default 1 (Nathan: the whole game wide) */PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v&&!P3DS_InIntroMovie;} /* 2026-11-18: never in the intro movie (Nathan: the blurred edges looked wrong); its sides stay dark */
+extern "C" int P3DS_WideEdgeClamp; /* ss3ds_widescreens.c: this screen continues its own edge column sideways (no mirror, no blur) */
 static void wideFill(const u32*C){static u16 acc[3][64*192];
+ if(P3DS_WideEdgeClamp){for(int y=0;y<192;y++)for(int side=0;side<2;side++){const u32 q=C[y*256+(side?255:0)];const u32 c=((q&255)<<24)|(((q>>8)&255)<<16)|(((q>>16)&255)<<8)|0xFFu;for(int i=0;i<32;i++)P3DS_WideFillBuf[y*64+side*32+i]=c;}return;}
  /* mirror: left strip col i (DS x -32+i) <- x 31-i, right strip col i (DS x 256+i) <- x 255-i; horizontal 9-tap box */
  for(int y=0;y<192;y++){const u32*row=C+y*256;
   for(int side=0;side<2;side++){int tmp[3][41];

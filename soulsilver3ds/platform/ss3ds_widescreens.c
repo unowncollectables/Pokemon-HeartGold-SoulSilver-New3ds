@@ -96,11 +96,16 @@ static int fromFile(const char *name) {
 }
 
 const char *P3DS_WideScreenName = "";
+/* 1 on screens whose picture reaches the screen edge in plain colour: the wide sides simply continue the edge column of each line
+   (render3ds.cpp wideFill), no mirror and no blur, so nothing is doubled. Photo Album (not composable), Pokeathlon medals and
+   course records, Hall of Fame showcase. */
+int P3DS_WideEdgeClamp;
 static void screenChanged(AppFn init) {
     const char *nm = nameOf(init);
     static unsigned nlog;
     if (nlog < 200) { nlog++; PSPNativeMemLog("[WIDE] screen: %s (init %p)", nm ? nm : "unnamed", (void *)init); }
     P3DS_WideScreenName = nm ? nm : "";
+    P3DS_WideEdgeClamp = nm && (!strcmp(nm, "photoalbum") || !strcmp(nm, "athlonmedals") || !strcmp(nm, "athlonrecord") || !strcmp(nm, "halloffame"));
     NitroPort_WideScreenParts(0, 0, 0); NitroPort_WideScreenParts(1, 0, 0); P3DS_WideShow[0] = P3DS_WideShow[1] = 0x1F;
     if (!nm) return; /* the parts are kept whether or not the toggle is on; the renderer reads the toggle */
     if (fromFile(nm)) { PSPNativeMemLog("[WIDE] layout for %s from wide_layouts.txt: A %d rows, B %d rows", nm, fileN[0], fileN[1]);
