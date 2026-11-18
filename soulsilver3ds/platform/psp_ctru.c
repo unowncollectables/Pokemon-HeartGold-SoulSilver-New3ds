@@ -352,11 +352,19 @@ static const struct { const char *key; int def; } kCfgDefaults[] = {
     { "shiny_suite", 1 }, { "catch_overlay", 1 },
     { "wild_vis", 1 }, { "wild_vis_alive", 2 }, { "event_any_mon", 1 }, { "contest_helper", 1 }, { "audio_even", 1 }, { "steady_music", 1 }, { "wild_vis_shiny", 1 }, { "ribbon_check", 1 }, { "celebrations", 1 }, { "summary_ivs", 1 }, { "hm_free", 1 }, { "repel_prompt", 1 }, { "select_reset", 1 }, { "wide_battle", 1 }, { "wide_boxes", 1 }, { "wide_menu_screens", 1 }, { "fast_text", 2 },
     /* 2026-11-03: tuned values that were already the missing-key default. fps_counter, wireless and log_level stay as listed here. */
-    { "fps_counter", 1 }, { "stereo_strength", 2 }, { "zl_run", 1 }, { "hunt_counter", 1 }, { "hunt_stats", 1 }, { "menu_button", 0 }, { "g3_wmode", 2 }, { "reset_skip_intro", 1 }, { "wide_menus", 1 }, { "wide_pokedex", 1 }, { "wide_pc", 1 }, { "gpu_direct3d", 1 }, { "fps_tweaks", 7 }, { "wireless", 2 }, { "dc_flush_skip", 1 }, { "wild_vis_count", 6 }, { "battery_warn", 1 }, { "tracker", 1 }, { "type_hint", 1 }, { "pm_shortcuts", 1 }, { "sprite_depth", 1 }, { "zr_item", 0 }, { "panel_party", 1 }, { "log_level", 2 }, { "battle_anim_speed", 0 },
+    { "fps_counter", 1 }, { "stereo_strength", 0 }, { "zl_run", 1 }, { "hunt_counter", 1 }, { "hunt_stats", 1 }, { "menu_button", 0 }, { "g3_wmode", 2 }, { "reset_skip_intro", 1 }, { "wide_menus", 1 }, { "wide_pokedex", 1 }, { "wide_pc", 1 }, { "gpu_direct3d", 1 }, { "fps_tweaks", 7 }, { "wireless", 2 }, { "dc_flush_skip", 1 }, { "wild_vis_count", 6 }, { "battery_warn", 1 }, { "tracker", 1 }, { "type_hint", 1 }, { "pm_shortcuts", 1 }, { "sprite_depth", 1 }, { "zr_item", 0 }, { "panel_party", 1 }, { "log_level", 1 }, { "battle_anim_speed", 0 },
     /* 2026-11-09: used only when the key is absent. A saved line wins, including OFF and LEGACY. gpu_compose_b 1 = ON (2 stays CHECK). title_clean_sides 2 = WIDE. */
     { "g3_packets", 1 }, { "g3_fast_bounds", 1 }, { "gpu_compose_b", 1 }, { "gpu_obj_affine", 1 }, { "gpu_b_fades", 1 }, { "title_clean_sides", 2 },
     /* 2026-11-11: owner's config.txt, only when the key is absent. g3_sharp 3 = FAST AUTO (0..4). wild_vis_alive 2 = ON + TOWNS (0..2). */
-    { "g3_sharp", 3 }, { "g3_smooth", 0 }, { "dmg_check", 1 }, { "pg_find", 1 }, { "breed_tab", 1 }, { "reusable_tms", 1 }, { "pg_flytap", 1 }, { "roamer_sprites", 1 }, { "ambient_weather", 1 }, { "pokewalker", 1 },
+    { "g3_sharp", 3 }, { "g3_smooth_dbg", 0 }, { "dmg_check", 1 }, { "pg_find", 1 }, { "breed_tab", 1 }, { "reusable_tms", 1 }, { "pg_flytap", 1 }, { "roamer_sprites", 1 }, { "ambient_weather", 0 }, { "pokewalker", 1 },
+    /* 2026-11-18 release cleanup: the Debug and Render settings tabs are gone, so the owner's tested 60 fps setup (run 927 config.txt) is the default.
+       log_level 1 = SHORT (errors and events always written; detail kept in RAM and dumped on a crash). */
+    { "fps60", 1 }, { "g3_thread", 1 }, { "fps60_pipe", 1 }, { "fps60_hold", 1 }, { "fps60_strips", 1 }, { "fps60_vram", 1 }, { "g3_xfcache", 1 },
+    { "g3_wake", 1 }, { "g3_fastxform", 1 }, { "g3_thr_texfence", 2 }, { "g3_thr_texsafe", 1 }, { "g3_stereo_share", 1 }, { "present_pace", 1 },
+    { "g3_front_ov", 1 }, { "g3_stereo_gpu", 1 }, { "g3_front_bg", 1 },
+    /* 2026-11-18 owner picks: 3D strength 1X (the row still goes to 2X), Wide layouts ON, GTS server picker ON, Seasonal trees ON,
+       Ambient weather OFF until it is fixed (the row stays in Display). */
+    { "wide_layouts", 1 }, { "gts_picker", 1 }, { "seasonal_trees", 1 },
 };
 /* The default a missing key gets: this table if it lists the key, else the caller's `def`. logring.c reports with it, so the two cannot drift. */
 int P3DS_CfgDefault(const char *key, int def) { for (unsigned i = 0; i < sizeof kCfgDefaults / sizeof kCfgDefaults[0]; i++) if (!strcmp(key, kCfgDefaults[i].key)) return kCfgDefaults[i].def; return def; }

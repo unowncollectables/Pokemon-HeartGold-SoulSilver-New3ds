@@ -614,7 +614,7 @@ extern int P3DS_Fps60ScreenPlace(void);
 extern int P3DS_Fps60MidPlace(void);
 static int areaCfg = -1;
 static int fps60AreaOn(void) {
-    if (areaCfg < 0) { areaCfg = P3DS_CfgInt("fps60_area", 0) != 0;
+    if (areaCfg < 0) { areaCfg = P3DS_CfgInt("fps60_area_dbg", 0) != 0;
         PSPNativeMemLog("[FPS60] fps60_area=%d", areaCfg); }
     return areaCfg;
 }
