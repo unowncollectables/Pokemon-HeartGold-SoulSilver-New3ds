@@ -239,11 +239,13 @@ static void blDraw(uint32_t *b, const SUiText &T, const SMm &m, int mode, bool b
   /* run 147: with the tabs on, the row has no silver backing bar (it made silver buttons sit in a silver box); the tabs float on the screen background like the side column's buttons */
   if (!pxOn()) { for (int y = kBlPanY0; y < kBlPanY0 + 16; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - kBlPanY0, 16); suiFill(b, kBlPanX0, y, kBlPanX1, y + 1, c); }
   mmFrame(b, kBlPanX0, kBlPanY0, kBlPanX1, kBlPanY0 + 16, kBlNavy); }
-  if (pxOn()) pxBar(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING..."); else suiSDraw(T, b, kBlPanX0 + 5, kBlPanY0 + 2, m.have ? m.name : "LOCATING...", kBlNavy, kBlSilverHi);
+  /* 2026-11-18 speed: with the native column/tabs on (gBlHd) their DS-size copies are hidden under the overlay, so they are not painted:
+     a repaint (tab swap, scroll, pan) skips 11 buttons and 6 tabs of text and icons */
+  if (pxOn()) { if (!gBlHd) pxBar(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING..."); } else suiSDraw(T, b, kBlPanX0 + 5, kBlPanY0 + 2, m.have ? m.name : "LOCATING...", kBlNavy, kBlSilverHi);
   const int nh = blNameH(); if (nh) pxNameStrip(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING...");
   if (mode < 0 && pxPaneDraw(b, T, kBlPanX0, kBlPanY0 + 17, kBlPanX1, kBlPanY1)) {}
   else if (mode >= 0 || !blPgDraw(b, T, kBlPanX0, kBlPanY0 + 15 + nh, kBlPanX1, kBlPanY1, blink)) /* panel rim shares the tab bar's (or name strip's) bottom row (no gap, no double border) */ mmDrawPanel(b, T, m, mode < 0 ? kMmWorld : mode, blink, kBlPanX0, kBlPanY0 + 17 + nh, kBlPanX1, kBlPanY1);
   if (mode < 0 && pxPane() == 0) ctCardDraw(b, T, kBlPanX0, kBlPanY0 + 17 + nh, kBlPanX1);
   if (mode < 0) pxRingDraw(b, T, blink);
-  for (int i = 0; i < kBlButtonCount; i++) blButton(b, T, i, labels[i], alts[i], on[i], press == i);
+  if (!gBlHd) for (int i = 0; i < kBlButtonCount; i++) blButton(b, T, i, labels[i], alts[i], on[i], press == i);
 }
