@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 18 Nov 2026 16:45:00 +0000
+Subject: [PATCH] ss3ds: visible wilds: shore battles use the land battle (run
+ 939 crash)
+
+Run 939 crashed (memcpy to NULL right after the battle start; the only battle in that log that loaded overlay 120 instead of 119) when a water Tentacool next to the shore was bumped into from land: the forced battle was a surf encounter with the player standing on land. The battle type now follows where the player stands: from the shore a water one gets the land battle with the same species, level and shiny, so catching it from the shore still works; while surfing it is the surf battle as before. Log: "land|surf battle across the shore line".
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 7086983..8314967 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v24 (0110/0111/0217/0218/0223/0224/0281/0282/0283: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v25 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -405,9 +405,18 @@ int SS3DS_WildTalk(FieldSystem *fieldSystem, int interact) {
+         }
+         return 0;
+     }
++    // 0284: the battle type follows where the player stands, not where the Pokemon is. Run 939 crashed (memcpy to NULL
++    // right after the start, surf encounter effect overlay 120) on a forced surf battle with the player on the shore.
++    // From the shore a water one now gets the land battle (same species, level and shiny; overlay 119 like every grass battle).
++    int playerWater = MetatileBehavior_IsSurfableWater(GetMetatileBehavior(fieldSystem,
++        PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), PlayerAvatar_GetZCoord(fieldSystem->playerAvatar))) ? 1 : 0;
++    int battleKind = playerWater ? 2 : 1;
++    if (battleKind != m->kind) {
++        PSPNativeMemLog("[WILD] slot %d species %d: %s battle across the shore line", i + 1, m->sp, playerWater ? "surf" : "land");
++    }
+     PSPNativeMemLog("[WILD] talk/bump slot %d species %d lv %d%s -> battle", i + 1, m->sp, m->lv, m->shiny ? " SHINY" : "");
+     P3DS_WildBattleResult = -1;
+-    BOOL ret = SS3DS_WildEncounter(fieldSystem, m->sp, m->lv, m->shiny, m->roamer, m->kind);
++    BOOL ret = SS3DS_WildEncounter(fieldSystem, m->sp, m->lv, m->shiny, m->roamer, battleKind);
+     sSS3DS_Bump = 0;
+     if (ret) {
+         m->battle = 1;
+-- 
+2.43.0
+
