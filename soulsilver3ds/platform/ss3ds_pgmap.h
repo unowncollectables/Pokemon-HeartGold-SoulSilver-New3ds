@@ -58,7 +58,7 @@ struct SPg {
   int zmX0 = 0, zmY0 = 0, zmX1 = 0, zmY1 = 0, zpX0 = 0, zpY0 = 0, zpX1 = 0, zpY1 = 0; /* minus / plus, DS px; x1==x0 means hidden */
   bool weather; int wxX0, wxY0, wxX1;
   int markX, markY; bool markOk, gameMarker; /* run 11: marker position (DS px) for the native overlay, and whether the game's head is used */
-  bool ov; int ovScroll; int ovRows[kPgN]; int ovN, ovListY0, ovListY1; /* run 13: progress overview (menu-dots button) */
+  bool ov; int ovScroll; int ovRows[kPgN]; int ovN, ovListY0, ovListY1, ovTop; /* run 13: progress overview (menu-dots button) */
   struct { short x, y; uint8_t k; } ico[48]; int nIco; bool gameIco; /* small stat icons drawn by the native overlay */
   int dotsX0, dotsY0, dotsX1, dotsY1;
   bool achOpen; int achScroll, achX0, achY0, achX1, achY1; /* achievements list (achievements.c), button left of the dots */
@@ -183,89 +183,177 @@ static void pgFit(const SUiText &T, char *out, int sz, const char *s, int maxW) 
   }
 }
 
-/* run 14: labelled stats ("Caught 2/9", "Trainers 1/3", "Items 1/2", "Hidden 0/2", optional "Seen"), two per line in
-   columns at x and x + col; only stats the place has. Returns the number of lines drawn. */
-static int pgStats(uint32_t *b, const SUiText &T, SPg &p, int x, int y, int loc, uint32_t fg, uint32_t sh, int col, bool seen = false) {
-  const uint16_t *s = P3DS_PsStat[loc]; struct { const char *l; int a, n; } it[5]; int k = 0;
-  if (s[0]) it[k++] = { "Caught", s[1], s[0] }; if (seen && s[0]) it[k++] = { "Seen", s[2], s[0] };
-  if (s[3]) it[k++] = { "Trainers", s[4], s[3] }; if (s[5]) it[k++] = { "Items", s[6], s[5] }; if (s[7]) it[k++] = { "Hidden", s[8], s[7] };
-  if (!k) { T.draw(b, x, y, "Nothing to collect here", SUI_RGB(120, 134, 138), sh); return 1; }
-  for (int i = 0; i < k; i++) { char t[32]; snprintf(t, sizeof t, "%s %d/%d", it[i].l, it[i].a, it[i].n);
-    T.draw(b, x + (i & 1) * col, y + (i / 2) * 10, t, it[i].a >= it[i].n ? SUI_RGB(40, 120, 64) : fg, sh); }
-  return (k + 1) / 2; }
+/* 2026-11-18 polish (Nathan: "still looks early in dev"): one look for every MAP page, matching the PHONE / RADIO / EGG panes
+   and the side column. Small buttons are pgChip (navy outline with cut corners, white-to-silver, green when on, a soft shadow);
+   titles sit in a green band; boxes are pgCard (paper-to-mint with a navy edge); counts are an icon, "a/n" and a thin bar. */
+static const uint32_t kPgInk = SUI_RGB(7, 33, 54), kPgText = SUI_RGB(18, 26, 38), kPgPaper = SUI_RGB(248, 252, 250), kPgMint = SUI_RGB(218, 238, 228),
+  kPgDone = SUI_RGB(28, 132, 84), kPgDim = SUI_RGB(104, 122, 118), kPgGold = SUI_RGB(255, 229, 155);
+static inline void pgShade(uint32_t *b, int x, int y) {
+  if (x < suiClipX0 || y < suiClipY0 || x >= suiClipX1 || y >= suiClipY1 || x >= 256 || y >= 192 || x < 0 || y < 0) return;
+  b[y * 256 + x] = suiMix(b[y * 256 + x], kBlNavy, 2, 5); }
+static void pgChip(uint32_t *b, int x0, int y0, int x1, int y1, bool on) {
+  const uint32_t hi = on ? kBlPress : SUI_RGB(252, 253, 255), lo = on ? kBlBlue : kBlSilverLo;
+  for (int y = y0 + 1; y < y1 - 1; y++) suiFill(b, x0 + 1, y, x1 - 1, y + 1, suiMix(hi, lo, y - y0, y1 - y0));
+  for (int x = x0 + 1; x < x1 - 1; x++) { suiPx(b, x, y0, kBlNavy); suiPx(b, x, y1 - 1, kBlNavy); }
+  for (int y = y0 + 1; y < y1 - 1; y++) { suiPx(b, x0, y, kBlNavy); suiPx(b, x1 - 1, y, kBlNavy); }
+  for (int x = x0 + 1; x < x1; x++) pgShade(b, x, y1); for (int y = y0 + 1; y < y1; y++) pgShade(b, x1, y); }
+/* green title band (same colours as the tab strip's selected button and the PHONE / RADIO titles) */
+static void pgBand(uint32_t *b, int x0, int y0, int x1, int y1) {
+  for (int y = y0; y < y1; y++) suiFill(b, x0, y, x1, y + 1, suiMix(kBlPress, kBlBlue, y - y0, y1 - y0));
+  suiFill(b, x0, y1, x1, y1 + 1, kBlNavy); }
+static void pgCard(uint32_t *b, int x0, int y0, int x1, int y1) {
+  for (int y = y0 + 1; y < y1 - 1; y++) suiFill(b, x0 + 1, y, x1 - 1, y + 1, suiMix(kPgPaper, kPgMint, y - y0, y1 - y0));
+  for (int x = x0 + 1; x < x1 - 1; x++) { suiPx(b, x, y0, kBlNavy); suiPx(b, x, y1 - 1, kBlNavy); }
+  for (int y = y0 + 1; y < y1 - 1; y++) { suiPx(b, x0, y, kBlNavy); suiPx(b, x1 - 1, y, kBlNavy); } }
+/* 9x9 count icons: '#' navy, '.' clear, 'w' white, others a colour from kPgIcoPal */
+enum { kPgIcCaught, kPgIcSeen, kPgIcTrainer, kPgIcItem, kPgIcHidden, kPgIcPlace, kPgIcN };
+static const char *const kPgIco[kPgIcN][9] = {
+  { "..#####..", ".#rrrrr#.", "#rrrrrrr#", "#rr###rr#", "####w####", "#ww###ww#", "#wwwwwww#", ".#wwwww#.", "..#####.." },
+  { ".........", "..#####..", ".#wwwww#.", "#ww#b#ww#", "#w##b##w#", "#ww#b#ww#", ".#wwwww#.", "..#####..", "........." },
+  { "..####...", ".#rrrr#..", ".######..", "..#ss#...", "..#ss#...", ".######..", "#bbbbbb#.", "#bbbbbb#.", "########." },
+  { "...###...", "...#w#...", "..##w##..", ".#ppppp#.", "#pwppppp#", "#pwppppp#", "#ppppppp#", ".#ppppp#.", "..#####.." },
+  { "....#....", "....y....", "...#y#...", "..#yyy#..", "#yyywyyy#", "..#yyy#..", "...#y#...", "....y....", "....#...." },
+  { "..#####..", ".#ggggg#.", "#gggwggg#", "#ggwwwgg#", ".#ggwgg#.", "..#ggg#..", "...#g#...", "....#....", "........." } };
+static void pgIco(uint32_t *b, int x, int y, int k) {
+  for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) { uint32_t v; switch (kPgIco[k][r][c]) {
+    case '#': v = kBlNavy; break; case 'w': v = SUI_RGB(255, 255, 255); break; case 'r': v = SUI_RGB(226, 64, 52); break;
+    case 'b': v = SUI_RGB(56, 112, 216); break; case 's': v = SUI_RGB(248, 208, 168); break; case 'p': v = SUI_RGB(168, 96, 208); break;
+    case 'y': v = SUI_RGB(246, 196, 40); break; case 'g': v = kBlPress; break; default: continue; }
+    suiPx(b, x + c, y + r, v); } }
+/* 3 px progress bar: light track, green fill, brighter green once complete */
+static void pgBar(uint32_t *b, int x0, int y, int x1, int a, int n) {
+  if (x1 - x0 < 4) return; const int w = x1 - x0, f = n > 0 ? (a >= n ? w : w * a / n) : 0;
+  for (int k = 0; k < 3; k++) { suiFill(b, x0, y + k, x1, y + k + 1, SUI_RGB(196, 214, 208)); if (f) suiFill(b, x0, y + k, x0 + f, y + k + 1, a >= n ? (k ? kBlBlue : kBlPress) : (k ? SUI_RGB(40, 128, 92) : SUI_RGB(64, 176, 124))); }
+  suiPx(b, x0, y, kPgMint); suiPx(b, x1 - 1, y, kPgMint); suiPx(b, x0, y + 2, kPgMint); suiPx(b, x1 - 1, y + 2, kPgMint); }
+/* a location's (or the whole map's, loc 100) counts as up to five {icon, done, total} */
+struct SPgStat { int ico, a, n; const char *name; };
+static int pgStatList(int loc, SPgStat *out, bool seen) {
+  const uint16_t *s = P3DS_PsStat[loc]; int k = 0;
+  if (s[0]) out[k++] = { kPgIcCaught, s[1], s[0], "Caught" }; if (seen && s[0]) out[k++] = { kPgIcSeen, s[2], s[0], "Seen" };
+  if (s[3]) out[k++] = { kPgIcTrainer, s[4], s[3], "Trainers" }; if (s[5]) out[k++] = { kPgIcItem, s[6], s[5], "Items" }; if (s[7]) out[k++] = { kPgIcHidden, s[8], s[7], "Hidden" };
+  return k; }
+/* one row of count cells (icon, "a/n", bar under) across [x0, x1); 13 px tall. Returns the number of cells (0: a quiet note instead). */
+static int pgStatCells(uint32_t *b, const SUiText &T, int x0, int y, int x1, int loc, uint32_t sh) {
+  SPgStat st[5]; const int k = pgStatList(loc, st, false);
+  if (!k) { suiSDraw(T, b, x0, y + 1, "Nothing to collect here", kPgDim, sh); return 0; }
+  const int cw = (x1 - x0 + 4) / k;
+  for (int i = 0; i < k; i++) { const int cx = x0 + i * cw, done = st[i].a >= st[i].n; char t[16]; snprintf(t, sizeof t, "%d/%d", st[i].a, st[i].n);
+    pgIco(b, cx, y, st[i].ico); const int room = cw - 15;
+    if (T.width(t) <= room) T.draw(b, cx + 11, y - 2, t, done ? kPgDone : kPgText, sh); else suiSDraw(T, b, cx + 11, y, t, done ? kPgDone : kPgText, sh);
+    pgBar(b, cx, y + 10, cx + cw - 5, st[i].a, st[i].n); }
+  return k; }
 #include "achievements.h"
 static void pgDots(uint32_t *b, SPg &p, int X1, int Y0) {
-  p.dotsX0 = X1 - 20; p.dotsY0 = Y0 + 2; p.dotsX1 = X1 - 2; p.dotsY1 = Y0 + 12;
+  p.dotsX0 = X1 - 20; p.dotsY0 = Y0 + 2; p.dotsX1 = X1 - 2; p.dotsY1 = Y0 + 14;
   p.achX1 = p.dotsX0 - 4; p.achX0 = p.achX1 - 16; p.achY0 = p.dotsY0; p.achY1 = p.dotsY1;
-  for (int y = p.achY0; y < p.achY1; y++) for (int x = p.achX0; x < p.achX1; x++) {
-    const bool edge = y == p.achY0 || y == p.achY1 - 1 || x == p.achX0 || x == p.achX1 - 1;
-    suiPx(b, x, y, edge ? kBlNavy : SUI_RGB(246, 214, 96)); }
-  if (P3DS_AchUnviewed()) for (int y = p.achY0 - 1; y < p.achY0 + 2; y++) for (int x = p.achX1 - 3; x < p.achX1 + 0; x++) suiPx(b, x, y, SUI_RGB(220, 40, 40));
-  for (int y = p.dotsY0; y < p.dotsY1; y++) for (int x = p.dotsX0; x < p.dotsX1; x++) {
-    const bool edge = y == p.dotsY0 || y == p.dotsY1 - 1 || x == p.dotsX0 || x == p.dotsX1 - 1;
-    suiPx(b, x, y, edge ? kBlNavy : suiMix(SUI_RGB(248, 248, 252), SUI_RGB(200, 230, 218), y - p.dotsY0, 10)); }
-  for (int d = 0; d < 3; d++) for (int yy = 0; yy < 2; yy++) for (int xx = 0; xx < 2; xx++) suiPx(b, p.dotsX0 + 4 + d * 4 + xx, p.dotsY0 + 4 + yy, SUI_RGB(7, 33, 54)); }
+  /* achievements: a gold folder on a chip, red corner dot while something new is unread */
+  pgChip(b, p.achX0, p.achY0, p.achX1, p.achY1, p.achOpen);
+  { const int fx = p.achX0 + 3, fy = p.achY0 + 3, fw = 10, fh = 7;
+    for (int y = 0; y < fh; y++) for (int x = 0; x < fw; x++) { const bool edge = !y || !x || y == fh - 1 || x == fw - 1; suiPx(b, fx + x, fy + y, edge ? kBlNavy : (y < 2 ? SUI_RGB(255, 236, 140) : SUI_RGB(246, 200, 72))); }
+    for (int x = 1; x < 5; x++) suiPx(b, fx + x, fy - 1, kBlNavy); }
+  if (P3DS_AchUnviewed()) for (int y = p.achY0 - 1; y < p.achY0 + 3; y++) for (int x = p.achX1 - 4; x < p.achX1; x++) suiPx(b, x, y, (y == p.achY0 - 1 || x == p.achX1 - 4) ? kBlNavy : SUI_RGB(226, 48, 40));
+  /* overview: three dots */
+  pgChip(b, p.dotsX0, p.dotsY0, p.dotsX1, p.dotsY1, p.ov);
+  for (int d = 0; d < 3; d++) for (int yy = 0; yy < 2; yy++) for (int xx = 0; xx < 2; xx++) suiPx(b, p.dotsX0 + 4 + d * 4 + xx, p.dotsY0 + 5 + yy, p.ov ? SUI_RGB(255, 255, 255) : kBlNavy); }
 /* contest_helper (hook 0229): Bug-Catching Contest card over the top of the panel body while a contest runs. Time is the game's own whole-minute counter
    (the contest ends when 20 minutes are used), so "min left" can be up to a minute generous. Drawn only for blMode < 0 and no Pokegear pane. */
 static void ctCardDraw(uint32_t *b, const SUiText &T, int X0, int Y0, int X1) {
   if (!P3DS_ContestOn() || !P3DS_Ct.active) return;
   const P3DS_ContestInfo &c = P3DS_Ct; char t[64]; const int left = 20 - c.elapsed, x0 = X0 + 2, x1 = X1 - 2, y0 = Y0 + 2;
-  suiFill(b, x0, y0, x1, y0 + 38, SUI_RGB(236, 244, 226)); suiFill(b, x0, y0, x1, y0 + 11, kBlNavy); mmFrame(b, x0, y0, x1, y0 + 38, kBlNavy);
-  suiSDraw(T, b, x0 + 4, y0 + 1, "BUG-CATCHING CONTEST", kBlSilverHi, kBlNavy);
-  const uint32_t ink = SUI_RGB(20, 40, 24), sh = SUI_RGB(236, 244, 226), warn = SUI_RGB(176, 40, 24);
+  /* 2026-11-18: same card and green title band as the MAP pages */
+  pgCard(b, x0, y0, x1, y0 + 40); pgBand(b, x0 + 1, y0 + 1, x1 - 1, y0 + 12);
+  suiSDraw(T, b, x0 + 5, y0 + 2, "BUG-CATCHING CONTEST", SUI_RGB(255, 255, 255), kBlSelO);
+  const uint32_t warn = SUI_RGB(176, 40, 24);
   if (left > 0) snprintf(t, sizeof t, "TIME  %d min left", left); else snprintf(t, sizeof t, "TIME UP");
-  suiSDraw(T, b, x0 + 4, y0 + 13, t, left <= 3 ? warn : ink, sh);
-  snprintf(t, sizeof t, "BALLS  %d / 20", c.balls); suiSDraw(T, b, x0 + 4, y0 + 24, t, c.balls <= 3 ? warn : ink, sh);
-  if (c.species > 0) { snprintf(t, sizeof t, "%s Lv%d", kP3dsSpecies[c.species], c.level); suiSDraw(T, b, x0 + 96, y0 + 24, t, ink, sh); }
-  else suiSDraw(T, b, x0 + 96, y0 + 24, "none yet", SUI_RGB(100, 110, 100), sh);
+  suiSDraw(T, b, x0 + 5, y0 + 15, t, left <= 3 ? warn : kPgText, kPgPaper);
+  pgBar(b, x0 + 96, y0 + 18, x1 - 6, left > 0 ? left : 0, 20);
+  snprintf(t, sizeof t, "BALLS  %d / 20", c.balls); suiSDraw(T, b, x0 + 5, y0 + 26, t, c.balls <= 3 ? warn : kPgText, kPgPaper);
+  if (c.species > 0) { snprintf(t, sizeof t, "%s Lv%d", kP3dsSpecies[c.species], c.level); suiSDraw(T, b, x0 + 96, y0 + 26, t, kPgDone, kPgPaper); }
+  else suiSDraw(T, b, x0 + 96, y0 + 26, "none yet", kPgDim, kPgPaper);
 }
-/* run 45: tracker block (roaming Pokemon + Day-Care) at the top of the overview; returns the height used, 0 when off */
+/* run 45: roamer colours (map squares and the overview's ROAMING card) */
 static const uint32_t kTrkCol[4] = { SUI_RGB(232, 184, 16), SUI_RGB(224, 72, 40), SUI_RGB(240, 96, 144), SUI_RGB(46, 208, 155) };
-static int pgTracker(uint32_t *b, const SUiText &T, int X0, int Y, int X1, uint32_t ink, uint32_t fg, uint32_t sh) {
-  if (!P3DS_TrkOn()) return 0; int y = Y;
-  T.draw(b, X0 + 4, y, "ROAMING NOW", ink, sh); y += 10;
-  if (!P3DS_TrkReady) { T.draw(b, X0 + 4, y, "Take a step to look.", fg, sh); return y + 12 - Y; }
-  int shown = 0;
-  for (int i = 0; i < 4; i++) { const P3DS_TrkRoamer &r = P3DS_TrkRoam[i]; if (!r.active || !r.species) continue; char t[64];
+/* card title in the polish style: small dark-green capitals, optional right-hand note */
+static void pgCardTitle(uint32_t *b, const SUiText &T, int x0, int y, int x1, const char *title, const char *right, uint32_t rightInk) {
+  suiSDraw(T, b, x0 + 5, y + 2, title, kBlSelO, kPgPaper);
+  if (right && right[0]) suiSDraw(T, b, x1 - 5 - suiSWidth(T, right), y + 2, right, rightInk, kPgPaper);
+  for (int x = x0 + 4; x < x1 - 4; x++) suiPx(b, x, y + 12, SUI_RGB(176, 214, 196)); }
+/* run 45 tracker as cards (roaming Pokemon, then the Day-Care) at content y; returns the height used, 0 when off */
+static int pgTracker(uint32_t *b, const SUiText &T, int x0, int Y, int x1) {
+  if (!P3DS_TrkOn()) return 0; int y = Y; char t[64];
+  int rows = 0; if (P3DS_TrkReady) for (int i = 0; i < 4; i++) if (P3DS_TrkRoam[i].active && P3DS_TrkRoam[i].species) rows++;
+  int h = 16 + (rows ? rows : 1) * 12 + 2; pgCard(b, x0, y, x1, y + h); pgCardTitle(b, T, x0, y, x1, "ROAMING NOW", 0, 0);
+  int ry = y + 15;
+  if (!P3DS_TrkReady) suiSDraw(T, b, x0 + 6, ry + 1, "Take a step to look.", kPgDim, kPgPaper);
+  else if (!rows) suiSDraw(T, b, x0 + 6, ry + 1, "None out yet.", kPgDim, kPgPaper);
+  else for (int i = 0; i < 4; i++) { const P3DS_TrkRoamer &r = P3DS_TrkRoam[i]; if (!r.active || !r.species) continue;
     const char *l = r.loc >= 0 && r.loc < kPgN && P3DS_PgName[r.loc][0] ? P3DS_PgName[r.loc] : "somewhere";
-    for (int yy = 0; yy < 7; yy++) for (int xx = 0; xx < 7; xx++) suiPx(b, X0 + 5 + xx, y + 1 + yy, xx == 0 || yy == 0 || xx == 6 || yy == 6 ? SUI_RGB(7, 33, 54) : kTrkCol[i]);
-    snprintf(t, sizeof t, "%s Lv%d: %s", kP3dsSpecies[r.species], r.level, l); T.draw(b, X0 + 15, y, t, fg, sh); y += 10; shown++; }
-  if (!shown) { T.draw(b, X0 + 4, y, "None out yet.", fg, sh); y += 10; }
-  y += 2; char t[64];
-  T.draw(b, X0 + 4, y, "DAY-CARE", ink, sh); y += 10; const P3DS_TrkDaycare &d = P3DS_TrkDc;
-  if (d.n == 0) { T.draw(b, X0 + 4, y, "Empty.", fg, sh); y += 10; }
-  else if (d.n == 1) { T.draw(b, X0 + 4, y, "One Pokemon: needs a partner.", fg, sh); y += 10; }
+    for (int yy = 0; yy < 8; yy++) for (int xx = 0; xx < 8; xx++) suiPx(b, x0 + 6 + xx, ry + 2 + yy, xx == 0 || yy == 0 || xx == 7 || yy == 7 ? kBlNavy : kTrkCol[i]);
+    snprintf(t, sizeof t, "%s Lv%d", kP3dsSpecies[r.species], r.level); T.draw(b, x0 + 18, ry, t, kPgText, kPgPaper);
+    char lc[40]; pgFit(T, lc, sizeof lc, l, x1 - 6 - (x0 + 18 + T.width(t) + 6)); suiSDraw(T, b, x1 - 6 - suiSWidth(T, lc), ry + 2, lc, kPgDone, kPgPaper); ry += 12; }
+  y += h + 4;
+  const P3DS_TrkDaycare &d = P3DS_TrkDc; const char *st = d.n == 0 ? "EMPTY" : d.n == 1 ? "1 POKEMON" : d.egg ? "EGG READY" : d.compat > 0 ? "2 POKEMON" : "NO MATCH";
+  const int lines = d.n >= 2 ? (d.compat > 0 ? 3 : 2) : 1; h = 16 + lines * 11 + 3;
+  pgCard(b, x0, y, x1, y + h); pgCardTitle(b, T, x0, y, x1, "DAY-CARE", st, d.egg ? kPgDone : kPgDim);
+  ry = y + 15;
+  if (d.n == 0) suiSDraw(T, b, x0 + 6, ry + 1, "Leave two Pokemon to find eggs.", kPgDim, kPgPaper);
+  else if (d.n == 1) suiSDraw(T, b, x0 + 6, ry + 1, "One Pokemon: needs a partner.", kPgText, kPgPaper);
   else {
-    snprintf(t, sizeof t, "%s + %s", kP3dsSpecies[d.sp[0]], kP3dsSpecies[d.sp[1]]); T.draw(b, X0 + 4, y, t, fg, sh); y += 10;
-    if (d.compat > 0) snprintf(t, sizeof t, "Egg chance %d%% per 256 steps", d.compat); else snprintf(t, sizeof t, "These two cannot breed.");
-    T.draw(b, X0 + 4, y, t, d.compat > 0 ? fg : SUI_RGB(140, 100, 60), sh); y += 10;
-    if (d.compat > 0) {
-      if (d.egg) T.draw(b, X0 + 4, y, "An egg is waiting!", SUI_RGB(40, 120, 64), sh);
-      else { snprintf(t, sizeof t, "Next egg roll in %d steps", d.toCheck < 0 ? 0 : d.toCheck); T.draw(b, X0 + 4, y, t, fg, sh); }
-      y += 10;
-      T.draw(b, X0 + 4, y, d.masuda ? "Masuda: YES, shiny 5/8192 (1/1638)" : "Masuda: no, shiny 1/8192", d.masuda ? SUI_RGB(40, 120, 64) : fg, sh); y += 10; } }
-  return y + 2 - Y; }
-/* the overview: whole-map totals, then every visited location with its stats (drag scrolls, tap opens its card) */
+    snprintf(t, sizeof t, "%s + %s", kP3dsSpecies[d.sp[0]], kP3dsSpecies[d.sp[1]]); suiSDraw(T, b, x0 + 6, ry + 1, t, kPgText, kPgPaper); ry += 11;
+    if (d.compat <= 0) suiSDraw(T, b, x0 + 6, ry + 1, "These two cannot breed.", SUI_RGB(160, 90, 50), kPgPaper);
+    else {
+      if (d.egg) snprintf(t, sizeof t, "Egg waiting! %d%% per roll", d.compat); else snprintf(t, sizeof t, "Egg %d%% per roll, next in %d steps", d.compat, d.toCheck < 0 ? 0 : d.toCheck);
+      suiSDraw(T, b, x0 + 6, ry + 1, t, d.egg ? kPgDone : kPgText, kPgPaper); ry += 11;
+      suiSDraw(T, b, x0 + 6, ry + 1, d.masuda ? "Masuda: YES, shiny 1/1638" : "Masuda: no, shiny 1/8192", d.masuda ? kPgDone : kPgDim, kPgPaper); } }
+  y += h + 4;
+  return y - Y; }
+/* the overview: a green title band (the corner buttons sit on it), then one scrolling column of cards: Johto totals with
+   bars, the tracker cards, and one card per visited place (tap opens it on the map). */
+enum { kPgOvBand = 16, kPgOvRow = 32 };
 static void pgOverview(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1) {
-  const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(236, 240, 248);
-  for (int y = Y0; y < Y1; ++y)
-    suiFill(b, X0, y, X1, y + 1, suiMix(SUI_RGB(244, 246, 252), SUI_RGB(212, 232, 224), y - Y0, Y1 - Y0));
+  for (int y = Y0; y < Y1; ++y) suiFill(b, X0, y, X1, y + 1, suiMix(SUI_RGB(214, 240, 230), SUI_RGB(168, 218, 196), y - Y0, Y1 - Y0));
+  pgBand(b, X0, Y0, X1, Y0 + kPgOvBand);
   char t[64]; int n = 0; for (int i = 0; i < kPgN; i++) n += pgVis(p, i);
-  T.draw(b, X0 + 4, Y0 + 2, "PROGRESS", ink, sh); snprintf(t, sizeof t, "%d/%d VISITED", n, kPgN); T.draw(b, X1 - 24 - T.width(t), Y0 + 2, t, SUI_RGB(18, 26, 38), sh);
-  if (!P3DS_PsReady) { T.draw(b, X0 + 4, Y0 + 16, "Take a step to count.", SUI_RGB(18, 26, 38), sh); p.ovN = 0; return; }
-  const int dy = pgTracker(b, T, X0, Y0 + 13, X1, ink, SUI_RGB(18, 26, 38), sh);
-  T.draw(b, X0 + 4, Y0 + 13 + dy, "Whole map:", SUI_RGB(18, 26, 38), sh);
-  const int tl = pgStats(b, T, p, X0 + 4, Y0 + 24 + dy, 100, ink, sh, (X1 - X0) / 2, true); const int hy = Y0 + 27 + dy + tl * 10;
-  for (int x = X0; x < X1; x++) suiPx(b, x, hy, SUI_RGB(70, 150, 120));
-  p.ovN = 0; for (int i = 0; i < kPgN; i++) if (pgVis(p, i)) { bool dup = false; for (int j = 0; j < p.ovN; j++) if (!strcmp(P3DS_PgName[p.ovRows[j]], P3DS_PgName[i])) dup = true; if (!dup) p.ovRows[p.ovN++] = i; }
-  p.ovListY0 = hy + 2; p.ovListY1 = Y1; const int rowH = 32, maxS = p.ovN * rowH - (Y1 - p.ovListY0); if (p.ovScroll > maxS) p.ovScroll = maxS; if (p.ovScroll < 0) p.ovScroll = 0;
-  if (!p.ovN) T.draw(b, X0 + 4, p.ovListY0 + 4, "Visit places to list them here.", SUI_RGB(18, 26, 38), sh);
-  for (int r = 0; r < p.ovN; r++) { const int y = p.ovListY0 + r * rowH - p.ovScroll; if (y < p.ovListY0 || y + rowH > Y1) continue; const int l = p.ovRows[r];
-    if (r & 1) for (int yy = y; yy < y + rowH; yy++) for (int x = X0; x < X1; x++) suiPx(b, x, yy, suiMix(b[yy * 256 + x], SUI_RGB(255, 255, 255), 1, 2));
-    T.draw(b, X0 + 4, y + 1, P3DS_PgName[l][0] ? P3DS_PgName[l] : "?", ink, sh); pgStats(b, T, p, X0 + 10, y + 11, l, SUI_RGB(18, 26, 38), sh, (X1 - X0 - 10) / 2); }
-  if (maxS > 0) { const int h = Y1 - p.ovListY0, bh = h * h / (h + maxS), by = p.ovListY0 + (h - bh) * p.ovScroll / maxS; for (int y = by; y < by + bh; y++) { suiPx(b, X1 - 3, y, SUI_RGB(70, 150, 120)); suiPx(b, X1 - 2, y, SUI_RGB(70, 150, 120)); } } }
-/* overview row under DS y, -1 none */
-static int pgOvHit(const SPg &p, int y) { if (!p.ov || y < p.ovListY0 || y >= p.ovListY1) return -1; const int r = (y - p.ovListY0 + p.ovScroll) / 32; return r >= 0 && r < p.ovN ? p.ovRows[r] : -1; }
+  T.draw(b, X0 + 4, Y0 + 1, "PROGRESS", SUI_RGB(255, 255, 255), kBlSelO);
+  snprintf(t, sizeof t, "%d/%d places", n, kPgN);
+  { const int r = X1 - 42 - 4; /* 42 = kPgAchCtrl, the corner buttons */ if (r - suiSWidth(T, t) > X0 + 4 + T.width("PROGRESS") + 6) suiSDraw(T, b, r - suiSWidth(T, t), Y0 + 3, t, SUI_RGB(255, 255, 255), kBlSelO); }
+  const int V0 = Y0 + kPgOvBand + 1, x0 = X0 + 3, x1 = X1 - 6;
+  p.ovListY0 = V0; p.ovListY1 = Y1; p.ovN = 0; p.ovTop = 1 << 20;
+  const int clipY0 = suiClipY0, clipY1 = suiClipY1; suiClipY0 = V0; suiClipY1 = Y1;
+  int y = V0 + 3 - p.ovScroll;
+  if (!P3DS_PsReady) { pgCard(b, x0, y, x1, y + 22); suiSDraw(T, b, x0 + 6, y + 6, "Take a step to count.", kPgText, kPgPaper); y += 26; }
+  else {
+    SPgStat st[5]; const int k = pgStatList(100, st, true); const int rh = 12, h = 16 + (k + 1) * rh + 2;
+    pgCard(b, x0, y, x1, y + h); pgCardTitle(b, T, x0, y, x1, "JOHTO TOTALS", 0, 0);
+    for (int i = -1; i < k; i++) { const int ry = y + 15 + (i + 1) * rh; const SPgStat s = i < 0 ? SPgStat{ kPgIcPlace, n, kPgN, "Visited" } : st[i];
+      char c[16]; snprintf(c, sizeof c, "%d/%d", s.a, s.n); const int cw = T.width(c), done = s.a >= s.n;
+      pgIco(b, x0 + 5, ry + 1, s.ico); T.draw(b, x0 + 17, ry - 1, s.name, kPgText, kPgPaper);
+      T.draw(b, x1 - 5 - cw, ry - 1, c, done ? kPgDone : kPgText, kPgPaper);
+      pgBar(b, x0 + 66, ry + 4, x1 - 9 - cw, s.a, s.n); }
+    y += h + 4;
+    y += pgTracker(b, T, x0, y, x1);
+    for (int i = 0; i < kPgN; i++) if (pgVis(p, i)) { bool dup = false; for (int j = 0; j < p.ovN; j++) if (!strcmp(P3DS_PgName[p.ovRows[j]], P3DS_PgName[i])) dup = true; if (!dup) p.ovRows[p.ovN++] = i; }
+    snprintf(t, sizeof t, "PLACES VISITED  %d", p.ovN); suiSDraw(T, b, x0 + 2, y + 1, t, kBlSelO, SUI_RGB(200, 232, 218)); y += 13;
+    p.ovTop = y + p.ovScroll - V0;
+    if (!p.ovN) { pgCard(b, x0, y, x1, y + 22); suiSDraw(T, b, x0 + 6, y + 6, "Visit places to list them here.", kPgText, kPgPaper); y += 26; }
+    for (int r = 0; r < p.ovN; r++, y += kPgOvRow) { if (y + kPgOvRow < V0 || y >= Y1) continue; const int l = p.ovRows[r];
+      pgCard(b, x0, y, x1, y + kPgOvRow - 2);
+      char nm[40]; pgFit(T, nm, sizeof nm, P3DS_PgName[l][0] ? P3DS_PgName[l] : "?", x1 - x0 - 60); T.draw(b, x0 + 5, y + 1, nm, kPgInk, kPgPaper);
+      SPgStat ls[5]; const int lk = pgStatList(l, ls, false); bool all = lk > 0; for (int i = 0; i < lk; i++) all = all && ls[i].a >= ls[i].n;
+      if (all) suiSDraw(T, b, x1 - 5 - suiSWidth(T, "COMPLETE"), y + 3, "COMPLETE", kPgDone, kPgPaper);
+      pgStatCells(b, T, x0 + 5, y + 15, x1 - 3, l, kPgPaper); }
+  }
+  const int total = y + p.ovScroll - V0 + 2, view = Y1 - V0, maxS = total > view ? total - view : 0;
+  suiClipY0 = clipY0; suiClipY1 = clipY1;
+  if (p.ovScroll > maxS) p.ovScroll = maxS; if (p.ovScroll < 0) p.ovScroll = 0;
+  if (maxS > 0) { const int bh = view * view / (view + maxS), by = V0 + (view - bh) * p.ovScroll / maxS;
+    for (int yy = V0 + 1; yy < Y1 - 1; yy++) { suiPx(b, X1 - 3, yy, SUI_RGB(176, 214, 196)); suiPx(b, X1 - 2, yy, SUI_RGB(176, 214, 196)); }
+    for (int yy = by; yy < by + bh; yy++) { suiPx(b, X1 - 3, yy, kBlBlue); suiPx(b, X1 - 2, yy, kBlBlue); } } }
+/* overview place under DS y, -1 none */
+static int pgOvHit(const SPg &p, int y) {
+  if (!p.ov || y < p.ovListY0 || y >= p.ovListY1 || p.ovTop >= (1 << 20)) return -1;
+  const int c = y - p.ovListY0 + p.ovScroll - p.ovTop; if (c < 0) return -1;
+  const int r = c / kPgOvRow; return r < p.ovN && c % kPgOvRow < kPgOvRow - 2 ? p.ovRows[r] : -1; }
 
 /* ---- run 16: Kanto on the map only after you have been there (the real Pokegear shows it after the S.S. Aqua).
    Kanto places are recognised by their names (from the ROM via hook 0081); the hidden area starts at the westmost Kanto
@@ -303,7 +391,7 @@ static inline bool pgHiddenAt(const SPg &p, int mx, int my) { return mx >= 0 && 
 /* hook 0228: is this location a Fly point the player has unlocked (the game's own flag, published by the game thread)? */
 static bool pgFlyUnlocked(int loc) { if (loc < 0 || loc >= kPgN) return false; const int m = sLocationSpecs[loc].mapId, n = P3DS_FlyN < 32 ? P3DS_FlyN : 32;
   for (int i = 0; i < n; i++) if (P3DS_FlyList[i] == m) return true; return false; }
-static inline int pgCardH(const SPg &p) { return p.page ? 110 : 66; }
+static inline int pgCardH(const SPg &p) { return p.page ? 110 : 74; }
 /* species in a location's wild set; fills `out` (up to max), returns the count, `*caught` = how many are caught */
 static int pgWild(int loc, int *out, int max, int *caught) {
   int n = 0; *caught = 0; if (loc < 0 || loc >= kPgN) return 0;
@@ -525,10 +613,9 @@ static void pgAchPanel(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
   if (p.achScroll > maxS) p.achScroll = maxS; if (p.achScroll < 0) p.achScroll = 0; }
 
 static void pgZoomChip(uint32_t *b, int x0, int y0, bool plus) {
-  const int s = 12;
-  for (int y = 0; y < s; y++) for (int x = 0; x < s; x++) { const bool edge = !x || !y || x == s - 1 || y == s - 1; suiPx(b, x0 + x, y0 + y, edge ? SUI_RGB(7, 33, 54) : SUI_RGB(232, 244, 226)); }
-  for (int x = 3; x <= 8; x++) suiPx(b, x0 + x, y0 + 6, SUI_RGB(7, 33, 54));
-  if (plus) for (int y = 3; y <= 9; y++) suiPx(b, x0 + 5, y0 + y, SUI_RGB(7, 33, 54)); }
+  pgChip(b, x0, y0, x0 + 12, y0 + 12, false);
+  suiFill(b, x0 + 3, y0 + 5, x0 + 9, y0 + 7, kBlNavy);
+  if (plus) suiFill(b, x0 + 5, y0 + 3, x0 + 7, y0 + 9, kBlNavy); }
 static const uint32_t kPgWeatherColor[] = {
   0, SUI_RGB(48, 154, 255), SUI_RGB(225, 252, 255), SUI_RGB(183, 155, 240)
 };
@@ -561,10 +648,8 @@ static void pgWeatherRefresh(bool kantoOpen) {
 
 static void pgWeatherButton(uint32_t *b, const SUiText &T, SPg &p, int x, int y, bool active) {
   p.wxX0 = x; p.wxX1 = x + 22; p.wxY0 = y;
-  const uint32_t fill = active ? kBlPress : kBlSilverHi;
-  suiFill(b, x, y, p.wxX1, y + 12, fill);
-  mmFrame(b, x, y, p.wxX1, y + 12, kBlNavy);
-  suiSDraw(T, b, x + (22 - suiSWidth(T, "WX")) / 2, y + 1, "WX", kBlNavy, fill);
+  pgChip(b, x, y, p.wxX1, y + 12, active);
+  suiSDraw(T, b, x + (22 - suiSWidth(T, "WX")) / 2, y + 2, "WX", active ? SUI_RGB(255, 255, 255) : kBlNavy, active ? kBlBlue : kBlSilverHi);
 }
 
 static const char *pgWeatherStatus(unsigned visibleKinds) {
@@ -613,6 +698,11 @@ static bool pgWeatherHit(const SPg &p, int x, int y) {
   return p.wxX1 > p.wxX0 && x >= p.wxX0 && x < p.wxX1 && y >= p.wxY0 && y < p.wxY0 + 12;
 }
 
+/* places not visited yet: a quarter of the way to grey, then 1/4 toward a cool slate. The old 5/8 mix toward dark green
+   turned most of the map olive and muddy on the hardware screen; this keeps the art readable and still clearly "not yet". */
+static inline uint32_t pgFade(uint32_t c) {
+  const int r = c & 255, g = c >> 8 & 255, bl = c >> 16 & 255, l = (r * 77 + g * 150 + bl * 29) >> 8;
+  return SUI_RGB((((r * 3 + l) >> 2) * 3 + 92) >> 2, (((g * 3 + l) >> 2) * 3 + 112) >> 2, (((bl * 3 + l) >> 2) * 3 + 120) >> 2); }
 static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1, bool blink) {
   const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0; p.zmX1 = p.zpX1 = p.wxX1 = 0; p.zoom = pgMapZoom();
   if (p.achOpen) { p.markOk = false; pgAchPanel(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
@@ -636,7 +726,6 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   const int weatherBottom = p.sel >= 0 ? Y1 - pgCardH(p) : Y1;
   unsigned visibleWeather = 0;
   if (weather) pgWeatherRefresh(p.kantoOpen);
-  const uint32_t dimTo = SUI_RGB(0, 44, 34);
   for (int y = Y0; y < Y1; y++) {
     const int my = z == 1 ? y - oy : std::clamp(p.viewY + ((y - Y0) >> 1), 0, kPgH - 1);
     const uint32_t sea = SUI_RGB(0, 60, 46);
@@ -654,7 +743,7 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       uint32_t c = sea;
       if (sourceX >= 0 && sourceX < kPgW && !p.hide[tileRow + sourceX / 8]) {
         c = p.img[imageRow + sourceX];
-        if (!p.lit[tileRow + sourceX / 8]) c = suiMix(c, dimTo, 5, 8);
+        if (!p.lit[tileRow + sourceX / 8]) c = pgFade(c);
         if (weather) {
           c = suiMix(c, SUI_RGB(19, 50, 79), 1, 5);
           const int cell = pgWeatherMask[imageRow + sourceX];
@@ -673,8 +762,11 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   if (p.find > 0 && pgFindCfg()) pgFindPins(b, p, X0, Y0, X1, oy);
   /* selected location outline, then the player marker */
   if (p.sel >= 0) { int x, y, w, h; pgSpecRect(p.sel, &x, &y, &w, &h); int sx, sy, ex, ey; pgToDsCorner(p, X0, Y0, oy, x * 8, y * 8, &sx, &sy); pgToDsCorner(p, X0, Y0, oy, x * 8 + w * 8, y * 8 + h * 8, &ex, &ey);
-    for (int k = 0; k < 2; k++) for (int xx = sx - k; xx < ex + k; xx++) { if (xx >= X0 && xx < X1) { suiPx(b, xx, sy - 1 - k, SUI_RGB(255, 224, 64)); suiPx(b, xx, ey + k, SUI_RGB(255, 224, 64)); } }
-    for (int k = 0; k < 2; k++) for (int yy = sy - k; yy < ey + k; yy++) { if (sx - 1 - k >= X0) suiPx(b, sx - 1 - k, yy, SUI_RGB(255, 224, 64)); if (ex + k < X1) suiPx(b, ex + k, yy, SUI_RGB(255, 224, 64)); } }
+    /* two gold rows and a navy rim outside them, so the frame reads on light and dark map art alike */
+    auto px = [&](int x, int y, uint32_t c) { if (x >= X0 && x < X1 && y >= Y0 && y < Y1) suiPx(b, x, y, c); };
+    for (int k = 0; k < 3; k++) { const uint32_t c = k == 2 ? kBlNavy : SUI_RGB(255, 224, 64);
+      for (int xx = sx - 1 - k; xx <= ex + k; xx++) { px(xx, sy - 1 - k, c); px(xx, ey + k, c); }
+      for (int yy = sy - 1 - k; yy <= ey + k; yy++) { px(sx - 1 - k, yy, c); px(ex + k, yy, c); } } }
   if (P3DS_PgLoc >= 0) { int x, y, w, h; pgSpecRect(P3DS_PgLoc, &x, &y, &w, &h); int px, py; pgToDs(p, X0, Y0, oy, x * 8 + w * 4, y * 8 + h * 4, &px, &py);
     p.markX = px; p.markY = py; p.markOk = px >= X0 + 3 && px < X1 - 3 && (p.sel < 0 || py < Y1 - pgCardH(p) - 6);
     if (px >= X0 + 3 && px < X1 - 3 && !p.gameMarker) mmPlayer(b, px, py, blink); } else p.markOk = false;
@@ -687,54 +779,60 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       for (int yy = -4; yy <= 4; yy++) for (int xx = -4; xx <= 4; xx++) suiPx(b, rx + xx, ry + yy, xx == -4 || xx == 4 || yy == -4 || yy == 4 ? SUI_RGB(7, 33, 54) : kTrkCol[i]);
       static const char *const kIni[4] = { "R", "E", "L", "L" }; const char *ini = kIni[i]; T.draw(b, rx - T.width(ini) / 2, ry - 4, ini, SUI_RGB(30, 30, 40), kTrkCol[i]); }
     else { for (int k = 0; k < 3; k++) { suiPx(b, rx - 8 + k, ry - 8, kTrkCol[i]); suiPx(b, rx - 8, ry - 8 + k, kTrkCol[i]); } } }
-  /* info card for the tapped location */
+  /* info card for the tapped location (2026-11-18 polish): green title band with the name, FLY and VISITED; count cells
+     with bars; up to two lines of description; then the phone line and a WILD POKEMON button. Tapping anywhere on the
+     card still flips it to the wild list (render3ds.cpp), so the button is only the visible way in. */
   p.flyX0 = p.flyY0 = p.flyX1 = p.flyY1 = 0;
   if (p.sel >= 0) { const int ch = pgCardH(p), cy0 = Y1 - ch; char ln[4][64];
-    for (int y = cy0; y < Y1; ++y)
-      suiFill(b, X0, y, X1, y + 1, suiMix(SUI_RGB(236, 240, 248), SUI_RGB(196, 228, 214), y - cy0, ch));
-    for (int x = X0; x < X1; x++) suiPx(b, x, cy0, SUI_RGB(7, 33, 54));
-    T.draw(b, X0 + 4, cy0 + 3, P3DS_PgName[p.sel][0] ? P3DS_PgName[p.sel] : "?", SUI_RGB(7, 33, 54), SUI_RGB(236, 240, 248));
-    const uint32_t sh = SUI_RGB(236, 240, 248), fg = SUI_RGB(18, 26, 38);
+    for (int y = cy0 + 1; y < Y1; ++y) suiFill(b, X0, y, X1, y + 1, suiMix(kPgPaper, kPgMint, y - cy0, ch));
+    suiFill(b, X0, cy0, X1, cy0 + 1, kBlNavy); pgBand(b, X0, cy0 + 1, X1, cy0 + 16);
+    const uint32_t sh = kPgPaper, fg = kPgText, wh = SUI_RGB(255, 255, 255);
+    const char *name = P3DS_PgName[p.sel][0] ? P3DS_PgName[p.sel] : "?"; char nm[48]; int right = X1 - 4;
     int wl[64], cg = 0; const int wn = pgWild(p.sel, wl, 64, &cg); const bool hasWild = P3DS_PsReady && P3DS_PsStat[p.sel][0];
     if (p.page) { /* wild Pokemon list: three columns, caught ones in green */
-      char hd[32]; if (wn) snprintf(hd, sizeof hd, "CAUGHT %d/%d", cg, wn); else snprintf(hd, sizeof hd, "WILD");
-      if (wn && pgFindCfg()) { char h2[40]; snprintf(h2, sizeof h2, "TAP=FIND  %s", hd); if (T.width(h2) + T.width(P3DS_PgName[p.sel]) + 14 < aw) snprintf(hd, sizeof hd, "%s", h2); }
-      T.draw(b, X1 - 4 - T.width(hd), cy0 + 3, hd, cg >= wn && wn ? SUI_RGB(40, 120, 64) : fg, sh);
+      char hd[40]; if (wn) snprintf(hd, sizeof hd, "CAUGHT %d/%d", cg, wn); else snprintf(hd, sizeof hd, "WILD");
+      if (wn && pgFindCfg()) { char h2[48]; snprintf(h2, sizeof h2, "TAP=FIND  %s", hd); if (suiSWidth(T, h2) + T.width(name) + 14 < aw) snprintf(hd, sizeof hd, "%s", h2); }
+      suiSDraw(T, b, right - suiSWidth(T, hd), cy0 + 4, hd, cg >= wn && wn ? kPgGold : wh, kBlSelO); right -= suiSWidth(T, hd) + 6;
+      pgFit(T, nm, sizeof nm, name, right - (X0 + 4)); T.draw(b, X0 + 4, cy0 + 1, nm, wh, kBlSelO);
       if (!P3DS_PsReady) T.draw(b, X0 + 4, cy0 + 18, "Take a step to count.", fg, sh);
       else if (!hasWild) T.draw(b, X0 + 4, cy0 + 18, "No wild Pokemon here.", fg, sh);
       else if (!wn) { T.draw(b, X0 + 4, cy0 + 18, "Wild list needs hook 0084,", fg, sh); T.draw(b, X0 + 4, cy0 + 28, "not in this build.", fg, sh); }
       else { int cw, rows, shown; pgWildLayout(aw, ch, wn, &cw, &rows, &shown);
         for (int i = 0; i < shown; i++) { const int sp = wl[i], cx0 = X0 + 4 + (i / rows) * cw, cy = cy0 + 16 + (i % rows) * 10; const bool c = P3DS_PsCg[p.sel][sp >> 3] >> (sp & 7) & 1;
-          char nm[16]; snprintf(nm, sizeof nm, "%s", kP3dsSpecies[sp]); int k = (int)strlen(nm); while (k > 1 && T.width(nm) > cw - 3) nm[--k] = 0;
-          T.draw(b, cx0, cy, nm, c ? SUI_RGB(40, 120, 64) : fg, sh); }
-        if (shown < wn) { char m[16]; snprintf(m, sizeof m, "+%d more", wn - shown); T.draw(b, X0 + 4 + 2 * cw, cy0 + 16 + (rows - 1) * 10, m, SUI_RGB(120, 134, 138), sh); } } }
+          char sn[16]; snprintf(sn, sizeof sn, "%s", kP3dsSpecies[sp]); int k = (int)strlen(sn); while (k > 1 && T.width(sn) > cw - 3) sn[--k] = 0;
+          T.draw(b, cx0, cy, sn, c ? kPgDone : fg, sh); }
+        if (shown < wn) { char m[16]; snprintf(m, sizeof m, "+%d more", wn - shown); T.draw(b, X0 + 4 + 2 * cw, cy0 + 16 + (rows - 1) * 10, m, kPgDim, sh); } } }
     else {
-    const char *st = pgVis(p, p.sel) ? "VISITED" : "NOT YET"; T.draw(b, X1 - 4 - T.width(st), cy0 + 3, st, pgVis(p, p.sel) ? SUI_RGB(40, 120, 64) : SUI_RGB(140, 100, 60), sh);
-    if (pgFlyCfg() && pgFlyUnlocked(p.sel)) { /* hook 0228: FLY chip, green when Fly works here now, grey otherwise (the tap then says why) */
-      const int cw = T.width("FLY") + 10, cx1 = X1 - 4 - T.width(st) - 6, cx0 = cx1 - cw, cyy = cy0 + 1;
-      if (cx0 > X0 + 8 + T.width(P3DS_PgName[p.sel])) { const bool rdy = P3DS_FlyHere == 0; const uint32_t bg = rdy ? SUI_RGB(40, 140, 90) : SUI_RGB(150, 160, 164);
-        for (int y = cyy; y < cyy + 12; y++) for (int x = cx0; x < cx1; x++) suiPx(b, x, y, ((x == cx0 || x == cx1 - 1) && (y == cyy || y == cyy + 11)) ? sh : bg);
-        T.draw(b, cx0 + 5, cyy + 1, "FLY", SUI_RGB(255, 255, 255), bg); p.flyX0 = cx0; p.flyY0 = cyy; p.flyX1 = cx1; p.flyY1 = cyy + 12; } }
-    char pcl[64]; const int pcAvail = aw - 8 - (hasWild ? T.width("Tap card: wild Pokemon") + 6 : 0); const bool hasPc = pcAvail > 30 && pxCardText(T, pcl, sizeof pcl, p.sel, pcAvail);
-    int ty = cy0 + 16; int fl = (hasWild || hasPc) ? 3 : 4; if (P3DS_PsReady) { const int k = pgStats(b, T, p, X0 + 4, ty, p.sel, fg, sh, aw / 2); ty += k * 10 + 1; fl -= k; }
-    const int n = fl > 0 ? pgWrap(T, P3DS_PgText[p.sel], aw - 8, ln, fl) : 0; for (int i = 0; i < n; i++) T.draw(b, X0 + 4, ty + i * 10, ln[i], fg, sh);
-    if (hasWild) { const char *h = "Tap card: wild Pokemon"; T.draw(b, X1 - 4 - T.width(h), Y1 - 11, h, SUI_RGB(24, 153, 115), sh); }
-    if (hasPc) T.draw(b, X0 + 4, Y1 - 11, pcl, SUI_RGB(7, 33, 54), sh); } }
+      const bool vis = pgVis(p, p.sel); const char *st = vis ? "VISITED" : "NOT YET"; const int sw = suiSWidth(T, st);
+      suiSDraw(T, b, right - sw, cy0 + 4, st, vis ? wh : kPgGold, kBlSelO); right -= sw + 6;
+      if (pgFlyCfg() && pgFlyUnlocked(p.sel)) { /* hook 0228: FLY chip, green text when Fly works here now, grey otherwise (the tap then says why) */
+        const int cw = T.width("FLY") + 10, cx1 = right, cx0 = cx1 - cw, cyy = cy0 + 2;
+        if (cx0 > X0 + 40) { const bool rdy = P3DS_FlyHere == 0; pgChip(b, cx0, cyy, cx1, cyy + 12, false);
+          T.draw(b, cx0 + 5, cyy, "FLY", rdy ? kBlSelO : SUI_RGB(150, 160, 164), SUI_RGB(244, 247, 254)); p.flyX0 = cx0; p.flyY0 = cyy; p.flyX1 = cx1; p.flyY1 = cyy + 12; right = cx0 - 5; } }
+      pgFit(T, nm, sizeof nm, name, right - (X0 + 4)); T.draw(b, X0 + 4, cy0 + 1, nm, wh, kBlSelO);
+      int ty = cy0 + 19;
+      if (P3DS_PsReady) { pgStatCells(b, T, X0 + 4, ty + 2, X1 - 4, p.sel, sh); ty += 16; }
+      /* footer: phone line on the left, WILD POKEMON button on the right */
+      const char *wb = "WILD POKEMON"; const int bw = hasWild ? suiSWidth(T, wb) + 12 : 0, by0 = Y1 - 15;
+      char pcl[64]; const int pcAvail = aw - 10 - (bw ? bw + 6 : 0); const bool hasPc = pcAvail > 30 && pxCardText(T, pcl, sizeof pcl, p.sel, pcAvail);
+      const int fl = (hasWild || hasPc) ? (by0 - 1 - ty) / 10 : (Y1 - 2 - ty) / 10;
+      int n = 0; if (fl > 0) { char more[4][64]; const int all = pgWrap(T, P3DS_PgText[p.sel], aw - 8, more, fl + 1 > 4 ? 4 : fl + 1); n = all < fl ? all : fl;
+        for (int i = 0; i < n; i++) snprintf(ln[i], 64, "%s", more[i]);
+        if (all > n && n > 0) { char cut[68]; snprintf(cut, sizeof cut, "%s..", ln[n - 1]); pgFit(T, ln[n - 1], 64, cut, aw - 8); } }
+      for (int i = 0; i < n; i++) T.draw(b, X0 + 4, ty + i * 10, ln[i], fg, sh);
+      if (hasWild) { const int bx1 = X1 - 4, bx0 = bx1 - bw; pgChip(b, bx0, by0, bx1, by0 + 12, true); suiSDraw(T, b, bx0 + 6, by0 + 2, wb, wh, kBlBlue); }
+      if (hasPc) suiSDraw(T, b, X0 + 4, by0 + 2, pcl, kBlSelO, sh); } }
   if (p.find > 0 && pgFindCfg()) pgFindBanner(b, T, p, X0, Y0, X1);
-  { int by = Y1 - 14; if (p.sel >= 0) { const int top = Y1 - pgCardH(p); if (by + 12 > top - 1) by = top - 14; }
-    const int fy = (p.find > 0 && pgFindCfg()) ? Y0 + kPgFindH : Y0; if (by >= fy + 1 && by + 12 < Y1) {
-      pgZoomChip(b, X0 + 2, by, false); pgZoomChip(b, X0 + 16, by, true);
-      p.zmX0 = X0 + 2; p.zmY0 = by; p.zmX1 = X0 + 14; p.zmY1 = by + 12; p.zpX0 = X0 + 16; p.zpY0 = by; p.zpX1 = X0 + 28; p.zpY1 = by + 12;
-      if (weatherEnabled && finder) pgWeatherButton(b, T, p, X0 + 31, by, weather);
-      const int legendX = X0 + (finder ? 56 : 31);
-      if (weather && visibleWeather) pgWeatherLegend(b, T, legendX, by, X1 - 2, visibleWeather, finder);
-      else if (weather && finder) pgWeatherStatusBar(b, T, legendX, by, X1 - 2, visibleWeather);
-    } }
-  pgDots(b, p, X1, Y0);
-  if (weatherEnabled && !finder) {
-    pgWeatherButton(b, T, p, p.achX0 - 26, Y0 + 1, weather);
-    if (weather) pgWeatherStatusBar(b, T, X0 + 2, Y0 + 1, p.wxX0 - 3, visibleWeather);
-  }
+  /* 2026-11-18 tool row: zoom on the left, WX / achievements / overview on the right, all one chip style, on one line at
+     the top of the map (under the finder banner when it is open), so nothing floats over the bottom of the map or the card. */
+  { const int ty = finder ? Y0 + kPgFindH : Y0;
+    pgZoomChip(b, X0 + 2, ty + 2, false); pgZoomChip(b, X0 + 17, ty + 2, true);
+    p.zmX0 = X0 + 2; p.zmY0 = ty + 2; p.zmX1 = X0 + 14; p.zmY1 = ty + 14; p.zpX0 = X0 + 17; p.zpY0 = ty + 2; p.zpX1 = X0 + 29; p.zpY1 = ty + 14;
+    pgDots(b, p, X1, ty);
+    if (weatherEnabled) pgWeatherButton(b, T, p, p.achX0 - 26, ty + 2, weather);
+    /* radar key: one strip along the bottom of the map, above the card */
+    if (weather) { const int by = (p.sel >= 0 ? Y1 - pgCardH(p) : Y1) - 13;
+      if (by > ty + 16) { if (visibleWeather) pgWeatherLegend(b, T, X0, by, X1, visibleWeather, true); else pgWeatherStatusBar(b, T, X0, by, X1, visibleWeather); } } }
 }
 static int pgZoomHit(const SPg &p, int x, int y) {
   if (p.zmX1 > p.zmX0 && x >= p.zmX0 - 1 && x < p.zmX1 && y >= p.zmY0 - 2 && y < p.zmY1 + 2) return 1;
