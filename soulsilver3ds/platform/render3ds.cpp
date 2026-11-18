@@ -3137,7 +3137,19 @@ static int Present(bool){
   else if(cornerOpen||btnOpen||((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R)&&!(kh&KEY_X)&&menuCfg())){if(!P3DS_ConsoleOnBottom())runApp(stereo?eyeL:top,mode,mode&&gpuOk==1);BLINV;}}
  return 0;
 }
-extern "C" void PSPNativeRenderShutdown(){initialized=false;}
+/* Soft-reset / clean exit: stop engine B + core-1 workers and join them before any GPU/heap free
+   (run 934: crumbs showed w-job still running after main stopped → jump through freed state). */
+extern "C" void PSPNativeRenderShutdown(){
+ initialized=false;
+ if(!bQuit){
+  bQuit=true;
+  if(bMode==1){__atomic_add_fetch(&bPend,1,__ATOMIC_SEQ_CST);LightEvent_Signal(&bStart);LightEvent_Signal(&bDone);LightEvent_Signal(&bEarlyDone);}
+  if(c1Mode==1)LightEvent_Signal(&c1Start);
+ }
+ if(bThread){if(R_SUCCEEDED(threadJoin(bThread,500000000ULL)))threadFree(bThread);else PSPNativeMemLog("[3DS] exit: engine B worker did not stop in 500 ms");bThread=nullptr;bMode=0;}
+ if(c1Thread){if(R_SUCCEEDED(threadJoin(c1Thread,500000000ULL)))threadFree(c1Thread);else PSPNativeMemLog("[3DS] exit: c1 worker did not stop in 500 ms");c1Thread=nullptr;c1Mode=0;}
+ PSPNativeMemLog("[3DS] exit: render workers stopped");
+}
 extern "C" unsigned PSPNativeRenderTestPixel(unsigned e,unsigned x,unsigned y){allocBufs();return raw[e&1][(y%192)*256+(x%256)];}
 extern "C" void PSPNativeRenderGetTimings(unsigned*r,unsigned*s){if(r)*r=lastReadbackUs;if(s)*s=last2DUs;}
 extern "C" unsigned RenderStage(unsigned stage){return stage==0?bindUs:stage==1?drawUs:convertUs;}

@@ -911,14 +911,14 @@ static int gtCfgWant=-1,gtThreadOk=0;static unsigned gtAbN;   /* g3_thread 2 = A
 enum{GT_N=1024,GT_MASK=GT_N-1,GT_ARENA=96*1024};          /* 96K verts (~2.2 MB): fewer mid-frame arena drains that reset depth */
 static GJob gtRing[GT_N];static GuVertex*gtArena;static u8*gtCmArena;static unsigned gtArenaPos,gtCmPos;
 static volatile unsigned gtHead,gtTail,gtDone,gtKicked,gtSleep,gtExpandReq; /* gtDone: completed claims (g3_raw_split); gtExpandReq: worker expand */
-extern "C" {int G3T_Start(void(*)(void*));void G3T_Wait(void);void G3T_Signal(void);void G3T_SleepNs(long long);void*memalign(size_t,size_t);}
+extern "C" {int G3T_Start(void(*)(void*));int G3T_Start2(void(*)(void*));void G3T_Stop2(void);void G3T_Wait(void);void G3T_Signal(void);void G3T_Wait2(void);void G3T_Signal2(void);void G3T_SleepNs(long long);int G3T_SplitOn(void);int G3T_Quiting(void);void G3T_RequestQuit(void);void G3T_Join(void);void*memalign(size_t,size_t);}
 extern "C" {int P3DS_BigLockDropForWait(void);void P3DS_BigLockRestoreAfterWait(int);int P3DS_BigLockDepth(void);}
 static u64 gtBusyTicks,gtWaitTicks;static unsigned gtJobs,gtDrains[6],gtFrames;static const char*const gtWhy[6]={"screen","frame","listfree","texfree","ringfull","arena"};
 extern "C" void P3DS_ThreadGuard(const char*);
 /* Conditional wake (publish path): only Signal if the worker marked itself asleep. */
-static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0)==1){G3T_Signal();}}
+static void gtWake(){__sync_synchronize();if(__sync_lock_test_and_set(&gtSleep,0)==1){G3T_Signal();if(G3T_SplitOn())G3T_Signal2();}}
 /* Drain/pin waits: always Signal so a lost TAS cannot leave the worker asleep with work queued (run 883). */
-static void gtWakeForce(){__sync_synchronize();__sync_lock_test_and_set(&gtSleep,0);G3T_Signal();}
+static void gtWakeForce(){__sync_synchronize();__sync_lock_test_and_set(&gtSleep,0);G3T_Signal();if(G3T_SplitOn())G3T_Signal2();}
 /* ~1 s at 268 MHz. On timeout: log, abandon queue / force-unpin, turn g3_thread OFF for the rest of the session. */
 enum{GT_WAIT_TICKS=268111856ull};
 static inline bool gtBusy();
@@ -956,21 +956,47 @@ static void gtTryExpand(void){
   __atomic_store_n(&gtExpandReq,0,__ATOMIC_RELEASE);}}
 static void gtMain(void*){P3DS_ThreadGuard("g3thread");gtInWorker=true;
  for(;;){
+  if(G3T_Quiting())break;
   unsigned h;
   if(!gtClaim(&h)){
    gtTryExpand();
    gtSleep=1;__sync_synchronize();
+   if(G3T_Quiting())break;
    if(gtClaim(&h)){gtSleep=0;gtRunOne(h);continue;}
    if(__atomic_load_n(&gtExpandReq,__ATOMIC_ACQUIRE)){gtSleep=0;continue;}
    G3T_Wait();continue;}
   gtRunOne(h);
- }}
+ }
+ gtInWorker=false;}
+/* Optional second raw worker (g3_raw_split / G3T_Start2); same quit path. */
+static void gtMain2(void*){P3DS_ThreadGuard("g3thread2");gtInWorker=true;
+ for(;;){
+  if(G3T_Quiting())break;
+  unsigned h;
+  if(!gtClaim(&h)){
+   gtSleep=1;__sync_synchronize();
+   if(G3T_Quiting())break;
+   if(gtClaim(&h)){gtSleep=0;gtRunOne(h);continue;}
+   G3T_Wait2();continue;}
+  gtRunOne(h);
+ }
+ gtInWorker=false;}
+static void gtDrain(int why); /* fwd for shutdown */
+/* Soft-reset / exit: drain leftover jobs, then quit+join workers before GPU/heap free. */
+extern "C" void P3DS_G3ThrShutdown(void){
+ if(gtThreadOk<=0)return;
+ gtDrain(1);
+ G3T_RequestQuit();
+ gtWakeForce();
+ G3T_Join();
+ gtCfg=0;gtThreadOk=0;
+ PSPNativeMemLog("[3DS] exit: g3thr workers stopped");
+}
 /* Midpoint pairing mutates md* tables: must run on the game thread after cull, before the arena copy. */
 static void gtFinishMid(GJob&J){
  J.hasK=false;if(!J.mid||J.n<3||J.wbuf)return;
  float K[16];if(mdK(J,K)){memcpy(J.K,K,sizeof J.K);J.hasK=true;}}
 static int edgeFixCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("stereo_edgefix",1)!=0;PSPNativeMemLog("[G3] stereo_edgefix=%d",v);}return v;}
-static void gtDrain(int why);
 static bool gtStart(){
  if(gtThreadOk!=0)return gtThreadOk>0;
  gtArena=(GuVertex*)memalign(16,GT_ARENA*sizeof(GuVertex));gtCmArena=(u8*)malloc(64*1024);

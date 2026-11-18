@@ -18,6 +18,10 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - Union Room battles need two consoles to test.
 - Normal play: leave "3D profile" and "GPU pass timing" OFF, log detail SHORT.
 
+## Soft-reset teardown (run 934)
+
+Select / L+R+START+SELECT soft reset in the field crashed (`pc` past `.text`, crumbs: engine-B `w-job` still running after main stopped). Root cause: platform workers (engine B / c1, g3thr, par) were never joined before heap/GPU teardown; SoftReset could also be re-entered via `sceKernelLoadExec` after `OS_ResetSystem`. Fix: SoftReset once-guard; `hardExit` joins render → g3thr → par before `ShutdownThreads` / `gfxExit`. Save sync/backup order unchanged. Device retest pending.
+
 ## Where the real information is
 
 - Device `log.txt` `[SS-MISSING]` lines show which game screens still trap. `docs/archive/MISSING_AUDIT.md` is archaeology only.
