@@ -132,7 +132,7 @@ static UseEnt useTab[] = {
     { "bottom_menu_taps", "[BMENU] tap ", 0 }, { "bottom_menu_game_touch", "[BMENU] game touch screen mode", 0 }, { "bottom_menu_actions", "[BMENU] request handled", 0 },
     { "minimap_mode_changes", "[MINIMAP] mode ", 0 }, { "minimap_new_cells", "[MINIMAP] new cell", 0 }, { "pgmap_wild_lists", "[PGMAP] card page wild", 0 }, { "pgmap_zoom", "[PGMAP] zoom ", 0 }, { "roamer_sprites", "[TRACK] roamer sprite", 0 }, { "phone_taps", "[PHONE] tap ", 0 }, { "pokegear_tab_switches", "[PHONE] panel ->", 0 },
     { "menu_button_taps", "[BTN] opened by menu button tap", 0 }, { "sprite_depth_quads", "[SPRDEPTH] sprite quads", 0 },
-    { "quick_actions", "[QUICK] ", 0 }, { "settings_opened", "[APP] settings open", 0 },
+    { "sharp_text_lines", "[TEXT] sharp ", 0 }, { "quick_actions", "[QUICK] ", 0 }, { "settings_opened", "[APP] settings open", 0 },
     { "settings_changes", "[APP] saved ", 0 }, { "soft_resets", "[3DS] soft reset", 0 },
     { "saves_synced", "[SAVE] sync", 0 }, { "save_autobackups", "[SAVE] backup (after save)", 0 }, { "save_exports", "[SAVE] export:", 0 },
     { "audio_stall_fades", "[AUDIO] stall fade: no game", 0 }, { "audio_dsp_stalls", "[AUDIO] dsp stall", 0 },
@@ -173,7 +173,7 @@ typedef struct { const char *key; int def; const char *dead; } CfgEnt; /* def ==
 #define NODEF (-2147483647 - 1)
 static const CfgEnt cfgTab[] = {
     { "g3_packets", 1, 0 }, { "g3_fast_bounds", 1, 0 }, { "gpu_compose_b", 1, 0 }, { "gpu_obj_affine", 1, 0 }, { "gpu_b_fades", 1, 0 }, { "title_clean_sides", 2, 0 },
-    { "battle_monobj_hide", 1, 0 }, { "fps_tweaks", 7, 0 }, { "dc_flush_skip", 1, 0 }, { "fog_hole", 1, 0 }, { "bottom_hd", 1, 0 }, { "pg_extras", 1, 0 }, { "wide_pokedex", 1, 0 }, { "wide_pc", 1, 0 },  { "bottom_menu", 1, 0 }, { "bottom_vramgen", 1, 0 }, { "cam_zoom", 0, 0 }, { "catch_overlay", 1, 0 },
+    { "battle_monobj_hide", 1, 0 }, { "fps_tweaks", 7, 0 }, { "dc_flush_skip", 1, 0 }, { "fog_hole", 1, 0 }, { "sharp_text", 1, 0 }, { "pg_extras", 1, 0 }, { "wide_pokedex", 1, 0 }, { "wide_pc", 1, 0 },  { "bottom_menu", 1, 0 }, { "bottom_vramgen", 1, 0 }, { "cam_zoom", 0, 0 }, { "catch_overlay", 1, 0 },
     { "cheat_no_encounters", 0, 0 }, { "cheat_time", 0, 0 }, { "cpad_dpad", 1, 0 }, { "credits_splash", 1, 0 }, { "cstick_mode", 2, 0 },
     { "display_capture", 1, 0 }, { "fast_text", 2, 0 }, { "follower", 0, 0 }, { "follower_slot", 0, 0 }, { "follower_talk", 0, 0 },
     { "fps_counter", 1, 0 }, { "fps60_pipe", 1, 0 }, { "fps60_hold", 1, 0 }, { "fps60_strips", 1, 0 }, { "fps60_vram", 1, 0 }, { "fps60_area_dbg", 0, 0 }, { "fps60", 1, 0 }, { "g3_thread", 1, 0 }, { "g3_gputime_dbg", 0, 0 }, { "g3_xfcache", 1, 0 }, { "g3_prof", 0, 0 }, { "g3_wake", 1, 0 }, { "g3_fastxform", 1, 0 }, { "g3_thr_texfence", 2, 0 }, { "g3_thr_texsafe", 1, 0 }, { "g3_stereo_share", 1, 0 }, { "present_pace", 1, 0 }, { "g3_front_ov", 1, 0 }, { "g3_stereo_gpu", 1, 0 }, { "g3_front_bg", 1, 0 }, { "g3_wmode", 2, 0 }, { "g3_sharp", 3, 0 }, { "g3_smooth_dbg", 0, 0 },

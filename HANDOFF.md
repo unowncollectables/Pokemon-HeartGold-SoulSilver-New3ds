@@ -9,6 +9,7 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - Settings menu (L+R+Y) is trimmed for release: Debug and Render tabs are gone and the tuned 60 fps setup is the default (PR #541). Players never need `config.txt`.
 - GTS network debug logging is off by default (build with `-DSS3DS_NET_LOG` to bring it back).
 - HeartGold is the same port built as a second game (see AGENTS.md section 12).
+- Sharp bottom text (2026-11-18, unbuilt): Bottom menu panel and settings text drawn at 320x240 instead of stretched. Settings > Display "Sharp text" (default ON).
 
 ## Known open items
 
@@ -31,6 +32,7 @@ Start with the device `log.txt` on the SD card (`sdmc:/3ds/soulsilver3ds/`); the
 - **"game stalled: no frame for 10 s" (red box from the watchdog).** The `[WATCHDOG]` lines name the lock holder and the last crumbs. Long waits that are on purpose (settings menu, followers.bin build, GTS login) already pause it; a new long blocking job must set a `P3DS_*` busy flag like `P3DS_NetBusy`.
 - **Game crashes only on a visible-wild battle or encounter.** Turn "Alive wild Pokemon" off in L+R+Y (Play tab) to confirm, then read the last `[WILD]` lines. Run 939 was a forced surf battle from the shore (fixed in 0284). The wild code lives in `scripts/ss3ds_hooks.d/0110_wildvis.py` (block `SS3DS-WILD-BEGIN`).
 - **Save problems.** Look for `[SAVE] backup ... ok` after each in-game save and at exit. `FAILED` means the SD card is full, locked or flaky; since 2026-11-18 a failed backup write leaves the existing `soulsilver.sav.bak1` untouched (only one backup is kept now; older bak2-8 are deleted after the next good backup) and shows one toast "SAVE BACKUP FAILED". Restore by copying a `.bak` over `soulsilver.sav` on the card (validate with `tools/ss_savecheck.py`). `soulsilver.sav` stays the raw 512 KiB image, byte-compatible with a DS cart or R4.
+- **Bottom-screen text missing, doubled or in the wrong place.** Turn Display > "Sharp text" OFF in L+R+Y to confirm (old stretched text comes back), then read the `[TEXT]` lines: "left in the DS picture" counts strings that something was drawn over, "texture FAILED" / "no memory" means the layer could not start and the text stayed in the DS picture.
 - **Build fails.** The owner's patch-builder pulls latest `main`. A leftover half-applied patch is handled by `scripts/bootstrap.sh`. A hook that logs "NOT applied" / "anchor not found" stops the build on purpose (patch 0159). Fix with a NEW numbered patch, never edit an applied one; check `ls pspoke-patches | tail` right before numbering.
 
 ## Where the real information is

@@ -84,6 +84,12 @@ static const uint8_t *glyph(int font, int c, int *w) {
   int g = cc((unsigned char)c); if (!g || (uint32_t)g > ng) g = 0x1AC; g--;
   if (hs + (uint32_t)(g + 1) * 64 > gfLen[font & 1] || wt + (uint32_t)g >= gfLen[font & 1]) return 0;
   *w = d[wt + g]; return d + hs + g * 64; }
+/* 2026-11-18 sharp bottom text (ss3ds_sharptext.h): one glyph as values (0 none, 1 text, 2 shadow, 3 background); returns its width, -1 = no data */
+int P3DS_GameFontGlyph(int font, int ch, unsigned char v[16][16]) {
+  int w; const uint8_t *g = glyph(font, ch, &w); if (!g) return -1;
+  for (int py = 0; py < 16; py++) for (int px = 0; px < 16; px++) { int tile = (py >> 3) * 2 + (px >> 3); const uint8_t *row = g + tile * 16 + (py & 7) * 2; int bx = (px & 7) >> 2;
+    v[py][px] = (row[bx ^ 1] >> (6 - 2 * (px & 3))) & 3; }
+  return w; }
 int P3DS_GameFontWidth(int font, const char *t) { int x = 0, w; for (; *t; t++) if (glyph(font, *t, &w)) x += w; return x; }
 /* draw into a u32 0x00BBGGRR image (stride, clip w x h); scale 1 or 2; shadow 0 = none. Returns width drawn. */
 int P3DS_GameFontDraw(uint32_t *img, int stride, int cw, int ch, int x, int y, const char *t, uint32_t fg, uint32_t sh, int scale, int font) {
