@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 18 Nov 2026 13:40:00 +0000
+Subject: [PATCH] ss3ds: visible wilds step aside for NPCs, keep a tile apart
+ in transit, and scatter after a battle
+
+Alive wild Pokemon: an NPC that walks onto a wild one's tile no longer leaves the two drawn on top of each other (the wild steps to a free neighbour tile, or slips away if boxed in). A wild that is still walking off a tile keeps it reserved for others until the step ends. After a battle the Pokemon within six tiles wake, break off play and duck away or run. All gated by Alive wild Pokemon; log lines "steps aside for an NPC", "startled by the battle".
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 50 ++++++++++++++++++++++++++-
+ 1 file changed, 49 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index e99b870..35c1886 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v21 (0110/0111/0217/0218/0223/0224: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v22 (0110/0111/0217/0218/0223/0224/0281: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -645,6 +645,10 @@ static int SS3DS_WildCrowded(SS3DSWildState *S, int slot, int x, int z) {
+         if (j != slot && o->on && o->x - x <= 1 && x - o->x <= 1 && o->z - z <= 1 && z - o->z <= 1) {
+             return 1;
+         }
++        // 0281: one that is still walking off a tile keeps it for the rest of the step (no two sprites sharing a tile)
++        if (j != slot && o->on && o->t < 16 && o->fx - x <= 1 && x - o->fx <= 1 && o->fz - z <= 1 && z - o->fz <= 1) {
++            return 1;
++        }
+     }
+     return 0;
+ }
+@@ -1993,6 +1997,22 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             } else {
+                 PSPNativeMemLog("[WILD] slot %d species %d battled (outcome %d)", i + 1, m->sp, P3DS_WildBattleResult);
+                 SS3DS_WildKill(S, i, "battled");
++                // 0281: the commotion startles the ones close by (they wake, break off play and duck away or run)
++                for (int j = 0; alive && j < SS3DS_WILD_MAX; j++) {
++                    SS3DSWildMon *o = &S->m[j];
++                    int ox = o->x - px, oz = o->z - pz;
++                    if (j == i || !o->on || o->spare || o->battle || o->roamer >= 0 || o->big || o->t < 16
++                        || (ox < 0 ? -ox : ox) + (oz < 0 ? -oz : oz) > 6) {
++                        continue;
++                    }
++                    SS3DS_WildEndPlay(S, j);
++                    o->sleep = o->fight = 0;
++                    o->noticed = WILD_STARTLED;
++                    o->timer = 1;
++                    o->hop = 10;
++                    o->bang = 30;
++                    PSPNativeMemLog("[WILD] slot %d species %d startled by the battle", j + 1, o->sp);
++                }
+                 continue;
+             }
+         }
+@@ -2051,6 +2071,34 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->t++;
+             continue;
+         }
++        // 0281: an NPC walked onto this tile (wilds are not map objects, so the game lets it): step aside, or slip away
++        if (alive && m->spare != 2 && fieldSystem->mapObjectManager != NULL && !(m->x == px && m->z == pz) && (((int)S->anim + i) & 3) == 0
++            && MapObjectManager_GetFirstObjectWithXAndZ(fieldSystem->mapObjectManager, m->x, m->z, TRUE) != NULL) {
++            int aside = -1, first = (int)SS3DS_WildRand(S, 4);
++            for (int turn = 0; turn < 4 && aside < 0; turn++) {
++                int tryDir = (first + turn) & 3;
++                int x = m->x + (tryDir == 2 ? -1 : tryDir == 3 ? 1 : 0);
++                int z = m->z + (tryDir == 0 ? -1 : tryDir == 1 ? 1 : 0);
++                int tile = SS3DS_Tile(fieldSystem, x, z, m->spare);
++                if ((tile & 3) == m->kind && !(x == px && z == pz) && !SS3DS_WildCrowded(S, i, x, z)) {
++                    aside = tryDir;
++                    SS3DS_WildEndPlay(S, i);
++                    m->sleep = 0;
++                    m->dir = tryDir;
++                    m->fx = m->x;
++                    m->fz = m->z;
++                    m->x = x;
++                    m->z = z;
++                    m->t = 0;
++                    m->grass = (tile & 4) != 0;
++                    PSPNativeMemLog("[WILD] slot %d species %d steps aside for an NPC", i + 1, m->sp);
++                }
++            }
++            if (aside < 0 && SS3DS_WildRand(S, 90) == 0) {
++                SS3DS_WildKill(S, i, "an NPC stands on it");
++            }
++            continue;
++        }
+         if (leaving && m->spare == 2 && dist > 1) {
+             SS3DS_WildEndPlay(S, i);
+             m->sleep = 0;
+-- 
+2.43.0
+
