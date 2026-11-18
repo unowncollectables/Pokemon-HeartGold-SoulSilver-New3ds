@@ -1,0 +1,76 @@
+From f08431699ee0935e0a22dcc235f7307f0587354d Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 18 Nov 2026 23:24:28 +0000
+Subject: [PATCH] ss3ds: hook 0286 encounter finder chances (slot odds per
+ place and method)
+
+Read-only: records the game's slot chance per location, species and method (grass morning/day/night, surf, rock smash, rods) into platform P3DS_PsRt* while 0083/0209 build their tables. Drives the finder where-to-catch list. Optional hook; logs skipped on failure. Not compiled or run on device.
+---
+ scripts/ss3ds_hooks.d/0286_pgrates.py | 42 +++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0286_pgrates.sh |  5 ++++
+ 2 files changed, 47 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0286_pgrates.py
+ create mode 100644 scripts/ss3ds_hooks.d/0286_pgrates.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0286_pgrates.py b/scripts/ss3ds_hooks.d/0286_pgrates.py
+new file mode 100755
+index 0000000..8723265
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0286_pgrates.py
+@@ -0,0 +1,42 @@
++#!/usr/bin/env python3
++"""ss3ds 0286: encounter finder chances. Applied after 0209 to src/field/field_control.c. Idempotent ('SS3DS 0286' marker).
++READ-ONLY. While 0083/0209 build their ROM tables, also records the game's slot chance per location, species and method into the
++platform (P3DS_PsRt*, via P3DS_PsRtAdd): grass morning/day/night, surf, rock smash, old/good/super rod. Nothing is written to the save."""
++import sys
++p = 'src/field/field_control.c'
++s = open(p).read()
++if 'SS3DS 0286' in s:
++    sys.exit(0)
++if 'SS3DS 0209' not in s:
++    sys.exit('0286_pgrates: hook 0209 is not in field_control.c')
++def sub1(s, old, new):
++    if s.count(old) != 1:
++        sys.exit('0286_pgrates: anchor not found exactly once: ' + old[:70])
++    return s.replace(old, new)
++helper = '''extern int P3DS_PsRtAdd(int loc, int sp, int mth, int pct); /* SS3DS 0286: slot chances for the encounter finder */
++static void SS3DS_PsRates(int loc) {
++    static const u8 land[12] = { 12, 12, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1 };
++    static const u8 surf[5] = { 60, 30, 5, 4, 1 };
++    static const u8 rock[2] = { 90, 10 };
++    static const u8 oldr[5] = { 60, 30, 5, 4, 1 };
++    static const u8 goodr[5] = { 40, 40, 15, 4, 1 };
++    static const u8 supr[5] = { 40, 40, 15, 4, 1 };
++    int k;
++    if (sPsEnc.encounterRate_walking) for (k = 0; k < NUM_ENCOUNTERS_LAND && k < 12; k++) {
++        P3DS_PsRtAdd(loc, sPsEnc.landSlots.species_morn[k] & 0x3FF, 0, land[k]);
++        P3DS_PsRtAdd(loc, sPsEnc.landSlots.species_day[k] & 0x3FF, 1, land[k]);
++        P3DS_PsRtAdd(loc, sPsEnc.landSlots.species_nite[k] & 0x3FF, 2, land[k]);
++    }
++    if (sPsEnc.encounterRate_surfing) for (k = 0; k < NUM_ENCOUNTERS_SURF && k < 5; k++) P3DS_PsRtAdd(loc, sPsEnc.surfSlots[k].species & 0x3FF, 3, surf[k]);
++    if (sPsEnc.encounterRate_rockSmash) for (k = 0; k < NUM_ENCOUNTERS_ROCKSMASH && k < 2; k++) P3DS_PsRtAdd(loc, sPsEnc.rockSmashSlots[k].species & 0x3FF, 4, rock[k]);
++    if (sPsEnc.encounterRate_oldRod) for (k = 0; k < NUM_ENCOUNTERS_FISH && k < 5; k++) P3DS_PsRtAdd(loc, sPsEnc.oldRodSlots[k].species & 0x3FF, 5, oldr[k]);
++    if (sPsEnc.encounterRate_goodRod) for (k = 0; k < NUM_ENCOUNTERS_FISH && k < 5; k++) P3DS_PsRtAdd(loc, sPsEnc.goodRodSlots[k].species & 0x3FF, 6, goodr[k]);
++    if (sPsEnc.encounterRate_superRod) for (k = 0; k < NUM_ENCOUNTERS_FISH && k < 5; k++) P3DS_PsRtAdd(loc, sPsEnc.superRodSlots[k].species & 0x3FF, 7, supr[k]);
++}
++'''
++s = sub1(s, 'static void SS3DS_PsBuild(void) {\n', helper + 'static void SS3DS_PsBuild(void) {\n')
++s = sub1(s, 'if (sPsEnc.encounterRate_superRod) for (k = 0; k < NUM_ENCOUNTERS_FISH; k++) SS3DS_PsSp(i, sPsEnc.superRodSlots[k].species);\n',
++         'if (sPsEnc.encounterRate_superRod) for (k = 0; k < NUM_ENCOUNTERS_FISH; k++) SS3DS_PsSp(i, sPsEnc.superRodSlots[k].species);\n                SS3DS_PsRates(i); /* SS3DS 0286 */\n')
++s += '\n/* SS3DS 0286 done: encounter finder chances recorded by SS3DS_PsBuild */\n'
++open(p, 'w').write(s)
++print('0286_pgrates: field_control.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0286_pgrates.sh b/scripts/ss3ds_hooks.d/0286_pgrates.sh
+new file mode 100644
+index 0000000..fe117e5
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0286_pgrates.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0286: encounter finder chances (grass by time, surf, rock smash, rods), read-only, after 0209 (same object).
++# Not fatal: without it the where-to-catch list shows places but no chances.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0286_pgrates.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
++  log "ss3ds 0286 pgrates hook skipped (see message above); the finder list has no chances"
++fi
+-- 
+2.43.0
+

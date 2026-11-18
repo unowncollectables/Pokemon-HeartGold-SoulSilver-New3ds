@@ -40,6 +40,14 @@ volatile int P3DS_PsReady; volatile uint32_t P3DS_PsTick; uint16_t P3DS_PsStat[1
 uint8_t P3DS_PsSp[100][64], P3DS_PsCg[100][64];
 /* run 146 / hook 0209 (pg_find): when a species is found per location, [t]: 0 morning, 1 day, 2 night (land), 3 any time (water, rock smash); kept here like P3DS_PsK* */
 uint8_t P3DS_PsTm[100][4][64];
+/* hook 0286: how likely each species is per location and method, kept here like P3DS_PsTm. Method: 0 morning, 1 day, 2 night (grass), 3 surf, 4 rock smash, 5 old rod, 6 good rod, 7 super rod; pct = the game's slot chance given an encounter. */
+#define kPgRtMax 6000
+uint16_t P3DS_PsRtSp[kPgRtMax]; uint8_t P3DS_PsRtLoc[kPgRtMax], P3DS_PsRtMth[kPgRtMax], P3DS_PsRtPct[kPgRtMax]; int P3DS_PsRtN;
+int P3DS_PsRtAdd(int loc, int sp, int mth, int pct) {
+  if (loc < 0 || loc > 99 || sp <= 0 || sp > 493 || mth < 0 || mth > 7 || pct <= 0) return 0;
+  for (int i = 0; i < P3DS_PsRtN; i++) if (P3DS_PsRtSp[i] == sp && P3DS_PsRtLoc[i] == loc && P3DS_PsRtMth[i] == mth) { int v = P3DS_PsRtPct[i] + pct; P3DS_PsRtPct[i] = v > 100 ? 100 : v; return 1; }
+  if (P3DS_PsRtN >= kPgRtMax) return 0;
+  const int n = P3DS_PsRtN++; P3DS_PsRtSp[n] = sp; P3DS_PsRtLoc[n] = loc; P3DS_PsRtMth[n] = mth; P3DS_PsRtPct[n] = pct > 100 ? 100 : pct; return 1; }
 void *P3DS_PgAlloc(int key, uint32_t size) {
   if (key < 0 || key > 255 || size < 16 || size > 64 * 1024) return 0;
   if (key >= 200 && key <= 203) { if (size > 0x4000) return 0; if (!pgRaw[key]) pgRaw[key] = (uint8_t *)malloc(0x4000); pgRawSz[key] = pgRaw[key] ? size : 0; return pgRaw[key]; }
@@ -65,6 +73,7 @@ struct SPg {
   int achUpX0, achUpY0, achUpX1, achUpY1, achDnX0, achDnY0, achDnX1, achDnY1, achPage, achMax; /* UP/DN page the list; achMax is the clamp */
   int flyX0, flyY0, flyX1, flyY1; /* hook 0228 (pg_flytap): the FLY chip on the open info card, 0 size = none (screen px) */
   int pressX = -1, pressY = -1; /* 2026-11-18: finger down on the map panel (DS px), so the chip under it shows pressed at once; -1 none */
+  int findList, findPage; /* where-to-catch list over the map (finder LIST chip) and its page */
   int find, findTm; /* run 146 pg_find: species being looked for (0 none) and the time filter (0 any, 1 morning, 2 day, 3 night) */
   int page; /* run 16: info card page, 0 = info, 1 = wild Pokemon list (tap the card to flip) */
   bool glide, moving; /* run 16: view slides to the player's new location instead of jumping; moving = still sliding (redraw) */
@@ -438,6 +447,9 @@ static int pgWildHit(const SPg &p, int x, int y) {
 static int pgFindHit(const SPg &p, int Y0, int x, int y) {
   if (p.find <= 0) return 0; const int X0 = kBlPanX0 + 2, X1 = kBlPanX1 - 2, tx = X0 + 42, cw = (X1 - tx - 2) / 4;
   if (x >= X1 - 17 && x < X1 && y >= Y0 && y < Y0 + 16) return 1;
+  if (x >= X1 - 49 && x < X1 - 18 && y >= Y0 && y < Y0 + 16) return 6;
+  if (p.findList && y >= (kBlPanY1 - 2) - 14 && y < kBlPanY1 - 2) { if (x < X0 + 52) return 7; if (x >= X1 - 52) return 8; }
+  if (p.findList && y >= Y0 + 40) return 9;
   if (y >= Y0 + 26 && y < Y0 + 39) { const int i = (x - tx) / cw; if (x >= tx && i >= 0 && i < 4) return 2 + i; }
   return 0; }
 static void pgFindPins(uint32_t *b, const SPg &p, int X0, int Y0, int X1, int oy) {
@@ -499,7 +511,7 @@ static bool pgMonIcon(int sp, uint32_t *dst, bool speciesColours = false) {
 }
 static uint32_t pgFindIco[32 * 32]; static int pgFindIcoSp = -1; static bool pgFindIcoOk;
 static void pgFindIconLoad(int sp) {
-  if (pgFindIcoSp == sp) return; pgFindIcoSp = sp; pgFindIcoOk = pgMonIcon(sp, pgFindIco);
+  if (pgFindIcoSp == sp) return; pgFindIcoSp = sp; pgFindIcoOk = pgMonIcon(sp, pgFindIco, true);
   PSPNativeMemLog("[FIND] icon sp=%d -> %s", sp, pgFindIcoOk ? "ok" : "missing (card has no sprite)"); }
 /* one 16x16 roamer icon, cached per slot. False = caller draws the letter. Loaded only when the species changes. */
 static uint32_t pgRoamPx[4][16 * 16]; static int pgRoamSp[4] = { -1, -1, -1, -1 }; static int pgRoamOk[4];
@@ -523,7 +535,8 @@ static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, in
   const int tx = X0 + 42; const int n = pgFindCount(p);
   for (int y = Y0 + 3; y < Y0 + 14; y++) for (int x = X1 - 15; x < X1 - 3; x++) suiPx(b, x, y, SUI_RGB(200, 60, 52));
   T.draw(b, X1 - 12, Y0 + 4, "X", ink, SUI_RGB(200, 60, 52));
-  char t[48]; snprintf(t, sizeof t, "%s", kP3dsSpecies[p.find]); int k = (int)strlen(t); const int room = X1 - 18 - tx; while (k > 3 && T.width(t) > room) t[--k] = 0;
+  { const uint32_t lc = p.findList ? gold : chip; for (int y = Y0 + 3; y < Y0 + 14; y++) for (int x = X1 - 48; x < X1 - 19; x++) suiPx(b, x, y, lc); T.draw(b, X1 - 45, Y0 + 4, p.findList ? "MAP" : "LIST", p.findList ? bar : ink, lc); }
+  char t[48]; snprintf(t, sizeof t, "%s", kP3dsSpecies[p.find]); int k = (int)strlen(t); const int room = X1 - 50 - tx; while (k > 3 && T.width(t) > room) t[--k] = 0;
   T.draw(b, tx, Y0 + 4, t, ink, SUI_RGB(14, 120, 90));
   char cn[32]; snprintf(cn, sizeof cn, n == 1 ? "1 place" : "%d places", n); T.draw(b, tx, Y0 + 15, cn, n ? gold : SUI_RGB(200, 160, 160), SUI_RGB(12, 110, 84));
   const int now = pgTimeNow(), have = pgTmHave(), cw = (X1 - tx - 2) / 4;
@@ -531,6 +544,35 @@ static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, in
     for (int y = Y0 + 27; y < Y0 + 38; y++) for (int x = x0; x < x0 + cw - 2; x++) suiPx(b, x, y, on ? gold : chip);
     T.draw(b, x0 + 3, Y0 + 28, kPgFindTm[i], on ? bar : dim ? SUI_RGB(140, 170, 160) : ink, on ? gold : chip);
     if (i == now) for (int x = x0 + 2; x < x0 + cw - 4; x++) suiPx(b, x, Y0 + 37, SUI_RGB(120, 230, 140)); } }
+
+/* where to catch: one row per place (name + method chances), paged. Chances are the game's slot odds once an encounter starts. */
+static int pgFindRows(const SPg &p, int *out, int max) {
+  int n = 0; const bool ok = pgTmHave(); if (p.find <= 0 || p.find > 493) return 0;
+  for (int l = 0; l < kPgN && l < 100 && n < max; l++) if (pgFindAt(l, p.find, p.findTm, ok)) out[n++] = l;
+  return n; }
+static void pgFindDetail(int loc, int sp, int tm, char *out, int sz) {
+  int m[8] = {}; bool any = false;
+  for (int i = 0; i < P3DS_PsRtN; i++) if (P3DS_PsRtSp[i] == sp && P3DS_PsRtLoc[i] == loc) { m[P3DS_PsRtMth[i]] = P3DS_PsRtPct[i]; any = true; }
+  if (!any) { snprintf(out, sz, "%s", P3DS_PsRtN ? "chance not known" : "chances need hook 0286"); return; }
+  static const char *const nm[8] = { "", "", "", "Surf", "Smash", "Old rod", "Good rod", "Super rod" }; out[0] = 0; int o = 0;
+  if (m[0] | m[1] | m[2]) {
+    if (tm >= 1) o += snprintf(out + o, sz - o, "Grass %d%%", m[tm - 1]);
+    else if (m[0] == m[1] && m[1] == m[2]) o += snprintf(out + o, sz - o, "Grass %d%%", m[0]);
+    else o += snprintf(out + o, sz - o, "Grass M%d D%d N%d%%", m[0], m[1], m[2]); }
+  for (int k = 3; k < 8 && o < sz - 1; k++) if (m[k]) o += snprintf(out + o, sz - o, "%s%s %d%%", o ? "  " : "", nm[k], m[k]); }
+static void pgFindListDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1) {
+  const uint32_t paper = SUI_RGB(236, 244, 240), ink = SUI_RGB(8, 40, 56), dim = SUI_RGB(70, 110, 100), edge = SUI_RGB(190, 214, 206), gold = SUI_RGB(246, 214, 96), chip = SUI_RGB(40, 130, 100);
+  const int top = Y0 + kPgFindH, bot = Y1 - 14; suiFill(b, X0, top, X1, Y1, paper);
+  int rows[100]; const int n = pgFindRows(p, rows, 100); const int per = (bot - top - 2) / 22 > 0 ? (bot - top - 2) / 22 : 1; const int pages = n ? (n + per - 1) / per : 1;
+  if (p.findPage >= pages) p.findPage = pages - 1; if (p.findPage < 0) p.findPage = 0;
+  if (!n) T.draw(b, X0 + 6, top + 8, "Not found in the wild here", dim, paper);
+  for (int r = 0; r < per; r++) { const int i = p.findPage * per + r; if (i >= n) break; const int y = top + 2 + r * 22, l = rows[i];
+    char nmb[40]; pgFit(T, nmb, sizeof nmb, P3DS_PgName[l][0] ? P3DS_PgName[l] : "?", X1 - X0 - 12); T.draw(b, X0 + 5, y, nmb, ink, paper);
+    char dt[80], fit[80]; pgFindDetail(l, p.find, p.findTm, dt, sizeof dt); pgFit(T, fit, sizeof fit, dt, X1 - X0 - 14); T.draw(b, X0 + 8, y + 10, fit, dim, paper);
+    suiFill(b, X0 + 3, y + 21, X1 - 3, y + 22, edge); }
+  suiFill(b, X0, bot, X1, Y1, chip);
+  for (int k = 0; k < 2; k++) { const bool en = k ? p.findPage + 1 < pages : p.findPage > 0; const int x0 = k ? X1 - 50 : X0 + 2; pgChip(b, x0, bot + 1, x0 + 48, Y1 - 1, en); T.draw(b, x0 + 8, bot + 3, k ? "NEXT >" : "< PREV", en ? SUI_RGB(8, 40, 56) : dim, en ? SUI_RGB(236, 244, 240) : paper); }
+  char pg[24]; snprintf(pg, sizeof pg, "%d/%d  (%d places)", p.findPage + 1, pages, n); T.draw(b, (X0 + X1) / 2 - T.width(pg) / 2, bot + 3, pg, gold, chip); }
 
 /* draw the map into the panel interior (X0,Y0)-(X1,Y1); the view follows the player's location unless panned */
 static void pxMapPins(uint32_t *b, const SPg &p, int X0, int Y0, int X1, int oy); /* ss3ds_pgextra.h: phone contact pins */
@@ -841,6 +883,7 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       for (int i = 0; i < n; i++) T.draw(b, X0 + 4, ty + i * 10, ln[i], fg, sh);
       if (hasWild) { const int bx1 = X1 - 4, bx0 = bx1 - bw; pgChip(b, bx0, by0, bx1, by0 + 12, true); suiSDraw(T, b, bx0 + 6, by0 + 2, wb, wh, kBlBlue); }
       if (hasPc) suiSDraw(T, b, X0 + 4, by0 + 2, pcl, kBlSelO, sh); } }
+  if (p.find > 0 && pgFindCfg() && p.findList) pgFindListDraw(b, T, p, X0, Y0, X1, Y1);
   if (p.find > 0 && pgFindCfg()) pgFindBanner(b, T, p, X0, Y0, X1);
   /* 2026-11-18 tool row: zoom on the left, WX / achievements / overview on the right, all one chip style, on one line at
      the top of the map (under the finder banner when it is open), so nothing floats over the bottom of the map or the card. */
