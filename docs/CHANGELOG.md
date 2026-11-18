@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## Unreleased
 
+- Settings cleanup for release (2026-11-18): the hidden Debug and Render tabs are gone (no more SELECT: advanced). The tested 60 fps setup is now the built-in default (`fps60`, `g3_thread`, `fps60_pipe/hold/strips/vram`, `g3_xfcache`, `g3_wake`, `g3_fastxform`, `g3_thr_texfence=2`, `g3_thr_texsafe`, `g3_stereo_share`, `present_pace`, `g3_front_ov`, `g3_stereo_gpu`, `g3_front_bg`). Log detail defaults to SHORT and left the menu with Log size limit and Grey unsupported menu. FPS counter moved to Display. 60 fps field is OFF/ON (no A/B TEST); Sharp 3D drops CRISP. GPU pass timing and the per-area 60 fps log are config-only under new keys (`g3_gputime_dbg`, `fps60_area_dbg`), so the old `g3_gputime=1` line no longer slows the game. Leftover keys from removed experiments are flagged DEAD in the log header. "Experimental" dropped from tested rows.
+
 - Stabilize `g3_stereo_gpu` path flip + fix live `g3_raw_split` (platform-only, defaults OFF): hard-clip/translucent write left+dsh (no Expand); End skips mid when left-only pending; 60f path log adds fallback reasons (eye1/nopend/noshad/…). `g3_raw_split` Settings toggle drains then Start2/park; [G3THR] logs per-worker busy us. See HANDOFF.md.
 
 - Stereo GPU fix + wall cuts (platform-only, defaults OFF): `g3_stereo_gpu` lazily inits g3s in End and always CPU-expands if it cannot take the shader right-eye path (fixes empty-right flash). 60f path counts. New Debug toggles `g3_raw_split` / `g3_xf_map` / `g3_front_bg`. See HANDOFF.md.

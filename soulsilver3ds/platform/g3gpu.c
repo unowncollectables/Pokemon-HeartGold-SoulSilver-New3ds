@@ -873,7 +873,7 @@ static void fps60Probe(void) {
    left compose's wait for the GPU and the CPU strip convert time. */
 extern int P3DS_CfgInt(const char *, int);
 static int gtCfg = -1;
-int G3G_GpuTimeCfg(void) { if (gtCfg < 0) { gtCfg = P3DS_CfgInt("g3_gputime", 0) != 0; PSPNativeMemLog("[GPUT] g3_gputime=%d (1 = every 30th 3D frame waits after each GPU pass and logs it)", gtCfg); } return gtCfg; }
+int G3G_GpuTimeCfg(void) { if (gtCfg < 0) { gtCfg = P3DS_CfgInt("g3_gputime_dbg", 0) != 0; PSPNativeMemLog("[GPUT] g3_gputime=%d (1 = every 30th 3D frame waits after each GPU pass and logs it)", gtCfg); } return gtCfg; }
 void G3G_SetGpuTime(int v) { gtCfg = v != 0; PSPNativeMemLog("[GPUT] g3_gputime=%d from settings", gtCfg); }
 static int slimAlloc(void) {
     if (rbS[0] && rbS[1] && rbSTiles) return 1;

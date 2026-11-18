@@ -328,7 +328,7 @@ Open Settings with <kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>, or hold the top-l
 
 | | |
 | --- | --- |
-| Browse | <kbd>L</kbd> and <kbd>R</kbd>, or tap a tab. <kbd>SELECT</kbd> reveals Debug. |
+| Browse | <kbd>L</kbd> and <kbd>R</kbd>, or tap a tab. |
 | Change | <kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> |
 | Apply and save | Close with <kbd>B</kbd>, <kbd>START</kbd>, or <kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>. Changes are written to `config.txt`. |
 
@@ -351,9 +351,10 @@ A missing `config.txt` line uses `kCfgDefaults` in `soulsilver3ds/platform/psp_c
 | GTS server picker | OFF |
 | Wireless | ONLINE |
 | FPS counter | ON |
-| Log detail | FULL |
+| Log detail | SHORT (config only, `log_level=2` for FULL) |
+| 60 fps field | ON, with the tested speed setup (3D worker thread and the rest of the old Render tab) |
 
-Debug rows follow the same table when their line is missing. Speed tweaks starts at its highest step (`fps_tweaks=7`). The Debug tab stays behind SELECT. Try a copy of your save before relying on an experimental option.
+The old Debug and Render tabs are gone from the menu: their keys use this same table (Speed tweaks starts at `fps_tweaks=7`), and a `config.txt` line still overrides them. Diagnostics are config-only under new names (`g3_gputime_dbg`, `fps60_area_dbg`) so an old line cannot leave them on.
 
 </details>
 
