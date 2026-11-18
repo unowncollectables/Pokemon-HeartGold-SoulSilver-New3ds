@@ -343,12 +343,14 @@ A missing `config.txt` line uses `kCfgDefaults` in `soulsilver3ds/platform/psp_c
 | Command shortcut, Bounds shortcut, Affine object GPU, Second screen fades | ON |
 | Second screen GPU | ON (`gpu_compose_b=1`; CHECK is 2) |
 | Sharp 3D | FAST AUTO |
-| Ambient weather | ON |
-| Seasonal trees | OFF |
+| Ambient weather | OFF (until it is fixed) |
+| Seasonal trees | ON |
+| Wide layouts | ON |
+| 3D strength | 1X |
 | Alive wild Pokémon | ON + TOWNS |
 | Pokédex finder, Tap to Fly, Roamer sprites, Contest helper, Breeding tab, Reusable TMs, Event Pokémon without the event flag, Hunt stats, Damage check, Pokéwalker | ON |
 | Map zoom | 1X (2X is the closer map; `-` / `+` on the map match it) |
-| GTS server picker | OFF |
+| GTS server picker | ON |
 | Wireless | ONLINE |
 | FPS counter | ON |
 | Log detail | SHORT (config only, `log_level=2` for FULL) |
