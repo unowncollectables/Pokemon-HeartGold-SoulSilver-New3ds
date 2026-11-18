@@ -25,5 +25,5 @@ Select / L+R+START+SELECT soft reset in the field crashed (`pc` past `.text`, cr
 ## Where the real information is
 
 - Device `log.txt` `[SS-MISSING]` lines show which game screens still trap. `docs/archive/MISSING_AUDIT.md` is archaeology only.
-- Next free patch number: check `ls pspoke-patches | tail` before numbering (0282 was the last at this writing).
+- Next free patch number: check `ls pspoke-patches | tail` before numbering (0283 was the last at this writing).
 - Builds are made by the owner with the patch-builder tool, which pulls the latest `main`.
