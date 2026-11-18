@@ -545,3 +545,6 @@ ambient_weather=0  (Display > Ambient weather, default 0 until tested)
   instead of fading the rain/snow back in; autumn mist removed (it forced a slow
   CPU read of the 3D picture in wide view). Log: [WEATHER] map N loads with ambient W.
 pokewalker=1       (Setup > Pokewalker, default 1) 1 = the original Pokewalker app can launch. 0 = it stays closed. Experimental.
+sharp_text=1       (2026-11-18, Display > Sharp text, default 1) Bottom menu panel and settings menu text drawn at the 3DS
+  resolution (320x240, game font, 1 font pixel = 1 screen pixel) instead of DS-size text stretched 1.25x. 0 = the old
+  bigger, stretched text. Off by itself while the party/bag app is in the panel. Log: [TEXT] sharp ...

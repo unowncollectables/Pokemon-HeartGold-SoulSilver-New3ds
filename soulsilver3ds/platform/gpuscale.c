@@ -534,6 +534,36 @@ static void pnDraw(C3D_RenderTarget *t) {
     C3D_ImmSendAttrib(x1, y1, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
     C3D_ImmDrawEnd();
 }
+/* 2026-11-18 sharp bottom text (ss3ds_sharptext.h): the Bottom menu panel's and the settings app's text at the final 320x240 resolution.
+   The platform draws it into P3DS_TxBuf (512x256 words R<<24|G<<16|B<<8|A, 320x240 used, transparent where there is no text), sets
+   P3DS_TxDirty when it changed and P3DS_TxOn for each present that shows it (consumed). Drawn 1:1 NEAREST, alpha-blended, after the
+   stretched DS bottom and before the panel picture and the native column, so both still cover it. P3DS_TxFailed: texture could not
+   be made; the platform then keeps the text in the DS picture. */
+u32 *P3DS_TxBuf; volatile int P3DS_TxOn, P3DS_TxDirty, P3DS_TxFailed;
+static C3D_Tex txTex; static int txOk = -1;
+u32 *P3DS_TxBufGet(void) { if (!P3DS_TxBuf && !P3DS_TxFailed) { P3DS_TxBuf = linearAlloc(512 * 256 * 4); if (P3DS_TxBuf) memset(P3DS_TxBuf, 0, 512 * 256 * 4); else { P3DS_TxFailed = 1; PSPNativeMemLog("[TEXT] native text buffer: no linear memory (text stays in the DS picture)"); } } return P3DS_TxBuf; }
+static void txDraw(C3D_RenderTarget *t) {
+    const int on = P3DS_TxOn; P3DS_TxOn = 0;
+    if (!on || !P3DS_TxBuf) return;
+    if (txOk < 0) { txOk = C3D_TexInit(&txTex, 512, 256, GPU_RGBA8) ? 1 : 0; if (txOk) { C3D_TexSetFilter(&txTex, GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&txTex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); P3DS_TxDirty = 1; } else P3DS_TxFailed = 1;
+        PSPNativeMemLog("[TEXT] native text texture %s", txOk ? "ready" : "FAILED (text stays in the DS picture)"); }
+    if (!txOk) return;
+    if (P3DS_TxDirty) { P3DS_TxDirty = 0; P3DS_DcFlush(P3DS_TxBuf, 512 * 256 * 4);
+        C3D_SyncDisplayTransfer(P3DS_TxBuf, GX_BUFFER_DIM(512, 256), txTex.data, GX_BUFFER_DIM(512, 256), TEX_FLAGS); }
+    C3D_FrameDrawOn(t);
+    C3D_Mtx proj; Mtx_OrthoTilt(&proj, 0.0f, 320.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
+    C3D_TexBind(0, &txTex);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
+    const float s1 = 320.0f / 512.0f, t1 = 240.0f / 256.0f;
+    C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
+    C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
+    C3D_ImmSendAttrib(0, 240, 0, 0); C3D_ImmSendAttrib(0, t1, 0, 0);
+    C3D_ImmSendAttrib(320, 0, 0, 0); C3D_ImmSendAttrib(s1, 0, 0, 0);
+    C3D_ImmSendAttrib(320, 240, 0, 0); C3D_ImmSendAttrib(s1, t1, 0, 0);
+    C3D_ImmDrawEnd();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+}
 /* ---- fps60 (2026-11-15; see g3gpu.c): Settings > Display > 60 fps field. 0 OFF (default), 1 ON, 2 A/B TEST = OFF and ON by turns, 1200
    field ticks (~40 s) each, so one log compares both. The game still runs 30 ticks a second; while it is on, every tick whose 3D moved
    shows an in-between picture one V-blank before the real one. Only in the overworld, only when the tick's picture stays on the GPU
@@ -879,7 +909,7 @@ void P3DS_GpuPresent(const u32 *top, const u32 *bot, int mode, int drawBottom, c
     if (st) { if (mode == 2) quad(tTR, 400.0f, 2, fx, fy, fx + fw, fy + fh); else { quad(tTR, 400.0f, 2, 40, 0, 360, 240); const u64 a = svcGetSystemTick(); strips(tTR, 1); stT += svcGetSystemTick() - a; } }
     if (P3DS_TopOvOn) { P3DS_TopOvOn = 0; topOvDraw(tT); if (st) topOvDraw(tTR); }
     if (P3DS_TopOv2On) { P3DS_TopOv2On = 0; topOv2Draw(tT); if (st) topOv2Draw(tTR); }
-    if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); pnDraw(tgtBot); ovDraw(tgtBot); botFadeDraw(tgtBot); } else P3DS_PnOn = 0;
+    if (drawBottom) { quad(tgtBot, 320.0f, 1, 0, 0, 320, 240); txDraw(tgtBot); pnDraw(tgtBot); ovDraw(tgtBot); botFadeDraw(tgtBot); } else { P3DS_PnOn = 0; P3DS_TxOn = 0; }
     if (crN >= 600) { if (crOn) PSPNativeMemLog("[CRISP] %u of %u presents drew the 3D at final size, avg plain-3D cover %u%%, avg prep %u us", crOn, crN, (unsigned)(crMask / crOn * 100 / (256 * 192)), (unsigned)(crTicks / crOn / 268)); crN = crOn = 0; crMask = 0; crTicks = 0; }
     P3DS_GpStripUs = (unsigned)(stT / 268); P3DS_GpDrawUs = (unsigned)((svcGetSystemTick() - tDr0 - stT) / 268);
     { /* tearfix: citro3d requests the screen swap at the first vblank after the transfer and GSP latches it one vblank

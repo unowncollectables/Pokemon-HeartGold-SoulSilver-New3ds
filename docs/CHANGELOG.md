@@ -4,6 +4,7 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
+- Sharp bottom-screen text: the Bottom menu panel and the L+R+Y settings menu draw their text at the 3DS resolution (320x240) instead of stretching DS-size text 1.25x. Settings > Display "Sharp text", default ON. Platform only.
 - Soft-reset / exit teardown (run 934, platform-only): once-guard `P3DS_SoftReset`; join engine B / c1, g3thr and par workers before freeing game heap or GPU state. Save sync/backup order unchanged. See HANDOFF.md.
 
 ## 2026-11 release state

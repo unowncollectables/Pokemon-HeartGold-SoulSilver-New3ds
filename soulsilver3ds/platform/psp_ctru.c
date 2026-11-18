@@ -365,6 +365,8 @@ static const struct { const char *key; int def; } kCfgDefaults[] = {
     /* 2026-11-18 owner picks: 3D strength 1X (the row still goes to 2X), Wide layouts ON, GTS server picker ON, Seasonal trees ON,
        Ambient weather OFF until it is fixed (the row stays in Display). */
     { "wide_layouts", 1 }, { "gts_picker", 1 }, { "seasonal_trees", 1 },
+    /* 2026-11-18 sharp bottom-screen text (ss3ds_sharptext.h): ON when the key is absent. */
+    { "sharp_text", 1 },
 };
 /* The default a missing key gets: this table if it lists the key, else the caller's `def`. logring.c reports with it, so the two cannot drift. */
 int P3DS_CfgDefault(const char *key, int def) { for (unsigned i = 0; i < sizeof kCfgDefaults / sizeof kCfgDefaults[0]; i++) if (!strcmp(key, kCfgDefaults[i].key)) return kCfgDefaults[i].def; return def; }
