@@ -476,6 +476,9 @@ static void strips(C3D_RenderTarget *t, int eye) {
         C3D_TexSetFilter(&stripTex[e], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&stripTex[e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE); memset(stripLin[e], 0, 64 * 256 * 4); }
         PSPNativeMemLog("[WIDE] strip textures %s", stripOk ? "ok" : "FAILED"); }
     if (!stripOk) return;
+    /* run 925 crash (memcpy to NULL on the first frame with the 3D slider up): the fps60 "hold" in-between picture passes the real
+       strips and never asked for the in-between strip buffer, so for the right eye it did not exist yet. Make it here; none = no strips. */
+    if (stripMid && !stripLinM[eye] && !P3DS_GpuMidStripBuffer(eye)) return;
     u32 *const sLin = stripMid ? stripLinM[eye] : stripLin[eye];
     C3D_Tex *const sTx = stripMid ? &stripTexM[eye] : &stripTex[eye];
     extern C3D_Tex *G3G_StripGpuTex(int, int);
