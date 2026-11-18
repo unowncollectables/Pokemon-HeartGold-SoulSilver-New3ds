@@ -2805,11 +2805,12 @@ static int Present(bool){
       2026-11-18 (pen felt sticky): 10 px with fast_tabs on, and the stroke made before the gate is kept (pxDrag holds lastY until then) */
    const int dragGate=fastTabsCfg()?10:16;
    if(tNow&&bmDown==21&&pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);if(dist>dragGate){if(!tDrag){tDrag=true;PSPNativeMemLog("[BMENU] panel drag (dist %d): row tap suppressed until release without drag",dist);} }pxDrag(tXl,tYl,!bmPrev,tDrag);}
-   if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);static int tYp,aPrev,aDrag;if(tNow&&!bmPrev){tYp=tYl;aPrev=tYl;aDrag=0;}
+   if(!tNow&&blMode<0&&gPg.decoded&&!pxPane()&&!gPg.achOpen&&!gPg.ov&&pgPanTick(gPg))BLINV;
+   if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);static int tYp,aPrev,aDrag;if(tNow&&!bmPrev){tYp=tYl;aPrev=tYl;aDrag=0;gPg.velX=gPg.velY=0;gPg.accX=gPg.accY=0;}
     if(gPg.achOpen){const int d=pgAchDragDelta(&aDrag,&aPrev,tYl,dist);if(aDrag)tDrag=true;if(d){int n=gPg.achScroll+d;if(n<0)n=0;if(gPg.achMax>0&&n>gPg.achMax)n=gPg.achMax;if(n!=gPg.achScroll){gPg.achScroll=n;BLINV;}}}
     else{/* 2026-11-18: overview list scrolls after 8 px up/down, the map pans after 10; tXp/tYp stay at the press point until then so the first moving frame applies the whole stroke */
      if(!tDrag&&(gPg.ov?abs(tYl-tY0)>(fastTabsCfg()?8:16):dist>dragGate))tDrag=true;
-     if(tDrag&&gPg.ov){if(tYl!=tYp){gPg.ovScroll-=tYl-tYp;BLINV;}}else if(tDrag&&tXl!=tXp){gPg.glide=false;const int d=tXl-tXp;if(gPg.zoom<2)gPg.viewX-=d;else{gPg.panAcc+=d;gPg.viewX-=gPg.panAcc/gPg.zoom;gPg.panAcc%=gPg.zoom;}BLINV;}
+     if(tDrag&&gPg.ov){if(tYl!=tYp){gPg.ovScroll-=tYl-tYp;BLINV;}}else if(tDrag){const float zf=gPg.zoom<2?1.f:2.f,dx=-(float)(tXl-tXp)/zf,dy=gPg.zoom<2?0.f:-(float)(tYl-tYp)/zf;if(dx!=0.f||dy!=0.f){gPg.glide=false;pgPanBy(gPg,dx,dy);BLINV;}gPg.velX=gPg.velX*0.5f+dx*0.5f;gPg.velY=gPg.velY*0.5f+dy*0.5f;}
      if(tDrag||!fastTabsCfg()){tYp=tYl;tXp=tXl;}}}
    const int press=(tNow&&hit==bmDown)?bmDown:-1;
    /* run 49 (Nathan): X is a tile cursor, not a wave. psp_ctru.c swallows X (and A/B/D-pad while the cursor is up) and queues the presses in P3DS_TileKeys;
@@ -2881,13 +2882,13 @@ static int Present(bool){
        PSPNativeMemLog("[WEATHER] Johto radar %s",gPg.weather?"opened":"closed");
       }
       else if(zh)pgSetZoom(pgMapZoomIdx()+(zh==2?1:-1));
-      else if(fh){if(fh==1){PSPNativeMemLog("[FIND] cleared (%s)",kP3dsSpecies[gPg.find]);gPg.find=0;gPg.findTm=0;}else{gPg.findTm=fh-2;PSPNativeMemLog("[FIND] %s time filter %s -> %d places",kP3dsSpecies[gPg.find],kPgFindTm[gPg.findTm],pgFindCount(gPg));}BLINV;}
+      else if(fh){if(fh==1){PSPNativeMemLog("[FIND] cleared (%s)",kP3dsSpecies[gPg.find]);gPg.find=0;gPg.findTm=0;gPg.findList=0;gPg.findPage=0;}else if(fh==6){gPg.findList=!gPg.findList;gPg.findPage=0;gPg.sel=-1;gPg.page=0;PSPNativeMemLog("[FIND] where-to-catch list %s for %s (%d rate entries)",gPg.findList?"open":"closed",kP3dsSpecies[gPg.find],P3DS_PsRtN);}else if(fh==7||fh==8){gPg.findPage+=fh==8?1:-1;if(gPg.findPage<0)gPg.findPage=0;}else if(fh==9){}else{gPg.findTm=fh-2;gPg.findPage=0;PSPNativeMemLog("[FIND] %s time filter %s -> %d places",kP3dsSpecies[gPg.find],kPgFindTm[gPg.findTm],pgFindCount(gPg));}BLINV;}
       else if(pgFlyCfg()&&gPg.sel>=0&&!gPg.page&&gPg.flyX1>gPg.flyX0&&tX0>=gPg.flyX0-3&&tX0<gPg.flyX1+3&&tY0>=gPg.flyY0-3&&tY0<gPg.flyY1+3){
         const int fm=sLocationSpecs[gPg.sel].mapId,fst=P3DS_FlyHere;
         if(bmHold||P3DS_StartReq>=0||P3DS_PanelPartyOn||P3DS_FlyReq){P3DS_Toast("NOT NOW");PSPNativeMemLog("[FLY] tap '%s' ignored: a menu or an earlier request is running (menu %u, req %d, panel %d, fly req %d)",P3DS_PgName[gPg.sel],bmHold,P3DS_StartReq,(int)P3DS_PanelPartyOn,P3DS_FlyReq);}
         else if(fst!=0){static const char*const kWhy[]={"READY","CANNOT FLY HERE","NEED STORM BADGE","NOT NOW","NO POKEMON FOR FLY"};P3DS_Toast(fst>=1&&fst<=4?kWhy[fst]:"TAKE A STEP FIRST");PSPNativeMemLog("[FLY] tap '%s' (map %d) refused: Fly state %d%s",P3DS_PgName[gPg.sel],fm,fst,fst<0?" (hook 0228 has not reported yet)":"");}
         else{P3DS_FlyRes=0;P3DS_FlyReq=fm;PSPNativeMemLog("[FLY] tap FLY on '%s' (map %d): asked the game to fly there",P3DS_PgName[gPg.sel],fm);}}
-      else if(pgFindCfg()&&gPg.sel>=0&&tY0>=cardTop&&(fsp=pgWildHit(gPg,tX0,tY0))>0){gPg.find=fsp;gPg.findTm=0;gPg.page=0;gPg.sel=-1;gPg.glide=false;BLINV;PSPNativeMemLog("[FIND] %s: %d places (time table %s)",kP3dsSpecies[fsp],pgFindCount(gPg),pgTmHave()?"ok":"missing, hook 0209 not in this build");}
+      else if(pgFindCfg()&&gPg.sel>=0&&tY0>=cardTop&&(fsp=pgWildHit(gPg,tX0,tY0))>0){gPg.find=fsp;gPg.findTm=0;gPg.findList=0;gPg.findPage=0;gPg.page=0;gPg.sel=-1;gPg.glide=false;BLINV;PSPNativeMemLog("[FIND] %s: %d places (time table %s)",kP3dsSpecies[fsp],pgFindCount(gPg),pgTmHave()?"ok":"missing, hook 0209 not in this build");}
       else if(gPg.sel>=0&&!gPg.page&&gPg.subX1>gPg.subX0&&tX0>=gPg.subX0-3&&tX0<gPg.subX1+3&&tY0>=gPg.subY0-3&&tY0<gPg.subY1+3){gPg.page=2;BLINV;PSPNativeMemLog("[SUBAREA] card page areas for '%s' (%d)",P3DS_PgName[gPg.sel],pgSubCount(gPg,gPg.sel,0));}
       else if(gPg.sel>=0&&tY0>=cardTop){gPg.page=gPg.page==2?0:!gPg.page;BLINV;int wl[64],cg=0;const int wn=pgWild(gPg.sel,wl,64,&cg);PSPNativeMemLog("[PGMAP] card page %s for '%s' (wild %d, caught %d%s)",gPg.page?"wild list":"info",P3DS_PgName[gPg.sel],wn,cg,P3DS_PsReady&&P3DS_PsStat[gPg.sel][0]&&!wn?", hook 0084 missing":"");}
       else{/* 2026-11-18 pen: a tap just beside a small town still picks it */const int lx=pgHitLoc(mx,my);int l=fastTabsCfg()?pgHitLocNear(mx,my,gPg.zoom<2?4:2):lx;if(l>=0){int sx,sy,sw,sh;pgSpecRect(l,&sx,&sy,&sw,&sh);if(l==lx?pgHiddenAt(gPg,mx,my):pgHiddenAt(gPg,sx*8+sw*4,sy*8+sh*4))l=-1;}gPg.sel=(l==gPg.sel)?-1:l;gPg.page=0;BLINV;
