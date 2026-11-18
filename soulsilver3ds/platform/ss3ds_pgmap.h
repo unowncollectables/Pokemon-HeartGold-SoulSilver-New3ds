@@ -64,6 +64,7 @@ struct SPg {
   bool achOpen; int achScroll, achX0, achY0, achX1, achY1; /* achievements list (achievements.c), button left of the dots */
   int achUpX0, achUpY0, achUpX1, achUpY1, achDnX0, achDnY0, achDnX1, achDnY1, achPage, achMax; /* UP/DN page the list; achMax is the clamp */
   int flyX0, flyY0, flyX1, flyY1; /* hook 0228 (pg_flytap): the FLY chip on the open info card, 0 size = none (screen px) */
+  int pressX = -1, pressY = -1; /* 2026-11-18: finger down on the map panel (DS px), so the chip under it shows pressed at once; -1 none */
   int find, findTm; /* run 146 pg_find: species being looked for (0 none) and the time filter (0 any, 1 morning, 2 day, 3 night) */
   int page; /* run 16: info card page, 0 = info, 1 = wild Pokemon list (tap the card to flip) */
   bool glide, moving; /* run 16: view slides to the player's new location instead of jumping; moving = still sliding (redraw) */
@@ -158,6 +159,17 @@ static int pgHitLoc(int mx, int my) {
   for (int i = 0; i < kPgN; i++) { int x, y, w, h; pgSpecRect(i, &x, &y, &w, &h);
     if (tx >= x && tx < x + w && ty >= y && ty < y + h && w * h < ba) { ba = w * h; best = i; } }
   return best; }
+/* 2026-11-18 pen: a tap that lands just beside a small town (1 tile = 8 px at 1x) still picks it. Exact hits win; otherwise
+   the nearest place whose box is within r map px. */
+static int pgHitLocNear(int mx, int my, int r) {
+  const int exact = pgHitLoc(mx, my); if (exact >= 0 || r <= 0) return exact;
+  int best = -1, bd = r + 1, ba = 999;
+  for (int i = 0; i < kPgN; i++) { int x, y, w, h; pgSpecRect(i, &x, &y, &w, &h); if (w <= 0 || h <= 0) continue;
+    const int dx = mx < x * 8 ? x * 8 - mx : mx >= (x + w) * 8 ? mx - (x + w) * 8 + 1 : 0;
+    const int dy = my < y * 8 ? y * 8 - my : my >= (y + h) * 8 ? my - (y + h) * 8 + 1 : 0;
+    const int d = dx > dy ? dx : dy;
+    if (d < bd || (d == bd && w * h < ba)) { bd = d; ba = w * h; best = i; } }
+  return bd <= r ? best : -1; }
 
 /* simple word wrap into lines of at most `room` pixels */
 static int pgWrap(const SUiText &T, const char *s, int room, char out[][64], int maxLines) {
@@ -191,7 +203,13 @@ static const uint32_t kPgInk = SUI_RGB(7, 33, 54), kPgText = SUI_RGB(18, 26, 38)
 static inline void pgShade(uint32_t *b, int x, int y) {
   if (x < suiClipX0 || y < suiClipY0 || x >= suiClipX1 || y >= suiClipY1 || x >= 256 || y >= 192 || x < 0 || y < 0) return;
   b[y * 256 + x] = suiMix(b[y * 256 + x], kBlNavy, 2, 5); }
+/* 2026-11-18 pen: chips are small on the 3DS screen, so every tap target reaches a little past its picture (dx left/right,
+   dy up/down; the gaps between neighbours are 4 px, so dx stays 2) */
+static inline bool pgIn(int x, int y, int x0, int y0, int x1, int y1, int dx = 2, int dy = 4) { return x1 > x0 && x >= x0 - dx && x < x1 + dx && y >= y0 - dy && y < y1 + dy; }
+static SPg *gPgPress; /* the panel being drawn, for pgPressed (set by pgDraw) */
+static inline bool pgPressed(int x0, int y0, int x1, int y1) { return gPgPress && gPgPress->pressX >= 0 && pgIn(gPgPress->pressX, gPgPress->pressY, x0, y0, x1, y1); }
 static void pgChip(uint32_t *b, int x0, int y0, int x1, int y1, bool on) {
+  on = on || pgPressed(x0, y0, x1, y1);
   const uint32_t hi = on ? kBlPress : SUI_RGB(252, 253, 255), lo = on ? kBlBlue : kBlSilverLo;
   for (int y = y0 + 1; y < y1 - 1; y++) suiFill(b, x0 + 1, y, x1 - 1, y + 1, suiMix(hi, lo, y - y0, y1 - y0));
   for (int x = x0 + 1; x < x1 - 1; x++) { suiPx(b, x, y0, kBlNavy); suiPx(b, x, y1 - 1, kBlNavy); }
@@ -522,17 +540,17 @@ static bool pxCardText(const SUiText &T, char *out, int sz, int loc, int maxW);
    Scroll is in pixels. A line that crosses the list edge is still drawn: pixels outside the list are clipped, so a tall
    row cannot vanish and leave a blank gap before the next one. */
 enum { kPgAchCtrl = 42, kPgAchLine = 16, kPgAchDate = 16 }; /* date is drawn with the 3/4 font; the slot stays a full line so the fallback font cannot run into the next row */
-/* One sample of a finger that went down on the map panel. *drag is 0 until the finger has moved more than 16px
-   (the tap gate). *prevY stays at the press y until that happens, so the sample that crosses the gate applies the
+/* One sample of a finger that went down on the map panel. *drag is 0 until the finger has moved more than 8px
+   (the tap gate; 16 until 2026-11-18, which felt sticky). *prevY stays at the press y until that happens, so the sample that crosses the gate applies the
    whole stroke, not only the last step. Return value is added to achScroll: finger up (y smaller) is positive. */
 static int pgAchDragDelta(int *drag, int *prevY, int y, int dist) {
-  if (!*drag) { if (dist <= 16) return 0; *drag = 1; }
+  if (!*drag) { if (dist <= 8) return 0; *drag = 1; }
   int dy = y - *prevY; *prevY = y; return -dy; }
 /* 1 = UP (toward the start of the list), 2 = DN (later rows), 0 = not on those chips */
 static int pgAchBtnHit(const SPg &p, int x, int y) {
   if (!p.achOpen) return 0;
-  if (p.achUpX1 > p.achUpX0 && x >= p.achUpX0 - 2 && x < p.achUpX1 + 2 && y >= p.achUpY0 - 2 && y < p.achUpY1 + 2) return 1;
-  if (p.achDnX1 > p.achDnX0 && x >= p.achDnX0 - 2 && x < p.achDnX1 + 2 && y >= p.achDnY0 - 2 && y < p.achDnY1 + 2) return 2;
+  if (pgIn(x, y, p.achUpX0, p.achUpY0, p.achUpX1, p.achUpY1, 2, 4)) return 1;
+  if (pgIn(x, y, p.achDnX0, p.achDnY0, p.achDnX1, p.achDnY1, 2, 4)) return 2;
   return 0; }
 static int pgAchWrap(const SUiText &T, const char *s, int room, char out[][64]) {
   int n = pgWrap(T, s, room, out, 2); if (n < 1) { out[0][0] = 0; return 0; }
@@ -695,7 +713,7 @@ static void pgWeatherLegend(uint32_t *b, const SUiText &T, int x, int y, int rig
 }
 
 static bool pgWeatherHit(const SPg &p, int x, int y) {
-  return p.wxX1 > p.wxX0 && x >= p.wxX0 && x < p.wxX1 && y >= p.wxY0 && y < p.wxY0 + 12;
+  return pgIn(x, y, p.wxX0, p.wxY0, p.wxX1, p.wxY0 + 12);
 }
 
 /* places not visited yet: a quarter of the way to grey, then 1/4 toward a cool slate. The old 5/8 mix toward dark green
@@ -704,7 +722,7 @@ static inline uint32_t pgFade(uint32_t c) {
   const int r = c & 255, g = c >> 8 & 255, bl = c >> 16 & 255, l = (r * 77 + g * 150 + bl * 29) >> 8;
   return SUI_RGB((((r * 3 + l) >> 2) * 3 + 92) >> 2, (((g * 3 + l) >> 2) * 3 + 112) >> 2, (((bl * 3 + l) >> 2) * 3 + 120) >> 2); }
 static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1, bool blink) {
-  const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0; p.zmX1 = p.zpX1 = p.wxX1 = 0; p.zoom = pgMapZoom();
+  const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0; p.zmX1 = p.zpX1 = p.wxX1 = 0; p.zoom = pgMapZoom(); gPgPress = &p;
   if (p.achOpen) { p.markOk = false; pgAchPanel(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
   if (p.ov) { p.markOk = false; pgOverview(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
   const int z = p.zoom < 2 ? 1 : 2; int visW = aw / z; if (visW < 1) visW = 1;
@@ -734,6 +752,7 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       continue;
     }
 
+    uint32_t *const fastRow = (X0 >= suiClipX0 && X1 <= suiClipX1 && y >= suiClipY0 && y < suiClipY1 && X0 >= 0 && X1 <= 256 && y >= 0 && y < 192) ? b + y * 256 : nullptr;
     const int tileRow = (my / 8) * 47;
     const int imageRow = my * kPgW;
     const bool countWeather = y >= weatherTop && y < weatherBottom;
@@ -754,8 +773,8 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
           }
         }
       }
-      suiPx(b, x, y, c);
-      if (z == 2 && x + 1 < X1) suiPx(b, x + 1, y, c);
+      if (fastRow) { fastRow[x] = c; if (z == 2 && x + 1 < X1) fastRow[x + 1] = c; } /* 2026-11-18: no per-pixel clip test when the panel is fully inside the clip */
+      else { suiPx(b, x, y, c); if (z == 2 && x + 1 < X1) suiPx(b, x + 1, y, c); }
     }
   }
   pxMapPins(b, p, X0, Y0, X1, oy);
@@ -835,8 +854,8 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       if (by > ty + 16) { if (visibleWeather) pgWeatherLegend(b, T, X0, by, X1, visibleWeather, true); else pgWeatherStatusBar(b, T, X0, by, X1, visibleWeather); } } }
 }
 static int pgZoomHit(const SPg &p, int x, int y) {
-  if (p.zmX1 > p.zmX0 && x >= p.zmX0 - 1 && x < p.zmX1 && y >= p.zmY0 - 2 && y < p.zmY1 + 2) return 1;
-  if (p.zpX1 > p.zpX0 && x >= p.zpX0 && x < p.zpX1 + 1 && y >= p.zpY0 - 2 && y < p.zpY1 + 2) return 2;
+  if (p.zmX1 > p.zmX0 && x < (p.zmX1 + p.zpX0) / 2 && pgIn(x, y, p.zmX0, p.zmY0, p.zmX1, p.zmY1, 3, 4)) return 1;
+  if (p.zpX1 > p.zpX0 && x >= (p.zmX1 + p.zpX0) / 2 && pgIn(x, y, p.zpX0, p.zpY0, p.zpX1, p.zpY1, 3, 4)) return 2;
   return 0; }
 
 /* ---- run 11: the game's own icons, decoded from the members above (nothing is written anywhere) ---- */

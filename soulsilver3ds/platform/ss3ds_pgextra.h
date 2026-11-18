@@ -546,7 +546,7 @@ static int pxRowAt(int x, int y);
 static void pxDrag(int x, int y, bool first, bool scroll) {
   if (!(gPx.pane == 1 || gPx.pane == 4)) return;
   if (first) { gPx.lastY = y; gPx.vel = 0; gPx.moved = false; gPx.pressId = pxRowAt(x, y); BLINV; gPx.scrub = pxMaxScroll() > 0 && x >= gPx.listX1 - 14 && y >= gPx.listY0; }
-  if (!scroll && !gPx.scrub) { gPx.lastY = y; return; }
+  if (!scroll && !gPx.scrub) return; /* 2026-11-18: lastY stays at the press point until the drag gate opens, so the list follows the whole stroke (it used to drop the first 10-16 px) */
   if (gPx.scrub) { const int h = gPx.listY1 - gPx.listY0, ms = pxMaxScroll(); float s = (float)(y - gPx.listY0) * ms / (h > 0 ? h : 1); if (s < 0) s = 0; if (s > ms) s = (float)ms; if (s != gPx.scroll) { gPx.scroll = s; BLINV; } return; }
   const int dy = y - gPx.lastY; if (dy) { gPx.moved = true; gPx.scroll -= dy; gPx.vel = -(float)dy; const int ms = pxMaxScroll(); if (gPx.scroll < 0) gPx.scroll = 0; if (gPx.scroll > ms) gPx.scroll = (float)ms; gPx.lastY = y; BLINV; } }
 /* tap on the tab bar */
