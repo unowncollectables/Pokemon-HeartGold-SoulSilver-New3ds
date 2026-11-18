@@ -213,6 +213,36 @@ static void stripConv(const u32 *s, unsigned rst, unsigned right, u32 *d);
    visible rows, same GX copies as the in-between strips) into rbS[e], instead of reading the whole 320x256 eye back into rb[e].
    slimFrame: this frame's strips are in rbS[]. Anything that needs the full eye (G3G_DirectResolve) still queues the full readback. */
 static u32 *rbS[2], *rbSTiles; static int slimFrame, slimFail;
+/* 2026-11-18 g3_overlap (Debug "Overlap 3D wait", default OFF): GPU side strips. The side-strip tile copies that G3G_End already
+   queues (real picture: rbSTiles, in-between: midStripTiles) land instead in sgTex[pic][eye], a 64x256 RGBA8 texture, at the
+   tile row where gpuscale's own strip texture would hold the same rows (raw rows 64..255 for the 192 visible ones: both
+   transfers flip, so the readback + CPU convert + upload ends with exactly this layout). The readback into rbS/rbM still runs
+   from there, so the CPU convert stays available. With the toggle on and no wide weather / wide fx this frame, G3G_DirectStrips
+   and G3G_MidStrip skip the CPU convert (no wait for the 3D GPU work) and gpuscale draws the strips from sgTex: one pass turns
+   alpha < 8 black and the rest opaque (the CPU convert's rule), then the usual 1.25x LINEAR draw. pic 0 = real, 1 = in-between. */
+static C3D_Tex sgTex[2][2]; static int sgOk = -1, sgReady[2][2], sgUse[2]; static unsigned sgN[2], sgCpuN[2];
+int P3DS_OverlapTick;   /* gpuscale: the Debug toggle's state for this tick (latched at G3G_End) */
+static int sgAlloc(void) {
+    if (sgOk >= 0) return sgOk;
+    sgOk = 1;
+    for (int p = 0; p < 2 && sgOk; p++) for (int e = 0; e < 2; e++) {
+        if (!C3D_TexInit(&sgTex[p][e], 64, 256, GPU_RGBA8)) { sgOk = 0; break; }
+        C3D_TexSetFilter(&sgTex[p][e], GPU_NEAREST, GPU_NEAREST); C3D_TexSetWrap(&sgTex[p][e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+        memset(sgTex[p][e].data, 0, 64 * 256 * 4); P3DS_DcFlush(sgTex[p][e].data, 64 * 256 * 4); }
+    PSPNativeMemLog("[OVL] GPU strip textures %s (4 x 64 KB, linear free %lu)", sgOk ? "ready" : "FAILED: strips stay on the CPU", (unsigned long)linearSpaceFree());
+    return sgOk;
+}
+/* where the side tiles of this picture go: sgTex (marked ready) when the toggle is on, else the old buffer */
+static u32 *sgTiles(int pic, int e, int slim, u32 *old) {
+    if (!old || !P3DS_OverlapTick || !sgAlloc()) return old;
+    sgReady[pic][e] = 1;
+    return (u32 *)((u8 *)sgTex[pic][e].data + (slim ? 8u : 0u) * 2048u);
+}
+C3D_Tex *G3G_StripGpuTex(int pic, int e) { pic &= 1; e &= 1; return sgUse[pic] && sgReady[pic][e] ? &sgTex[pic][e] : NULL; }
+void G3G_StripGpuDone(void) { sgUse[0] = sgUse[1] = 0; }
+static int sgWant(void) { extern int P3DS_WeatherOn, P3DS_WideFxOn; extern int P3DS_StripRtOk(void); return P3DS_OverlapTick && sgOk == 1 && P3DS_StripRtOk() && !P3DS_WeatherOn && !P3DS_WideFxOn; }
+void G3G_StripStats(unsigned *gpuReal, unsigned *gpuMid, unsigned *cpuReal, unsigned *cpuMid) {
+    *gpuReal = sgN[0]; *gpuMid = sgN[1]; *cpuReal = sgCpuN[0]; *cpuMid = sgCpuN[1]; sgN[0] = sgN[1] = sgCpuN[0] = sgCpuN[1] = 0; }
 static void stripConvert(int e) {
     if (slimFrame && rbS[e]) { P3DS_DcInval(rbS[e], 64 * 192 * sizeof(u32)); stripConv(rbS[e], 64, 32, G3G_Strip[e]); return; }
     stripConv(rb[e], rbStride(e), 288, G3G_Strip[e]); }
@@ -875,27 +905,6 @@ extern int P3DS_CfgInt(const char *, int);
 static int gtCfg = -1;
 int G3G_GpuTimeCfg(void) { if (gtCfg < 0) { gtCfg = P3DS_CfgInt("g3_gputime", 0) != 0; PSPNativeMemLog("[GPUT] g3_gputime=%d (1 = every 30th 3D frame waits after each GPU pass and logs it)", gtCfg); } return gtCfg; }
 void G3G_SetGpuTime(int v) { gtCfg = v != 0; PSPNativeMemLog("[GPUT] g3_gputime=%d from settings", gtCfg); }
-/* 2026-11-17 g3_rowtrim (Debug > GPU row trim, default OFF, A/B TEST every 600 3D frames). Run 922 [GPUT] (stereo, Wide, in-between
-   on): 3D GPU 6.5-8 ms per tick, of it ~2.3 ms copies, and the game thread waits ~6.5 ms of it before the compose. Each of the four
-   passes (in-between L/R, real L/R) clears the whole 320x256 colour + depth target (640 KB) and copies the centre 256x256 into the
-   compositor texture (256 KB), but memory rows 0..63 are never shown or read (the scissor already stops drawing there; compositor
-   v 0..0.75, strips and readbacks all use rows 64..255). ON clears and copies only rows 64..255: 25% less fill and copy per pass,
-   same picture. Only on frames where the scissor is on (calibrated target, direct path). */
-static int trimCfg = -1, trimFrame;
-int G3G_RowTrimCfg(void) { if (trimCfg < 0) { trimCfg = P3DS_CfgInt("g3_rowtrim", 0); if (trimCfg < 0 || trimCfg > 2) trimCfg = 0;
-    PSPNativeMemLog("[G3TRIM] g3_rowtrim=%d (1 = clear/copy only the 192 shown rows, 2 = A/B every 600 3D frames)", trimCfg); } return trimCfg; }
-void G3G_SetRowTrim(int v) { trimCfg = v < 0 || v > 2 ? 0 : v; PSPNativeMemLog("[G3TRIM] g3_rowtrim=%d from settings", trimCfg); }
-static const u8 trimCSz[] = { 2, 1, 0, 0, 0 }, trimDSz[] = { 0, 0, 1, 2 };   /* citro3d framebuffer.c colorFmtSizes / depthFmtSizes */
-/* C3D_RenderTargetClear(t, C3D_CLEAR_ALL, col, dep) for memory rows 64..255 only; 0 = not a curW x 256 target, caller clears it all */
-static int trimClear(C3D_RenderTarget *t, u32 col, u32 dep) {
-    C3D_FrameBuf *fb = &t->frameBuf;
-    const u32 n = (u32)fb->width * fb->height, skip = 64u * (u32)curW;
-    if (n != (u32)curW * 256u || fb->colorFmt > GPU_RB_RGBA4 || fb->depthFmt > GPU_RB_DEPTH24_STENCIL8 || !fb->colorBuf || !fb->depthBuf) return 0;
-    const u32 cs = trimCSz[fb->colorFmt], ds = trimDSz[fb->depthFmt];
-    GX_MemoryFill((u32 *)((u8 *)fb->colorBuf + skip * (2 + cs)), col, (u32 *)((u8 *)fb->colorBuf + n * (2 + cs)), BIT(0) | (cs << 8),
-                  (u32 *)((u8 *)fb->depthBuf + skip * (2 + ds)), dep, (u32 *)((u8 *)fb->depthBuf + n * (2 + ds)), BIT(0) | (ds << 8));
-    return 1;
-}
 static int slimAlloc(void) {
     if (rbS[0] && rbS[1] && rbSTiles) return 1;
     if (slimFail) return 0;
@@ -910,6 +919,7 @@ static unsigned abFrames, gtCnt; static int abLast = -1, gtSkipCw;
 static unsigned long long gtSum[2][6], cwSum[2], scSum[2]; static unsigned gtN[2], cwN[2], scN[2], frN[2];
 static void abStripUs(unsigned us) { if (abLast >= 0) { scSum[abLast] += us; scN[abLast]++; } }
 void G3G_AbComposeWait(unsigned us) {
+    { extern void P3DS_OvlComposeWait(unsigned); if (P3DS_OverlapTick || P3DS_InField) P3DS_OvlComposeWait(us); }
     if (abLast < 0) return;
     if (gtSkipCw) { gtSkipCw = 0; return; }   /* the sampled frame already waited, so its compose wait reads ~0 */
     cwSum[abLast] += us; cwN[abLast]++;
@@ -975,10 +985,8 @@ static void scisApply(int on) {
 }
 static void gtLog(void) {
     if (abFrames % 600) return;
-    const int tc = G3G_RowTrimCfg();
-    if (gtCfg != 1 && tc != 2) return;
-    static const char *nmS[2] = { "scissor OFF", "scissor ON" }, *nmT[2] = { "row trim OFF", "row trim ON" };
-    const char *const *nm = tc ? nmT : nmS;
+    if (gtCfg != 1) return;
+    static const char *nm[2] = { "scissor OFF", "scissor ON" };
     for (int s = 0; s < 2; s++) {
         if (!frN[s]) continue;
         const unsigned n = gtN[s] ? gtN[s] : 1;
@@ -1013,6 +1021,8 @@ void G3G_DirectResolve(void) { G3G_DirectResolveWhy(0); }
 /* wide direct: convert the side strips from the readback G3G_End queued (before gpuscale draws them) */
 void G3G_DirectStrips(void) {
     if (!dirStrip || ok != 1) return;
+    if (sgWant() && slimFrame && sgReady[0][0] && (dirEyes < 2 || sgReady[0][1])) { dirStrip = 0; sgUse[0] = 1; sgN[0]++; return; }   /* g3_overlap: drawn from sgTex, no wait */
+    if (P3DS_OverlapTick) sgCpuN[0]++;
     u64 t0 = svcGetSystemTick(); dirStrip = 0;
     dirSync();   /* normally a no-op: gpucomp's FrameBegin already waited for the draw, copy and readback */
     for (int e = 0; e < dirEyes; e++) { if (!slimFrame) P3DS_DcInval(rb[e], 320 * 256 * 4); stripConvert(e); }
@@ -1066,15 +1076,11 @@ static void stripIssueTo(const void *color, u32 *tiles, u32 *out, int slim, int 
     issueDisp((u32 *)source, GX_BUFFER_DIM(width, height),
               out, GX_BUFFER_DIM(width, height), RB_FLAGS, sync);
 }
-static void midStripIssue(const void *color, int eye, int sync) { stripIssueTo(color, midStripTiles, rbM[eye], fps60Strips(), sync); }
+static void midStripIssue(const void *color, int eye, int sync) { stripIssueTo(color, sgTiles(1, eye, fps60Strips(), midStripTiles), rbM[eye], fps60Strips(), sync); }
 static void midStripQueue(const void *color, int eye) { midStripIssue(color, eye, 1); }
 /* Centre 256 columns of a 320-wide tiled target, into a 256x256 tiled texture. Same offsets as the old Sync call.
    (2026-11-17 run 920 A/B: skipping the 64 hidden rows saved nothing measurable, so the full copy stays.) */
 static void centreCopy(const void *color, void *dest, int sync) {
-    if (trimFrame) {   /* g3_rowtrim: tile rows 8..31 only (memory rows 64..255), same place in the texture */
-        issueTexCopy((u32 *)((const u8 *)color + 8 * (320 * 8 * 4) + 4 * 256), GX_BUFFER_DIM(8192 >> 4, 2048 >> 4),
-                     (u32 *)((u8 *)dest + 8 * 8192), GX_BUFFER_DIM(8192 >> 4, 0), 8192 * 24, GX_TRANSFER_RAW_COPY(1), sync);
-        return; }
     issueTexCopy((u32 *)((const u8 *)color + 4 * 256), GX_BUFFER_DIM(8192 >> 4, 2048 >> 4),
                  (u32 *)dest, GX_BUFFER_DIM(8192 >> 4, 0), 8192 * 32, GX_TRANSFER_RAW_COPY(1), sync);
 }
@@ -1088,6 +1094,8 @@ static unsigned legacyWideKicks(int nEyes, int mid) {
 int G3G_MidStrip(int e, u32 *dst) {
     if (!midValid || !midWide || e < 0 || e >= midEyes || !dst) return 0;
     const unsigned width = midStripTiles ? MID_STRIP_WIDTH : 320;
+    if (sgWant() && midStripTiles && sgReady[1][e]) { sgUse[1] = 1; if (!e) sgN[1]++; return 1; }   /* g3_overlap: drawn from sgTex, no wait */
+    if (P3DS_OverlapTick && !e) sgCpuN[1]++;
     dirSync();
     P3DS_DcInval(rbM[e], width * 192 * sizeof(u32));
     stripConv(rbM[e], width, midStripTiles ? 32 : 288, dst);
@@ -1181,6 +1189,8 @@ unsigned G3G_PipeKicks;   /* fps60_pipe kick counter; file scope so gpuscale.c c
 void G3G_End(u32 *outL, u32 *outR) {
     { extern void P3DS_Fps60Poll(void); P3DS_Fps60Poll(); }
     if (ok != 1) return;
+    { extern int P3DS_OverlapOn(void); extern int P3DS_InField, P3DS_InBattle; P3DS_OverlapTick = P3DS_OverlapOn() && P3DS_InField && !P3DS_InBattle;
+      memset(sgReady, 0, sizeof sgReady); sgUse[0] = sgUse[1] = 0; }
     fps60Probe();
     u64 t0 = svcGetSystemTick();
     for (int e = 0; e < eyes; e++) P3DS_DcFlush(vb[e], vn[e] * sizeof(V));
@@ -1349,7 +1359,6 @@ void G3G_End(u32 *outL, u32 *outR) {
     static unsigned sciWait;
     if (sciC && scisMode < 0 && direct && curHi == 0 && !r1xFrame && !sharedTgt && ++sciWait > 300) scisCalibrate(gpuRight);   /* not during boot */   /* run 911: !gpuRight kept it from ever running (stereo GPU right eye is on every frame) */
     const int scisOn = (sciC == 1 || (sciC == 2 && ((abFrames / 600) & 1))) && (scisMode == 0 || scisMode == 1) && direct && curHi == 0 && !r1xFrame && !sharedTgt;
-    { const int tc = G3G_RowTrimCfg(); trimFrame = scisOn && !depthLin && curW == 320 && (tc == 1 || (tc == 2 && ((abFrames / 600) & 1))); }
     int gtFirst = 1; unsigned gtCur[6] = { 0 };
     const float stereoScale = wideFrame ? 0.8f : 1.0f;
     for (int ph = mid ? 0 : 1; ph < 2; ph++) {   /* fps60: ph 0 = the in-between frame (same vertices through the K shader), copied out before ph 1 draws the real one over it */
@@ -1360,8 +1369,7 @@ void G3G_End(u32 *outL, u32 *outR) {
             for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uKS + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]); /* real frame: identity (also resets the last in-between K) */
         } else if (mid && e == 0) C3D_BindProgram(ph ? &prog : &progK);
         if (!ph && !gpuRight) for (int i = 0; i < 4; i++) C3D_FVUnifSet(GPU_VERTEX_SHADER, uK + i, kIdent[i], kIdent[4 + i], kIdent[8 + i], kIdent[12 + i]);
-        if (!depthLin) { const u32 cc = fogFrame == 1 ? fogClr : clearRGBA, cd = depth16 ? (u32)(clearD * 0xFFFF) : ((u32)(clearD * 0xFFFFFF) | (fogFrame == 2 && (*(const u16 *)(PSPNative_GfxRegisters + 0x350) & 0x8000) ? 0x01000000u : 0));
-            if (!trimFrame || !trimClear(tgt[e], cc, cd)) C3D_RenderTargetClear(tgt[e], C3D_CLEAR_ALL, cc, cd); }
+        if (!depthLin) C3D_RenderTargetClear(tgt[e], C3D_CLEAR_ALL, fogFrame == 1 ? fogClr : clearRGBA, depth16 ? (u32)(clearD * 0xFFFF) : ((u32)(clearD * 0xFFFFFF) | (fogFrame == 2 && (*(const u16 *)(PSPNative_GfxRegisters + 0x350) & 0x8000) ? 0x01000000u : 0)));
         C3D_FrameDrawOn(tgt[e]);   /* viewport = whole target (256/320 x 256, or 2x x 384) */
         const int small = r1xFrame && e == 1;   /* FAST 3D right eye: 1x viewport in the corner of the 2x target */
         if (small) C3D_SetViewport(0, 0, curW, 192);
@@ -1454,7 +1462,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         C3D_FrameSplit(0); pipeKickSum++; G3G_PipeKicks++;
         for (int e = 0; e < eyes; e++) {
             centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 0);
-            if (slimFrame) stripIssueTo(tgt[e]->frameBuf.colorBuf, rbSTiles, rbS[e], 1, 0);   /* only the side strips */
+            if (slimFrame) stripIssueTo(tgt[e]->frameBuf.colorBuf, sgTiles(0, e, 1, rbSTiles), rbS[e], 1, 0);   /* only the side strips */
             else issueDisp((u32 *)tgt[e]->frameBuf.colorBuf, GX_BUFFER_DIM(curW, 256), rb[e], GX_BUFFER_DIM(curW, 256), RB_FLAGS, 0);
         }
         const unsigned legacyKicks = legacyWideKicks(eyes, mid);
@@ -1467,7 +1475,7 @@ void G3G_End(u32 *outL, u32 *outR) {
             pipeKickSum / pipeN, pipeN, legacyKickSum / pipeN, vn[0] / 3, bn[0]); pipeN = pipeKickSum = legacyKickSum = 0; }
     } else if (direct && wideFrame) for (int e = 0; e < eyes; e++) {   /* wide direct: centre 256 columns -> dirTex[e] (texture copy, tiled to tiled), then the strip readback */
         centreCopy(tgt[e]->frameBuf.colorBuf, dirTex[e].data, 1);
-        if (slimFrame) stripIssueTo(tgt[e]->frameBuf.colorBuf, rbSTiles, rbS[e], 1, 1);
+        if (slimFrame) stripIssueTo(tgt[e]->frameBuf.colorBuf, sgTiles(0, e, 1, rbSTiles), rbS[e], 1, 1);
         else rbQueue(e); }
     if (scisOn) scisApply(0);   /* never leave a scissor for the compositor */
     crispPend = 0;
@@ -1478,7 +1486,9 @@ void G3G_End(u32 *outL, u32 *outR) {
       else crispValid = 0; }
     P3DS_Crumb("g3e-end", 0);
     const u64 gtA = svcGetSystemTick();
-    if (gtS && !gtFirst) C3D_FrameEnd(GX_CMDLIST_FLUSH); else P3DS_FrameEnd();
+    { extern int P3DS_ChainKick(void);
+      if (gtS && !gtFirst) C3D_FrameEnd(GX_CMDLIST_FLUSH);
+      else if (!(direct && !gtS && !G3G_Async && P3DS_ChainKick())) P3DS_FrameEnd(); }   /* g3_overlap: direct frame sent, frame left open for the compose */
     if (gtS) {   /* sampled frame: wait for the last pass too, then file the six numbers */
         C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH);
         gtCur[5] = (unsigned)((svcGetSystemTick() - gtA) / 268);
@@ -1494,7 +1504,7 @@ void G3G_End(u32 *outL, u32 *outR) {
         pendRB = 0; for (unsigned i = 0; i < pendN && oldN < 512; i++) oldFree[oldN++] = pendFree[i]; pendN = 0;
         dirValid = dirPend = 1; dirEyes = eyes; dirKey[0] = outL; dirKey[1] = outR; dirOut = 1; dirDirect++;
         dirWide = dirStrip = wideFrame; dirRb = wideFrame && !slimFrame; if (wideFrame) dirWideN++;   /* slim strips: no full readback queued, resolve queues its own */
-        abLast = G3G_RowTrimCfg() ? trimFrame : scisOn; frN[abLast]++; trimFrame = 0;
+        abLast = scisOn; frN[abLast]++;
         if (mid) { midValid = 1; midEyes = eyes; midWide = wideFrame; }
         G3G_StripValid = wideFrame ? eyes : 0;   /* wide: G3G_DirectStrips() fills G3G_Strip before present */
         { static int said; if (wideFrame && !said) { said = 1; PSPNativeMemLog("[GPU3D] direct: first wide frame (320x256 targets, %d eye%s): centre copied on the GPU into the compositor texture, only the side strips converted on the CPU", eyes, eyes > 1 ? "s" : ""); } }
