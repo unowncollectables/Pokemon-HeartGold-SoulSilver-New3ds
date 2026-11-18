@@ -61,7 +61,7 @@ In game press **L+R+Y** (or hold the top-left of the touch screen 0.3 s). L/R or
 
 ## 8. Current status
 
-**60 fps, not built here (2026-11-16):** Settings > Display adds `fps60_hold`, `fps60_strips`, `fps60_vram` and `fps60_area`, each default OFF. OFF leaves the picture and the old path alone. None of this is on a console or in Azahar. The running notes are in root [HANDOFF.md](HANDOFF.md).
+**60 fps (finished 2026-11-18, #517-#540):** mono about 60 fps, stereo close to it. The tuned 60 fps setup is the default and there are no player toggles for it. Details in root [HANDOFF.md](HANDOFF.md) and `docs/archive/`.
 
 **Bottom map (2026-11-09, platform only, not built here):** the Johto player head uses the same screen pixel as the scaled map (it slipped on some towns). Settings > Input "Map zoom" defaults to 1X; 2X and the on-map -/+ zoom in. "Roamer sprites" defaults ON (the ROM menu icon). OFF keeps the letters. No game rebuild. See `docs/HANDOFF.md`.
 
