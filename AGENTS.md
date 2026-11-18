@@ -1,6 +1,6 @@
 # AGENTS.md - handoff for any AI (Claude, Grok, Codex, Copilot...)
 
-Short running state and next steps: [HANDOFF.md](HANDOFF.md). [docs/HANDOFF.md](docs/HANDOFF.md) points there. Update it in every PR that changes what works or what is untested.
+Short running state and next steps: [HANDOFF.md](HANDOFF.md). Old long notes: [docs/archive/](docs/archive/). Update it in every PR that changes what works or what is untested.
 
 Read this first. It is the single source of truth for picking up this project cold. If something here disagrees with the code, trust the code and fix this file in the same change. Claude Code reads `CLAUDE.md`, which just points here.
 
@@ -44,7 +44,7 @@ make cia                                                 # optional HOME Menu bu
 | `toolchain-3ds/` | psp-* wrapper scripts + PSP SDK header shims for devkitARM |
 | `soulsilver3ds/platform/` | 3DS platform layer (see section 3). `ss3ds_glue.c` = SoulSilver-specific glue (wraps `OverlayManager_New` to set the in-field flag for wide view); `ss3ds_settings_ui.h` = settings menu rows; `render3ds.cpp` = renderer glue + settings app |
 | `soulsilver3ds/full/` | link Makefile, `README_settings.txt` (every config option), `mkld_ss.py` (linker script), `cia/` (rsf/banner for the CIA) |
-| `docs/` | ARCHITECTURE, BUILDING, SETUP, DEVELOPMENT, ROADMAP (aspirational phases), FAQ, PLATINUM_SYNC, WIRELESS (local wireless / Wi-Fi feasibility and plan), FPS60 and SPEEDUPS (60 fps study and ranked speedups) |
+| `docs/` | ARCHITECTURE, BUILDING, SETUP, DEVELOPMENT, ROADMAP (aspirational phases), FAQ, PLATINUM_SYNC, WIRELESS (local wireless / Wi-Fi feasibility and plan), archive/ (old handoff, missing-screen audit, 60 fps and crisp-3D studies; history only) |
 | `CHANGELOG.md`, `RELEASE_NOTES.md` | what changed / what is in the current build |
 
 Important wiring differences from Platinum: SoulSilver links `native-sound-audio/sas_out.c`, `soulsilver-native-assets/render-fastcompare/{g3_handler,frontend}.cpp` and `soulsilver-native-core/nitromain-perf/{romfs,platform,frame}.c`. Platinum patches 0009-0011 touch different files and do nothing here; patch 0016 is the SoulSilver equivalent. Save struct alignment (`#pragma pack(push,4)` via `game-pack4.h`) is already handled by pspoke.
@@ -74,7 +74,7 @@ Working and tested on device: boot, title, overworld, battles up to the crash fi
 
 Merged but **untested on device**: Speed tweaks (`fps_tweaks`, Debug tab, default OFF) and `[PERF4]` stage timing (2026-10-27), wild battle entry after patches 0090/0091 (the crash was a raw 0x04001000 read), JOHTO bottom map (default layout; Bottom menu is the real on/off, first row of Controls) with the wild list (0084) and Kanto gate, audio cleanup (stall fade, DSP watchdog, Volume row), PRs #67-#69 fps work. `cheat_*` keys exist only in config.txt and may never be tested. Lugia title fixes are emulator-tested only and parked as last priority.
 
-Known issues: Poke Ball opening shows a double image with the 3D slider up; Wide FX costs ~29 ms/frame, keep it OFF; menu frame rate < 60 fps in places (3D-bound); first visit to a map can hitch (SD read). Next: 60 fps overworld, see `docs/SPEEDUPS.md` and `docs/FPS60.md`.
+Known issues: Poke Ball opening shows a double image with the 3D slider up; Wide FX costs ~29 ms/frame, keep it OFF; menu frame rate < 60 fps in places (3D-bound); first visit to a map can hitch (SD read). Next: 60 fps overworld, see `docs/archive/SPEEDUPS.md` and `docs/archive/FPS60.md`.
 
 ## 8a. Run log
 ### Run 1 (2026-10-25, box build, version string "run 1")
@@ -103,7 +103,7 @@ Known issues: Poke Ball opening shows a double image with the 3D slider up; Wide
 3. Poke Ball double image with 3D slider up.
 4. Audio clipping and menu/title fps (re-measure with `[GPUC]`).
 5. Keep README/docs in sync with the settings menu.
-6. Later: 60 fps field (feasibility and probe: `docs/FPS60.md`, `fps60_probe=1`); followers are built into HGSS (do NOT port Platinum's follower system); roadmap phases in `docs/ROADMAP.md`.
+6. Later: 60 fps field (feasibility and probe: `docs/archive/FPS60.md`, `fps60_probe=1`); followers are built into HGSS (do NOT port Platinum's follower system); roadmap phases in `docs/ROADMAP.md`.
 7. Test the patcher/installer end to end on a real PC (see section 10).
 
 Feature candidates and their pokeheartgold hook points. Real C in pret/pokeheartgold: `text.c`/`render_text.c` (fast text), `battle/battle_command.c` + `battle/battle_hp_bar.c` (battle speed), `battle/battle_controller_player.c` (catch info/shiny/counter), `party_menu.c` (reusable TMs), `field_move.c` (HM-free), `field/encounter_check.c` (no encounters, repel). Still assembly (hook via pspoke's generated C): field run check, summary screen.

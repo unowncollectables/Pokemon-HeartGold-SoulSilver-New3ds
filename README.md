@@ -80,7 +80,7 @@ SoulSilver is the build played on hardware. HeartGold installs beside it.
     </td>
     <td align="center" width="20%" valign="top">
       <img src="assets/readme/tile-smoother-fps.webp" alt="Smoother frame rate: a silky waterfall turning a wooden waterwheel" width="160"><br>
-      <sub><strong>Smoother frame rate.</strong> GPU shortcuts for a steadier picture. Steady 30 fps in every scene is still the target.</sub>
+      <sub><strong>Smoother frame rate.</strong> GPU shortcuts for a steadier picture. About 60 fps in 2D; with the 3D slider up it stays close to 60 but can dip in busy scenes.</sub>
     </td>
     <td align="center" width="20%" valign="top">
       <img src="assets/readme/tile-pokegear.webp" alt="Touch-screen Pokégear: a finger tapping a live painted map" width="160"><br>
@@ -390,7 +390,7 @@ Debug rows follow the same table when their line is missing. Speed tweaks starts
   <img src="assets/readme/banner-status.webp" alt="Status: a brass telescope on a mountain terrace overlooking a valley at dusk" width="900">
 </p>
 
-**In active development.** On SoulSilver hardware, the core game, stereoscopic 3D, save round-trips, and a local Union Room trade have been exercised. Steady 30 fps across scenes is still the performance target. Fades, some battles, and the first visit to a map can hitch.
+**In active development.** On SoulSilver hardware, the core game, stereoscopic 3D, save round-trips, and a local Union Room trade have been exercised. The 60 fps push is finished: mono runs at about 60 fps, and stereo 3D sits close to it. Fades, some battles, and the first visit to a map can still hitch.
 
 When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/issues), include your console model and `log.txt` or `log_crash.txt` from `sdmc:/3ds/soulsilver3ds/` (or `sdmc:/3ds/heartgold3ds/` for that build).
 
@@ -398,7 +398,7 @@ When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold
 <summary><strong>What's new</strong></summary>
 
 > [!NOTE]
-> Highlights merged after the previous README pass. A 3DS result is listed only where the [changelog](docs/CHANGELOG.md), [handoff](docs/HANDOFF.md), or [release notes](docs/RELEASE_NOTES.md) record one.
+> Highlights merged after the previous README pass. A 3DS result is listed only where the [changelog](docs/CHANGELOG.md), [handoff](HANDOFF.md), or [release notes](docs/RELEASE_NOTES.md) record one.
 
 | Topic | In the tree | Checked |
 | --- | --- | --- |
@@ -424,7 +424,7 @@ When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold
 - **3D and widescreen.** Wide FX is expensive. The wide title presentation still needs a dedicated hardware check.
 - **Other checks.** Radio tuning, the roamer tracker, Contest helper, Tap to Fly, Alive wild Pokémon, and achievements still need more device coverage.
 
-See the [handoff notes](docs/HANDOFF.md) for test results, the [changelog](docs/CHANGELOG.md) for recent changes, and the [roadmap](docs/ROADMAP.md) for what's planned.
+See the [handoff notes](HANDOFF.md) for test results, the [changelog](docs/CHANGELOG.md) for recent changes, and the [roadmap](docs/ROADMAP.md) for what's planned.
 
 </details>
 
@@ -447,7 +447,7 @@ Conduct, contributing, and security live in [`.github/`](.github/).
 
 - [Architecture](docs/ARCHITECTURE.md) and [development guide](docs/DEVELOPMENT.md)
 - [Build guide](docs/BUILDING.md), [setup](docs/SETUP.md), and [FAQ](docs/FAQ.md)
-- [Contributing](.github/CONTRIBUTING.md), [project conventions](AGENTS.md), and [handoff notes](docs/HANDOFF.md)
+- [Contributing](.github/CONTRIBUTING.md), [project conventions](AGENTS.md), and [handoff notes](HANDOFF.md)
 - [Release notes](docs/RELEASE_NOTES.md), [changelog](docs/CHANGELOG.md), and [security policy](.github/SECURITY.md)
 
 </details>

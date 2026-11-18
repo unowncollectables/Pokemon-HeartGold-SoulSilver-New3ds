@@ -67,4 +67,4 @@ Roamer + breeding tracker, Pokégear radio tap, Sprite depth, speed tweaks and t
 Visible wild Pokemon on stairs (patch 0230) need a game rebuild, then a hardware look: with visible wilds and wide view on, walk up and down stairs while a wild stays on its own step. The 3D slider can stay up. `[WILD] own ground y` appears when that height differs from the player's.
 
 ## Known issues
-Double image when a Poké Ball opens with the 3D slider up; Wide FX costs about 29 ms per frame (keep off); audio can clip; solid 30 fps only, 60 fps is a later goal. Back up your save before using any build.
+Double image when a Poké Ball opens with the 3D slider up; Wide FX costs about 29 ms per frame (keep off); audio can clip; about 60 fps in mono and close to it in 3D. Back up your save before using any build.

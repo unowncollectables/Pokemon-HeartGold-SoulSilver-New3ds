@@ -9,7 +9,7 @@ The project is focused on making a native New 3DS homebrew port of Pokémon Soul
 ## Where things stand (2026-10-29)
 
 Boot, overworld, battles, menus, saving, 3D, the Johto touch-screen map with Pokégear tabs, and local wireless trading
-between two consoles work on real hardware at about 30 fps. Still ahead: testing the other Union Room options, the
+between two consoles work on real hardware at about 30 fps at the time; the later 60 fps push brought mono to about 60 fps and stereo close to it. Still ahead: testing the other Union Room options, the
 roamer/breeding tracker and radio tap, online trading with a real DS, and a late 60 fps attempt. The phases below are
 the long-term shape and are no longer a strict order.
 
