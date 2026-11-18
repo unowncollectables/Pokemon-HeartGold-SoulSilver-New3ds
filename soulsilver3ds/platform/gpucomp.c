@@ -91,10 +91,14 @@ typedef struct { u32 *rbuf, *out; u16 mbr; } GJ; static GJ fpPend;
    this is plain C3D_FrameBegin(0). Run 840 log: the hand-over was missed (polls only at 3D draw calls, which come before the LCD had
    taken the in-between picture) in about half the ticks and the next present then idled 5-9 ms (tearfix) for it. */
 extern int P3DS_Fps60Pending(void); extern void P3DS_Fps60Poll(void);
-static void gcFrameBegin(void) {
-    if (!P3DS_Fps60Pending()) { C3D_FrameBegin(0); return; }
+extern int P3DS_ChainContinue(void), P3DS_ChainKick(void);
+/* returns 1 when it carried on in the frame that g3_overlap left open (the GPU may still be drawing what came before) */
+static int gcFrameBegin(void) {
+    if (P3DS_ChainContinue()) return 1;
+    if (!P3DS_Fps60Pending()) { C3D_FrameBegin(0); return 0; }
     P3DS_Fps60Poll();
     while (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) { P3DS_Fps60Poll(); svcSleepThread(100000); }
+    return 0;
 }
 static void gcIdle(void) { if (gpuBusy) { C3D_FrameBegin(0); C3D_FrameEnd(GX_CMDLIST_FLUSH); gpuBusy = 0; } }
 static int fpOn(void) {
@@ -631,9 +635,9 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     C3D_RenderTarget *const midTarget = direct && has3d && !gcTitleWide &&
                                        !gcEngineB && mid3d && midOut ? gcMidTarget(dfEye) : NULL;
     P3DS_Crumb("gc-draw", 0);
-    { const u64 tb = svcGetSystemTick(); gcFrameBegin(); P3DS_GcBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
+    int chained; { const u64 tb = svcGetSystemTick(); chained = gcFrameBegin(); P3DS_GcBeginUs = (unsigned)((svcGetSystemTick() - tb) / 268); }
     gpuBusy = 0;
-    G3G_DirectSynced();   /* FrameBegin waited for every queued draw, including g3gpu's direct 3D frame */
+    if (!chained) G3G_DirectSynced();   /* FrameBegin waited for every queued draw, including g3gpu's direct 3D frame */
     C3D_RenderTarget *const tgt = gcTitleWide ? titleTarget : (dfEye ? rtR : rt);
     gcDrawAll(tgt, bd, t3cur, q3, b3, vb, gcTitleWide ? 512.0f : 256.0f);
     if (midTarget) {
@@ -644,7 +648,7 @@ int P3DS_GcComposeA(const u8 *regs, const u8 *bgv, const u8 *objv, const u16 *bg
     }
     u32 *const rbuf = gcTitleWide ? titleReadback : (ov && fpEye ? rbR : rb);
     if (direct) {
-        const u64 te = svcGetSystemTick(); P3DS_FrameEnd(); P3DS_GcEndUs = (unsigned)((svcGetSystemTick() - te) / 268);
+        const u64 te = svcGetSystemTick(); if (!P3DS_ChainKick()) P3DS_FrameEnd(); P3DS_GcEndUs = (unsigned)((svcGetSystemTick() - te) / 268);
         if (ov) fpSub++; fpDefer = 0; fpEye = 0;
         dfPend[dfEye] = 1; dfOut[dfEye] = out; dfMbr[dfEye] = mbr; gpuBusy = 1; P3DS_GcDeferN++; P3DS_GcOutUs = 0; P3DS_GcGpuUs = 0;
         P3DS_GcCpuUs = (unsigned)((t1 - t0) / 268); P3DS_Crumb("gc-deferred", 0); return 1; }
