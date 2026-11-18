@@ -40,6 +40,8 @@ extern unsigned long CPSDnsIp[2]; /* libntrwifi cps; u32 there, 4 bytes on this 
 #else
 #define NLOG(...) do { if (0) PSPNativeMemLog(__VA_ARGS__); } while (0)
 #endif
+/* Failure reasons stay on even with the chatter off: one short line per problem (capped), so a failed GTS visit explains itself in log.txt. */
+#define FLOG(...) do { static unsigned fl_; if (fl_++ < 12) { PSPNativeMemLog(__VA_ARGS__); P3DS_LogFlushSync(); } } while (0)
 
 #define DEFAULT_DNS "178.62.43.212"
 #define STARME_DNS "161.35.72.83"
@@ -648,6 +650,7 @@ static void loginCb(int err, int pid, void *param)
     sLoginErr = err; sLoginPid = pid;
     NLOG("[LOGIN] callback: error %d, profile id %d", err, pid);
     if (err != 0 || pid <= 0) {
+        FLOG("[GTS] login failed: error %d, profile id %d (%s server, %s)", err, pid, sLoginStarMe ? "StarMe" : "Poke Classic", sLoginStarMe && !sStarMeWasAuthenticated ? "new profile" : "existing profile");
         if (sLoginStarMe && !sStarMeWasAuthenticated) sStarMeReady = 0;
         sLoginDone = 3;
         return;
@@ -676,6 +679,7 @@ void P3DS_LoginStart(void)
     if ((!sLoginStarMe && !sGameUd) || !onlineMode() || P3DS_OnlineCheatBlocked() || DWC_GetInetStatus() != 4 ||
         !P3DS_PrepareStarMeIdentity()) {
         NLOG("[LOGIN] not started (userdata %p, online %d, inet %d)", sGameUd, onlineMode(), DWC_GetInetStatus());
+        FLOG("[GTS] login not started (%s server, userdata %s, online %d, cheats %d, inet status %d, identity ready %d)", sLoginStarMe ? "StarMe" : "Poke Classic", sGameUd ? "seen" : "none", onlineMode(), P3DS_OnlineCheatBlocked(), DWC_GetInetStatus(), sStarMeReady);
         sLoginDone = 3; return;
     }
     void *ud = sLoginStarMe ? (void *)sStarMeUserData : (void *)sGameUd;
@@ -708,7 +712,7 @@ int P3DS_LoginPoll(void)
         DWC_ProcessFriendsMatch();
         int st = DWC_GetState();
         if (st != lastState) { int code = 0; int e = DWC_GetLastError(&code); NLOG("[LOGIN] state %d (last error %d code %d)", st, e, code); lastState = st; }
-        if (++sLoginFrames > 30 * 30) { NLOG("[LOGIN] gave up after 30 s"); sLoginDone = 3; }
+        if (++sLoginFrames > 30 * 30) { NLOG("[LOGIN] gave up after 30 s"); { int c = 0, e = DWC_GetLastError(&c); FLOG("[GTS] login gave up after 30 s (%s server, DWC state %d, last error %d code %d)", sLoginStarMe ? "StarMe" : "Poke Classic", DWC_GetState(), e, c); } sLoginDone = 3; }
     }
     P3DS_NetBusy--;
     if (sLoginDone == 1) return 1;
@@ -732,7 +736,7 @@ unsigned int SOCL_Resolve(const char *host)
     if (!host || !host[0]) return 0;
     a = inet_addr(host);
     if (a == (in_addr_t)-1) {
-        if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit() || ghResolve(host, &a, NULL) != 0) { NLOG("[DNS] %s: not resolved", host); return 0; }
+        if (!onlineMode() || P3DS_OnlineCheatBlocked() || !P3DS_NetInit() || ghResolve(host, &a, NULL) != 0) { NLOG("[DNS] %s: not resolved", host); FLOG("[GTS] name lookup failed: %s (%s DNS)", host, P3DS_GtsStarMeSelected() ? "StarMe" : "Poke Classic"); return 0; }
         NLOG("[DNS] %s -> %s", host, inet_ntoa(*(struct in_addr *)&a));
     }
     return ntohl(a);
