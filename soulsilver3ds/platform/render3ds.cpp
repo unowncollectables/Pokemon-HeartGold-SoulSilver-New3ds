@@ -118,7 +118,8 @@ static void engineBFrameJob(){
   if(!bSkipB&&!steal)drawEngineB();
   if(bRightSrc){/* stereo: right-eye top screen = engine A again (snapshot copy) with the right-eye 3D layer */
    P3DS_3DSrc=bRightSrc;rendererR.SetFramebuffer(rawR,rawR);
-   for(unsigned line=0;line<192;line++){engineA2.CheckWindows(line);rendererR.DrawSprites(line,&engineA2);rendererR.DrawScanline(line,&engineA2);}
+   for(unsigned line=0;line<192;line++){if(bdMask&&line==(unsigned)bdSplit)for(int i=1;i<4;i++)if(bdMask&(1<<i))engineA2.BGXPos[i]=bdLow[i];
+    engineA2.CheckWindows(line);rendererR.DrawSprites(line,&engineA2);rendererR.DrawScanline(line,&engineA2);}
    P3DS_3DSrc=nullptr;}
   if(!bSkipB&&steal&&claimB()){stealWorker++;drawEngineB();}
   if(bSplit){for(unsigned line=0;line<96;line++)dryLine(engineAS,line);
@@ -1077,11 +1078,20 @@ static int stereoStr=-1;
    full slider, far more than the battle Pokemon's own 3D disparity -> the Pokemon looked doubled against its
    background/platform); 2 (default) = gentle (prio 3 = 0.5x, prio 2 = 0.25x); 0 = flat 2D. */
 extern "C" int P3DS_BattleDepthLock(void);
-static int stereo2dV=-1;static int stereo2dCfg(){if(stereo2dV<0){stereo2dV=P3DS_CfgInt("stereo_2d",3);if(stereo2dV<0||stereo2dV>3)stereo2dV=3;PSPNativeMemLog("[STEREO] stereo_2d=%d (0 flat, 1 strong/run55, 2 gentle)",stereo2dV);}return stereo2dV;}
+static int stereo2dV=-1;static int stereo2dCfg(){if(stereo2dV<0){stereo2dV=P3DS_CfgInt("stereo_2d",3);if(stereo2dV<0||stereo2dV>4)stereo2dV=3;PSPNativeMemLog("[STEREO] stereo_2d=%d (0 flat, 1 strong/run55, 2 gentle, 3 gentle+lock, 4 foe deeper)",stereo2dV);}return stereo2dV;}
 /* run 61 gpu_compose_stereo=1 (default; only with gpu_compose=2): with the 3D slider up, overworld frames that are
    GPU-eligible are composed on the GPU for BOTH eyes (left with the left 3D layer, right with the right one; 2D layers
    identical, as on the CPU path in the field). Before, stereo always took the CPU path (~17 ms -> 25 fps). */
-extern "C" int P3DS_BattleDepthLock(void){return P3DS_InBattle&&stereo2dCfg()==3;}
+extern "C" int P3DS_BattleDepthLock(void){return P3DS_InBattle&&stereo2dCfg()>=3;}
+/* 2026-11-18 issue #484 stereo_2d=4 FOE DEEPER (menu BATTLE 3D DEPTH, default stays 3): like GENTLE+LOCK, plus the foe's side
+   sits further into the screen and yours nearer. Extra right-eye shift in DS px (left eye stays 0, as the lock): 3D quads get
+   +e on the foe's side (screen x right of centre) and -e on yours, sliding smoothly in between (lunges, intro slide-ins); the
+   back BG (priority 3) rows above kBattleSplitY (sky + foe's platform) get +e and the rows below (your platform) -e, so each Pokemon stays
+   on its platform. e = (sd+1)/3: 2 px at full slider (foe 5 px, yours 1 px; GENTLE+LOCK has both at 3). */
+extern "C" int P3DS_BattleSideExtra(int sd){return (P3DS_InBattle&&stereo2dCfg()==4&&sd>0)?(sd+1)/3:0;}
+static const int kBattleSplitY=128; /* foe platform ends ~y120, yours starts ~y140 (HGSS singles and doubles) */
+static int bdMask,bdSplit;static u16 bdLow[4]; /* CPU right eye: BGXPos for the rows from bdSplit down */
+extern "C" {extern int P3DS_GcRowSplit;extern int P3DS_GcRowDx[4];}
 static int gcStNfV=-1;static int gcStNfCfg(){if(gcStNfV<0){gcStNfV=P3DS_CfgInt("gpu_compose_stereo_nf",1)!=0;PSPNativeMemLog("[GPUC] gpu_compose_stereo_nf=%d (battles/menus with the 3D slider on: GPU-compose both eyes; 0 = CPU, ~14-22 ms)",gcStNfV);}return gcStNfV;}
 static int gcStereoV=-1;static int gcStereoCfg(){if(gcStereoV<0){gcStereoV=P3DS_CfgInt("gpu_compose_stereo",1)!=0;PSPNativeMemLog("[GPUC] gpu_compose_stereo=%d",gcStereoV);}return gcStereoV;}
 /* run 76 dw_depth (Video tab, default 2 = moderate): in the Distortion World the 3D separation ramps up over ~1.5 s
@@ -1191,7 +1201,7 @@ static const MItem mItems[]={
  {"GPU COMPOSE","gpu_compose",4,{"OFF","ANALYZE","GPU","VERIFY"}},
  {"FOLLOWER SLOT","follower_slot",7,{"LEAD","1","2","3","4","5","6"}},{"FOLLOWER TALK","follower_talk",2,{"OFF","ON"}},
  {"MENU MUSIC","menu_audio",2,{"OFF","ON"}},{"GPU COMPOSE 3D","gpu_compose_stereo",2,{"OFF","ON"}},
- {"BATTLE 3D DEPTH","stereo_2d",4,{"FLAT","STRONG","GENTLE","GENTLE+LOCK"}},{"WIDE HAZE","wide_haze",2,{"OFF","ON"}},
+ {"BATTLE 3D DEPTH","stereo_2d",5,{"FLAT","STRONG","GENTLE","GENTLE+LOCK","FOE DEEPER"}},{"WIDE HAZE","wide_haze",2,{"OFF","ON"}},
  {"FAST TEXT","fast_text",4,{"OFF","2X","4X","INSTANT"}},
  {"REUSABLE TMS","reusable_tms",2,{"OFF","ON"}},
  {"NO WILD ENCOUNTERS","cheat_no_encounters",2,{"OFF","ON"}},{"REPEL PROMPT","repel_prompt",2,{"OFF","ON"}},{"IV/EV ON SUMMARY","summary_ivs",2,{"OFF","ON"}},
@@ -1656,7 +1666,7 @@ static const SAppTab kTabs[kTotalTabs]={
      {kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
      {0,"FPS counter","Shows the frame rate on screen."}}},
  {4,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
-     {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up."},
+     {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up. FOE DEEPER: the foe and its platform sit further back, yours nearer."},
      {117,"Sharp 3D","3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps."},
      {115,"Sprite depth","Walking sprites (following Pokemon, NPCs, you) stand on the ground in 3D instead of leaning."}}},
  {13,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
@@ -2307,10 +2317,12 @@ static int Present(bool){
     get depth by BG priority: priority 3 (back) = the far-3D disparity (2 x shift), priority 2 = 1.5 x, priorities 0-1
     (text boxes, menus, HUD) and sprites stay at the screen plane. Text-mode BGs only (affine/bitmap untouched).
     Overworld unchanged (its BG overlays sit in front of the 3D world). */
+ bdMask=0;bdSplit=kBattleSplitY;
  if(rightPar&&!P3DS_InField){const int cfg=stereo2dCfg();
-  if(cfg){const int sd=stereoShiftF(P3DS_ScaleMode());const unsigned bgm=engineA2.DispCnt&7;
+  if(cfg){const int sd=stereoShiftF(P3DS_ScaleMode());const unsigned bgm=engineA2.DispCnt&7;const int bdE=P3DS_BattleSideExtra(sd);
    for(int i=1;i<4;i++){if(!(engineA2.DispCnt&(0x100<<i)))continue;const bool text=i<2||bgm==0||(i==2&&bgm==1);if(!text)continue;
-    const int pr=engineA2.BGCnt[i]&3,d=cfg==1?(pr==3?2*sd:pr==2?(3*sd)/2:0):(pr==3?(sd+1)/2:pr==2?(sd+2)/4:0);if(d)engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-d)&0x1FF);}}}
+    const int pr=engineA2.BGCnt[i]&3,d=cfg==1?(pr==3?2*sd:pr==2?(3*sd)/2:0):(pr==3?(sd+1)/2:pr==2?(sd+2)/4:0);if(d)engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-d)&0x1FF);
+    if(d&&bdE&&pr==3){bdLow[i]=(u16)((engineA2.BGXPos[i]+bdE)&0x1FF);engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-bdE)&0x1FF);bdMask|=1<<i;}}}}
  bRightSrc=rightPar?rightEye:nullptr;
  bPower=power;if(!async)P3DS_BottomReused=0;
  const bool onC1=rightPar&&!earlyB&&c1Ready();bSkipB=onC1||earlyB;
@@ -2337,9 +2349,12 @@ static int Present(bool){
     const int cfg=stereo2dCfg(),sd2=stereoShiftF(P3DS_ScaleMode());const unsigned dc2=reg32(0),bgm=dc2&7;
     for(int i=1;i<4;i++){if(!(dc2&(0x100u<<i)))continue;const bool text=i<2||bgm==0||(i==2&&bgm==1);if(!text)continue;
      const int pr=reg16(8+i*2)&3,d=cfg==1?(pr==3?2*sd2:pr==2?(3*sd2)/2:0):(pr==3?(sd2+1)/2:pr==2?(sd2+2)/4:0);
-     if(d)*(u16*)(regsCopy+0x10+i*4)=(u16)((reg16(0x10+i*4)-d)&0x1FF);}}
+     const int bdE=(d&&pr==3)?P3DS_BattleSideExtra(sd2):0;
+     if(d)*(u16*)(regsCopy+0x10+i*4)=(u16)((reg16(0x10+i*4)-d-bdE)&0x1FF);
+     if(bdE){P3DS_GcRowSplit=kBattleSplitY;P3DS_GcRowDx[i]=2*bdE;}}}
    {static unsigned nfN;if(!P3DS_InField&&++nfN%300==1)PSPNativeMemLog("[GPUC] stereo outside the overworld: both eyes GPU-composed (%u frames so far, battle %d)",nfN,P3DS_InBattle);}
    {const u64 tq=svcGetSystemTick();P3DS_GcEye(1,0);P3DS_GcDeferOut=gDfDec;gcStR=P3DS_GcComposeA(regsR,GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,rightEye,rawR,f60L?G3G_MidTex(1):nullptr,&f60R,&f60CompUs)!=0;P3DS_GcDeferOut=0;
+    P3DS_GcRowSplit=-1;memset(P3DS_GcRowDx,0,sizeof P3DS_GcRowDx);
     pfT[PF_GCR]+=svcGetSystemTick()-tq;pfU[PU_RB]+=P3DS_GcBeginUs;pfU[PU_RE]+=P3DS_GcEndUs;pfU[PU_RS]+=P3DS_GcSyncUs;pfR++;
    }if(gcStR)gcStN++;}}
  P3DS_GcFinish();  /* fps_tweaks 6 overlap: a left eye still pending is converted before anything reads display[0] */
