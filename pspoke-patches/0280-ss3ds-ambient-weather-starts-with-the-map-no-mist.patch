@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 18 Nov 2026 02:59:13 +0000
+Subject: [PATCH] ss3ds: ambient weather starts with the map, no mist
+
+A field load (door, battle, menu, Fly, Continue) now starts an outdoor map with its seasonal forecast, so ambient rain and snow no longer vanish and fade back in after every load. Autumn mist (weather 9, a BG2 alpha haze HGSS never uses) is dropped: in wide view every hazed frame read the 3D picture back on the CPU.
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 30 ++++++++++++++++++++++++---
+ 1 file changed, 27 insertions(+), 3 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 0f19755..e99b870 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -1476,9 +1476,8 @@ static int SS3DS_SeasonWeather(u32 region, BOOL highland, u32 day, int hour) {
+     case SEASON_SUMMER:
+         return roll < 12 ? WEATHER_RAIN : WEATHER_SUNNY;
+     case SEASON_AUTUMN:
+-        if (roll < 12 && (hour < 9 || hour >= 18)) {
+-            return WEATHER_UNKNOWN_9; // Native mist
+-        }
++        // 0280: no mist. HGSS never uses weather 9; it is a BG2 alpha haze, and in
++        // wide view every hazed frame reads the 3D picture back on the CPU (fps drop).
+         return roll >= 12 && roll < 20 ? WEATHER_RAIN : WEATHER_SUNNY;
+     default:
+         if (roll < (highland ? 26 : 8)) {
+@@ -1565,6 +1564,21 @@ static int SS3DS_ConnectedRenderWeather(FieldSystem *fieldSystem, int map, int n
+     return SS3DS_AmbientForecast(map);
+ }
+ 
++// 0280: a field load (door, battle, menu, Fly, Continue) builds a new weather
++// manager with the saved weather, so ambient rain or snow vanished and faded
++// back in after every load. Start the loaded map with its forecast instead.
++// Called inside the warp task, so no task check. LocalFieldData is not touched.
++static int SS3DS_LoadRenderWeather(FieldSystem *fieldSystem, int native) {
++    if (native != WEATHER_SUNNY || !P3DS_AmbientWeatherCfg() || fieldSystem->location == NULL) {
++        return native;
++    }
++    int w = SS3DS_AmbientForecast(fieldSystem->location->mapId);
++    if (w != WEATHER_SUNNY) {
++        PSPNativeMemLog("[WEATHER] map %d loads with ambient %d", fieldSystem->location->mapId, w);
++    }
++    return w;
++}
++
+ static int SS3DS_SeasonWeatherTick(FieldSystem *fieldSystem, int enabled, int townShower) {
+     static int refresh, lastMap = -1, wasEnabled, forecast, requested, restoring;
+     static void *lastManager;
+@@ -2979,6 +2993,16 @@ if which in ('all', 'field'):
+             sys.exit('0110_wildvis: connected weather anchor not found exactly once')
+         s = s.replace(weather_call, connected_weather).replace(main, weather_proto + main)
+         open(p, 'w').write(s)
++    # 0280: the field load starts with the ambient forecast (no fade-in after doors, battles, menus).
++    load_call = '        WeatherManager_SetWeather(fieldSystem->unk4->weatherManager, LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData)));'
++    load_weather = '        WeatherManager_SetWeather(fieldSystem->unk4->weatherManager, SS3DS_LoadRenderWeather(fieldSystem, LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData))));'
++    load_proto = 'static int SS3DS_LoadRenderWeather(FieldSystem *fieldSystem, int native); // SS3DS 0280\n'
++    init = 'BOOL FieldMap_Init(OverlayManager *man, int *state) {\n'
++    if load_weather not in s:
++        if s.count(load_call) != 1 or s.count(init) != 1:
++            sys.exit('0110_wildvis: load weather anchor not found exactly once')
++        s = s.replace(load_call, load_weather).replace(init, load_proto + init)
++        open(p, 'w').write(s)
+     if proto not in s:
+         if s.count(main) != 1:
+             sys.exit('0110_wildvis: FieldMap_Main not found exactly once in fieldmap.c')
+-- 
+2.43.0
+
