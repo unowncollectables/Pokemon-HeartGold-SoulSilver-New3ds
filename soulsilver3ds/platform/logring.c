@@ -122,7 +122,7 @@ extern void PSPNativeMemLog(const char *, ...);
 typedef struct { const char *name, *prefix; volatile unsigned n; } UseEnt;
 static UseEnt useTab[] = {
     { "g3_command_shortcut", "[G3PACK] direct=", 0 }, { "g3_bounds_config_events", "[G3BOUNDS] ", 0 }, { "second_screen_gpu_batches", "[GCB] frames=", 0 },
-    { "battles", "[BATTLE] start", 0 }, { "battle_anim_skips", "[BATTLE] move ", 0 },
+    { "battles", "[BATTLE] start", 0 }, { "battle_foe_deeper", NULL, 0 }, { "battle_anim_skips", "[BATTLE] move ", 0 },
     { "catch_info_panel", "[CATCH] panel opened", 0 }, { "shiny_alerts", "[CATCH] shiny alert", 0 },
     { "summary_iv_ev_pages", "[SUMMARY] IV", 0 }, { "summary_iv_ev_box_toggles", "[UI] summary IV/EV box", 0 },
     { "repel_checks", "[REPEL] repel check", 0 }, { "reusable_tm_uses", "[ITEM] reusable TM:", 0 },
