@@ -262,7 +262,7 @@ SoulSilver uses these files in `sdmc:/3ds/soulsilver3ds/`. HeartGold uses the sa
 | --- | --- |
 | `soulsilver.nds` | Your US cartridge dump. The game only reads it. |
 | `soulsilver.sav` | The 512 KiB save. The game creates it on first launch if needed. |
-| `soulsilver.sav.bak1` … `bak8` | Rolling backups. |
+| `soulsilver.sav.bak1` | The one backup of the save (made after each in-game save and at exit). |
 | `config.txt` | Settings. Delete a line to return that key to its built-in default. |
 | `hunt.txt` | Hunt stats. Separate from the save. |
 | `starme-wfc-*.bin` | StarMe WFC profile for one trainer, when that server is selected. Separate from the save. |
