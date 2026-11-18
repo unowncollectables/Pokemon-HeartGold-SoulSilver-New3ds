@@ -1,4 +1,4 @@
-From 8ab8ec1d9e6b7b943aa3e7b34ceee1b0ce1dcd0e Mon Sep 17 00:00:00 2001
+From d42840ea84585abf6a0aec8d42f7f9f533d3f286 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 18 Nov 2026 23:40:11 +0000
 Subject: [PATCH] ss3ds: visible wild Pokemon in the Safari Zone (hook 0288)
@@ -7,10 +7,10 @@ Hook 0110 block v26 no longer blocks the Safari flag and picks species and level
 Roamers and spawn-time sparkle shinies work the same as elsewhere. Hook 0288 makes the game's own Safari encounter use the
 visible one's species, level and shiny when 0110 forces a battle (Safari Balls, bait and rock stay as in the game).
 ---
- scripts/ss3ds_hooks.d/0110_wildvis.py   | 30 +++++++++++++++++--
- scripts/ss3ds_hooks.d/0288_safarivis.py | 40 +++++++++++++++++++++++++
- scripts/ss3ds_hooks.d/0288_safarivis.sh |  5 ++++
- 3 files changed, 72 insertions(+), 3 deletions(-)
+ scripts/ss3ds_hooks.d/0110_wildvis.py   | 30 ++++++++++++--
+ scripts/ss3ds_hooks.d/0288_safarivis.py | 52 +++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0288_safarivis.sh |  5 +++
+ 3 files changed, 84 insertions(+), 3 deletions(-)
  create mode 100644 scripts/ss3ds_hooks.d/0288_safarivis.py
  create mode 100644 scripts/ss3ds_hooks.d/0288_safarivis.sh
 
@@ -65,17 +65,17 @@ index 8314967..e415048 100644
  extern int SS3DS_WildPick(FieldSystem *fieldSystem, int surf, int *species, int *level);
 diff --git a/scripts/ss3ds_hooks.d/0288_safarivis.py b/scripts/ss3ds_hooks.d/0288_safarivis.py
 new file mode 100644
-index 0000000..1f23e92
+index 0000000..1f7053e
 --- /dev/null
 +++ b/scripts/ss3ds_hooks.d/0288_safarivis.py
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,52 @@
 +#!/usr/bin/env python3
 +"""ss3ds 0288: visible wild Pokemon in the Safari Zone (needs hook 0110 block v26, which picks their species from the
 +Safari area tables and no longer blocks the Safari flag).
 +  encounter_check.c  FieldSystem_GenerateSafariEncounter: when 0110 forces a battle (the player walked into / talked to a
 +                     visible one), that species and level are used instead of a random Safari slot. The battle itself is
 +                     the game's own Safari setup, so the Safari rules stay: Safari Balls, bait, rock, no Pokemon of yours.
-+Shiny sparkles decided at spawn are forced the same way. Optional. Idempotent ('SS3DS 0288')."""
++Shiny sparkles decided at spawn are forced the same way and keep the Safari's one perfect IV. Optional. Idempotent ('SS3DS 0288')."""
 +import sys
 +
 +p = 'src/field/encounter_check.c'
@@ -102,6 +102,18 @@ index 0000000..1f23e92
 +        '    Heap_Free(encSlots);\n')
 +new2 = ('    if (sSS3DS_Force && sSS3DS_ForceShiny) { // SS3DS 0288 sparkle\n'
 +        '        generateWildShinyAndAddToParty(species, level, battler, encounterGen->playerId, encounterGen, leadMon, battleSetup);\n'
++        '        { /* a Safari Pokemon always has one perfect IV, shiny or not */\n'
++        '            Pokemon *sm = Party_GetMonByIndex(battleSetup->party[battler], 0);\n'
++        '            int j, perfect = 0;\n'
++        '            for (j = 0; j < 6; ++j) {\n'
++        '                perfect |= GetMonData(sm, MON_DATA_HP_IV + j, NULL) == 31;\n'
++        '            }\n'
++        '            if (!perfect) {\n'
++        '                u32 iv = 31;\n'
++        '                SetMonData(sm, MON_DATA_HP_IV + LCRandRange(6), &iv);\n'
++        '                CalcMonStats(sm);\n'
++        '            }\n'
++        '        }\n'
 +        '        Heap_Free(encSlots);\n'
 +        '        return TRUE;\n'
 +        '    }\n') + old2
