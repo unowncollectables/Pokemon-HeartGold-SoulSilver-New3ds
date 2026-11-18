@@ -620,6 +620,10 @@ int P3DS_PrepareStarMeIdentity(void)
 
 void P3DS_LoginStart(void);
 
+/* GTS login runs on the game thread and can block for many seconds (DNS, connects). The main3ds.c watchdog reads this so it does not
+ * mistake a slow login for a dead game and take over the bottom screen (red box + its own buffer swaps = broken, jumpy picture). */
+volatile int P3DS_NetBusy;
+
 void P3DS_LoginEnd(void)
 {
     if (sLoginInitialized) DWC_ShutdownFriendsMatch();
@@ -631,9 +635,11 @@ void P3DS_LoginEnd(void)
 
 void P3DS_LoginBegin(void)
 {
+    P3DS_NetBusy++;
     const int starMe = starMeOnline();
     if (sLoginDone > 1 && (sLoginStarMe != starMe || starMe)) P3DS_LoginEnd();
     P3DS_LoginStart();
+    P3DS_NetBusy--;
 }
 
 static void loginCb(int err, int pid, void *param)
@@ -696,6 +702,7 @@ void P3DS_LoginStart(void)
 int P3DS_LoginPoll(void)
 {
     static int lastState = -99;
+    P3DS_NetBusy++;
     if (sLoginDone == 0) P3DS_LoginStart();
     if (sLoginDone == 1) {
         DWC_ProcessFriendsMatch();
@@ -703,6 +710,7 @@ int P3DS_LoginPoll(void)
         if (st != lastState) { int code = 0; int e = DWC_GetLastError(&code); NLOG("[LOGIN] state %d (last error %d code %d)", st, e, code); lastState = st; }
         if (++sLoginFrames > 30 * 30) { NLOG("[LOGIN] gave up after 30 s"); sLoginDone = 3; }
     }
+    P3DS_NetBusy--;
     if (sLoginDone == 1) return 1;
     if (sLoginStarMe) return sLoginDone == 2 ? 3 : 4;
     if (sLoginDone == 2) { static int told; if (!told) { told = 1; NLOG("[LOGIN] done, profile id %d is now in the save's userdata", sLoginPid); } return 3; }
