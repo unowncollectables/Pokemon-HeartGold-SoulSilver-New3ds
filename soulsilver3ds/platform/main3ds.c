@@ -415,7 +415,8 @@ static void watchdog(void *p) {
         { extern volatile int P3DS_FolBuilding; if (P3DS_FolBuilding) { still = 0; continue; } }  /* run 41: one-time followers.bin build */
         unsigned f = PSPNativeRenderFrameCount();
         if (f != last) { last = f; still = 0; continue; }
-        if (++still == 20) { P3DS_CrumbDump();
+        { extern volatile int P3DS_NetBusy; if (P3DS_NetBusy && still < 179) { still++; continue; } }  /* GTS login blocks the game thread on purpose (up to ~90 s here); only a real hang gets the red box */
+        if (++still >= 20) { P3DS_CrumbDump();
             char b[300]; snprintf(b, sizeof b, "game stalled: no frame for 10 s at frame %u (crumbs in log.txt). main last: %s %p. msg: %s", f, crumbs[0][(crumbPos[0]-1)&63].tag ? crumbs[0][(crumbPos[0]-1)&63].tag : "(none)", crumbs[0][(crumbPos[0]-1)&63].caller, lastMsg[0] ? lastMsg : "(none)");
             PSPNativeMemLog("[WATCHDOG] %s", b);
             { extern void P3DS_BigLockInfo(char *b, int n); char lb[400]; P3DS_BigLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); { extern void P3DS_RomLockInfo(char *b, int n); P3DS_RomLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); { extern void P3DS_RomCallerInfo(char *b, int n); char cb[800]; P3DS_RomCallerInfo(cb, sizeof cb); PSPNativeMemLog("[WATCHDOG] %s", cb); } } }
