@@ -54,7 +54,7 @@ struct SPg {
   uint32_t img[kPgW * kPgH]; uint8_t lit[47 * 20]; bool decoded, failed;
   uint8_t visited[16]; uint32_t tid; bool tidKnown, dirty;
   int sel = -1; int viewX = -1; int lastLoc = -2;
-  int zoom = 1; int viewY = -1; int panAcc = 0; /* zoom 1 = the normal map; viewY is the map row at the top when zoom is 2 */
+  int zoom = 1; int viewY = -1; int panAcc = 0; float accX = 0, accY = 0, velX = 0, velY = 0; /* 2026-11-18: sub-pixel pen pan + fling (map px) */ /* zoom 1 = the normal map; viewY is the map row at the top when zoom is 2 */
   int zmX0 = 0, zmY0 = 0, zmX1 = 0, zmY1 = 0, zpX0 = 0, zpY0 = 0, zpX1 = 0, zpY1 = 0; /* minus / plus, DS px; x1==x0 means hidden */
   bool weather; int wxX0, wxY0, wxX1;
   int markX, markY; bool markOk, gameMarker; /* run 11: marker position (DS px) for the native overlay, and whether the game's head is used */
@@ -86,6 +86,17 @@ static int pgClampLeft(const SPg &p, int left, int visW) { const int lim = pgMap
 /* panel interior pgDraw actually paints (the old tap math was 1 or 2 px off this, and the sign flipped with the name strip) */
 static void pgInner(int *X0, int *Y0, int *X1, int *Y1) {
   const int nh = blNameH(); *X0 = kBlPanX0 + 2; *Y0 = kBlPanY0 + 15 + nh + 2; *X1 = kBlPanX1 - 2; *Y1 = kBlPanY1 - 2; }
+/* 2026-11-18: smooth pen pan. dx/dy are map px (fractions carry over); zoom 1 only moves sideways. Edges clamp and kill the fling. */
+static void pgPanBy(SPg &p, float dx, float dy) {
+  int X0, Y0, X1, Y1; pgInner(&X0, &Y0, &X1, &Y1); const int z = p.zoom < 2 ? 1 : 2; int visW = (X1 - X0) / z, visH = (Y1 - Y0) / z; if (visW < 1) visW = 1; if (visH < 1) visH = 1;
+  if (z < 2) dy = 0;
+  p.accX += dx; p.accY += dy; const int ix = (int)p.accX, iy = (int)p.accY; p.accX -= ix; p.accY -= iy;
+  if (p.viewX >= 0) { const int w = p.viewX + ix, n = pgClampLeft(p, w, visW); if (n != w) { p.velX = 0; p.accX = 0; } p.viewX = n; }
+  if (z > 1 && p.viewY >= 0) { const int w = p.viewY + iy; int n = w; if (n > kPgH - visH) n = kPgH - visH; if (n < 0) n = 0; if (n != w) { p.velY = 0; p.accY = 0; } p.viewY = n; } }
+/* every frame with no finger down: keep gliding after a flick and slow down; true = view moved (redraw) */
+static bool pgPanTick(SPg &p) {
+  if (p.velX > -0.05f && p.velX < 0.05f && p.velY > -0.05f && p.velY < 0.05f) { p.velX = p.velY = 0; return false; }
+  pgPanBy(p, p.velX, p.velY); p.velX *= 0.92f; p.velY *= 0.92f; return true; }
 static void pgTouchMap(const SPg &p, int tx, int ty, int *mx, int *my) {
   int X0, Y0, X1, Y1; pgInner(&X0, &Y0, &X1, &Y1); const int z = p.zoom < 2 ? 1 : 2; const int ah = Y1 - Y0;
   if (z <= 1) { const int oy = Y0 + (ah - kPgH) / 2; *mx = tx - X0 + p.viewX; *my = ty - oy; }
@@ -730,13 +741,17 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   { static int prevZ = 1; if (z != prevZ && p.viewX >= 0) { const int oldW = aw / prevZ < 1 ? 1 : aw / prevZ; p.viewX = pgClampLeft(p, p.viewX + oldW / 2 - visW / 2, visW); if (z > 1) p.viewY = -1; p.glide = false; prevZ = z; } else prevZ = z; }
   const int mapW = pgMapLimit(p, visW); /* Kanto hidden: do not scroll into the empty east */
   int goal = cx - visW / 2; if (goal > mapW - visW) goal = mapW - visW; if (goal < 0) goal = 0;
+  int goalY = 0; if (z > 1) { int visH = ah / z; if (visH < 1) visH = 1; goalY = cy - visH / 2; if (goalY > kPgH - visH) goalY = kPgH - visH; if (goalY < 0) goalY = 0; }
+  const int q = P3DS_FpsTweaks() >= 5 ? 2 : 4; /* level 5: half the repaints, double the step */
   if (p.viewX < 0) { p.viewX = goal; p.glide = false; }
-  else if (p.glide) { const int d = goal - p.viewX; if (d >= -1 && d <= 1) { p.viewX = goal; p.glide = false; } else { const int q = P3DS_FpsTweaks() >= 5 ? 2 : 4; /* level 5: half the repaints, double the step */ p.viewX += d / q ? d / q : (d > 0 ? 1 : -1); } }
+  else if (p.glide) { int d = goal - p.viewX; if (d >= -1 && d <= 1) p.viewX = goal; else p.viewX += d / q ? d / q : (d > 0 ? 1 : -1);
+    if (z > 1 && p.viewY >= 0) { d = goalY - p.viewY; if (d >= -1 && d <= 1) p.viewY = goalY; else p.viewY += d / q ? d / q : (d > 0 ? 1 : -1); } /* the view eases up/down too, not only sideways */
+    if (p.viewX == goal && (z <= 1 || p.viewY < 0 || p.viewY == goalY)) p.glide = false; }
   p.moving = p.glide;
   if (p.viewX > mapW - visW) p.viewX = mapW - visW; if (p.viewX < 0) p.viewX = 0;
-  if (z <= 1) p.panAcc = 0;
+  if (z <= 1) { p.panAcc = 0; p.accX = p.accY = p.velX = p.velY = 0; }
   const int oy = Y0 + (ah - kPgH) / 2;
-  if (z > 1 && (p.glide || p.viewY < 0)) { int visH = ah / z; if (visH < 1) visH = 1; int top = cy - visH / 2; if (top > kPgH - visH) top = kPgH - visH; if (top < 0) top = 0; p.viewY = top; }
+  if (z > 1) { int visH = ah / z; if (visH < 1) visH = 1; if (p.viewY < 0) p.viewY = goalY; if (p.viewY > kPgH - visH) p.viewY = kPgH - visH; if (p.viewY < 0) p.viewY = 0; }
   const bool weatherEnabled = P3DS_AmbientWeatherCfg();
   const bool weather = weatherEnabled && p.weather;
   const bool finder = p.find > 0 && pgFindCfg();
