@@ -471,7 +471,7 @@ void G3G_Begin(u32 nativeClear, unsigned clearDepth16, int stereo) {
       smRun = s_SIM_useWBuffer && !stereo ? smRun + 1 : 0;
       /* 2026-10-28: only with SHARP 3D on. Its 2x target never fitted before (all passes FAILED, title at 1x = the known-good look);
          with SHARP 3D off the title stays on that 1x path whatever the VRAM room work does. */
-      const int sm = smRun >= 30 && P3DS_CfgInt("g3_smooth", 0) != 0 && P3DS_CfgInt("g3_sharp", 0) != 0;
+      const int sm = smRun >= 30 && P3DS_CfgInt("g3_smooth_dbg", 0) != 0 && P3DS_CfgInt("g3_sharp", 0) != 0; /* 2026-11-18: renamed from g3_smooth (row removed): the 2x title ran 19-22 fps, an old g3_smooth=1 line kept it on */
       if (sm != smLast) { smLast = sm; PSPNativeMemLog("[LUGIA] smooth title 3D (2x supersampled) %s | 3D on the %s screen (POWCNT %04x)", sm ? "ON" : "off", (*(const u16 *)(PSPNative_GfxRegisters + 0x304) & 0x8000) ? "TOP" : "BOTTOM", *(const u16 *)(PSPNative_GfxRegisters + 0x304)); }
       /* 2026-10-28 g3_sharp (missing-key default 3 = FAST AUTO, Settings > 3D > Sharp 3D, remove once tested): the same 2x target + box downscale for
          every scene (overworld, battles), mono or stereo (one target shared by both eyes, run 48). The run 52 "garbage" was the

@@ -356,7 +356,7 @@ static const struct { const char *key; int def; } kCfgDefaults[] = {
     /* 2026-11-09: used only when the key is absent. A saved line wins, including OFF and LEGACY. gpu_compose_b 1 = ON (2 stays CHECK). title_clean_sides 2 = WIDE. */
     { "g3_packets", 1 }, { "g3_fast_bounds", 1 }, { "gpu_compose_b", 1 }, { "gpu_obj_affine", 1 }, { "gpu_b_fades", 1 }, { "title_clean_sides", 2 },
     /* 2026-11-11: owner's config.txt, only when the key is absent. g3_sharp 3 = FAST AUTO (0..4). wild_vis_alive 2 = ON + TOWNS (0..2). */
-    { "g3_sharp", 3 }, { "g3_smooth", 0 }, { "dmg_check", 1 }, { "pg_find", 1 }, { "breed_tab", 1 }, { "reusable_tms", 1 }, { "pg_flytap", 1 }, { "roamer_sprites", 1 }, { "ambient_weather", 1 }, { "pokewalker", 1 },
+    { "g3_sharp", 3 }, { "g3_smooth_dbg", 0 }, { "dmg_check", 1 }, { "pg_find", 1 }, { "breed_tab", 1 }, { "reusable_tms", 1 }, { "pg_flytap", 1 }, { "roamer_sprites", 1 }, { "ambient_weather", 1 }, { "pokewalker", 1 },
     /* 2026-11-18 release cleanup: the Debug and Render settings tabs are gone, so the owner's tested 60 fps setup (run 927 config.txt) is the default.
        log_level 1 = SHORT (errors and events always written; detail kept in RAM and dumped on a crash). */
     { "fps60", 1 }, { "g3_thread", 1 }, { "fps60_pipe", 1 }, { "fps60_hold", 1 }, { "fps60_strips", 1 }, { "fps60_vram", 1 }, { "g3_xfcache", 1 },

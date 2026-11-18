@@ -853,8 +853,8 @@ static void wideWeatherRun(){memset(P3DS_WeatherObj,0,sizeof P3DS_WeatherObj);wi
    title, bag/party/Pokedex/summary menus, field screens whose 3D is off) fills the side areas with the centre
    picture's own edge, mirrored and softened (box blur 9x9, 80% brightness) instead of black bars. Built from the same
    frame's final picture, so fades/flashes follow; nothing is stretched, the centre stays native size. 0 = black bars. */
-extern "C" { u32 P3DS_WideFillBuf[64*192]; int P3DS_CfgInt(const char*,int); }
-static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",1)!=0; /* 2026-11-05 default 1 (Nathan: the whole game wide) */PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v;}
+extern "C" { u32 P3DS_WideFillBuf[64*192]; int P3DS_CfgInt(const char*,int); extern int P3DS_InIntroMovie; }
+static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",1)!=0; /* 2026-11-05 default 1 (Nathan: the whole game wide) */PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v&&!P3DS_InIntroMovie;} /* 2026-11-18: never in the intro movie (Nathan: the blurred edges looked wrong); its sides stay dark */
 static void wideFill(const u32*C){static u16 acc[3][64*192];
  /* mirror: left strip col i (DS x -32+i) <- x 31-i, right strip col i (DS x 256+i) <- x 255-i; horizontal 9-tap box */
  for(int y=0;y<192;y++){const u32*row=C+y*256;
@@ -1655,9 +1655,8 @@ static const SAppTab kTabs[kTotalTabs]={
      {kSeasonalTreesItem,"Seasonal trees","Changes common outdoor tree colors. Applies when the area reloads."},
      {kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
      {0,"FPS counter","Shows the frame rate on screen."}}},
- {5,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
+ {4,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up."},
-     {81,"Smooth title 3D","Draws the title screen 3D at double size for smoother edges."},
      {117,"Sharp 3D","3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps."},
      {115,"Sprite depth","Walking sprites (following Pokemon, NPCs, you) stand on the ground in 3D instead of leaning."}}},
  {13,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
