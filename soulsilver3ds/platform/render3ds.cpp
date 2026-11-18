@@ -853,8 +853,8 @@ static void wideWeatherRun(){memset(P3DS_WeatherObj,0,sizeof P3DS_WeatherObj);wi
    title, bag/party/Pokedex/summary menus, field screens whose 3D is off) fills the side areas with the centre
    picture's own edge, mirrored and softened (box blur 9x9, 80% brightness) instead of black bars. Built from the same
    frame's final picture, so fades/flashes follow; nothing is stretched, the centre stays native size. 0 = black bars. */
-extern "C" { u32 P3DS_WideFillBuf[64*192]; int P3DS_CfgInt(const char*,int); }
-static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",1)!=0; /* 2026-11-05 default 1 (Nathan: the whole game wide) */PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v;}
+extern "C" { u32 P3DS_WideFillBuf[64*192]; int P3DS_CfgInt(const char*,int); extern int P3DS_InIntroMovie; }
+static int wideFillCfg(){static int v=-1;if(v<0){v=P3DS_CfgInt("wide_fill",1)!=0; /* 2026-11-05 default 1 (Nathan: the whole game wide) */PSPNativeMemLog("[WIDE] wide_fill=%d",v);}return v&&!P3DS_InIntroMovie;} /* 2026-11-18: never in the intro movie (Nathan: the blurred edges looked wrong); its sides stay dark */
 static void wideFill(const u32*C){static u16 acc[3][64*192];
  /* mirror: left strip col i (DS x -32+i) <- x 31-i, right strip col i (DS x 256+i) <- x 255-i; horizontal 9-tap box */
  for(int y=0;y<192;y++){const u32*row=C+y*256;
@@ -1269,7 +1269,7 @@ static const MItem mItems[]={
  /* 116 (2026-10-28): bottom_bump, X steps a highlight over the Bottom menu tiles, A taps it, B drops it (run 49, replaces the wave); Controls tab, default ON until tested */
  {"X TILE CURSOR","bottom_bump",2,{"OFF","ON"}},
  /* 117 (2026-10-28, sharper picture thread): g3_sharp (g3gpu.c G3G_Begin), every 3D scene drawn at 2x and box-downscaled (4x supersampled edges), fog frames stay 1x; 3D tab, missing-key default FAST AUTO (3), remove once tested */
- {"SHARP 3D","g3_sharp",5,{"OFF","ON","FAST 3D","FAST AUTO","CRISP"}},
+ {"SHARP 3D","g3_sharp",4,{"OFF","ON","FAST 3D","FAST AUTO"}},
  /* 118 (2026-10-29, achievements): ach_toasts, default ON: Xbox-style toast on unlock; the list works either way; Play tab */
  {"ACHIEVEMENT TOASTS","ach_toasts",2,{"OFF","ON"}},
  /* 119 (2026-11-02, hook 0197): menu_grey_unsupported, default ON: title/continue menu greys options that cannot work on 3DS
@@ -1330,7 +1330,7 @@ static const MItem mItems[]={
  {"WIDE LAYOUTS","wide_layouts",2,{"OFF","ON"}},
  {"3D WORKER THREAD","g3_thread",3,{"OFF","ON","A/B TEST"}},
  /* fps60 (2026-11-15): in-between 3D frames in the overworld (g3gpu.c); experimental, default OFF */
- {"60 FPS FIELD","fps60",3,{"OFF","ON","A/B TEST"}},
+ {"60 FPS FIELD","fps60",2,{"OFF","ON"}},
  /* fps60_pipe: wide copies no longer break the 3D command list between the two eyes. Same picture. Default OFF. */
  {"60 FPS PIPE","fps60_pipe",2,{"OFF","ON"}},
  {"60 FPS HOLD","fps60_hold",2,{"OFF","ON"}},
@@ -1466,7 +1466,7 @@ static int menuGet(int i){
  if(i==kGtsPickerItem)return P3DS_CfgInt("gts_picker",0)!=0;
  if(i==kWideLayItem)return P3DS_WideLayoutsOn();
  if(i==kG3ThrItem)return P3DS_G3ThreadCfg();
- if(i==kFps60Item)return P3DS_Fps60Cfg();
+ if(i==kFps60Item)return P3DS_Fps60Cfg()!=0;
  if(i==kFps60PipeItem)return P3DS_CfgInt("fps60_pipe",0)!=0;
  if(i==kFps60HoldItem)return P3DS_CfgInt("fps60_hold",0)!=0;
  if(i==kFps60StripsItem)return P3DS_CfgInt("fps60_strips",0)!=0;
@@ -1486,7 +1486,7 @@ static int menuGet(int i){
  if(i==kGpuTimeItem)return G3G_GpuTimeCfg();
  if(i==kSeasonalTreesItem)return P3DS_CfgInt("seasonal_trees",0)!=0;
  if(i==kPokewalkerItem)return P3DS_CfgInt("pokewalker",0)!=0;
- if(i==kAmbientWeatherItem)return P3DS_AmbientWeatherCfg();if(i==kRoamSprItem)return pgRoamSpr()?1:0;if(i==kMapZoomItem)return pgMapZoomIdx();if(i==139)return titleCleanCfg();if(i==138)return P3DS_GcBFadesCfg();if(i==137)return P3DS_GcAffineCfg();if(i==136)return gpuBCfg();if(i==135)return P3DS_FastBoundsCfg();if(i==134)return P3DS_G3PacketCfg();if(i==kContestItem)return P3DS_ContestOn();if(i==kFlyTapItem)return pgFlyCfg()?1:0;if(i==kEvenItem)return evenCfg()?1:0;if(i==kSteadyItem)return steadyCfg()?1:0;if(i==kEventAnyItem)return evtCfg()?1:0;if(i==kGcDirectItem)return gcDirectCfg();if(i==kBatchCullItem)return P3DS_BatchCullCfg();if(i==kBreedItem)return brCfg();if(i==kPgFindItem)return pgFindCfg();if(i==kHuntStatsItem)return P3DS_CfgInt("hunt_stats",0)!=0;if(i==kPanelLiveItem)return panelLiveCfg();if(i==kAchToastItem)return P3DS_AchToastsOn()?1:0;if(i==kSharpItem){int v=P3DS_CfgInt("g3_sharp",0);return v<0?0:v>4?4:v;}if(i==kSprDepthItem)return P3DS_SpriteDepthCfg();if(i==kPmItem)return P3DS_PmShortcutsCfg();if(i==kAutoRunItem)return P3DS_CfgInt("auto_run",0)!=0;if(i==kPgExtrasItem){pxOn();return pxOnV;}if(i==kHintItem)return P3DS_CfgInt("type_hint",0)!=0;if(i==kTrackerItem)return P3DS_TrkOn();if(i==kRibbonItem)return P3DS_RibbonOn();if(i==kCelebItem)return P3DS_CelebOn();if(i==kHuntItem)return P3DS_HuntOn();if(i==kRateItem)return P3DS_HuntRateIdx();if(i==kBattItem)return P3DS_CfgInt("battery_warn",0)!=0;if(i==kFogHoleItem)return P3DS_FogHoleCfg();if((i>=kWildVisItem&&i<=kWildLastItem)||i==kWildAliveItem)return P3DS_WildVisCfg(wvIdx(i));if(i==kDcSkipItem)return P3DS_DcFlushSkipCfg();if(i==kWideBoxItem)return wideBoxCfg();if(i==kFpsTweakItem)return P3DS_FpsTweakRow();if(i==kWirelessItem){int w=P3DS_CfgInt("wireless",1);return w<0?0:w>2?2:w;}if(i==kUnionGuardItem)return P3DS_CfgInt("union_guard",1)!=0;if(i==kPanelPartyItem)return panelPartyCfg();if(i==kMenuGreyItem)return P3DS_MenuGreyUnsupportedCfg();if(i==kBottomHdItem)return bottomHdCfg();if(i==kWideDexItem)return wideDexCfg();if(i==kWidePcItem)return widePcCfg();if(i==kDirectItem)return G3G_DirectCfg();if(i==kGcNfItem)return gcStNfCfg();if(i==kVolumeItem)return volIdx();if(i==kLimiterItem){int a=P3DS_AudioLimiterV<0?P3DS_CfgInt("audio_limiter",3):P3DS_AudioLimiterV;return a<0?0:a>3?3:a;}if(i==kStallFadeItem)return P3DS_AudioStallFadeV<0?P3DS_CfgInt("audio_stallfade",0)!=0:P3DS_AudioStallFadeV;if(i==kSelectResetItem||i==kSkipIntroItem)return P3DS_CfgInt(mItems[i].key,0)!=0;if(i==kSmoothItem)return P3DS_CfgInt(mItems[i].key,1)!=0;if(i==kBumpItem)return bumpCfg();if(i==kWideScreensItem)return wideScreensCfg();if(i==kBottomMenuItem)return bmCfg();if(i==kPgKantoItem)return pkCfg();if(i==kWDepthItem||i==kWCpuItem||i==kBottomLayoutItem||i==kBottomMapItem)return 0;/* retired rows, in no tab */if(i==kWideBattleItem)return wideBattleCfg();if(i==kMenuBtnItem)return menuBtnCfg();if(i==kGpuBlendItem)return P3DS_GpuBlendCfg();if(i>=33)return genGet(i-33);if(i>=27)return P3DS_Cheat(i-27);switch(i){case 0:return fpsOn?1:0;case 1:return wideCfg>0?1:0;case 2:return P3DS_ScaleMode();case 3:return P3DS_CstickMode()==2?1:0; /* ss3ds: 0 off, 1 = D-pad (mode 2) */
+ if(i==kAmbientWeatherItem)return P3DS_AmbientWeatherCfg();if(i==kRoamSprItem)return pgRoamSpr()?1:0;if(i==kMapZoomItem)return pgMapZoomIdx();if(i==139)return titleCleanCfg();if(i==138)return P3DS_GcBFadesCfg();if(i==137)return P3DS_GcAffineCfg();if(i==136)return gpuBCfg();if(i==135)return P3DS_FastBoundsCfg();if(i==134)return P3DS_G3PacketCfg();if(i==kContestItem)return P3DS_ContestOn();if(i==kFlyTapItem)return pgFlyCfg()?1:0;if(i==kEvenItem)return evenCfg()?1:0;if(i==kSteadyItem)return steadyCfg()?1:0;if(i==kEventAnyItem)return evtCfg()?1:0;if(i==kGcDirectItem)return gcDirectCfg();if(i==kBatchCullItem)return P3DS_BatchCullCfg();if(i==kBreedItem)return brCfg();if(i==kPgFindItem)return pgFindCfg();if(i==kHuntStatsItem)return P3DS_CfgInt("hunt_stats",0)!=0;if(i==kPanelLiveItem)return panelLiveCfg();if(i==kAchToastItem)return P3DS_AchToastsOn()?1:0;if(i==kSharpItem){int v=P3DS_CfgInt("g3_sharp",0);return v<0?0:v>3?3:v;}if(i==kSprDepthItem)return P3DS_SpriteDepthCfg();if(i==kPmItem)return P3DS_PmShortcutsCfg();if(i==kAutoRunItem)return P3DS_CfgInt("auto_run",0)!=0;if(i==kPgExtrasItem){pxOn();return pxOnV;}if(i==kHintItem)return P3DS_CfgInt("type_hint",0)!=0;if(i==kTrackerItem)return P3DS_TrkOn();if(i==kRibbonItem)return P3DS_RibbonOn();if(i==kCelebItem)return P3DS_CelebOn();if(i==kHuntItem)return P3DS_HuntOn();if(i==kRateItem)return P3DS_HuntRateIdx();if(i==kBattItem)return P3DS_CfgInt("battery_warn",0)!=0;if(i==kFogHoleItem)return P3DS_FogHoleCfg();if((i>=kWildVisItem&&i<=kWildLastItem)||i==kWildAliveItem)return P3DS_WildVisCfg(wvIdx(i));if(i==kDcSkipItem)return P3DS_DcFlushSkipCfg();if(i==kWideBoxItem)return wideBoxCfg();if(i==kFpsTweakItem)return P3DS_FpsTweakRow();if(i==kWirelessItem){int w=P3DS_CfgInt("wireless",1);return w<0?0:w>2?2:w;}if(i==kUnionGuardItem)return P3DS_CfgInt("union_guard",1)!=0;if(i==kPanelPartyItem)return panelPartyCfg();if(i==kMenuGreyItem)return P3DS_MenuGreyUnsupportedCfg();if(i==kBottomHdItem)return bottomHdCfg();if(i==kWideDexItem)return wideDexCfg();if(i==kWidePcItem)return widePcCfg();if(i==kDirectItem)return G3G_DirectCfg();if(i==kGcNfItem)return gcStNfCfg();if(i==kVolumeItem)return volIdx();if(i==kLimiterItem){int a=P3DS_AudioLimiterV<0?P3DS_CfgInt("audio_limiter",3):P3DS_AudioLimiterV;return a<0?0:a>3?3:a;}if(i==kStallFadeItem)return P3DS_AudioStallFadeV<0?P3DS_CfgInt("audio_stallfade",0)!=0:P3DS_AudioStallFadeV;if(i==kSelectResetItem||i==kSkipIntroItem)return P3DS_CfgInt(mItems[i].key,0)!=0;if(i==kSmoothItem)return P3DS_CfgInt(mItems[i].key,1)!=0;if(i==kBumpItem)return bumpCfg();if(i==kWideScreensItem)return wideScreensCfg();if(i==kBottomMenuItem)return bmCfg();if(i==kPgKantoItem)return pkCfg();if(i==kWDepthItem||i==kWCpuItem||i==kBottomLayoutItem||i==kBottomMapItem)return 0;/* retired rows, in no tab */if(i==kWideBattleItem)return wideBattleCfg();if(i==kMenuBtnItem)return menuBtnCfg();if(i==kGpuBlendItem)return P3DS_GpuBlendCfg();if(i>=33)return genGet(i-33);if(i>=27)return P3DS_Cheat(i-27);switch(i){case 0:return fpsOn?1:0;case 1:return wideCfg>0?1:0;case 2:return P3DS_ScaleMode();case 3:return P3DS_CstickMode()==2?1:0; /* ss3ds: 0 off, 1 = D-pad (mode 2) */
  case 4:return P3DS_CtlZl>0?1:0;case 5:return P3DS_CtlZr>0?1:0;case 6:return P3DS_CtlCp>0?1:0;case 7:return P3DS_WideFxCfg()?1:0;case 8:return P3DS_LogLevel()>=2?1:0;
  case 9:return P3DS_CamZoom()+2;case 10:return stereoStr<0?0:stereoStr;case 11:return P3DS_GpuSwizzle()?1:0;case 12:return G3G_FastConv()?1:0;case 13:return splitCfg>0?1:0;case 14:return P3DS_FollowerCfg()?1:0;case 15:return P3DS_GpuComposeCfg();
  case 16:return P3DS_FollowerSlotCfg();case 17:return P3DS_FollowerTalkCfg();case 18:return menuAudioCfg();case 19:return gcStereoCfg();case 20:return stereo2dCfg();case 21:return P3DS_WideHazeCfg();case 22:return fastTextIdx(P3DS_FastTextCfg());case 23:return P3DS_ReusableTMsCfg();case 24:return P3DS_CheatNoEncCfg();case 25:return repelPrompt();case 26:return sumIvCfg();}return 0;}
@@ -1534,7 +1534,7 @@ static void prettyLab(char*d,const char*s,int n);
    items/getters/setters, changes applied on close and written to config.txt. Redesigned for SoulSilver: only the
    options that work in this port (Platinum's game-side extras - cheats, Pal followers, catch info, Start-menu
    shortcuts, wild map, Distortion World - need hooks in Platinum's game code and are gone), drawn in SoulSilver's
-   font and message-box frame with ss3ds_settings_ui.h. Tabs Display / Wide / 3D / Input / Battle / Play / Setup (+ Debug with SELECT),
+   font and message-box frame with ss3ds_settings_ui.h. Tabs Display / Wide / 3D / Input / Battle / Play / Setup,
    a scrolling list with a tooltip under it (kTabs): Up/Down = row, Left/Right or X/A = value, tap a value's left / right half to step it,
    L/R = tab, B / START / L+R+Y close. The top screen shows the dimmed game picture with the title and the version. ---- */
 #ifndef P3DS_VERSION
@@ -1642,32 +1642,34 @@ struct SAppRow{int it;const char*nm,*tip;};
 enum { kMaxTabRows = 26 };
 struct SAppTab{int n;SAppRow r[kMaxTabRows];};
 /* the Wide tab was removed (its rows stay in config.txt: wide_battle, wide_boxes, wide_menus ... all default ON, wide_fx default OFF) */
-enum { kPlayerTabs = 6, kTotalTabs = 8 };
-static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Play","Setup","Debug","Render"};
+/* 2026-11-18 release cleanup: the hidden Debug and Render tabs are gone. Their keys keep their tuned defaults in psp_ctru.c kCfgDefaults
+   (config.txt still overrides them as an escape hatch); FPS counter moved to Display. */
+enum { kPlayerTabs = 6, kTotalTabs = 6 };
+static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Play","Setup"};
 static const SAppTab kTabs[kTotalTabs]={
- {7,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
-     {kWideLayItem,"Wide layouts","Experimental. Menu screens are laid out for the full 400 px width instead of filling the sides."},
+ {8,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+     {kWideLayItem,"Wide layouts","Menu screens are laid out for the full 400 px width instead of filling the sides."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {139,"Title layout","Classic uses plain borders. Wide fills the screen with the animated backdrop and keeps the logo proportional."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
      {kSeasonalTreesItem,"Seasonal trees","Changes common outdoor tree colors. Applies when the area reloads."},
-     {kFps60Item,"60 fps field","Experimental. Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth. A/B TEST switches it OFF and ON every ~40 s so one log compares both. Needs GPU 3D direct and Direct screen ON."}}},
- {5,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
+     {kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
+     {0,"FPS counter","Shows the frame rate on screen."}}},
+ {4,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up."},
-     {81,"Smooth title 3D","Draws the title screen 3D at double size for smoother edges."},
-     {117,"Sharp 3D","Experimental: 3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps. CRISP (test): 3D drawn at the final screen size where nothing is on top of it; needs Wide view off and the 3D slider at 0."},
-     {115,"Sprite depth","Walking sprites (following Pokemon, NPCs, you) stand on the ground in 3D instead of leaning. Experimental."}}},
+     {117,"Sharp 3D","3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps."},
+     {115,"Sprite depth","Walking sprites (following Pokemon, NPCs, you) stand on the ground in 3D instead of leaning."}}},
  {13,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
      {112,"Pokegear tabs","Original opens the game Phone and Radio in the Johto panel. Previews shows contact and station lists. Off hides the tabs."},
-     {120,"Party in panel","PARTY tab opens the real Pokemon menu inside the left panel; the field stays on the top screen. OFF = full-screen Party (run 119). Summary and reorder use the game's own menus. Experimental."},
-     {121,"Live party/bag","PARTY and BAG tabs work with the world still running: tap two Pokemon to swap them, or a medicine then a Pokemon to use it. MENU opens the full menu. Experimental."},
-     {124,"Pokedex finder","On the JOHTO map tap a place, tap its card for the wild list, then tap a Pokemon: the map pins every place it lives. Chips filter by MORN / DAY / NITE; X clears. Experimental."},
-     {132,"Tap to Fly","On the JOHTO map tap a town you can Fly to, then the green FLY chip on its card: the game's own Fly starts (needs the Storm Badge, a Pokemon with Fly or HM-free, and an outdoor map). Experimental."},
+     {120,"Party in panel","PARTY tab opens the real Pokemon menu inside the left panel; the field stays on the top screen. OFF = full-screen Party. Summary and reorder use the game's own menus."},
+     {121,"Live party/bag","PARTY and BAG tabs work with the world still running: tap two Pokemon to swap them, or a medicine then a Pokemon to use it. MENU opens the full menu."},
+     {124,"Pokedex finder","On the JOHTO map tap a place, tap its card for the wild list, then tap a Pokemon: the map pins every place it lives. Chips filter by MORN / DAY / NITE; X clears."},
+     {132,"Tap to Fly","On the JOHTO map tap a town you can Fly to, then the green FLY chip on its card: the game's own Fly starts (needs the Storm Badge, a Pokemon with Fly or HM-free, and an outdoor map)."},
      {84,"Kanto on map","GATED: Kanto appears once you have been there. ALWAYS: shown from the start."},
      {73,"Menu button","A touch button in the corner that opens these settings. L+R+Y always works."},
      {114,"Auto run","Run by default; B walks instead. ZL or the RUN tile still flip it."},
      {116,"X tile cursor","X (or the D-pad) moves a highlight over the Bottom menu buttons, A taps the lit one, B drops it."},
-      {133,"Contest helper","Bug-Catching Contest: a card on the Bottom menu panel shows minutes left, Sport Balls left and the Pokemon you hold. Read-only. Experimental."},
+      {133,"Contest helper","Bug-Catching Contest: a card on the Bottom menu panel shows minutes left, Sport Balls left and the Pokemon you hold. Read-only."},
       {140,"Map zoom","Closer Johto map. 1X is the normal map. 2X zooms in. The - and + on the map do the same."},
       {141,"Roamer sprites","Roamers use their icon from your ROM. OFF keeps the coloured letter. Needs the roamer tracker."}}},
  {14,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
@@ -1697,53 +1699,16 @@ static const SAppTab kTabs[kTotalTabs]={
       {22,"Fast text","Speeds up text boxes: 2X, 4X, or instant. Never skips a prompt."},
       {69,"Hold B skips text","Holding B prints text instantly and moves on. Never picks a choice."},
       {70,"Auto-advance text","Text boxes move on by themselves after a moment."},
-      {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions. Experimental."}}},
- {12,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
+      {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions."}}},
+ {9,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
      {130,"Steady music","Keeps the field music at one volume. The game fades it down near water, trees and waterfalls and back up after. Ambient sounds still play."},
      {18,"Menu music","Keeps music playing while this settings screen is open."},
-     {125,"Breeding tab","Adds an EGGS tab to the Johto panel (needs Pokegear tabs enabled): what is in the Day-Care, levels gained, whether an egg is waiting, and steps left on the eggs in your party. Read-only. Experimental."},
+     {125,"Breeding tab","Adds an EGGS tab to the Johto panel (needs Pokegear tabs enabled): what is in the Day-Care, levels gained, whether an egg is waiting, and steps left on the eggs in your party. Read-only."},
      {51,"Save backups","Keeps 8 rotating copies of your save: at launch, after each save, at exit."},
      {109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
-     {52,"Log size limit","Largest log.txt written to the SD card."},
-     {8,"Log detail","SHORT is normal. FULL writes much more and can slow the game."},
-     {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS), very early test."},
-     {119,"Grey unsupported menu","Title menu: greys Connect to Wii / Nintendo WFC Settings / Wii Message Settings / Ranger / Migrate AGB (dead on 3DS). A/touch buzzes. Mystery Gift greys receive methods unavailable in the current Wireless mode. OFF = original."},
-     {kGtsPickerItem,"GTS server picker","Experimental. Adds Online Settings to the title menu."},
-     {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app. Experimental."}}},
- {8,{{0,"FPS counter","Shows the frame rate on screen. Only useful for checking speed."},
-     {86,"Audio limiter","Pulls loud moments down instead of letting them crackle."},
-     {87,"Audio stall fade","Fades sound out when the game stops making any, instead of buzzing."},
-     {94,"Speed tweaks","Experimental speed-ups, each level adds more. +PARALLEL splits the 3D pixel passes over two cores (for 3D slider on). Leave OFF if unsure."},
-     {96,"Skip cache flushes","Experimental: ignores the game's own cache flushes. Leave OFF."},
-     {kG3ProfItem,"3D profile","Every 60 3D frames, one log line: idle, front, wait (worker stalls), cmd, raw, flush, expand, end. OFF writes the older 300-frame average only."},
-     {kPresentPaceItem,"Present pace","NONBLOCK GPU FrameBegin so a frame that just misses 60 does not snap to 30. tearfree still waits before swap (no tearing). Leave OFF if unsure."},
-     {kGpuTimeItem,"GPU pass timing","Log only: every 30th 3D frame waits after each GPU pass and writes how long each took ([GPUT] lines). Costs a little speed on that one frame. Leave OFF for normal play."}}},
- {26,{{kG3ThrItem,"3D worker thread","Experimental: does the 3D vertex work on a second core. A/B TEST switches it OFF and ON every ~40 s so one log compares both. If the game hangs or looks wrong, turn it OFF."},
-     {kG3TexSafeItem,"3D tex safe","With 3D worker thread ON: after VBlank, upload a new GPU texture instead of updating one this frame already queued (stops brief texture flashes while walking). Safe with 3D tex fence (defers frees while pins are held). Leave OFF if unsure."},
-     {kG3TexFenceItem,"3D tex fence","With 3D worker thread ON: OFF = depth-1. ON = pin in-flight textures so GetTexture need not wait. DEEP = also skip TexCreate idle wait (deeper front/cmd vs raw overlap). Leave OFF if unsure."},
-     {kG3WakeItem,"3D wake every job","With 3D worker thread ON: wake the worker on every queued draw instead of every 6. Same picture; may cut wait time. Leave OFF if unsure."},
-     {kG3FrontOvItem,"3D front overlap","With 3D worker thread ON: wake every job and side-buffer decode post-VBlank textures while waiting for the worker. Freezes pinned textures so check stays 0. Auto-OFF if a frame submits geometry but draws 0 tris. Leave OFF if unsure."},
-     {kG3FrontBgItem,"3D front bg","With 3D worker thread ON: side-buffer post-VBlank prep during drain without wake-every (lighter than front overlap). Leave OFF if unsure."},
-     {kG3StereoShareItem,"3D stereo share","With the 3D slider up: TriClip2 writes left only, then expands the right eye after the worker drains (bit-identical). Heap stereoDsh (not linearAlloc). Log [G3STER] leftOnly>>dual when engaged. Leave OFF if unsure."},
-     {kG3StereoGpuItem,"3D stereo GPU","With 3D stereo share ON: End draws the right eye from the left vb via g3s (prefers gpuRight; hard-clip/translucent keep left+dsh). Log [G3STER] path + reasons. Leave OFF if unsure."},
-     {89,"GPU 3D direct","Experimental: keeps the 3D layer on the GPU. Leave OFF."},
-     {127,"Direct screen","Speed: the finished picture goes from the GPU to the screen without a copy through the CPU. Same picture. Turn OFF only if the top screen looks wrong."},
-     {kFps60PipeItem,"60 fps pipe","Wide view only. Batches transfers after drawing and skips unused centre copies when the CPU blends the picture."},
-     {kFps60HoldItem,"60 fps hold","When the camera, sprites, tiles and 3D are all still, show the real frame again instead of drawing an in-between. OFF skips that repeat."},
-     {kFps60StripsItem,"60 fps strips","Copies 192 visible rows for Wide in-between strips and CPU-blended Wide frames with 60 fps pipe on."},
-     {kFps60VramItem,"60 fps VRAM","Tries to keep the second screen picture and both in-between pictures in video memory together. If that does not fit, nothing changes. OFF does not try."},
-     {kFps60AreaItem,"60 fps area","Writes one log line per area: about every 10 seconds, and when the zone or map changes. OFF writes none."},
-     {kG3XfItem,"3D transform cache","Speed: when a cached 3D model is drawn again with the same matrix, reuse its transformed triangles. Same picture. OFF never reuses."},
-     {13,"Split top (mono)","Experimental: two CPU cores draw the top screen when 3D is off."},
-     {126,"Off-screen skip","Speed: 3D scenery that is wholly off screen is skipped before any work is done on it. Same picture. Turn OFF only if 3D bits go missing."},
-     {134,"Command shortcut","Experimental speed improvement: handles small 3D setup commands with less CPU work. Keeps the same geometry and stereo view."},
-     {135,"Bounds shortcut","Experimental speed improvement: calculates the same off-screen bounds with less CPU work. Keeps wide scenery and stereo depth."},
-     {136,"Second screen GPU","Experimental: draws compatible second-screen frames on the GPU, with automatic CPU fallback. CHECK compares pixels while showing the original picture."},
-     {137,"Affine object GPU","Experimental: preserves fixed-point sprite sampling while composing rotating and scaling sprites through the GPU tile atlas."},
-     {138,"Second screen fades","Experimental: exact brightness and alpha endpoints on the second screen. Unsupported alpha effects keep CPU fallback."},
-     {71,"3D frame reuse","Reuses the last 3D picture when nothing changed, to save time."},
-     {88,"GPU compose 3D menus","Same, for battles and menus."},
-     {kG3FastXfItem,"3D fast xform","Hoists the clip matrix in the raw transform loop (less VFP reload). Same picture. New 3DS has no NEON; stereo already transforms once for both eyes."}}},
+     {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS)."},
+     {kGtsPickerItem,"GTS server picker","Adds Online Settings to the title menu."},
+     {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app."}}},
 };
 static void prettyLab(char*d,const char*s,int n){/* run 64: "WIDE VIEW FX" -> "Wide view FX" (acronyms kept) */
  static const char*const acr[]={"FPS","GPU","ZL","ZR","FX","3D","1X","2X","25X","5X","ROM","IV","EV","TM","HM","LED","UI","OK","KB","MB","Y","X","A","B","L","R"};
@@ -1905,13 +1870,12 @@ static void runApp(const u32*top,int mode,bool gpu){
  enum{N=MENU_N};int val[N];for(int i=0;i<N;i++)val[i]=menuGet(i);int old[N];memcpy(old,val,sizeof old);
  for(int i=0;i<256*192;i++){u32 c=base[i];base[i]=((c>>1)&0x007F7F7Fu)|(c&0xFF000000u);}
  P3DS_MenuOpen=1;P3DS_OvN=0;P3DS_BmOn=0;P3DS_Toast("");toastAt=0; /* the JOHTO icon overlay is drawn by the GPU present; clear it so it cannot sit on top of the settings screen */
- static bool dbgTabs=false;static int tab=0;int NT=dbgTabs?kTotalTabs:kPlayerTabs;if(tab>=NT)tab=0;int sel=0,ltop=0;
+ static int tab=0;const int NT=kPlayerTabs;if(tab>=NT)tab=0;int sel=0,ltop=0;
  PSPNativeMemLog("[APP] settings open (tab %s, font %d, frame %d)",kTabNm[tab],P3DS_GameFontReady(),P3DS_GameBoxReady());
  u32 held=hidKeysHeld();bool wasTouch=(held&KEY_TOUCH)!=0;u64 t0=svcGetSystemTick();
  while(aptMainLoop()){
   hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
   if(kd&(KEY_B|KEY_START))break;if((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R))break;
-  if(kd&KEY_SELECT){dbgTabs=!dbgTabs;NT=dbgTabs?kTotalTabs:kPlayerTabs;if(tab>=NT)tab=0;sel=0;PSPNativeMemLog("[APP] debug tabs %s",dbgTabs?"shown":"hidden");}
   if(kd&KEY_L){tab=(tab+NT-1)%NT;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}if(kd&KEY_R){tab=(tab+1)%NT;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}
   const SAppTab&T=kTabs[tab];const int cnt=T.n;
   /* Up/Down = row, Left/X = value back, Right/A = value forward */
@@ -1929,7 +1893,7 @@ static void runApp(const u32*top,int mode,bool gpu){
   /* top: dimmed game + title box with version */
   memcpy(img,base,PX*4);
   if(useGF()){P3DS_GameBoxDraw(img,256,256,192,16,16,216,32);gtxt(img,18,16,"Settings  (game paused)",kMsgFg,kMsgSh);gtxt(img,18,32,kAppVer,0x00787878u,0x00D0D0D0u);
-   P3DS_GameBoxDraw(img,256,256,192,16,152,216,32);gtxt(img,18,152,"Up/Down: setting  Left/Right: change",kMsgFg,kMsgSh);gtxt(img,18,168,"L/R: tab   SELECT: advanced   B: close",kMsgFg,kMsgSh);}
+   P3DS_GameBoxDraw(img,256,256,192,16,152,216,32);gtxt(img,18,152,"Up/Down: setting  Left/Right: change",kMsgFg,kMsgSh);gtxt(img,18,168,"L/R: tab   B: close",kMsgFg,kMsgSh);}
   else{menuBox(img,8,10,248,52,0x00703020u,0x00F0E0D0u);drawBig(img,16,18,"SETTINGS (PAUSED)",0x00F8F0E0u);drawBig(img,16,34,"SOULSILVER 3DS",0x00E0C8B0u);}
   /* bottom: the app */
   suiBackground(bimg);suiHeader(bimg,kSuiText,kTabNm,NT,tab,nullptr);

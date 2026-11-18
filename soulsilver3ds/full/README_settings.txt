@@ -1,5 +1,9 @@
 SoulSilver 3DS port - settings (sdmc:/3ds/soulsilver3ds/config.txt)
 
+NOTE (2026-11-18): the in-game menu (L+R+Y) now has Display, 3D, Input, Battle, Play and Setup tabs only. The old Debug and Render tabs were removed;
+wherever this file says "Debug tab", that row no longer exists and the key is a config-only escape hatch with its tested default built in.
+Players never need to edit config.txt.
+
 NOTE: this file started as the Platinum 3DS port's settings list. Keys for Platinum-only features (Distortion World dw_*,
 Pal/Poketch extras, touch_menu, bottom_strip, cheat_pp, cheat_speed, cheat_walk_walls, cheat_time, item_ping, tod_tint) are NOT implemented in the SoulSilver port
 and are ignored; the [CFG] section at the top of log.txt flags them. Keys used by this port are listed in the log header, and the
@@ -338,8 +342,7 @@ cheat_eggs=1            Fast eggs: eggs in your party hatch after a few steps (e
 cheat_exp=1 / 2         EXP boost: battle EXP x2 / x3.
 cheat_candy=1           Rare Candy 99: in the overworld your Bag is topped up to 99 Rare Candies (the Bag allows 999).
 cheat_no_encounters=1   (run 64) no random wild battles.
-Debug tab (run 67): the old Speed tab (fast upload, fast 3D convert, GPU compose, GPU compose 3D, log detail) is hidden;
-press SELECT inside the settings app to show / hide it. The config.txt keys still work as before.
+Debug tab (run 67, removed 2026-11-18): the old Speed tab rows are gone from the menu. The config.txt keys still work as before.
 Run 67: config.txt is read from the SD card once and then kept in memory (it used to be re-read after every map
 change / battle, ~13 ms each on hardware).
 lid_sound=1             (run 64, default 1; run 65 sounds) Closing the lid plays the game's Poke Ball recall

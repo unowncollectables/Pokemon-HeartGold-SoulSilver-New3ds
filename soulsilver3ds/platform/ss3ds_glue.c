@@ -118,6 +118,10 @@ int P3DS_InTitle;
 int P3DS_InPokewalker;
 extern const char ov112_App_MainMenu_SelectOption_ConnectToPokewalker[];
 extern const char gApplication_TitleScreen[] __attribute__((weak));
+/* 2026-11-18: the start-up intro movie (Ho-Oh/Lugia scenes before the title). render3ds.cpp leaves its wide side strips dark
+   instead of the mirrored, blurred picture edge (wideFill), which looked like smeared edges there. */
+int P3DS_InIntroMovie;
+extern const char gApplication_IntroMovie[] __attribute__((weak));
 /* wide_menu_screens: party menu, bag and Pokemon summary. Weak: a renamed symbol just leaves the toggle without effect;
    the first template changes are logged so the log shows which pointers were seen. */
 int P3DS_InWideMenu;
@@ -137,6 +141,7 @@ void *__wrap_OverlayManager_New(const void *template, void *parentWork, int heap
 {
     const int field = template && template == (const void *)ov01_02206378;
     {int title=gApplication_TitleScreen&&template==(const void*)gApplication_TitleScreen;if(title!=P3DS_InTitle){extern void PSPNativeMemLog(const char*,...);PSPNativeMemLog("[TITLE] overlay active=%d",title);}P3DS_InTitle=title;}
+    {const int im=gApplication_IntroMovie&&template==(const void*)gApplication_IntroMovie;if(im!=P3DS_InIntroMovie){extern void PSPNativeMemLog(const char*,...);PSPNativeMemLog("[TITLE] intro movie active=%d (wide sides dark, no edge blur)",im);}P3DS_InIntroMovie=im;}
     if (field != P3DS_InField) { extern void PSPNativeMemLog(const char *, ...); PSPNativeMemLog("[3DS] field %d", field); }
     P3DS_InField = field;
     const int pokewalker = template == (const void *)ov112_App_MainMenu_SelectOption_ConnectToPokewalker;
