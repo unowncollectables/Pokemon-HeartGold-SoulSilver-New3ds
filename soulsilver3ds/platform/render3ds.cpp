@@ -2702,9 +2702,11 @@ static int Present(bool){
    if(gPg.failed&&!pgLogged){pgLogged=true;PSPNativeMemLog("[PGMAP] Pokegear map data not usable: JOHTO layout shows the explored-cell map");}
    {static unsigned lastCt;if(P3DS_ContestTick!=lastCt){lastCt=P3DS_ContestTick;BLINV;}static unsigned lastTrk;if(P3DS_TrkTick!=lastTrk){lastTrk=P3DS_TrkTick;BLINV;}static unsigned lastTrkStep;if(P3DS_TrkStepTick!=lastTrkStep){lastTrkStep=P3DS_TrkStepTick;if(gPg.ov)BLINV;}} /* run 45: tracker data changed */
    const uint32_t tid=P3DS_PgTid;
-   if(tid&&(!gPg.tidKnown||gPg.tid!=tid)){pgLoadVisited(gPg,tid,"sdmc:/3ds/soulsilver3ds/visited.bin");gPg.lastLoc=-2;BLINV;PSPNativeMemLog("[PGMAP] visited.bin for trainer %05u: %d of %d locations visited",(unsigned)(tid&0xFFFF),pgCount(gPg),kPgN);}
+   if(tid&&(!gPg.tidKnown||gPg.tid!=tid)){pgLoadVisited(gPg,tid,"sdmc:/3ds/soulsilver3ds/visited.bin");pgSubLoad(gPg,tid,"sdmc:/3ds/soulsilver3ds/subareas.bin");gPg.lastLoc=-2;BLINV;PSPNativeMemLog("[PGMAP] visited.bin for trainer %05u: %d of %d locations visited",(unsigned)(tid&0xFFFF),pgCount(gPg),kPgN);}
    if(gPg.tidKnown&&P3DS_PgLoc!=gPg.lastLoc){gPg.lastLoc=P3DS_PgLoc;gPg.glide=true;BLINV;
     if(pgMark(gPg,P3DS_PgLoc))PSPNativeMemLog("[PGMAP] first visit: location %d '%s' (%d of %d)",P3DS_PgLoc,P3DS_PgName[P3DS_PgLoc],pgCount(gPg),kPgN);}
+   if(gPg.tidKnown&&P3DS_SubN>0){static int lastSec=-1;static int lastN=0;const int sc=P3DS_MmSec;if(sc!=lastSec||P3DS_SubN!=lastN){lastSec=sc;lastN=P3DS_SubN;if(pgSubMark(gPg,sc)){BLINV;PSPNativeMemLog("[SUBAREA] first visit: section %d (%d sub-areas known)",sc,P3DS_SubN);}}}
+   {static u64 lastS;const u64 now=svcGetSystemTick();if(gPg.subDirty&&now-lastS>SYSCLOCK_ARM11*2){lastS=now;if(!pgSubSave(gPg,"sdmc:/3ds/soulsilver3ds/subareas.bin"))PSPNativeMemLog("[SUBAREA] subareas.bin write FAILED");}}
    {static u64 lastT;const u64 now=svcGetSystemTick();if(gPg.dirty&&now-lastT>SYSCLOCK_ARM11*2){lastT=now;if(!pgSaveVisited(gPg,"sdmc:/3ds/soulsilver3ds/visited.bin"))PSPNativeMemLog("[PGMAP] visited.bin write FAILED");}}
    if(gPg.decoded&&gPg.tidKnown&&P3DS_PgReady&&pgKantoUpdate(gPg,pkCfg())){BLINV;
     if(gPg.kantoX==-3){gPg.kantoX=-4;PSPNativeMemLog("[PGMAP] Kanto gate off: no Kanto town name found in the Pokegear location names");}
@@ -2886,7 +2888,8 @@ static int Present(bool){
         else if(fst!=0){static const char*const kWhy[]={"READY","CANNOT FLY HERE","NEED STORM BADGE","NOT NOW","NO POKEMON FOR FLY"};P3DS_Toast(fst>=1&&fst<=4?kWhy[fst]:"TAKE A STEP FIRST");PSPNativeMemLog("[FLY] tap '%s' (map %d) refused: Fly state %d%s",P3DS_PgName[gPg.sel],fm,fst,fst<0?" (hook 0228 has not reported yet)":"");}
         else{P3DS_FlyRes=0;P3DS_FlyReq=fm;PSPNativeMemLog("[FLY] tap FLY on '%s' (map %d): asked the game to fly there",P3DS_PgName[gPg.sel],fm);}}
       else if(pgFindCfg()&&gPg.sel>=0&&tY0>=cardTop&&(fsp=pgWildHit(gPg,tX0,tY0))>0){gPg.find=fsp;gPg.findTm=0;gPg.page=0;gPg.sel=-1;gPg.glide=false;BLINV;PSPNativeMemLog("[FIND] %s: %d places (time table %s)",kP3dsSpecies[fsp],pgFindCount(gPg),pgTmHave()?"ok":"missing, hook 0209 not in this build");}
-      else if(gPg.sel>=0&&tY0>=cardTop){gPg.page=!gPg.page;BLINV;int wl[64],cg=0;const int wn=pgWild(gPg.sel,wl,64,&cg);PSPNativeMemLog("[PGMAP] card page %s for '%s' (wild %d, caught %d%s)",gPg.page?"wild list":"info",P3DS_PgName[gPg.sel],wn,cg,P3DS_PsReady&&P3DS_PsStat[gPg.sel][0]&&!wn?", hook 0084 missing":"");}
+      else if(gPg.sel>=0&&!gPg.page&&gPg.subX1>gPg.subX0&&tX0>=gPg.subX0-3&&tX0<gPg.subX1+3&&tY0>=gPg.subY0-3&&tY0<gPg.subY1+3){gPg.page=2;BLINV;PSPNativeMemLog("[SUBAREA] card page areas for '%s' (%d)",P3DS_PgName[gPg.sel],pgSubCount(gPg,gPg.sel,0));}
+      else if(gPg.sel>=0&&tY0>=cardTop){gPg.page=gPg.page==2?0:!gPg.page;BLINV;int wl[64],cg=0;const int wn=pgWild(gPg.sel,wl,64,&cg);PSPNativeMemLog("[PGMAP] card page %s for '%s' (wild %d, caught %d%s)",gPg.page?"wild list":"info",P3DS_PgName[gPg.sel],wn,cg,P3DS_PsReady&&P3DS_PsStat[gPg.sel][0]&&!wn?", hook 0084 missing":"");}
       else{/* 2026-11-18 pen: a tap just beside a small town still picks it */const int lx=pgHitLoc(mx,my);int l=fastTabsCfg()?pgHitLocNear(mx,my,gPg.zoom<2?4:2):lx;if(l>=0){int sx,sy,sw,sh;pgSpecRect(l,&sx,&sy,&sw,&sh);if(l==lx?pgHiddenAt(gPg,mx,my):pgHiddenAt(gPg,sx*8+sw*4,sy*8+sh*4))l=-1;}gPg.sel=(l==gPg.sel)?-1:l;gPg.page=0;BLINV;
       PSPNativeMemLog("[PGMAP] tap map %d,%d -> location %d '%s' (%s)",mx,my,l,l>=0?P3DS_PgName[l]:"",l>=0&&pgVis(gPg,l)?"visited":"not visited");}}
      else PSPNativeMemLog("[PGMAP] map panned to x %d",gPg.viewX);}

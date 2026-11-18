@@ -40,6 +40,8 @@ volatile int P3DS_PsReady; volatile uint32_t P3DS_PsTick; uint16_t P3DS_PsStat[1
 uint8_t P3DS_PsSp[100][64], P3DS_PsCg[100][64];
 /* run 146 / hook 0209 (pg_find): when a species is found per location, [t]: 0 morning, 1 day, 2 night (land), 3 any time (water, rock smash); kept here like P3DS_PsK* */
 uint8_t P3DS_PsTm[100][4][64];
+/* 2026-11-18 hook 0286: sub-areas (map sections inside a Pokegear place, e.g. Safari Zone areas, cave floors); ROM table, kept here for the same reason */
+volatile int P3DS_SubReady; int P3DS_SubN; uint16_t P3DS_SubSec[160]; uint8_t P3DS_SubLoc[160]; char P3DS_SubName[160][20];
 void *P3DS_PgAlloc(int key, uint32_t size) {
   if (key < 0 || key > 255 || size < 16 || size > 64 * 1024) return 0;
   if (key >= 200 && key <= 203) { if (size > 0x4000) return 0; if (!pgRaw[key]) pgRaw[key] = (uint8_t *)malloc(0x4000); pgRawSz[key] = pgRaw[key] ? size : 0; return pgRaw[key]; }
@@ -61,6 +63,7 @@ struct SPg {
   bool ov; int ovScroll; int ovRows[kPgN]; int ovN, ovListY0, ovListY1, ovTop; /* run 13: progress overview (menu-dots button) */
   struct { short x, y; uint8_t k; } ico[48]; int nIco; bool gameIco; /* small stat icons drawn by the native overlay */
   int dotsX0, dotsY0, dotsX1, dotsY1;
+  uint8_t subVis[24]; bool subDirty; int subX0, subY0, subX1, subY1; /* 2026-11-18 sub-areas: visited bits (by table index), AREAS chip rect (DS px, x1==x0 none) */
   bool achOpen; int achScroll, achX0, achY0, achX1, achY1; /* achievements list (achievements.c), button left of the dots */
   int achUpX0, achUpY0, achUpX1, achUpY1, achDnX0, achDnY0, achDnX1, achDnY1, achPage, achMax; /* UP/DN page the list; achMax is the clamp */
   int flyX0, flyY0, flyX1, flyY1; /* hook 0228 (pg_flytap): the FLY chip on the open info card, 0 size = none (screen px) */
@@ -410,6 +413,16 @@ static inline bool pgHiddenAt(const SPg &p, int mx, int my) { return mx >= 0 && 
 static bool pgFlyUnlocked(int loc) { if (loc < 0 || loc >= kPgN) return false; const int m = sLocationSpecs[loc].mapId, n = P3DS_FlyN < 32 ? P3DS_FlyN : 32;
   for (int i = 0; i < n; i++) if (P3DS_FlyList[i] == m) return true; return false; }
 static inline int pgCardH(const SPg &p) { return p.page ? 110 : 74; }
+/* ---- 2026-11-18 sub-areas: card page 2 lists the map sections inside the place (hook 0286); the ones you have stood in turn green ---- */
+static int pgSubCount(const SPg &p, int loc, int *seen) { int n = 0; if (seen) *seen = 0; for (int i = 0; i < P3DS_SubN && i < 160; i++) if (P3DS_SubLoc[i] == loc) { n++; if (seen && (p.subVis[i >> 3] >> (i & 7) & 1)) (*seen)++; } return n; }
+static int pgSubMark(SPg &p, int sec) { int n = 0; for (int i = 0; i < P3DS_SubN && i < 160; i++) if (P3DS_SubSec[i] == sec && !(p.subVis[i >> 3] >> (i & 7) & 1)) { p.subVis[i >> 3] |= 1 << (i & 7); p.subDirty = true; n++; } return n; }
+static void pgSubLoad(SPg &p, uint32_t tid, const char *path) {
+  memset(p.subVis, 0, sizeof p.subVis); FILE *f = fopen(path, "rb"); uint8_t b[32];
+  if (f) { if (fread(b, 1, 32, f) == 32 && !memcmp(b, "SA01", 4) && pgU32(b + 4) == tid) memcpy(p.subVis, b + 8, 24); fclose(f); } }
+static bool pgSubSave(SPg &p, const char *path) {
+  FILE *f = fopen(path, "wb"); if (!f) return false; uint8_t b[32]; memcpy(b, "SA01", 4);
+  for (int i = 0; i < 4; i++) b[4 + i] = (uint8_t)(p.tid >> (8 * i)); memcpy(b + 8, p.subVis, 24);
+  const bool ok = fwrite(b, 1, 32, f) == 32; fclose(f); if (ok) p.subDirty = false; return ok; }
 /* species in a location's wild set; fills `out` (up to max), returns the count, `*caught` = how many are caught */
 static int pgWild(int loc, int *out, int max, int *caught) {
   int n = 0; *caught = 0; if (loc < 0 || loc >= kPgN) return 0;
@@ -430,7 +443,7 @@ static int pgFindCount(const SPg &p) { if (p.find <= 0 || p.find > 493) return 0
 static void pgWildLayout(int aw, int ch, int wn, int *cw, int *rows, int *shown) { *cw = (aw - 8) / 3; *rows = (ch - 18) / 10; const int slots = *rows * 3; *shown = wn > slots ? slots - 1 : wn; }
 /* species under a tap on the wild list page (card spans the panel's bottom), 0 = none */
 static int pgWildHit(const SPg &p, int x, int y) {
-  if (p.sel < 0 || !p.page) return 0; const int X0 = kBlPanX0 + 2, aw = (kBlPanX1 - 2) - X0, ch = pgCardH(p), cy0 = (kBlPanY1 - 2) - ch;
+  if (p.sel < 0 || p.page != 1) return 0; const int X0 = kBlPanX0 + 2, aw = (kBlPanX1 - 2) - X0, ch = pgCardH(p), cy0 = (kBlPanY1 - 2) - ch;
   int wl[64], cg = 0; const int wn = pgWild(p.sel, wl, 64, &cg); if (!wn) return 0; int cw, rows, shown; pgWildLayout(aw, ch, wn, &cw, &rows, &shown);
   const int col = (x - (X0 + 4)) / cw, row = (y - (cy0 + 16)) / 10; if (x < X0 + 4 || y < cy0 + 16 || col < 0 || col > 2 || row < 0 || row >= rows) return 0;
   const int i = col * rows + row; return i < shown ? wl[i] : 0; }
@@ -801,14 +814,24 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   /* info card for the tapped location (2026-11-18 polish): green title band with the name, FLY and VISITED; count cells
      with bars; up to two lines of description; then the phone line and a WILD POKEMON button. Tapping anywhere on the
      card still flips it to the wild list (render3ds.cpp), so the button is only the visible way in. */
-  p.flyX0 = p.flyY0 = p.flyX1 = p.flyY1 = 0;
+  p.flyX0 = p.flyY0 = p.flyX1 = p.flyY1 = 0; p.subX0 = p.subX1 = 0;
   if (p.sel >= 0) { const int ch = pgCardH(p), cy0 = Y1 - ch; char ln[4][64];
     for (int y = cy0 + 1; y < Y1; ++y) suiFill(b, X0, y, X1, y + 1, suiMix(kPgPaper, kPgMint, y - cy0, ch));
     suiFill(b, X0, cy0, X1, cy0 + 1, kBlNavy); pgBand(b, X0, cy0 + 1, X1, cy0 + 16);
     const uint32_t sh = kPgPaper, fg = kPgText, wh = SUI_RGB(255, 255, 255);
     const char *name = P3DS_PgName[p.sel][0] ? P3DS_PgName[p.sel] : "?"; char nm[48]; int right = X1 - 4;
     int wl[64], cg = 0; const int wn = pgWild(p.sel, wl, 64, &cg); const bool hasWild = P3DS_PsReady && P3DS_PsStat[p.sel][0];
-    if (p.page) { /* wild Pokemon list: three columns, caught ones in green */
+    if (p.page == 2) { /* sub-areas: two columns, visited ones in green, the rest grey */
+      int sn = 0, ss = 0; int idx[160]; for (int i = 0; i < P3DS_SubN && i < 160; i++) if (P3DS_SubLoc[i] == p.sel) idx[sn++] = i; for (int i = 0; i < sn; i++) ss += p.subVis[idx[i] >> 3] >> (idx[i] & 7) & 1;
+      char hd[40]; snprintf(hd, sizeof hd, "AREAS %d/%d", ss, sn);
+      suiSDraw(T, b, right - suiSWidth(T, hd), cy0 + 4, hd, ss >= sn && sn ? kPgGold : wh, kBlSelO); right -= suiSWidth(T, hd) + 6;
+      pgFit(T, nm, sizeof nm, name, right - (X0 + 4)); T.draw(b, X0 + 4, cy0 + 1, nm, wh, kBlSelO);
+      if (!sn) T.draw(b, X0 + 4, cy0 + 18, "No sub-areas here.", fg, sh);
+      else { const int cw = (aw - 8) / 2, rows = (ch - 18) / 10, slots = rows * 2, shown = sn > slots ? slots - 1 : sn;
+        for (int i = 0; i < shown; i++) { const int k = idx[i]; const bool seen = p.subVis[k >> 3] >> (k & 7) & 1; char sn2[24]; pgFit(T, sn2, sizeof sn2, P3DS_SubName[k], cw - 4);
+          T.draw(b, X0 + 4 + (i / rows) * cw, cy0 + 16 + (i % rows) * 10, sn2, seen ? kPgDone : kPgDim, sh); }
+        if (shown < sn) { char m[16]; snprintf(m, sizeof m, "+%d more", sn - shown); T.draw(b, X0 + 4 + cw, cy0 + 16 + (rows - 1) * 10, m, kPgDim, sh); } } }
+    else if (p.page) { /* wild Pokemon list: three columns, caught ones in green */
       char hd[40]; if (wn) snprintf(hd, sizeof hd, "CAUGHT %d/%d", cg, wn); else snprintf(hd, sizeof hd, "WILD");
       if (wn && pgFindCfg()) { char h2[48]; snprintf(h2, sizeof h2, "TAP=FIND  %s", hd); if (suiSWidth(T, h2) + T.width(name) + 14 < aw) snprintf(hd, sizeof hd, "%s", h2); }
       suiSDraw(T, b, right - suiSWidth(T, hd), cy0 + 4, hd, cg >= wn && wn ? kPgGold : wh, kBlSelO); right -= suiSWidth(T, hd) + 6;
@@ -833,13 +856,15 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       if (P3DS_PsReady) { pgStatCells(b, T, X0 + 4, ty + 2, X1 - 4, p.sel, sh); ty += 16; }
       /* footer: phone line on the left, WILD POKEMON button on the right */
       const char *wb = "WILD POKEMON"; const int bw = hasWild ? suiSWidth(T, wb) + 12 : 0, by0 = Y1 - 15;
-      char pcl[64]; const int pcAvail = aw - 10 - (bw ? bw + 6 : 0); const bool hasPc = pcAvail > 30 && pxCardText(T, pcl, sizeof pcl, p.sel, pcAvail);
+      int sbn = 0, sbs = 0; sbn = pgSubCount(p, p.sel, &sbs); char sbl[24]; snprintf(sbl, sizeof sbl, "AREAS %d/%d", sbs, sbn); const int sbw = sbn ? suiSWidth(T, sbl) + 12 : 0;
+      char pcl[64]; const int pcAvail = aw - 10 - (bw ? bw + 6 : 0) - (sbw ? sbw + 6 : 0); const bool hasPc = pcAvail > 30 && pxCardText(T, pcl, sizeof pcl, p.sel, pcAvail);
       const int fl = (hasWild || hasPc) ? (by0 - 1 - ty) / 10 : (Y1 - 2 - ty) / 10;
       int n = 0; if (fl > 0) { char more[4][64]; const int all = pgWrap(T, P3DS_PgText[p.sel], aw - 8, more, fl + 1 > 4 ? 4 : fl + 1); n = all < fl ? all : fl;
         for (int i = 0; i < n; i++) snprintf(ln[i], 64, "%s", more[i]);
         if (all > n && n > 0) { char cut[68]; snprintf(cut, sizeof cut, "%s..", ln[n - 1]); pgFit(T, ln[n - 1], 64, cut, aw - 8); } }
       for (int i = 0; i < n; i++) T.draw(b, X0 + 4, ty + i * 10, ln[i], fg, sh);
       if (hasWild) { const int bx1 = X1 - 4, bx0 = bx1 - bw; pgChip(b, bx0, by0, bx1, by0 + 12, true); suiSDraw(T, b, bx0 + 6, by0 + 2, wb, wh, kBlBlue); }
+      if (sbw) { const int sx1 = (hasWild ? X1 - 4 - bw - 4 : X1 - 4), sx0 = sx1 - sbw; pgChip(b, sx0, by0, sx1, by0 + 12, true); suiSDraw(T, b, sx0 + 6, by0 + 2, sbl, wh, kBlBlue); p.subX0 = sx0; p.subY0 = by0; p.subX1 = sx1; p.subY1 = by0 + 12; }
       if (hasPc) suiSDraw(T, b, X0 + 4, by0 + 2, pcl, kBlSelO, sh); } }
   if (p.find > 0 && pgFindCfg()) pgFindBanner(b, T, p, X0, Y0, X1);
   /* 2026-11-18 tool row: zoom on the left, WX / achievements / overview on the right, all one chip style, on one line at

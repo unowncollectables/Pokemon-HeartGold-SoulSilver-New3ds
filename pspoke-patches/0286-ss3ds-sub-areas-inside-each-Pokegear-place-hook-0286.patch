@@ -1,0 +1,95 @@
+From 39e3972cc401b314d7eade72ce0274e2dcc88d84 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 18 Nov 2026 23:37:23 +0000
+Subject: [PATCH] ss3ds: sub-areas inside each Pokegear place (hook 0286)
+
+Read-only table of map sections found inside each of the 100 Pokegear locations (Safari Zone areas, cave floors, ruin chambers). The map card shows them as an AREAS page.
+---
+ scripts/ss3ds_hooks.d/0286_subareas.py | 63 ++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0286_subareas.sh |  4 ++
+ 2 files changed, 67 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0286_subareas.py
+ create mode 100644 scripts/ss3ds_hooks.d/0286_subareas.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0286_subareas.py b/scripts/ss3ds_hooks.d/0286_subareas.py
+new file mode 100644
+index 0000000..e925815
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0286_subareas.py
+@@ -0,0 +1,63 @@
++#!/usr/bin/env python3
++"""ss3ds 0286 sub-areas for the Pokegear map card, applied after 0081 and 0083 to src/field/field_control.c (idempotent, 'SS3DS 0286').
++Once (first field step), reads from the ROM which map sections exist INSIDE each of the 100 Pokegear locations: every map whose map
++section (name) is not itself one of the 100 locations but whose world-map coordinates fall in a location's box (Safari Zone areas,
++cave floors, ruins chambers...). One entry per (location, section): name as ASCII, section number. Read-only; nothing is written to the save.
++Outputs (platform side, ss3ds_pgmap.h): P3DS_SubN, P3DS_SubSec[], P3DS_SubLoc[], P3DS_SubName[][20], P3DS_SubReady."""
++import sys
++p = 'src/field/field_control.c'
++s = open(p).read()
++if 'SS3DS 0286' in s:
++    sys.exit(0)
++def sub1(s, old, new):
++    if s.count(old) != 1:
++        sys.exit('0286_subareas: anchor not found exactly once: ' + old[:70])
++    return s.replace(old, new)
++helper = r'''/* SS3DS 0286 sub-areas per Pokegear location (soulsilver3ds/platform/ss3ds_pgmap.h). */
++extern volatile int P3DS_SubReady;
++extern int P3DS_SubN;
++extern u16 P3DS_SubSec[160];
++extern u8 P3DS_SubLoc[160];
++extern char P3DS_SubName[160][20];
++
++static void SS3DS_SubOnce(void) {
++    u32 secs[100];
++    int m, i, k, noLoc = 0;
++    MsgData *names = NewMsgDataFromNarc(MSGDATA_LOAD_LAZY, NARC_msgdata_msg, NARC_msg_msg_0279_bin, HEAP_ID_FIELD1);
++    String *str = String_New(200, HEAP_ID_FIELD1);
++    P3DS_SubReady = 1;
++    P3DS_SubN = 0;
++    for (i = 0; i < 100; i++) secs[i] = MapHeader_GetMapSec(sLocationSpecs[i].mapId);
++    for (m = 1; m < MAP_ID_MAX && P3DS_SubN < 160; m++) {
++        u32 sec = MapHeader_GetMapSec(m);
++        s16 wx = 0, wy = 0;
++        int loc = -1, dup = 0, any = 0;
++        if (sec == 0) continue;
++        for (i = 0; i < 100; i++) if (secs[i] == sec) any = 1;
++        if (any) continue;
++        MapHeader_GetWorldMapCoords(m, &wx, &wy);
++        for (i = 0; i < 100 && loc < 0; i++) {
++            const struct SS3DS_PgSpec *l = &sLocationSpecs[i];
++            int w = l->bits & 15, h = (l->bits >> 4) & 15;
++            if (wx >= l->x && wx < l->x + (w ? w : 1) && wy >= l->y && wy < l->y + (h ? h : 1)) loc = i;
++        }
++        if (loc < 0) { noLoc++; continue; }
++        for (k = 0; k < P3DS_SubN; k++) if (P3DS_SubSec[k] == (u16)sec && P3DS_SubLoc[k] == (u8)loc) dup = 1;
++        if (dup) continue;
++        ReadMsgDataIntoString(names, sec, str);
++        SS3DS_PgAscii(String_cstr(str), P3DS_SubName[P3DS_SubN], 20);
++        if (P3DS_SubName[P3DS_SubN][0] == 0) continue;
++        P3DS_SubSec[P3DS_SubN] = (u16)sec;
++        P3DS_SubLoc[P3DS_SubN] = (u8)loc;
++        P3DS_SubN++;
++    }
++    String_Delete(str);
++    DestroyMsgData(names);
++    PSPNativeMemLog("[SUBAREA] %d sub-areas found inside the 100 Pokegear places (%d other map sections have no place)", P3DS_SubN, noLoc);
++}
++
++'''
++s = sub1(s, 'static void SS3DS_PgStep(FieldSystem *fieldSystem, u32 mapId) {', helper + 'static void SS3DS_PgStep(FieldSystem *fieldSystem, u32 mapId) {')
++s = sub1(s, '    if (!P3DS_PgReady) SS3DS_PgOnce();\n', '    if (!P3DS_PgReady) SS3DS_PgOnce();\n    if (P3DS_PgReady && !P3DS_SubReady) SS3DS_SubOnce(); /* SS3DS 0286 */\n')
++open(p, 'w').write(s)
++print('0286_subareas: field_control.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0286_subareas.sh b/scripts/ss3ds_hooks.d/0286_subareas.sh
+new file mode 100644
+index 0000000..2ff86cf
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0286_subareas.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0286: sub-areas per Pokegear location (field_control.c, after 0081). Optional: without it the card has no AREAS chip ("[SUBAREA]" line missing from log.txt).
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0286_subareas.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1); then
++  log "ss3ds 0286 subareas hook NOT applied (see message above); the map card shows no AREAS"
++fi
+-- 
+2.43.0
+
