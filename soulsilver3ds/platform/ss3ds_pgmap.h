@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ss3ds_settings_ui.h"
+#include "ss3ds_sharptext.h"
 #include "p3ds_speciesnames.h"
 #include "tracker.h"
 
@@ -244,11 +245,13 @@ static const char *const kPgIco[kPgIcN][9] = {
   { "....#....", "....y....", "...#y#...", "..#yyy#..", "#yyywyyy#", "..#yyy#..", "...#y#...", "....y....", "....#...." },
   { "..#####..", ".#ggggg#.", "#gggwggg#", "#ggwwwgg#", ".#ggwgg#.", "..#ggg#..", "...#g#...", "....#....", "........." } };
 static void pgIco(uint32_t *b, int x, int y, int k) {
+  uint32_t px[81];
   for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) { uint32_t v; switch (kPgIco[k][r][c]) {
     case '#': v = kBlNavy; break; case 'w': v = SUI_RGB(255, 255, 255); break; case 'r': v = SUI_RGB(226, 64, 52); break;
     case 'b': v = SUI_RGB(56, 112, 216); break; case 's': v = SUI_RGB(248, 208, 168); break; case 'p': v = SUI_RGB(168, 96, 208); break;
-    case 'y': v = SUI_RGB(246, 196, 40); break; case 'g': v = kBlPress; break; default: continue; }
-    suiPx(b, x + c, y + r, v); } }
+    case 'y': v = SUI_RGB(246, 196, 40); break; case 'g': v = kBlPress; break; default: v = 0; }
+    px[r * 9 + c] = v; }
+  btxIcon(b, x, y, k, px); } /* 2026-11-18: drawn at 1:1 on the 320x240 layer when nothing covers it (ss3ds_sharptext.h) */
 /* 3 px progress bar: light track, green fill, brighter green once complete */
 static void pgBar(uint32_t *b, int x0, int y, int x1, int a, int n) {
   if (x1 - x0 < 4) return; const int w = x1 - x0, f = n > 0 ? (a >= n ? w : w * a / n) : 0;
@@ -267,9 +270,11 @@ static int pgStatCells(uint32_t *b, const SUiText &T, int x0, int y, int x1, int
   if (!k) { suiSDraw(T, b, x0, y + 1, "Nothing to collect here", kPgDim, sh); return 0; }
   const int cw = (x1 - x0 + 4) / k;
   for (int i = 0; i < k; i++) { const int cx = x0 + i * cw, done = st[i].a >= st[i].n; char t[16]; snprintf(t, sizeof t, "%d/%d", st[i].a, st[i].n);
+    /* the bar first: it sits under the digits' lowest rows, and anything drawn over a recorded string pulls it back into the stretched
+       DS picture (that was the garbled "5/12" on the PROGRESS page) */
+    pgBar(b, cx, y + 11, cx + cw - 5, st[i].a, st[i].n);
     pgIco(b, cx, y, st[i].ico); const int room = cw - 15;
-    if (T.width(t) <= room) T.draw(b, cx + 11, y - 2, t, done ? kPgDone : kPgText, sh); else suiSDraw(T, b, cx + 11, y, t, done ? kPgDone : kPgText, sh);
-    pgBar(b, cx, y + 10, cx + cw - 5, st[i].a, st[i].n); }
+    if (T.width(t) <= room) T.draw(b, cx + 11, y - 2, t, done ? kPgDone : kPgText, sh); else suiSDraw(T, b, cx + 11, y, t, done ? kPgDone : kPgText, sh); }
   return k; }
 #include "achievements.h"
 static void pgDots(uint32_t *b, SPg &p, int X1, int Y0) {
@@ -356,9 +361,9 @@ static void pgOverview(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
     pgCard(b, x0, y, x1, y + h); pgCardTitle(b, T, x0, y, x1, "JOHTO TOTALS", 0, 0);
     for (int i = -1; i < k; i++) { const int ry = y + 15 + (i + 1) * rh; const SPgStat s = i < 0 ? SPgStat{ kPgIcPlace, n, kPgN, "Visited" } : st[i];
       char c[16]; snprintf(c, sizeof c, "%d/%d", s.a, s.n); const int cw = T.width(c), done = s.a >= s.n;
+      pgBar(b, x0 + 66, ry + 4, x1 - 9 - cw, s.a, s.n);
       pgIco(b, x0 + 5, ry + 1, s.ico); T.draw(b, x0 + 17, ry - 1, s.name, kPgText, kPgPaper);
-      T.draw(b, x1 - 5 - cw, ry - 1, c, done ? kPgDone : kPgText, kPgPaper);
-      pgBar(b, x0 + 66, ry + 4, x1 - 9 - cw, s.a, s.n); }
+      T.draw(b, x1 - 5 - cw, ry - 1, c, done ? kPgDone : kPgText, kPgPaper); }
     y += h + 4;
     y += pgTracker(b, T, x0, y, x1);
     for (int i = 0; i < kPgN; i++) if (pgVis(p, i)) { bool dup = false; for (int j = 0; j < p.ovN; j++) if (!strcmp(P3DS_PgName[p.ovRows[j]], P3DS_PgName[i])) dup = true; if (!dup) p.ovRows[p.ovN++] = i; }

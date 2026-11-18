@@ -27,13 +27,14 @@ typedef int (*BtxGlyphFn)(int font, int ch, unsigned char v[16][16]);
 enum { kBtxCmds = 400, kBtxStr = 12288, kBtxPx = 40960, kBtxCanvasW = 320 };
 
 struct SBtxCmd { int16_t x, y, cx0, cy0, cx1, cy1; uint8_t small, kept; uint32_t fg, sh; uint16_t s; uint32_t p0, p1; };
-struct SBtxPix { uint16_t pos; uint8_t kind, pad; uint32_t old; };
+struct SBtxPix { uint16_t pos; uint8_t kind, pad; uint32_t old, want; }; /* kind 1 text, 2 shadow, 3 icon pixel (colour = want) */
 /* the native strings of one DS picture: what btxRender draws */
 struct SBtxList { int n, sn; uint32_t gen; struct { int16_t x, y, cx0, cy0, cx1, cy1; uint8_t small; uint32_t fg, sh; uint16_t s; } c[kBtxCmds]; char str[kBtxStr]; };
 /* recording scratch, one is enough (repaints do not nest) */
 struct SBtxRec { uint32_t *dst; bool on; int n, sn, pn, full, covered; SBtxCmd c[kBtxCmds]; char str[kBtxStr]; SBtxPix px[kBtxPx]; };
 
 static BtxGlyphFn gBtxGlyph;
+static SBtxRec *gBtxCur; /* the recorder of the picture being painted (set by btxBegin), for btxIcon */
 /* glyphs are decoded once per character code (the font never changes while running): width (-1 none) and ink rows */
 static int16_t gBtxGW[256]; static uint8_t gBtxGOk[256]; static uint8_t gBtxGV[256][16][16];
 static inline int btxGlyph(unsigned char ch) {
@@ -61,7 +62,7 @@ static inline int btxNX(int x) { return (x * 5 + 2) / 4; }
 static inline int btxNY(int y, bool small) { return (y * 5 + 2) / 4 + (small ? -1 : 2); }
 static inline uint32_t btxWord(uint32_t c) { return (c & 255u) << 24 | ((c >> 8) & 255u) << 16 | ((c >> 16) & 255u) << 8 | 0xFFu; }
 
-static void btxBegin(SBtxRec &r, uint32_t *dst) { r.dst = dst; r.on = dst != 0; r.n = r.sn = r.pn = r.full = r.covered = 0; }
+static void btxBegin(SBtxRec &r, uint32_t *dst) { gBtxCur = &r; r.dst = dst; r.on = dst != 0; r.n = r.sn = r.pn = r.full = r.covered = 0; }
 /* the DS-picture copy of a string at 4/5 size, into gBtxDs (n entries: DS position, 1 text / 2 shadow). DS pixel X covers native
    [1.25X, 1.25X+1.25), in quarter-native units [5X, 5X+5); canvas pixel c covers [4(n0+c), 4(n0+c)+4), so it touches one or two DS
    pixels per axis. Text where >= half the DS pixel's area (25 units) is text, else shadow where text+shadow >= half. Honours suiClip. */
@@ -93,17 +94,34 @@ static int btxText(SBtxRec &r, uint32_t *b, int x, int y, const char *t, uint32_
   if (rec && !fits) r.full++;
   const uint32_t p0 = (uint32_t)r.pn;
   for (int i = 0; i < gBtxDsN; i++) { uint32_t &d = b[gBtxDs[i].pos]; const int k = gBtxDs[i].kind;
-    if (fits) { SBtxPix &p = r.px[r.pn++]; p.pos = gBtxDs[i].pos; p.kind = (uint8_t)k; p.pad = 0; p.old = d; }
+    if (fits) { SBtxPix &p = r.px[r.pn++]; p.pos = gBtxDs[i].pos; p.kind = (uint8_t)k; p.pad = 0; p.old = d; p.want = 0; }
     d = k == 1 ? fg : sh; }
   if (fits) { SBtxCmd &c = r.c[r.n++]; c.x = (int16_t)x; c.y = (int16_t)y; c.cx0 = (int16_t)suiClipX0; c.cy0 = (int16_t)suiClipY0; c.cx1 = (int16_t)suiClipX1; c.cy1 = (int16_t)suiClipY1; c.small = small; c.kept = 0; c.fg = fg; c.sh = sh; c.s = (uint16_t)r.sn; c.p0 = p0; c.p1 = (uint32_t)r.pn;
     memcpy(r.str + r.sn, t, len + 1); r.sn += len + 1; }
   return (nw * 4 + 4) / 5; }
+/* 2026-11-18 sharp icons: a 9x9 icon (px[81] colours, 0 = clear) is painted into the DS picture as before and recorded like a string.
+   If nothing is drawn over it, it leaves the DS picture and the native layer draws it at 1:1 (9 screen pixels, no stretch). Its command
+   string is "\x01" + icon id + 1 ('\x01' has no glyph, so the text code ignores it); the colours are kept per icon id in gBtxIco. */
+enum { kBtxIcoN = 16 };
+static uint32_t gBtxIco[kBtxIcoN][81];
+static void btxIcon(uint32_t *b, int x, int y, int id, const uint32_t *px) {
+  uint32_t *dst = b; SBtxRec *r = gBtxCur; const bool rec = r && r->on && b == r->dst && id >= 0 && id < kBtxIcoN;
+  if (rec) memcpy(gBtxIco[id], px, sizeof gBtxIco[id]);
+  const bool fits = rec && r->n < kBtxCmds && r->sn + 3 <= kBtxStr && r->pn + 81 <= kBtxPx; if (rec && !fits) r->full++;
+  const uint32_t p0 = fits ? (uint32_t)r->pn : 0;
+  for (int rr = 0; rr < 9; rr++) for (int c = 0; c < 9; c++) { const uint32_t v = px[rr * 9 + c]; const int X = x + c, Y = y + rr;
+    if (!v || X < suiClipX0 || Y < suiClipY0 || X >= suiClipX1 || Y >= suiClipY1 || X < 0 || Y < 0 || X >= 256 || Y >= 192) continue;
+    uint32_t &d = dst[Y * 256 + X];
+    if (fits) { SBtxPix &q = r->px[r->pn++]; q.pos = (uint16_t)(Y * 256 + X); q.kind = 3; q.pad = 0; q.old = d; q.want = v; }
+    d = v; }
+  if (fits) { SBtxCmd &c = r->c[r->n++]; c.x = (int16_t)x; c.y = (int16_t)y; c.cx0 = (int16_t)suiClipX0; c.cy0 = (int16_t)suiClipY0; c.cx1 = (int16_t)suiClipX1; c.cy1 = (int16_t)suiClipY1; c.small = 2; c.kept = 0; c.fg = 0; c.sh = 0; c.s = (uint16_t)r->sn; c.p0 = p0; c.p1 = (uint32_t)r->pn;
+    r->str[r->sn] = 1; r->str[r->sn + 1] = (char)(id + 1); r->str[r->sn + 2] = 0; r->sn += 3; } }
 /* ends the recording: strings nothing was drawn over leave the DS picture and go to `out` (gen bumped when it changed) */
 static void btxEnd(SBtxRec &r, SBtxList &out) {
   if (!r.on) return;
   r.on = false; uint32_t *b = r.dst;
   for (int i = r.n - 1; i >= 0; i--) { SBtxCmd &c = r.c[i]; bool ok = true;
-    for (uint32_t k = c.p0; k < c.p1 && ok; k++) { const SBtxPix &p = r.px[k]; ok = b[p.pos] == (p.kind == 1 ? c.fg : c.sh); }
+    for (uint32_t k = c.p0; k < c.p1 && ok; k++) { const SBtxPix &p = r.px[k]; ok = b[p.pos] == (p.kind == 3 ? p.want : p.kind == 1 ? c.fg : c.sh); }
     c.kept = ok; if (!ok) { r.covered++; continue; }
     for (uint32_t k = c.p1; k-- > c.p0;) b[r.px[k].pos] = r.px[k].old; }
   static SBtxList nl; nl.n = nl.sn = 0; /* static: ~19 KB, kept off the thread stack */
@@ -117,7 +135,13 @@ static void btxEnd(SBtxRec &r, SBtxList &out) {
 /* the native layer: a[y*512+x], 320x240 cleared to transparent, then every string at 1 font pixel = 1 screen pixel */
 static void btxRender(const SBtxList &l, uint32_t *a) {
   for (int y = 0; y < 240; y++) memset(a + y * 512, 0, 320 * 4);
-  for (int i = 0; i < l.n; i++) { const bool small = l.c[i].small != 0; const int nw = btxRaster(l.str + l.c[i].s, true);
+  for (int i = 0; i < l.n; i++) {
+    if (l.c[i].small == 2) { const unsigned char *q = (const unsigned char *)(l.str + l.c[i].s); const int id = q[0] == 1 ? (int)q[1] - 1 : -1; if (id < 0 || id >= kBtxIcoN) continue;
+      const int ox = btxNX(l.c[i].x) + 1, oy = btxNX(l.c[i].y) + 1; /* 9 px in the 11.25 px the DS icon covered */
+      const int nx0 = btxNX(l.c[i].cx0) < 0 ? 0 : btxNX(l.c[i].cx0), nx1 = btxNX(l.c[i].cx1) > 320 ? 320 : btxNX(l.c[i].cx1), ny0 = btxNX(l.c[i].cy0) < 0 ? 0 : btxNX(l.c[i].cy0), ny1 = btxNX(l.c[i].cy1) > 240 ? 240 : btxNX(l.c[i].cy1);
+      for (int yy = 0; yy < 9; yy++) for (int xx = 0; xx < 9; xx++) { const uint32_t v = gBtxIco[id][yy * 9 + xx]; const int X = ox + xx, Y = oy + yy; if (v && X >= nx0 && X < nx1 && Y >= ny0 && Y < ny1) a[Y * 512 + X] = btxWord(v); }
+      continue; }
+    const bool small = l.c[i].small != 0; const int nw = btxRaster(l.str + l.c[i].s, true);
     const int nh = 16, x0 = btxNX(l.c[i].x), y0 = btxNY(l.c[i].y, small); const uint32_t fg = btxWord(l.c[i].fg), sh = l.c[i].sh ? btxWord(l.c[i].sh) : 0;
     /* the DS clip in screen pixels: DS [c0, c1) is native [5c0/4, 5c1/4), the same edges the stretched picture has */
     const int nx0 = btxNX(l.c[i].cx0) < 0 ? 0 : btxNX(l.c[i].cx0), nx1 = btxNX(l.c[i].cx1) > 320 ? 320 : btxNX(l.c[i].cx1),
