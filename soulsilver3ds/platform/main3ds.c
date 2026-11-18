@@ -572,6 +572,22 @@ extern void __real_OS_WaitIrq(int c, u32 m); void __wrap_OS_WaitIrq(int c, u32 m
     if (m & 1u) { const u64 a = svcGetSystemTick(); __real_OS_WaitIrq(c, m); P3DS_VblIdleTicks += svcGetSystemTick() - a; return; }
     __real_OS_WaitIrq(c, m); }
 extern void __real_MI_WaitDma(u32 ch); void __wrap_MI_WaitDma(u32 ch) { CRUMB("waitdma"); __real_MI_WaitDma(ch); }
+/* H-blank DMA (unk_02014A08, sub_02014AB0): the game's per-line scroll wave aims MI_HBlankDmaCopy32/16 at a DS BG scroll
+   register (0x04000010 = BG0HOFS). It runs for the water/surf wild battle intro (ov120 effects 2/3) and some field effects.
+   libntr's port is a plain memcpy, so on 3DS it wrote to a raw DS IO address and crashed (runs 939/940: [CRASH] pc in
+   memcpy, r0=04000010, right after "native load id=120"). There is no per-line DMA here, so a copy aimed at the DS IO
+   range is skipped (the intro plays without the wave, the register keeps its value); anything else passes through. */
+static int SS3DS_IsDsIoAddr(const void *p) { const unsigned v = (unsigned)(uintptr_t)p; return v >= 0x04000000u && v < 0x04800000u; }
+static void SS3DS_HBlankSkipLog(const char *who, u32 dmaNo, const void *dest, u32 size) {
+    static unsigned n; if (n < 4) { n++; PSPNativeMemLog("[HBLANK] %s ch %u -> DS register %08x (%u bytes a line) skipped: no per-line DMA on 3DS, the wave intro plays flat", who, (unsigned)dmaNo, (unsigned)(uintptr_t)dest, (unsigned)size); } }
+extern void __real_MI_HBlankDmaCopy32(u32 dmaNo, const void *src, void *dest, u32 size);
+void __wrap_MI_HBlankDmaCopy32(u32 dmaNo, const void *src, void *dest, u32 size) {
+    if (SS3DS_IsDsIoAddr(dest)) { SS3DS_HBlankSkipLog("MI_HBlankDmaCopy32", dmaNo, dest, size); return; }
+    __real_MI_HBlankDmaCopy32(dmaNo, src, dest, size); }
+extern void __real_MI_HBlankDmaCopy16(u32 dmaNo, const void *src, void *dest, u32 size);
+void __wrap_MI_HBlankDmaCopy16(u32 dmaNo, const void *src, void *dest, u32 size) {
+    if (SS3DS_IsDsIoAddr(dest)) { SS3DS_HBlankSkipLog("MI_HBlankDmaCopy16", dmaNo, dest, size); return; }
+    __real_MI_HBlankDmaCopy16(dmaNo, src, dest, size); }
 /* Texture-load call chain breadcrumbs (run-8 stall: endless GX_EndLoadTex/Pltt on the main thread). */
 extern int __real_Easy3D_UploadTextureToVRAM(void *t);
 int __wrap_Easy3D_UploadTextureToVRAM(void *t) { static unsigned n; if ((n++ & 255) == 0) PSPNativeMemLog("[TEX] Easy3D_Upload #%u tex=%p from %p", n, t, __builtin_return_address(0)); CRUMB("easy3d-upload"); return __real_Easy3D_UploadTextureToVRAM(t); }
