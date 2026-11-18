@@ -9,7 +9,7 @@ see below) with a gentle hover bob**, and the SoulSilver logo in front, with a ~
 Platinum's 1000-triangle budget (`decimate.py`), 5 materials / 4 textures / 10 meshes, and `cgfx_fingerprint.py` checks every
 banner against `reference/platinum_banner.json` (object counts and every setting, flag and format value of Platinum's tested
 CGFX; no game data) and `to_cgfx.py` against Platinum-sized limits. Anything that does not match fails the 3D build and the CIA
-gets the flat banner. Why the first Lugia banner froze HOME and what differed: `docs/HANDOFF.md` ("3D banner vs Platinum").
+gets the flat banner. Why the first Lugia banner froze HOME and what differed: `docs/archive/HANDOFF-2026-11-18.md` ("3D banner vs Platinum").
 
 `make cia BANNER=3d` in `soulsilver3ds/full` builds it (needs the ROM); `BANNER=3d-art` = portal + logo only; the default is
 `BANNER=3d` (no ROM or any failure falls back to the flat banner; `BANNER=flat` forces it). The logo (`art/logo.png`) is a made
