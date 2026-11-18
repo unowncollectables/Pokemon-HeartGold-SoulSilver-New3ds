@@ -572,6 +572,35 @@ extern void __real_OS_WaitIrq(int c, u32 m); void __wrap_OS_WaitIrq(int c, u32 m
     if (m & 1u) { const u64 a = svcGetSystemTick(); __real_OS_WaitIrq(c, m); P3DS_VblIdleTicks += svcGetSystemTick() - a; return; }
     __real_OS_WaitIrq(c, m); }
 extern void __real_MI_WaitDma(u32 ch); void __wrap_MI_WaitDma(u32 ch) { CRUMB("waitdma"); __real_MI_WaitDma(ch); }
+/* H-blank DMA (unk_02014A08, sub_02014AB0): the game's per-line scroll wave aims MI_HBlankDmaCopy32/16 at a DS BG
+   register (0x04000010 = BG0HOFS/VOFS, one value per screen line). It runs for the water/surf wild battle intro (ov120
+   effects 2/3) and other wavy effects. libntr's port is a plain memcpy, so on 3DS it wrote to a raw DS IO address and
+   crashed (runs 939/940: [CRASH] pc in memcpy, r0=04000010, right after "native load id=120").
+   An engine A BG/window register target is recorded instead (source table, register, bytes a line) and render3ds.cpp
+   (hbSnap/hbLine) writes each line's value into engine A before drawing that line, as the DMA would: the wave plays.
+   The game re-arms it every VBlank (MI_StopDma, then this) and MI_StopDma ends it. Any other DS IO target (engine B)
+   is skipped and logged; a non-IO target passes through. */
+volatile const void *P3DS_HbSrc; volatile unsigned P3DS_HbReg, P3DS_HbUnit, P3DS_HbSeq; static volatile int sHbCh = -1;
+static int SS3DS_IsDsIoAddr(const void *p) { const unsigned v = (unsigned)(uintptr_t)p; return v >= 0x04000000u && v < 0x04800000u; }
+static int SS3DS_HBlankTake(const char *who, u32 dmaNo, const void *src, void *dest, u32 size, unsigned unit) {
+    const unsigned v = (unsigned)(uintptr_t)dest;
+    if (!SS3DS_IsDsIoAddr(dest)) return 0;
+    if (v >= 0x04000008u && v + unit <= 0x04000058u && !(v & 1u) && size == unit && src) {
+        static unsigned n; if (n < 3) { n++; PSPNativeMemLog("[HBLANK] %s ch %u -> engine A reg %03x, %u bytes a line: line wave drawn by the renderer", who, (unsigned)dmaNo, v - 0x04000000u, unit); }
+        P3DS_HbSrc = 0; P3DS_HbReg = v - 0x04000000u; P3DS_HbUnit = unit; sHbCh = (int)dmaNo; P3DS_HbSrc = src; P3DS_HbSeq++;
+        return 1; }
+    { static unsigned n; if (n < 4) { n++; PSPNativeMemLog("[HBLANK] %s ch %u -> DS register %08x (%u bytes a line) skipped: not an engine A BG register", who, (unsigned)dmaNo, v, (unsigned)size); } }
+    return 1; }
+extern void __real_MI_HBlankDmaCopy32(u32 dmaNo, const void *src, void *dest, u32 size);
+void __wrap_MI_HBlankDmaCopy32(u32 dmaNo, const void *src, void *dest, u32 size) {
+    if (SS3DS_HBlankTake("MI_HBlankDmaCopy32", dmaNo, src, dest, size, 4)) return;
+    __real_MI_HBlankDmaCopy32(dmaNo, src, dest, size); }
+extern void __real_MI_HBlankDmaCopy16(u32 dmaNo, const void *src, void *dest, u32 size);
+void __wrap_MI_HBlankDmaCopy16(u32 dmaNo, const void *src, void *dest, u32 size) {
+    if (SS3DS_HBlankTake("MI_HBlankDmaCopy16", dmaNo, src, dest, size, 2)) return;
+    __real_MI_HBlankDmaCopy16(dmaNo, src, dest, size); }
+extern void __real_MI_StopDma(u32 dmaNo);
+void __wrap_MI_StopDma(u32 dmaNo) { if (sHbCh == (int)dmaNo) { P3DS_HbSrc = 0; sHbCh = -1; } __real_MI_StopDma(dmaNo); }
 /* Texture-load call chain breadcrumbs (run-8 stall: endless GX_EndLoadTex/Pltt on the main thread). */
 extern int __real_Easy3D_UploadTextureToVRAM(void *t);
 int __wrap_Easy3D_UploadTextureToVRAM(void *t) { static unsigned n; if ((n++ & 255) == 0) PSPNativeMemLog("[TEX] Easy3D_Upload #%u tex=%p from %p", n, t, __builtin_return_address(0)); CRUMB("easy3d-upload"); return __real_Easy3D_UploadTextureToVRAM(t); }

@@ -116,19 +116,37 @@ static volatile int bPend;
 static void bPost(){__atomic_add_fetch(&bPend,1,__ATOMIC_SEQ_CST);LightEvent_Signal(&bStart);}
 /* frame-0 stall fix (friend's console, log-4): the worker never consumed a job on a skip-intro soft-reset boot and main waited bDone forever.
    The job body is shared so main can run it inline when the worker has taken nothing. */
+/* H-blank scroll wave (unk_02014A08: water/surf battle intro and other wavy effects). On the DS the game H-blank-DMAs one
+   value per screen line into an engine A BG register (BG0HOFS/VOFS at 0x04000010). __wrap_MI_HBlankDmaCopy32/16
+   (main3ds.c) records the line table instead of copying to the DS address (runs 939/940 crashed there); each CPU
+   composite pass writes that line's value into the unit before drawing the line, exactly as the DMA would. Snapshot
+   per frame so the split/right-eye workers read a stable copy. While it runs the GPU compositor (whole-frame
+   registers) is skipped and the CPU path draws the frame. */
+extern "C" volatile const void*P3DS_HbSrc;extern "C" volatile unsigned P3DS_HbReg,P3DS_HbUnit,P3DS_HbSeq;
+static u32 hbVal[192];static unsigned hbReg,hbUnit;static bool hbOn;
+static void hbSnap(){static unsigned lastSeq,idle,logN;const unsigned seq=P3DS_HbSeq;if(seq!=lastSeq){lastSeq=seq;idle=0;}else if(idle<255)idle++;
+ const u8*src=(const u8*)P3DS_HbSrc;const unsigned reg=P3DS_HbReg,unit=P3DS_HbUnit;
+ /* re-armed every game VBlank while the wave runs; MI_StopDma clears the source when the effect ends */
+ hbOn=src&&seq&&idle<4&&(unit==2||unit==4)&&reg>=8&&reg+unit<=0x58;if(!hbOn)return;hbReg=reg;hbUnit=unit;
+ for(unsigned y=0;y<192;y++){const unsigned k=y?y-1:0;hbVal[y]=unit==4?*(const u32*)(src+4*k):*(const u16*)(src+2*k);} /* the DMA for line y-1's H-blank feeds line y */
+ if(logN<3&&idle==0){logN++;PSPNativeMemLog("[HBLANK] wave on engine A reg %03x (%u bytes a line), lines 0/96/191 = %08x %08x %08x",reg,unit,(unsigned)hbVal[0],(unsigned)hbVal[96],(unsigned)hbVal[191]);}}
+static inline void hbLine(GPU2D::Unit&u,unsigned line){if(!hbOn)return;const u32 v=hbVal[line];
+ if(hbUnit==2)u.Write16(hbReg,(u16)v);
+ else if(hbReg==0x28||hbReg==0x2c||hbReg==0x38||hbReg==0x3c)u.Write32(hbReg,v);
+ else{u.Write16(hbReg,(u16)v);u.Write16(hbReg+2,(u16)(v>>16));}}
 static void engineBFrameJob(){
   const bool steal=stealCfg==1&&bRightSrc;
   if(!bSkipB&&!steal)drawEngineB();
   if(bRightSrc){/* stereo: right-eye top screen = engine A again (snapshot copy) with the right-eye 3D layer */
    P3DS_3DSrc=bRightSrc;rendererR.SetFramebuffer(rawR,rawR);
-   for(unsigned line=0;line<192;line++){if(bdMask&&line==(unsigned)bdSplit)for(int i=1;i<4;i++)if(bdMask&(1<<i))engineA2.BGXPos[i]=bdLow[i];
+   for(unsigned line=0;line<192;line++){hbLine(engineA2,line);if(bdMask&&line==(unsigned)bdSplit)for(int i=1;i<4;i++)if(bdMask&(1<<i))engineA2.BGXPos[i]=bdLow[i];
     engineA2.CheckWindows(line);rendererR.DrawSprites(line,&engineA2);rendererR.DrawScanline(line,&engineA2);}
    P3DS_3DSrc=nullptr;}
   if(!bSkipB&&steal&&claimB()){stealWorker++;drawEngineB();}
   if(bSplit){for(unsigned line=0;line<96;line++)dryLine(engineAS,line);
    while(!line0Done)svcSleepThread(20000); /* main's line 0 made the shared flat VRAM views coherent */
    rendererS.SetFramebuffer(raw[0],raw[1]);
-   for(unsigned line=96;line<192;line++){engineAS.CheckWindows(line);rendererS.DrawSprites(line,&engineAS);rendererS.DrawScanline(line,&engineAS);}
+   for(unsigned line=96;line<192;line++){hbLine(engineAS,line);engineAS.CheckWindows(line);rendererS.DrawSprites(line,&engineAS);rendererS.DrawScanline(line,&engineAS);}
    bSplit=false;}}
 static void engineBWorker(void*){P3DS_ThreadGuard("engineB");P3DS_Crumb("w-start",0);for(;;){
   /* take one pending job; CAS so main can reclaim (exchange to 0) jobs the worker never took */
@@ -2292,7 +2310,7 @@ static int Present(bool){
  const bool gearInPanel=P3DS_PanelPartyOn>=2;
  const bool gearTextStrip=P3DS_PanelPartyOn==2;
  if(P3DS_PanelPartyOn&&!gearInPanel&&!P3DS_InField){*(volatile u16*)(PSPNative_GfxRegisters+0x6c)=0;*(volatile u16*)(PSPNative_GfxRegisters+0x106c)=0;}
- engineA.Enabled=(power&2)!=0;bindRegisters(engineA,0);
+ engineA.Enabled=(power&2)!=0;bindRegisters(engineA,0);hbSnap();
  /* run 76 display capture through the renderer's own DoCapture (melonDS): source A = 2D+3D composite or 3D, source B =
     VRAM, blend A/B. Motion blur at Spear Pillar (Dialga/Palkia) shows VRAM C fed by capture; ignored it was black. */
  {const u32 cc=reg32(0x64);const int cm=P3DS_CfgInt("display_capture",1);engineA.CaptureCnt=cm==1?cc:0;engineA.CaptureLatch=cm==1&&(cc&0x80000000u)&&engineA.Enabled;}
@@ -2312,7 +2330,7 @@ static int Present(bool){
  composeGpuB(gpuBModeFrame);
  static int par3d=-1;if(par3d<0){par3d=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");int x;char l[64];if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"stereo2d_par=%d",&x)==1)par3d=x!=0;fclose(f);}PSPNativeMemLog("[2D] stereo right eye on core 2: %d",par3d);}
  const int gcMode=pokewalker?0:P3DS_GpuComposeCfg();
- const bool gcSt=!hidePanelTop&&gcMode==2&&stereo&&rightEye&&(P3DS_InField||gcStNfCfg())&&engineA.Enabled&&gcStereoCfg()&&gcEligible();
+ const bool gcSt=!hbOn&&!hidePanelTop&&gcMode==2&&stereo&&rightEye&&(P3DS_InField||gcStNfCfg())&&engineA.Enabled&&gcStereoCfg()&&gcEligible();
  bool rightPar=!hidePanelTop&&async&&par3d&&stereo&&rightEye&&!gcSt;
  if(stereo&&!gcSt)G3G_DirectResolveWhy(2);  /* gpu_direct3d: the CPU right-eye worker (core 2) is about to read the right eye */
  if(rightPar){memcpy((void*)&engineA2,(const void*)&engineA,sizeof engineA);engineA2.CaptureCnt=0;engineA2.CaptureLatch=false;}
@@ -2334,7 +2352,7 @@ static int Present(bool){
  bClaim=0;const bool stealNow=async&&stealCfg==1&&rightPar&&!onC1&&!earlyB;
  if(splitCfg<0){splitCfg=1;/* run 57: default 1 (Azahar: identical images overworld/battle/menus, mono composite -37%) */FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"split_top=%d",&x)==1)splitCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] split_top=%d",splitCfg);}
  if(gcMode>=2)gcFrames++;
- const bool gcOK=!hidePanelTop&&gcMode==2&&(!stereo||gcSt)&&!rightPar&&engineA.Enabled&&(gcSt||gcEligible());
+ const bool gcOK=!hbOn&&!hidePanelTop&&gcMode==2&&(!stereo||gcSt)&&!rightPar&&engineA.Enabled&&(gcSt||gcEligible());
  if(!gcOK){G3G_DirectResolveWhy(3);holdSync();P3DS_GcDrop();}  /* gpu_direct3d: CPU composite (or the split-top worker) reads NativeFrame. CPU frame: a picture left pending by the last GPU frame is stale (thrown Poke Ball invisible with gc_direct) */
  const bool splitNow=!hidePanelTop&&!gcOK&&splitCfg&&async&&!stereo&&!rightPar&&!onC1&&!stealNow&&engineA.Enabled&&((a>>16)&3)==1&&!(reg32(0x64)&0x80000000u);
  if(splitNow){memcpy((void*)&engineAS,(const void*)&engineA,sizeof engineA);line0Done=false;bSplit=true;splitN++;}
@@ -2363,7 +2381,7 @@ static int Present(bool){
  P3DS_GcFinish();  /* fps_tweaks 6 overlap: a left eye still pending is converted before anything reads display[0] */
  if(!gcDone||(gcSt&&!gcStR))G3G_DirectResolveWhy(4);  /* gpu_direct3d: GPU compose rejected the frame, fall back to the CPU pixels */
  {const u64 ta=svcGetSystemTick();
- if(!hidePanelTop&&!gcDone)for(unsigned line=0;line<192;line++){if(line>=aEnd&&async)break;GPU::VCount=line;engineA.CheckWindows(line);renderer.DrawSprites(line,&engineA);renderer.DrawScanline(line,&engineA);if(!line)line0Done=true;
+ if(!hidePanelTop&&!gcDone)for(unsigned line=0;line<192;line++){if(line>=aEnd&&async)break;GPU::VCount=line;hbLine(engineA,line);engineA.CheckWindows(line);renderer.DrawSprites(line,&engineA);renderer.DrawScanline(line,&engineA);if(!line)line0Done=true;
   if(!async&&!gcOK&&!bGpuFrame){engineB.CheckWindows(line);renderer.DrawSprites(line,&engineB);renderer.DrawScanline(line,&engineB);}}
  pfT[PF_CPUA]+=svcGetSystemTick()-ta;}
  if(stealNow&&claimB()){stealMain++;drawEngineB();}
@@ -2422,7 +2440,7 @@ static int Present(bool){
  else if(stereo&&gcStR){eyeL=display[0];eyeR=rawR;} /* run 61: both eyes from the GPU compositor */
  else if(stereo&&rightPar){eyeL=display[0];eyeR=rawR;} /* no copies: present reads both eyes in place */
  else if(stereo){memcpy(stereoL,display[0],sizeof stereoL);if(rightEye)memcpy(GPU3D::NativeFrame,rightEye,256*192*4);else shift3D(2*sd);FrameStart(engineA);
-  for(unsigned line=0;line<192;line++){GPU::VCount=line;engineA.CheckWindows(line);renderer.DrawSprites(line,&engineA);renderer.DrawScanline(line,&engineA);}
+  for(unsigned line=0;line<192;line++){GPU::VCount=line;hbLine(engineA,line);engineA.CheckWindows(line);renderer.DrawSprites(line,&engineA);renderer.DrawScanline(line,&engineA);}
   if(!rightEye)shift3D(-sd);eyeL=stereoL;eyeR=display[0];}
  {/* run 61 debug: dump_eyes=F dumps both eyes at frame F and every 300 frames after (6 max) -> eyeN_L/R.bmp */
   static int de=-2,dn;if(de==-2)de=-1 /* dump_eyes: debug option removed */;
