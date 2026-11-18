@@ -40,7 +40,7 @@ volatile int P3DS_PsReady; volatile uint32_t P3DS_PsTick; uint16_t P3DS_PsStat[1
 uint8_t P3DS_PsSp[100][64], P3DS_PsCg[100][64];
 /* run 146 / hook 0209 (pg_find): when a species is found per location, [t]: 0 morning, 1 day, 2 night (land), 3 any time (water, rock smash); kept here like P3DS_PsK* */
 uint8_t P3DS_PsTm[100][4][64];
-/* 2026-11-18 hook 0286: sub-areas (map sections inside a Pokegear place, e.g. Safari Zone areas, cave floors); ROM table, kept here for the same reason */
+/* 2026-11-18 hook 0287: sub-areas (map sections inside a Pokegear place, e.g. Safari Zone areas, cave floors); ROM table, kept here for the same reason */
 volatile int P3DS_SubReady; int P3DS_SubN; uint16_t P3DS_SubSec[160]; uint8_t P3DS_SubLoc[160]; char P3DS_SubName[160][20];
 void *P3DS_PgAlloc(int key, uint32_t size) {
   if (key < 0 || key > 255 || size < 16 || size > 64 * 1024) return 0;
@@ -413,7 +413,7 @@ static inline bool pgHiddenAt(const SPg &p, int mx, int my) { return mx >= 0 && 
 static bool pgFlyUnlocked(int loc) { if (loc < 0 || loc >= kPgN) return false; const int m = sLocationSpecs[loc].mapId, n = P3DS_FlyN < 32 ? P3DS_FlyN : 32;
   for (int i = 0; i < n; i++) if (P3DS_FlyList[i] == m) return true; return false; }
 static inline int pgCardH(const SPg &p) { return p.page ? 110 : 74; }
-/* ---- 2026-11-18 sub-areas: card page 2 lists the map sections inside the place (hook 0286); the ones you have stood in turn green ---- */
+/* ---- 2026-11-18 sub-areas: card page 2 lists the map sections inside the place (hook 0287); the ones you have stood in turn green ---- */
 static int pgSubCount(const SPg &p, int loc, int *seen) { int n = 0; if (seen) *seen = 0; for (int i = 0; i < P3DS_SubN && i < 160; i++) if (P3DS_SubLoc[i] == loc) { n++; if (seen && (p.subVis[i >> 3] >> (i & 7) & 1)) (*seen)++; } return n; }
 static int pgSubMark(SPg &p, int sec) { int n = 0; for (int i = 0; i < P3DS_SubN && i < 160; i++) if (P3DS_SubSec[i] == sec && !(p.subVis[i >> 3] >> (i & 7) & 1)) { p.subVis[i >> 3] |= 1 << (i & 7); p.subDirty = true; n++; } return n; }
 static void pgSubLoad(SPg &p, uint32_t tid, const char *path) {
