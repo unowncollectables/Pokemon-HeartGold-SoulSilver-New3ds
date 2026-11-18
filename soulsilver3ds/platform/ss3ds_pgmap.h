@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ss3ds_settings_ui.h"
+#include "ss3ds_sharptext.h"
 #include "p3ds_speciesnames.h"
 #include "tracker.h"
 
@@ -62,7 +63,7 @@ struct SPg {
   uint32_t img[kPgW * kPgH]; uint8_t lit[47 * 20]; bool decoded, failed;
   uint8_t visited[16]; uint32_t tid; bool tidKnown, dirty;
   int sel = -1; int viewX = -1; int lastLoc = -2;
-  int zoom = 1; int viewY = -1; int panAcc = 0; /* zoom 1 = the normal map; viewY is the map row at the top when zoom is 2 */
+  int zoom = 1; int viewY = -1; int panAcc = 0; float accX = 0, accY = 0, velX = 0, velY = 0; /* 2026-11-18: sub-pixel pen pan + fling (map px) */ /* zoom 1 = the normal map; viewY is the map row at the top when zoom is 2 */
   int zmX0 = 0, zmY0 = 0, zmX1 = 0, zmY1 = 0, zpX0 = 0, zpY0 = 0, zpX1 = 0, zpY1 = 0; /* minus / plus, DS px; x1==x0 means hidden */
   bool weather; int wxX0, wxY0, wxX1;
   int markX, markY; bool markOk, gameMarker; /* run 11: marker position (DS px) for the native overlay, and whether the game's head is used */
@@ -95,6 +96,17 @@ static int pgClampLeft(const SPg &p, int left, int visW) { const int lim = pgMap
 /* panel interior pgDraw actually paints (the old tap math was 1 or 2 px off this, and the sign flipped with the name strip) */
 static void pgInner(int *X0, int *Y0, int *X1, int *Y1) {
   const int nh = blNameH(); *X0 = kBlPanX0 + 2; *Y0 = kBlPanY0 + 15 + nh + 2; *X1 = kBlPanX1 - 2; *Y1 = kBlPanY1 - 2; }
+/* 2026-11-18: smooth pen pan. dx/dy are map px (fractions carry over); zoom 1 only moves sideways. Edges clamp and kill the fling. */
+static void pgPanBy(SPg &p, float dx, float dy) {
+  int X0, Y0, X1, Y1; pgInner(&X0, &Y0, &X1, &Y1); const int z = p.zoom < 2 ? 1 : 2; int visW = (X1 - X0) / z, visH = (Y1 - Y0) / z; if (visW < 1) visW = 1; if (visH < 1) visH = 1;
+  if (z < 2) dy = 0;
+  p.accX += dx; p.accY += dy; const int ix = (int)p.accX, iy = (int)p.accY; p.accX -= ix; p.accY -= iy;
+  if (p.viewX >= 0) { const int w = p.viewX + ix, n = pgClampLeft(p, w, visW); if (n != w) { p.velX = 0; p.accX = 0; } p.viewX = n; }
+  if (z > 1 && p.viewY >= 0) { const int w = p.viewY + iy; int n = w; if (n > kPgH - visH) n = kPgH - visH; if (n < 0) n = 0; if (n != w) { p.velY = 0; p.accY = 0; } p.viewY = n; } }
+/* every frame with no finger down: keep gliding after a flick and slow down; true = view moved (redraw) */
+static bool pgPanTick(SPg &p) {
+  if (p.velX > -0.05f && p.velX < 0.05f && p.velY > -0.05f && p.velY < 0.05f) { p.velX = p.velY = 0; return false; }
+  pgPanBy(p, p.velX, p.velY); p.velX *= 0.92f; p.velY *= 0.92f; return true; }
 static void pgTouchMap(const SPg &p, int tx, int ty, int *mx, int *my) {
   int X0, Y0, X1, Y1; pgInner(&X0, &Y0, &X1, &Y1); const int z = p.zoom < 2 ? 1 : 2; const int ah = Y1 - Y0;
   if (z <= 1) { const int oy = Y0 + (ah - kPgH) / 2; *mx = tx - X0 + p.viewX; *my = ty - oy; }
@@ -242,11 +254,13 @@ static const char *const kPgIco[kPgIcN][9] = {
   { "....#....", "....y....", "...#y#...", "..#yyy#..", "#yyywyyy#", "..#yyy#..", "...#y#...", "....y....", "....#...." },
   { "..#####..", ".#ggggg#.", "#gggwggg#", "#ggwwwgg#", ".#ggwgg#.", "..#ggg#..", "...#g#...", "....#....", "........." } };
 static void pgIco(uint32_t *b, int x, int y, int k) {
+  uint32_t px[81];
   for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) { uint32_t v; switch (kPgIco[k][r][c]) {
     case '#': v = kBlNavy; break; case 'w': v = SUI_RGB(255, 255, 255); break; case 'r': v = SUI_RGB(226, 64, 52); break;
     case 'b': v = SUI_RGB(56, 112, 216); break; case 's': v = SUI_RGB(248, 208, 168); break; case 'p': v = SUI_RGB(168, 96, 208); break;
-    case 'y': v = SUI_RGB(246, 196, 40); break; case 'g': v = kBlPress; break; default: continue; }
-    suiPx(b, x + c, y + r, v); } }
+    case 'y': v = SUI_RGB(246, 196, 40); break; case 'g': v = kBlPress; break; default: v = 0; }
+    px[r * 9 + c] = v; }
+  btxIcon(b, x, y, k, px); } /* 2026-11-18: drawn at 1:1 on the 320x240 layer when nothing covers it (ss3ds_sharptext.h) */
 /* 3 px progress bar: light track, green fill, brighter green once complete */
 static void pgBar(uint32_t *b, int x0, int y, int x1, int a, int n) {
   if (x1 - x0 < 4) return; const int w = x1 - x0, f = n > 0 ? (a >= n ? w : w * a / n) : 0;
@@ -265,9 +279,11 @@ static int pgStatCells(uint32_t *b, const SUiText &T, int x0, int y, int x1, int
   if (!k) { suiSDraw(T, b, x0, y + 1, "Nothing to collect here", kPgDim, sh); return 0; }
   const int cw = (x1 - x0 + 4) / k;
   for (int i = 0; i < k; i++) { const int cx = x0 + i * cw, done = st[i].a >= st[i].n; char t[16]; snprintf(t, sizeof t, "%d/%d", st[i].a, st[i].n);
+    /* the bar first: it sits under the digits' lowest rows, and anything drawn over a recorded string pulls it back into the stretched
+       DS picture (that was the garbled "5/12" on the PROGRESS page) */
+    pgBar(b, cx, y + 11, cx + cw - 5, st[i].a, st[i].n);
     pgIco(b, cx, y, st[i].ico); const int room = cw - 15;
-    if (T.width(t) <= room) T.draw(b, cx + 11, y - 2, t, done ? kPgDone : kPgText, sh); else suiSDraw(T, b, cx + 11, y, t, done ? kPgDone : kPgText, sh);
-    pgBar(b, cx, y + 10, cx + cw - 5, st[i].a, st[i].n); }
+    if (T.width(t) <= room) T.draw(b, cx + 11, y - 2, t, done ? kPgDone : kPgText, sh); else suiSDraw(T, b, cx + 11, y, t, done ? kPgDone : kPgText, sh); }
   return k; }
 #include "achievements.h"
 static void pgDots(uint32_t *b, SPg &p, int X1, int Y0) {
@@ -354,9 +370,9 @@ static void pgOverview(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, in
     pgCard(b, x0, y, x1, y + h); pgCardTitle(b, T, x0, y, x1, "JOHTO TOTALS", 0, 0);
     for (int i = -1; i < k; i++) { const int ry = y + 15 + (i + 1) * rh; const SPgStat s = i < 0 ? SPgStat{ kPgIcPlace, n, kPgN, "Visited" } : st[i];
       char c[16]; snprintf(c, sizeof c, "%d/%d", s.a, s.n); const int cw = T.width(c), done = s.a >= s.n;
+      pgBar(b, x0 + 66, ry + 4, x1 - 9 - cw, s.a, s.n);
       pgIco(b, x0 + 5, ry + 1, s.ico); T.draw(b, x0 + 17, ry - 1, s.name, kPgText, kPgPaper);
-      T.draw(b, x1 - 5 - cw, ry - 1, c, done ? kPgDone : kPgText, kPgPaper);
-      pgBar(b, x0 + 66, ry + 4, x1 - 9 - cw, s.a, s.n); }
+      T.draw(b, x1 - 5 - cw, ry - 1, c, done ? kPgDone : kPgText, kPgPaper); }
     y += h + 4;
     y += pgTracker(b, T, x0, y, x1);
     for (int i = 0; i < kPgN; i++) if (pgVis(p, i)) { bool dup = false; for (int j = 0; j < p.ovN; j++) if (!strcmp(P3DS_PgName[p.ovRows[j]], P3DS_PgName[i])) dup = true; if (!dup) p.ovRows[p.ovN++] = i; }
@@ -772,13 +788,17 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
   { static int prevZ = 1; if (z != prevZ && p.viewX >= 0) { const int oldW = aw / prevZ < 1 ? 1 : aw / prevZ; p.viewX = pgClampLeft(p, p.viewX + oldW / 2 - visW / 2, visW); if (z > 1) p.viewY = -1; p.glide = false; prevZ = z; } else prevZ = z; }
   const int mapW = pgMapLimit(p, visW); /* Kanto hidden: do not scroll into the empty east */
   int goal = cx - visW / 2; if (goal > mapW - visW) goal = mapW - visW; if (goal < 0) goal = 0;
+  int goalY = 0; if (z > 1) { int visH = ah / z; if (visH < 1) visH = 1; goalY = cy - visH / 2; if (goalY > kPgH - visH) goalY = kPgH - visH; if (goalY < 0) goalY = 0; }
+  const int q = P3DS_FpsTweaks() >= 5 ? 2 : 4; /* level 5: half the repaints, double the step */
   if (p.viewX < 0) { p.viewX = goal; p.glide = false; }
-  else if (p.glide) { const int d = goal - p.viewX; if (d >= -1 && d <= 1) { p.viewX = goal; p.glide = false; } else { const int q = P3DS_FpsTweaks() >= 5 ? 2 : 4; /* level 5: half the repaints, double the step */ p.viewX += d / q ? d / q : (d > 0 ? 1 : -1); } }
+  else if (p.glide) { int d = goal - p.viewX; if (d >= -1 && d <= 1) p.viewX = goal; else p.viewX += d / q ? d / q : (d > 0 ? 1 : -1);
+    if (z > 1 && p.viewY >= 0) { d = goalY - p.viewY; if (d >= -1 && d <= 1) p.viewY = goalY; else p.viewY += d / q ? d / q : (d > 0 ? 1 : -1); } /* the view eases up/down too, not only sideways */
+    if (p.viewX == goal && (z <= 1 || p.viewY < 0 || p.viewY == goalY)) p.glide = false; }
   p.moving = p.glide;
   if (p.viewX > mapW - visW) p.viewX = mapW - visW; if (p.viewX < 0) p.viewX = 0;
-  if (z <= 1) p.panAcc = 0;
+  if (z <= 1) { p.panAcc = 0; p.accX = p.accY = p.velX = p.velY = 0; }
   const int oy = Y0 + (ah - kPgH) / 2;
-  if (z > 1 && (p.glide || p.viewY < 0)) { int visH = ah / z; if (visH < 1) visH = 1; int top = cy - visH / 2; if (top > kPgH - visH) top = kPgH - visH; if (top < 0) top = 0; p.viewY = top; }
+  if (z > 1) { int visH = ah / z; if (visH < 1) visH = 1; if (p.viewY < 0) p.viewY = goalY; if (p.viewY > kPgH - visH) p.viewY = kPgH - visH; if (p.viewY < 0) p.viewY = 0; }
   const bool weatherEnabled = P3DS_AmbientWeatherCfg();
   const bool weather = weatherEnabled && p.weather;
   const bool finder = p.find > 0 && pgFindCfg();
