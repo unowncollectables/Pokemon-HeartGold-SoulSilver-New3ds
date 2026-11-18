@@ -2803,11 +2803,12 @@ static int Present(bool){
       2026-11-18 (pen felt sticky): 10 px with fast_tabs on, and the stroke made before the gate is kept (pxDrag holds lastY until then) */
    const int dragGate=fastTabsCfg()?10:16;
    if(tNow&&bmDown==21&&pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);if(dist>dragGate){if(!tDrag){tDrag=true;PSPNativeMemLog("[BMENU] panel drag (dist %d): row tap suppressed until release without drag",dist);} }pxDrag(tXl,tYl,!bmPrev,tDrag);}
-   if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);static int tYp,aPrev,aDrag;if(tNow&&!bmPrev){tYp=tYl;aPrev=tYl;aDrag=0;}
+   if(!tNow&&blMode<0&&gPg.decoded&&!pxPane()&&!gPg.achOpen&&!gPg.ov&&pgPanTick(gPg))BLINV;
+   if(tNow&&bmDown==21&&blMode<0&&gPg.decoded&&!pxPane()){const int dist=abs(tXl-tX0)+abs(tYl-tY0);static int tYp,aPrev,aDrag;if(tNow&&!bmPrev){tYp=tYl;aPrev=tYl;aDrag=0;gPg.velX=gPg.velY=0;gPg.accX=gPg.accY=0;}
     if(gPg.achOpen){const int d=pgAchDragDelta(&aDrag,&aPrev,tYl,dist);if(aDrag)tDrag=true;if(d){int n=gPg.achScroll+d;if(n<0)n=0;if(gPg.achMax>0&&n>gPg.achMax)n=gPg.achMax;if(n!=gPg.achScroll){gPg.achScroll=n;BLINV;}}}
     else{/* 2026-11-18: overview list scrolls after 8 px up/down, the map pans after 10; tXp/tYp stay at the press point until then so the first moving frame applies the whole stroke */
      if(!tDrag&&(gPg.ov?abs(tYl-tY0)>(fastTabsCfg()?8:16):dist>dragGate))tDrag=true;
-     if(tDrag&&gPg.ov){if(tYl!=tYp){gPg.ovScroll-=tYl-tYp;BLINV;}}else if(tDrag&&tXl!=tXp){gPg.glide=false;const int d=tXl-tXp;if(gPg.zoom<2)gPg.viewX-=d;else{gPg.panAcc+=d;gPg.viewX-=gPg.panAcc/gPg.zoom;gPg.panAcc%=gPg.zoom;}BLINV;}
+     if(tDrag&&gPg.ov){if(tYl!=tYp){gPg.ovScroll-=tYl-tYp;BLINV;}}else if(tDrag){const float zf=gPg.zoom<2?1.f:2.f,dx=-(float)(tXl-tXp)/zf,dy=gPg.zoom<2?0.f:-(float)(tYl-tYp)/zf;if(dx!=0.f||dy!=0.f){gPg.glide=false;pgPanBy(gPg,dx,dy);BLINV;}gPg.velX=gPg.velX*0.5f+dx*0.5f;gPg.velY=gPg.velY*0.5f+dy*0.5f;}
      if(tDrag||!fastTabsCfg()){tYp=tYl;tXp=tXl;}}}
    const int press=(tNow&&hit==bmDown)?bmDown:-1;
    /* run 49 (Nathan): X is a tile cursor, not a wave. psp_ctru.c swallows X (and A/B/D-pad while the cursor is up) and queues the presses in P3DS_TileKeys;
