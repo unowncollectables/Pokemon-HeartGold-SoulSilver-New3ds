@@ -2,15 +2,15 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: ss3ds <ss3ds@localhost>
 Date: Wed, 18 Nov 2026 16:00:00 +0000
 Subject: [PATCH] ss3ds: wild life round 4: families, dusk and dawn, rain
- species, chases, cave Zubat
+ species, chases, cave Zubat, clock-seeded randomness
 
-Alive wild Pokemon: a pair can be a parent with its young (drawn 0.7x, a few levels lower, bouncier). When the time of day changes, land ones that are not in the new table nap or walk off and slip into the grass, and the new ones arrive soon after. In the rain the map's own water Pokemon (Poliwag, Psyduck, Wooper...) sometimes come out onto land. Hunters briefly chase prey close by (Ekans and Rattata, Pidgey and Caterpie, Zangoose and Seviper...); the player always takes priority. Caves get Zubat and Golbat fly-bys from the cave's own table (never in the dark before Flash). State magic 'WIL=' (new flags field). Logs: "its young", "time of day changed", "went home", "rain brings", "chases".
+Alive wild Pokemon: a pair can be a parent with its young (drawn 0.7x, a few levels lower, bouncier). When the time of day changes, land ones that are not in the new table nap or walk off and slip into the grass, and the new ones arrive soon after. In the rain the map's own water Pokemon (Poliwag, Psyduck, Wooper...) sometimes come out onto land. Hunters briefly chase prey close by (Ekans and Rattata, Pidgey and Caterpie, Zangoose and Seviper...); the player always takes priority. Caves get Zubat and Golbat fly-bys from the cave's own table (never in the dark before Flash). The wild random numbers (spots, behaviours) are now mixed with the console clock at boot and on every map entry, so a Continue and the same walk no longer replay the same spawns. State magic 'WIL=' (new flags field). Logs: "its young", "time of day changed", "went home", "rain brings", "chases".
 ---
- scripts/ss3ds_hooks.d/0110_wildvis.py | 187 ++++++++++++++++++++++++--
- 1 file changed, 177 insertions(+), 10 deletions(-)
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 197 ++++++++++++++++++++++++--
+ 1 file changed, 187 insertions(+), 10 deletions(-)
 
 diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
-index 180f9f5..af1c9c5 100644
+index 180f9f5..1d851d7 100644
 --- a/scripts/ss3ds_hooks.d/0110_wildvis.py
 +++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
 @@ -13,7 +13,7 @@ import os
@@ -137,7 +137,30 @@ index 180f9f5..af1c9c5 100644
          SS3DS_WildEndPlay(S, i);
          P3DS_WildFree(i + 1);
          PSPNativeMemLog("[WILD] slot %d species %d removed (%s)", i + 1, S->m[i].sp, why);
-@@ -1288,7 +1354,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
+@@ -1039,6 +1105,14 @@ static void SS3DS_WildKill(SS3DSWildState *S, int i, const char *why) {
+     S->m[i].on = 0;
+ }
+ 
++// 0283: console clock mixed into the wild random numbers (spots, behaviours), so no two visits play out the same
++static u32 SS3DS_WildClockSeed(void) {
++    RTCDate date;
++    RTCTime time;
++    GF_RTC_CopyDateTime(&date, &time);
++    return ((u32)(time.hour * 3600 + time.minute * 60 + time.second) * 2654435761u) ^ ((u32)date.day * 40503u) ^ ((u32)date.month << 24);
++}
++
+ static SS3DSWildState *SS3DS_WildGet(void) {
+     SS3DSWildState *S = P3DS_WildMemV2();
+     if (S->magic != SS3DS_WILD_MAGIC) {
+@@ -1049,6 +1123,7 @@ static SS3DSWildState *SS3DS_WildGet(void) {
+         S->magic = SS3DS_WILD_MAGIC;
+         S->map = -1;
+         S->rng = 0x2545F491u;
++        S->rng ^= SS3DS_WildClockSeed(); // 0283: a new sequence every session, not the same spots after every Continue
+         PSPNativeMemLog("[WILD] ready: wild_vis=%d count=%d shiny=%d only_visible=%d cries=%d", P3DS_WildVisCfg(0), P3DS_WildVisCfg(1) + 1, P3DS_WildVisCfg(2), P3DS_WildVisCfg(3), P3DS_WildVisCfg(4));
+     }
+     return S;
+@@ -1288,7 +1363,7 @@ static void SS3DS_BirdTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px,
          S->birdZ = roofZ;
          S->birdRoofY = roofY;
          S->birdPerch = SS3DS_BIRD_ROOF;
@@ -146,7 +169,15 @@ index 180f9f5..af1c9c5 100644
          static const int offsets[] = {0, -3, 3};
          int firstLane = S->birdZ;
          int lookForPerch = !shiny && SS3DS_WildRand(S, 3) == 0;
-@@ -1726,6 +1792,31 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+@@ -1694,6 +1769,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         if (S->birdNext < 300) {
+             S->birdNext = 300 + (int)SS3DS_WildRand(S, 300);
+         }
++        S->rng ^= SS3DS_WildClockSeed() + (u32)S->anim; // 0283: re-entering a map rolls fresh spots
+         PSPNativeMemLog("[WILD] map %d", map);
+     }
+     int px = PlayerAvatar_GetXCoord(fieldSystem->playerAvatar), pz = PlayerAvatar_GetZCoord(fieldSystem->playerAvatar);
+@@ -1726,6 +1802,31 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
      int town = alive >= 2 && (SS3DS_TownMap(fieldSystem) || (indoors && (routine || leaving)));
      const SS3DSTownHabits *habits = SS3DS_TownHabits(indoors && link ? link->outside : map);
      int wildAvailable = !SS3DS_WildBlockedMap(fieldSystem);
@@ -178,7 +209,7 @@ index 180f9f5..af1c9c5 100644
      int clerkScene = leaving && map == MAP_GOLDENROD && (env & WILD_DAY) && !(env & 2);
      if (!clerkScene && S->clerkT != 0) {
          SS3DS_TownClerkRemove(fieldSystem, S);
-@@ -1837,8 +1928,21 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+@@ -1837,8 +1938,21 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
                      }
                  }
              } else if (ro < 0) {
@@ -201,7 +232,7 @@ index 180f9f5..af1c9c5 100644
                      if (!SS3DS_WildPick(fieldSystem, (kind & 3) == 2, &sp, &lv)) {
                          sp = 0;
                          break;
-@@ -1911,6 +2015,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+@@ -1911,6 +2025,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
              m->pad = 0; // fade-in counter
              m->sleep = m->leader = m->fight = m->big = m->splash = m->spare = 0;
              m->playWith = m->playT = m->rustle = m->wet = m->tracks = 0;
@@ -209,7 +240,7 @@ index 180f9f5..af1c9c5 100644
              int napHabit = alive && ro < 0 && m->kind == 1 ? SS3DS_WildNapHabit(sp, resident ? habits : NULL, env & 1) : 0;
              m->spare = !regular ? 2 : resident;
              if (!regular) {
-@@ -1961,8 +2066,14 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+@@ -1961,8 +2076,14 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
                      g2->sleep = g2->sleep && SS3DS_WildRand(S, 2) ? 180 + (int)SS3DS_WildRand(S, 300) : 0;
                      g2->timer = 20 + (int)SS3DS_WildRand(S, 40);
                      g2->kind = m->kind;
@@ -225,7 +256,7 @@ index 180f9f5..af1c9c5 100644
                      // 0282: sometimes a third joins on the other side (a small herd)
                      int k3;
                      for (k3 = 0; k3 < SS3DS_WILD_MAX && S->m[k3].on; k3++) {
-@@ -1984,6 +2095,11 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+@@ -1984,6 +2105,11 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
                          g3->sleep = g3->sleep && SS3DS_WildRand(S, 2) ? 180 + (int)SS3DS_WildRand(S, 300) : 0;
                          g3->timer = 20 + (int)SS3DS_WildRand(S, 40);
                          g3->grass = (SS3DS_Tile(fieldSystem, hx, hz, m->spare) & 4) != 0;
@@ -237,7 +268,7 @@ index 180f9f5..af1c9c5 100644
                          PSPNativeMemLog("[WILD] spawn slot %d species %d lv %d joins slot %d (herd of 3)", k3 + 1, sp, g3->lv, k + 1);
                      }
                  }
-@@ -2227,6 +2343,33 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+@@ -2227,6 +2353,33 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
                      break;
                  }
              }
@@ -271,7 +302,7 @@ index 180f9f5..af1c9c5 100644
              if (m->playWith || m->fight) {
                  continue;
              }
-@@ -2235,7 +2378,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+@@ -2235,7 +2388,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
                  if (m->kind == 2 && m->splash == 0 && SS3DS_WildRand(S, (m->sp == 129 ? 90 : 300) / ((env & 2) ? 3 : 1)) == 0) { // 0282: rain brings water ones up to splash
                      m->hop = 12;
                      m->splash = 16;
@@ -280,7 +311,7 @@ index 180f9f5..af1c9c5 100644
                      m->hop = 8;
                  }
                  // 0282: now and then an unaware one close by calls out (shares the cry cooldown, follows the cries setting)
-@@ -2299,7 +2442,31 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+@@ -2299,7 +2452,31 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
          }
          m->timer = 40 + (int)SS3DS_WildRand(S, 51);
          int d = (int)SS3DS_WildRand(S, 4); // 0 up (z-1), 1 down (z+1), 2 left (x-1), 3 right (x+1)
@@ -313,7 +344,7 @@ index 180f9f5..af1c9c5 100644
              if (m->grass && dist > 1 && m->roamer < 0 && !m->big) {
                  m->noticed = WILD_IN_COVER;
                  m->rustle = 12;
-@@ -2627,7 +2794,7 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+@@ -2627,7 +2804,7 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
          SS3DS_WildGroundEffect(cm, &track, 2 * FX32_ONE, alpha, GX_RGB(9, 6, 3), 0);
      }
      fx32 tt = m->t >= 16 ? FX32_ONE : m->t * FX32_ONE / 16;
@@ -322,7 +353,7 @@ index 180f9f5..af1c9c5 100644
      c.x = ((m->fx * 16 + 8) * FX32_ONE) + FX_Mul((m->x - m->fx) * 16 * FX32_ONE, tt);
      c.z = ((m->fz * 16 + 8) * FX32_ONE) + FX_Mul((m->z - m->fz) * 16 * FX32_ONE, tt);
      if (m->pad < 0) {
-@@ -2637,7 +2804,7 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+@@ -2637,7 +2814,7 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
      G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
      if (m->kind == 1 && !m->grass) {
          c.y = py + FX32_ONE / 2;
