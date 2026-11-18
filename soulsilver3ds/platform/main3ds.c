@@ -66,12 +66,12 @@ static void hold(const char *why) { P3DS_LogFlushSync();
 
 /* ---- save safety (Nathan's retail save must round-trip with a real DS / R4: soulsilver.sav is the raw 512 KiB image the
    game's own save code writes, byte for byte what a cart holds) ----
-   Backups: soulsilver.sav.bak1..8, newest first, made at launch, 2 s after each in-game save (pspoke hook 0119 -> P3DS_SaveDone) and at clean exit (save_backup=1, default on). A copy is
+   Backup: soulsilver.sav.bak1 (one copy), made at launch, 2 s after each in-game save (pspoke hook 0119 -> P3DS_SaveDone) and at clean exit (save_backup=1, default on). A copy is
    only rotated in when the live file is a valid save (a footer CRC check, same rule as tools/ss_savecheck.py) and differs
    from bak1, so a blank or damaged file can never push the good copies out. To bring in a cart / R4 / emulator save, copy it over soulsilver.sav on the SD card.
    Export: Settings > Setup > Export save (P3DS_SaveExport) writes a validated byte-for-byte copy of
    soulsilver.sav to export/soulsilver_YYYYMMDD_HHMMSS.sav and export/soulsilver.sav (read back and compared); or copy soulsilver.sav / any .bak by hand. */
-#define SS_BAK_KEEP 8
+#define SS_BAK_KEEP 1 /* 2026-11-18: one main save + one backup (bak1); older bak2..8 from earlier builds are deleted after the next good backup */
 #define SS_SAVE_DIR "sdmc:/3ds/soulsilver3ds/"
 #define SS_SAVE_BYTES 524288u
 static u16 ssCrc16(const u8 *p, u32 n) { u32 c = 0xFFFF; while (n--) { c ^= (u32)*p++ << 8; for (int i = 0; i < 8; i++) c = (c & 0x8000) ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF; } return (u16)c; }
@@ -112,7 +112,7 @@ static int ssWriteAtomic(const char *path, const u8 *buf) {
 }
 /* 2026-11-18 stability: write the new bak1 to its temp file FIRST, and only then rotate bak1..bak7 up. Before, the chain was rotated (bak8 deleted)
    and then the write could fail (SD card full, removed, locked), which cost one good backup per failed save. Now a failed write leaves all
-   eight backups exactly as they were. ssBakFailed makes the game thread show one toast (P3DS_Toast is not for worker threads). */
+   backup exactly as it was. ssBakFailed makes the game thread show one toast (P3DS_Toast is not for worker threads). */
 static volatile int ssBakFailed;
 static int ssWriteBak1(const u8 *live) {
     if (!ssWriteTmp(SS_SAVE_DIR "soulsilver.sav.bak1", live)) { ssBakFailed = 1; return 0; }
@@ -121,6 +121,7 @@ static int ssWriteBak1(const u8 *live) {
     for (int i = SS_BAK_KEEP - 1; i >= 1; i--) { snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", i); snprintf(b, sizeof b, SS_SAVE_DIR "soulsilver.sav.bak%d", i + 1); rename(a, b); }
     int ok = rename(SS_SAVE_DIR "soulsilver.sav.bak1.tmp", SS_SAVE_DIR "soulsilver.sav.bak1") == 0;
     if (!ok) ssBakFailed = 1;
+    if (ok) for (int i = SS_BAK_KEEP + 1; i <= 8; i++) { snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", i); remove(a); } /* leftovers from the old 8-deep chain */
     return ok;
 }
 static u32 ssCrc32(const u8 *p, u32 n) { u32 c = 0xFFFFFFFFu; while (n--) { c ^= *p++; for (int i = 0; i < 8; i++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); } return ~c; }
