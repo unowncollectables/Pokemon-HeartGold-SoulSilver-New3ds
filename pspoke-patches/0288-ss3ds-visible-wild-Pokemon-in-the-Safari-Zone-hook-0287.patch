@@ -1,19 +1,19 @@
 From afe814e87a4303ffebf7bc2c939eb0a2de2dc210 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 18 Nov 2026 23:40:11 +0000
-Subject: [PATCH] ss3ds: visible wild Pokemon in the Safari Zone (hook 0287)
+Subject: [PATCH] ss3ds: visible wild Pokemon in the Safari Zone (hook 0288)
 
 Hook 0110 block v26 no longer blocks the Safari flag and picks species and level from the area's own Safari tables
 (SafariZoneAreaSet_LoadAreaEncounters, the call the random Safari encounter makes). No roamers or sparkle shinies there.
-New hook 0287 makes the game's own Safari encounter use the visible one's species and level when 0110 forces a battle,
+New hook 0288 makes the game's own Safari encounter use the visible one's species and level when 0110 forces a battle,
 so Safari Balls, bait and rock stay exactly as in the game.
 ---
  scripts/ss3ds_hooks.d/0110_wildvis.py   | 34 +++++++++++++++++++++----
- scripts/ss3ds_hooks.d/0287_safarivis.py | 29 +++++++++++++++++++++
- scripts/ss3ds_hooks.d/0287_safarivis.sh |  5 ++++
+ scripts/ss3ds_hooks.d/0288_safarivis.py | 29 +++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0288_safarivis.sh |  5 ++++
  3 files changed, 63 insertions(+), 5 deletions(-)
- create mode 100644 scripts/ss3ds_hooks.d/0287_safarivis.py
- create mode 100644 scripts/ss3ds_hooks.d/0287_safarivis.sh
+ create mode 100644 scripts/ss3ds_hooks.d/0288_safarivis.py
+ create mode 100644 scripts/ss3ds_hooks.d/0288_safarivis.sh
 
 diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
 index 8314967..362367e 100644
@@ -22,22 +22,22 @@ index 8314967..362367e 100644
 @@ -15,3 +15,3 @@ import sys
  COMMON = r'''
 -/* SS3DS-WILD-BEGIN v25 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284: everything between BEGIN and END is replaced by the hook on every build) */
-+/* SS3DS-WILD-BEGIN v26 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284/0287: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v26 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284/0288: everything between BEGIN and END is replaced by the hook on every build) */
  /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
 @@ -71,3 +71,8 @@ static BOOL SS3DS_WildBlocked(FieldSystem *fieldSystem) {
      SaveVarsFlags *flags = Save_VarsFlags_Get(fieldSystem->saveData);
 -    return Save_VarsFlags_CheckSafariSysFlag(flags) || Save_VarsFlags_CheckBugContestFlag(flags);
-+    return Save_VarsFlags_CheckBugContestFlag(flags); // 0287: the Safari Zone has visible wild Pokemon now (its own area tables, the game's own Safari battle)
++    return Save_VarsFlags_CheckBugContestFlag(flags); // 0288: the Safari Zone has visible wild Pokemon now (its own area tables, the game's own Safari battle)
 +}
 +
-+// 0287: inside the Safari Zone (Safari flag set). Visible ones there take species from the area's own Safari tables.
++// 0288: inside the Safari Zone (Safari flag set). Visible ones there take species from the area's own Safari tables.
 +int SS3DS_WildSafari(FieldSystem *fieldSystem) {
 +    return Save_VarsFlags_CheckSafariSysFlag(Save_VarsFlags_Get(fieldSystem->saveData)) ? 1 : 0;
  }
 @@ -198,2 +203,20 @@ int SS3DS_WildPick(FieldSystem *fieldSystem, int surf, int *species, int *level)
      }
 +    if (SS3DS_WildSafari(fieldSystem)) {
-+        // 0287: Safari Zone. The game's own area loader (the blocks the player placed decide the species), same call the
++        // 0288: Safari Zone. The game's own area loader (the blocks the player placed decide the species), same call the
 +        // random Safari encounter makes, so the visible one is exactly something that area could have thrown at the player.
 +        if ((surf ? FieldSystem_GetSurfingEncounterRate(fieldSystem) : FieldSystem_GetLandEncounterRate(fieldSystem)) == 0) {
 +            return 0;
@@ -74,51 +74,51 @@ index 8314967..362367e 100644
 -            int shiny = regular && ro < 0 && P3DS_WildVisCfg(2) && SS3DS_WildRand(S, 8192) == 0;
 +            int shiny = regular && ro < 0 && !SS3DS_WildSafari(fieldSystem) && P3DS_WildVisCfg(2) && SS3DS_WildRand(S, 8192) == 0;
              int spr = P3DS_FollowerSprite(sp, 0, 0);
-diff --git a/scripts/ss3ds_hooks.d/0287_safarivis.py b/scripts/ss3ds_hooks.d/0287_safarivis.py
+diff --git a/scripts/ss3ds_hooks.d/0288_safarivis.py b/scripts/ss3ds_hooks.d/0288_safarivis.py
 new file mode 100644
 index 0000000..31a55f1
 --- /dev/null
-+++ b/scripts/ss3ds_hooks.d/0287_safarivis.py
++++ b/scripts/ss3ds_hooks.d/0288_safarivis.py
 @@ -0,0 +1,29 @@
 +#!/usr/bin/env python3
-+"""ss3ds 0287: visible wild Pokemon in the Safari Zone (needs hook 0110 block v26, which picks their species from the
++"""ss3ds 0288: visible wild Pokemon in the Safari Zone (needs hook 0110 block v26, which picks their species from the
 +Safari area tables and no longer blocks the Safari flag).
 +  encounter_check.c  FieldSystem_GenerateSafariEncounter: when 0110 forces a battle (the player walked into / talked to a
 +                     visible one), that species and level are used instead of a random Safari slot. The battle itself is
 +                     the game's own Safari setup, so the Safari rules stay: Safari Balls, bait, rock, no Pokemon of yours.
-+Optional. Idempotent ('SS3DS 0287')."""
++Optional. Idempotent ('SS3DS 0288')."""
 +import sys
 +
 +p = 'src/field/encounter_check.c'
 +s = open(p).read()
-+if 'SS3DS 0287' in s:
++if 'SS3DS 0288' in s:
 +    sys.exit(0)
 +if 'sSS3DS_Force' not in s:
-+    sys.exit('0287_safarivis: hook 0110 is not in encounter_check.c, skipped')
++    sys.exit('0288_safarivis: hook 0110 is not in encounter_check.c, skipped')
 +old = ('    species = encSlots[slot].species;\n'
 +       '    level = encSlots[slot].maxLevel;\n'
 +       '    if (DoesAbilitySuppressEncounter(encounterGen, leadMon, level) || EncounterGen_DoesRepelSuppressEncounter(level, encounterGen) == TRUE) {\n')
 +new = ('    species = encSlots[slot].species;\n'
 +       '    level = encSlots[slot].maxLevel;\n'
-+       '    if (sSS3DS_Force) { // SS3DS 0287: the visible one the player walked into\n'
++       '    if (sSS3DS_Force) { // SS3DS 0288: the visible one the player walked into\n'
 +       '        species = sSS3DS_ForceSp;\n'
 +       '        level = sSS3DS_ForceLv;\n'
 +       '    }\n'
 +       '    if ((!sSS3DS_Force && DoesAbilitySuppressEncounter(encounterGen, leadMon, level)) || EncounterGen_DoesRepelSuppressEncounter(level, encounterGen) == TRUE) {\n')
 +if s.count(old) != 1:
-+    sys.exit('0287_safarivis: anchor not found exactly once in %s' % p)
++    sys.exit('0288_safarivis: anchor not found exactly once in %s' % p)
 +open(p, 'w').write(s.replace(old, new))
-+print('0287_safarivis: encounter_check.c hooked')
-diff --git a/scripts/ss3ds_hooks.d/0287_safarivis.sh b/scripts/ss3ds_hooks.d/0287_safarivis.sh
++print('0288_safarivis: encounter_check.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0288_safarivis.sh b/scripts/ss3ds_hooks.d/0288_safarivis.sh
 new file mode 100644
 index 0000000..6901a8a
 --- /dev/null
-+++ b/scripts/ss3ds_hooks.d/0287_safarivis.sh
++++ b/scripts/ss3ds_hooks.d/0288_safarivis.sh
 @@ -0,0 +1,5 @@
-+# ss3ds 0287: visible wild Pokemon in the Safari Zone (after 0110). Optional: without it a visible one in the Safari Zone starts a
++# ss3ds 0288: visible wild Pokemon in the Safari Zone (after 0110). Optional: without it a visible one in the Safari Zone starts a
 +# Safari battle with a random Safari species instead of its own. Logs "skipped", never stops the build.
-+if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0287_safarivis.py" && bash rebuild_game_object.sh src/field/encounter_check.c field__encounter_check.o 2); then
-+  log "ss3ds 0287 safari visible wild hook skipped (see message above); a visible wild Pokemon in the Safari Zone battles a random Safari species"
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0288_safarivis.py" && bash rebuild_game_object.sh src/field/encounter_check.c field__encounter_check.o 2); then
++  log "ss3ds 0288 safari visible wild hook skipped (see message above); a visible wild Pokemon in the Safari Zone battles a random Safari species"
 +fi
 -- 
 2.43.0
