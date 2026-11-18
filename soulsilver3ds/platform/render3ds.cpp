@@ -192,7 +192,7 @@ static bool gBmGapOnly;
 static int bSkipCfg=-1;static volatile unsigned bPower;static unsigned bLastPower=~0u;static unsigned bSkips,bDraws;volatile int P3DS_BottomReused;
 #include "title_layers.h"
 extern "C" int P3DS_InTitle;
-extern "C" int P3DS_InPokewalker;
+extern "C" int P3DS_InPokewalker;extern "C" int P3DS_InGts;
 static int titleCleanCfg();
 extern "C" {extern int P3DS_TitleWideRequested,P3DS_GcTitleWideValid;extern u32 P3DS_GcTitleStrips[];}
 static u32 titleCanvas[320*192],titleStrips[64*192];static volatile bool titleWideValid;
@@ -2264,7 +2264,7 @@ static int Present(bool){
  P3DS_TitleWideRequested=P3DS_InTitle&&titleCleanCfg()==2;P3DS_GcTitleWideValid=0;
  // Use the DS scanline compositor for the Pokewalker screens to avoid GPU tile seams.
  const bool pokewalker = P3DS_InPokewalker != 0;
- const int gpuBModeFrame=(!P3DS_InField&&!pokewalker)?gpuBCfg():0;bGpuFrame=bGpuVerify=false;titleWideValid=false;
+ const int gpuBModeFrame=(!P3DS_InField&&!pokewalker&&!P3DS_InGts)?gpuBCfg():0; /* GTS: run 933 photos showed its sub screen drawn doubled/squashed while the GPU engine-B path composed every frame */bGpuFrame=bGpuVerify=false;titleWideValid=false;
  bool earlyB=false;
  if(!gpuBModeFrame&&earlyCfg&&engineBAsync()&&stealCfg!=1&&c1Mode!=1){unsigned pw=reg16(0x304);
   mapMemory();engineB.Enabled=(pw&512)!=0;bindRegisters(engineB,0x1000);FrameStart(engineB);bPower=pw;bRightSrc=nullptr;

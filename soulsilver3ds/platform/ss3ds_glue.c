@@ -116,6 +116,7 @@ int __wrap_Bag_Main(void *manager, int *state) {
 
 int P3DS_InTitle;
 int P3DS_InPokewalker;
+int P3DS_InGts; /* Global Terminal (overlay 70) is the running app: render3ds.cpp composes its sub screen on the CPU (see Present) */
 extern const char ov112_App_MainMenu_SelectOption_ConnectToPokewalker[];
 extern const char gApplication_TitleScreen[] __attribute__((weak));
 /* 2026-11-18: the start-up intro movie (Ho-Oh/Lugia scenes before the title). render3ds.cpp leaves its wide side strips dark
@@ -144,6 +145,9 @@ void *__wrap_OverlayManager_New(const void *template, void *parentWork, int heap
     {const int im=gApplication_IntroMovie&&template==(const void*)gApplication_IntroMovie;if(im!=P3DS_InIntroMovie){extern void PSPNativeMemLog(const char*,...);PSPNativeMemLog("[TITLE] intro movie active=%d (wide sides dark, no edge blur)",im);}P3DS_InIntroMovie=im;}
     if (field != P3DS_InField) { extern void PSPNativeMemLog(const char *, ...); PSPNativeMemLog("[3DS] field %d", field); }
     P3DS_InField = field;
+    {   const int gts = template && ((const int *)template)[3] == 70;
+        if (gts != P3DS_InGts) { extern void PSPNativeMemLog(const char *, ...); PSPNativeMemLog("[GTS] CPU bottom screen composition %s", gts ? "enabled" : "ended"); }
+        P3DS_InGts = gts; }
     const int pokewalker = template == (const void *)ov112_App_MainMenu_SelectOption_ConnectToPokewalker;
     if (pokewalker != P3DS_InPokewalker) {
         P3DS_InPokewalker = pokewalker;
