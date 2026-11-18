@@ -54,6 +54,9 @@ extern "C" {
 }
 extern __thread u32*P3DS_3DSrc;
 static GPU2D::Unit engineA2(0);static GPU2D::SoftRenderer rendererR;
+/* issue #484 FOE DEEPER (stereo_2d=4, see P3DS_BattleSideExtra): the CPU right eye switches the back BG to bdLow from line bdSplit down */
+static const int kBattleSplitY=128; /* foe platform ends ~y120, yours starts ~y140 (HGSS singles and doubles) */
+static int bdMask,bdSplit;static u16 bdLow[4];
 /* run 50 split_top=1 (config, default 1 since run 57): MONO only. Engine A (top screen) lines 96..191 are composited on the core-2
    worker (own Unit copy + own renderer) while the main thread does lines 0..95. The copy is fast-forwarded through
    lines 0..95 without drawing (windows, affine BG reference points, BG/OBJ mosaic counters: same steps melonDS's
@@ -1089,8 +1092,6 @@ extern "C" int P3DS_BattleDepthLock(void){return P3DS_InBattle&&stereo2dCfg()>=3
    back BG (priority 3) rows above kBattleSplitY (sky + foe's platform) get +e and the rows below (your platform) -e, so each Pokemon stays
    on its platform. e = (sd+1)/3: 2 px at full slider (foe 5 px, yours 1 px; GENTLE+LOCK has both at 3). */
 extern "C" int P3DS_BattleSideExtra(int sd){return (P3DS_InBattle&&stereo2dCfg()==4&&sd>0)?(sd+1)/3:0;}
-static const int kBattleSplitY=128; /* foe platform ends ~y120, yours starts ~y140 (HGSS singles and doubles) */
-static int bdMask,bdSplit;static u16 bdLow[4]; /* CPU right eye: BGXPos for the rows from bdSplit down */
 extern "C" {extern int P3DS_GcRowSplit;extern int P3DS_GcRowDx[4];}
 static int gcStNfV=-1;static int gcStNfCfg(){if(gcStNfV<0){gcStNfV=P3DS_CfgInt("gpu_compose_stereo_nf",1)!=0;PSPNativeMemLog("[GPUC] gpu_compose_stereo_nf=%d (battles/menus with the 3D slider on: GPU-compose both eyes; 0 = CPU, ~14-22 ms)",gcStNfV);}return gcStNfV;}
 static int gcStereoV=-1;static int gcStereoCfg(){if(gcStereoV<0){gcStereoV=P3DS_CfgInt("gpu_compose_stereo",1)!=0;PSPNativeMemLog("[GPUC] gpu_compose_stereo=%d",gcStereoV);}return gcStereoV;}
