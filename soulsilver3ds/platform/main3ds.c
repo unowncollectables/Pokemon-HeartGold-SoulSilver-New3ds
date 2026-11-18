@@ -96,21 +96,37 @@ static u32 ssSaveValid(const u8 *d) {
 }
 static u8 *ssBuf(int i) { static u8 b[2][SS_SAVE_BYTES]; return b[i]; }
 static size_t ssReadAll(const char *path, u8 *buf) { FILE *f = fopen(path, "rb"); if (!f) return 0; size_t n = fread(buf, 1, SS_SAVE_BYTES, f); int extra = fgetc(f) != EOF; fclose(f); return extra ? 0 : n; }
-static int ssWriteAtomic(const char *path, const u8 *buf) {
+/* ssWriteTmp: write buf to path.tmp and fsync it; 1 = the complete temp file is on the card (nothing else touched), 0 = failed (temp removed). */
+static int ssWriteTmp(const char *path, const u8 *buf) {
     char tmp[160]; snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *o = fopen(tmp, "wb"); if (!o) return 0;
     size_t w = fwrite(buf, 1, SS_SAVE_BYTES, o); int fs = fflush(o) || fsync(fileno(o)); int cl = fclose(o); /* fsync: on the card before the rename */
     if (fs) PSPNativeMemLog("[SAVE] fsync of %s FAILED", tmp);
     if (w != SS_SAVE_BYTES || cl) { remove(tmp); return 0; }
+    return 1;
+}
+static int ssWriteAtomic(const char *path, const u8 *buf) {
+    char tmp[160]; snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    if (!ssWriteTmp(path, buf)) return 0;
     remove(path); return rename(tmp, path) == 0;
+}
+/* 2026-11-18 stability: write the new bak1 to its temp file FIRST, and only then rotate bak1..bak7 up. Before, the chain was rotated (bak8 deleted)
+   and then the write could fail (SD card full, removed, locked), which cost one good backup per failed save. Now a failed write leaves all
+   eight backups exactly as they were. ssBakFailed makes the game thread show one toast (P3DS_Toast is not for worker threads). */
+static volatile int ssBakFailed;
+static int ssWriteBak1(const u8 *live) {
+    if (!ssWriteTmp(SS_SAVE_DIR "soulsilver.sav.bak1", live)) { ssBakFailed = 1; return 0; }
+    char a[160], b[160];
+    snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", SS_BAK_KEEP); remove(a);
+    for (int i = SS_BAK_KEEP - 1; i >= 1; i--) { snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", i); snprintf(b, sizeof b, SS_SAVE_DIR "soulsilver.sav.bak%d", i + 1); rename(a, b); }
+    int ok = rename(SS_SAVE_DIR "soulsilver.sav.bak1.tmp", SS_SAVE_DIR "soulsilver.sav.bak1") == 0;
+    if (!ok) ssBakFailed = 1;
+    return ok;
 }
 static u32 ssCrc32(const u8 *p, u32 n) { u32 c = 0xFFFFFFFFu; while (n--) { c ^= *p++; for (int i = 0; i < 8; i++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); } return ~c; }
 /* ssBgWrite: the rotate + atomic write of the backup, the slow part (~0.5 s on the card, fsync included). */
 static void ssBgWrite(const u8 *live, u32 cnt, const char *why) {
-    char a[160], b[160];
-    snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", SS_BAK_KEEP); remove(a);
-    for (int i = SS_BAK_KEEP - 1; i >= 1; i--) { snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", i); snprintf(b, sizeof b, SS_SAVE_DIR "soulsilver.sav.bak%d", i + 1); rename(a, b); }
-    int ok = ssWriteAtomic(SS_SAVE_DIR "soulsilver.sav.bak1", live);
+    int ok = ssWriteBak1(live);
     PSPNativeMemLog("[SAVE] backup (%s): save count %u crc %08x -> bak1 (%s, %d kept)", why, cnt, ssCrc32(live, SS_SAVE_BYTES), ok ? "ok" : "FAILED", SS_BAK_KEEP);
 }
 static void ssLock(void);
@@ -133,10 +149,7 @@ static void ssSaveBackupLocked(const char *why) {
     u32 cnt = ssSaveValid(live);
     if (!cnt) { PSPNativeMemLog("[SAVE] backup (%s): live save has no valid slot (blank or damaged), backups left untouched", why); return; }
     if (ssReadAll(SS_SAVE_DIR "soulsilver.sav.bak1", old) == SS_SAVE_BYTES && !memcmp(live, old, SS_SAVE_BYTES)) { PSPNativeMemLog("[SAVE] backup (%s): save count %u already in bak1", why, cnt); return; }
-    char a[160], b[160];
-    snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", SS_BAK_KEEP); remove(a);
-    for (int i = SS_BAK_KEEP - 1; i >= 1; i--) { snprintf(a, sizeof a, SS_SAVE_DIR "soulsilver.sav.bak%d", i); snprintf(b, sizeof b, SS_SAVE_DIR "soulsilver.sav.bak%d", i + 1); rename(a, b); }
-    int ok = ssWriteAtomic(SS_SAVE_DIR "soulsilver.sav.bak1", live);
+    int ok = ssWriteBak1(live);
     PSPNativeMemLog("[SAVE] backup (%s): save count %u crc %08x -> bak1 (%s, %d kept)", why, cnt, ssCrc32(live, SS_SAVE_BYTES), ok ? "ok" : "FAILED", SS_BAK_KEEP);
 }
 static void ssLock(void) { if (!ssSaveLockInit) { LightLock_Init(&ssSaveLock); ssSaveLockInit = 1; } LightLock_Lock(&ssSaveLock); }
@@ -146,6 +159,7 @@ static void ssSaveBackup(const char *why) { ssLock(); ssSaveBackupLocked(why); L
 static volatile u64 ssDoneAt;
 void P3DS_SaveDone(void) { ssDoneAt = svcGetSystemTick() | 1; }
 static void ssSaveTick(void) {
+    if (ssBakFailed) { static int toasted; ssBakFailed = 0; if (!toasted++) { extern void P3DS_Toast(const char *); P3DS_Toast("SAVE BACKUP FAILED - SD FULL?"); } } /* one toast per run, the log has every failure */
     u64 t = ssDoneAt; if (!t || svcGetSystemTick() - t < 2000ull * CPU_TICKS_PER_MSEC) return;
     extern int P3DS_CfgInt(const char *, int);
     if (!P3DS_CfgInt("save_backup_bg", 1)) { ssDoneAt = 0; ssSaveBackup("after save"); return; }
@@ -204,6 +218,7 @@ static void hardExit(int code) {
     P3DS_LogFlushSync(); aptUnhook(&hookCookie); gfxExit(); exit(code);
 }
 static char lastMsg[200];
+static char missingName[96]; /* name from the last "[SS-MISSING] name" log line (a Missing() trap logs it, then abort()s) */
 #include "crumbs.h"
 typedef struct { const char *tag; void *caller; unsigned n; int th; unsigned frame; } Crumb;
 /* ring 0 = main game thread, ring 1 = every other thread (VBlank/alarm/audio work must not hide the main thread). */
@@ -227,7 +242,9 @@ BOOL __wrap_CommManager_IsInitialized(void) { static unsigned n; CRUMB("heap-all
 extern void __real_PSPNativeFatal(const char *);
 void __wrap_PSPNativeFatal(const char *w) { snprintf(lastMsg, sizeof lastMsg, "%s", w); __real_PSPNativeFatal(w); }
 void __wrap_abort(void) {
-    char b[300]; snprintf(b, sizeof b, "abort() from %p. last msg: %s", __builtin_return_address(0), lastMsg[0] ? lastMsg : "(none)");
+    char b[300];
+    if (missingName[0]) snprintf(b, sizeof b, "This game screen is not in the 3DS port yet\n(%s).\nYour last in-game save is safe.\nPlease tell the developer which screen you opened.", missingName);
+    else snprintf(b, sizeof b, "abort() from %p. last msg: %s", __builtin_return_address(0), lastMsg[0] ? lastMsg : "(none)");
     hold(b); for (;;) {}
 }
 /* printf/puts from the port go to the card log too (console alone scrolls away). */
@@ -242,7 +259,7 @@ int __wrap_puts(const char *s) { P3DS_LogLine(s); snprintf(lastMsg, sizeof lastM
    and the wrapped puts above used to call PSPNativeMemLog again: endless recursion on the first log line. Platinum's memprobe.c was
    patched (memlog-ring.patch) to hand the line straight to the log ring; this does the same for SoulSilver without touching pspoke,
    and skips the per-line open/write/close of native-memlog.txt. */
-void __wrap_PSPNativeMemLog(const char *fmt, ...) { char line[400]; va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap); P3DS_LogLine(line); }
+void __wrap_PSPNativeMemLog(const char *fmt, ...) { char line[400]; va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap); P3DS_LogLine(line); if (!strncmp(line, "[SS-MISSING] ", 13)) snprintf(missingName, sizeof missingName, "%.90s", line + 13); }
 static volatile int lidEvt; /* run 64 lid_sound: 1 = closed (sleep), 2 = opened (wake); consumed on the game thread */
 /* HOME / power button / lid: commit the save and the log to the SD card now, in case the app never comes back */
 static void syncOnApt(const char *why) { extern int PSPNative_SyncBackupIdle(const char *); extern void P3DS_LogRequestSync(void); PSPNative_SyncBackupIdle(why); P3DS_LogRequestSync(); }
