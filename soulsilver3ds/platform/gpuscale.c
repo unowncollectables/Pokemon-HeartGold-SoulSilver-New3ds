@@ -84,7 +84,13 @@ void __real_C3D_SyncMemoryFill(u32 *, u32, u32 *, u16, u32 *, u32, u32 *, u16);
 static void chEnd(int why) { if (!chOpen) return; chOpen = 0; chCloses[why]++; __real_C3D_FrameEnd(GX_CMDLIST_FLUSH); }
 static void *chWho[4]; static unsigned chWhoN[4];   /* who ended the open frame by waiting (return addresses, for the log) */
 static void chNoteWho(void *a) { for (int i = 0; i < 4; i++) { if (chWho[i] == a || !chWho[i]) { chWho[i] = a; chWhoN[i]++; return; } } chWhoN[3]++; }
-bool __wrap_C3D_FrameBegin(u8 flags) { if (chOpen) { if (flags & C3D_FRAME_NONBLOCK) return false; chNoteWho(__builtin_return_address(0)); chEnd(CH_BEGIN); } return __real_C3D_FrameBegin(flags); }
+/* run 926 hang: if the GPU is still not done 300 ms into a wait while the overlap is on, say once what the queue holds (the wait then goes on) */
+int P3DS_OverlapOn(void); extern void P3DS_LogFlushSync(void);
+static void ovHangNote(void) {
+    static int said; if (said || !chQ || !P3DS_OverlapOn() || gxCmdQueueWait(chQ, 80400000LL /* ticks: 300 ms */)) return;
+    said = 1; PSPNativeMemLog("[OVL] GPU still busy after 300 ms: queue entries %u, done %u, last %u, max %u | kicks %u", (unsigned)chQ->numEntries, (unsigned)chQ->curEntry, (unsigned)chQ->lastEntry, (unsigned)chQ->maxEntries, chKicks);
+    P3DS_LogFlushSync(); }
+bool __wrap_C3D_FrameBegin(u8 flags) { if (!(flags & C3D_FRAME_NONBLOCK)) ovHangNote(); if (chOpen) { if (flags & C3D_FRAME_NONBLOCK) return false; chNoteWho(__builtin_return_address(0)); chEnd(CH_BEGIN); } return __real_C3D_FrameBegin(flags); }
 void __wrap_C3D_FrameEnd(u8 flags) { if (chOpen) { chOpen = 0; chCloses[CH_END]++; } __real_C3D_FrameEnd(flags); }
 void __wrap_C3D_SyncDisplayTransfer(u32 *i, u32 id, u32 *o, u32 od, u32 f) { chEnd(CH_SYNC); __real_C3D_SyncDisplayTransfer(i, id, o, od, f); }
 void __wrap_C3D_SyncTextureCopy(u32 *i, u32 id, u32 *o, u32 od, u32 sz, u32 f) { chEnd(CH_SYNC); __real_C3D_SyncTextureCopy(i, id, o, od, sz, f); }
@@ -423,7 +429,11 @@ void P3DS_SetWideHazeCfg(int v) { hazeCfg = v != 0; }
 /* g3_overlap GPU strips: raw (the 3D target's side tiles, g3gpu sgTex) -> dst (this picture's strip texture), 1:1. Same rule as
    the CPU convert: alpha < 8 -> opaque black, else the colour with alpha 255 (black pass, then the texture with alpha test
    >= 8 writing only RGB). The caller then draws dst exactly as on the CPU route. */
-static C3D_RenderTarget *sgRT[2][2]; static int sgFail;
+/* run 926 hung (no frame for 10 s, stuck waiting for the GPU) about 45 ticks after the GPU strips started: the prepass rendered into the
+   strip texture in linear RAM (FCRAM) through a swapped colour pointer, which the emulator accepts but no hardware run had ever done.
+   The prepass now renders into its own VRAM texture per picture and eye (4 x 64 KB VRAM), which is then drawn exactly like the CPU strip
+   texture. No VRAM: strips stay on the CPU. */
+static C3D_Tex sgVt[2][2]; static C3D_RenderTarget *sgRT[2][2]; static int sgFail;
 static void sgQuad(void) {
     C3D_ImmDrawBegin(GPU_TRIANGLE_STRIP);
     C3D_ImmSendAttrib(0, 0, 0, 0); C3D_ImmSendAttrib(0, 0, 0, 0);
@@ -431,24 +441,17 @@ static void sgQuad(void) {
     C3D_ImmSendAttrib(64, 0, 0, 0); C3D_ImmSendAttrib(1, 0, 0, 0);
     C3D_ImmSendAttrib(64, 256, 0, 0); C3D_ImmSendAttrib(1, 1, 0, 0);
     C3D_ImmDrawEnd(); }
-/* render targets must be made from a VRAM texture; the strip textures live in linear RAM, so the target is made from a tiny VRAM
-   texture and its colour pointer replaced (the PICA renders to FCRAM; same trick as f60MakeB) */
-static C3D_RenderTarget *sgMakeRT(C3D_Tex *dst) {
-    static C3D_Tex dum; static int dumOk = -1;
-    if (dumOk < 0) dumOk = C3D_TexInitVRAM(&dum, 8, 8, GPU_RGBA8) ? 1 : 0;
-    if (!dumOk || !dst || !dst->data) return NULL;
-    C3D_RenderTarget *t = C3D_RenderTargetCreateFromTex(&dum, GPU_TEXFACE_2D, 0, -1);
-    if (!t) return NULL;
-    C3D_FrameBufColor(&t->frameBuf, dst->data, GPU_RB_RGBA8); C3D_FrameBufAttrib(&t->frameBuf, 64, 256, false);
-    return t;
-}
 int P3DS_StripRtOk(void) { return !sgFail; }
-static int sgPrepass(C3D_Tex *dst, C3D_Tex *raw, int mid, int eye) {
-    if (sgFail) return 0;
-    C3D_RenderTarget **rp = &sgRT[mid & 1][eye & 1];
-    if (!*rp) { *rp = sgMakeRT(dst);
-        if (!*rp) { sgFail = 1; PSPNativeMemLog("[OVL] strip render target FAILED: strips stay on the CPU"); return 0; } }
-    C3D_FrameDrawOn(*rp);
+static C3D_Tex *sgPrepass(C3D_Tex *raw, int mid, int eye) {
+    if (sgFail) return NULL;
+    const int p = mid & 1, e = eye & 1;
+    if (!sgRT[p][e]) {
+        if (!C3D_TexInitVRAM(&sgVt[p][e], 64, 256, GPU_RGBA8)) sgVt[p][e].data = NULL;
+        else if (!(sgRT[p][e] = C3D_RenderTargetCreateFromTex(&sgVt[p][e], GPU_TEXFACE_2D, 0, -1))) { C3D_TexDelete(&sgVt[p][e]); sgVt[p][e].data = NULL; }
+        if (!sgRT[p][e]) { sgFail = 1; PSPNativeMemLog("[OVL] no VRAM for the GPU strip targets (VRAM free %lu): strips stay on the CPU", (unsigned long)vramSpaceFree()); return NULL; }
+        C3D_TexSetFilter(&sgVt[p][e], GPU_LINEAR, GPU_LINEAR); C3D_TexSetWrap(&sgVt[p][e], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+        { static int said; if (!said) { said = 1; PSPNativeMemLog("[OVL] GPU strip targets in VRAM (VRAM free %lu)", (unsigned long)vramSpaceFree()); } } }
+    C3D_FrameDrawOn(sgRT[p][e]);
     C3D_Mtx proj; Mtx_Ortho(&proj, 0.0f, 64.0f, 0.0f, 256.0f, 1.0f, -1.0f, true);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uProj, &proj);
     C3D_TexEnv *env = C3D_GetTexEnv(0); C3D_TexEnvInit(env);
@@ -462,7 +465,7 @@ static int sgPrepass(C3D_Tex *dst, C3D_Tex *raw, int mid, int eye) {
     sgQuad();
     C3D_AlphaTest(false, GPU_ALWAYS, 0); C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
     tevPlain();
-    return 1;
+    return &sgVt[p][e];
 }
 static void strips(C3D_RenderTarget *t, int eye) {
     const u32 *src = P3DS_WideStrip[eye]; if (!src) return;
@@ -484,7 +487,7 @@ static void strips(C3D_RenderTarget *t, int eye) {
     extern C3D_Tex *G3G_StripGpuTex(int, int);
     C3D_Tex *const raw = G3G_StripGpuTex(stripMid, eye);   /* g3_overlap: this picture's strips are on the GPU (not converted on the CPU) */
     const int gpuStrip = raw != NULL; C3D_Tex *drawTx = sTx;
-    if (raw && !sgPrepass(sTx, raw, stripMid, eye)) drawTx = raw;   /* could not make the target: this once the raw tiles as they are (the CPU copy was not made) */
+    if (raw) { C3D_Tex *const v = sgPrepass(raw, stripMid, eye); drawTx = v ? v : raw; }   /* no target: this once the raw tiles as they are (the CPU copy was not made) */
     if (gpuStrip) { }
     else if (!fAmt) {
         if (sLin != src) memcpy(sLin, src, 64 * 192 * sizeof(u32));
