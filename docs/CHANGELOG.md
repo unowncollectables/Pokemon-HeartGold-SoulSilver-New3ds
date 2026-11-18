@@ -2,6 +2,10 @@
 
 Short summary of what the port can do. The full per-run development log (every fix and experiment, 2026-10-25 to 2026-11-18) is kept in [archive/CHANGELOG-dev-log-2026-11-18.md](archive/CHANGELOG-dev-log-2026-11-18.md). Current state: [HANDOFF.md](../HANDOFF.md).
 
+## Unreleased
+
+- Soft-reset / exit teardown (run 934, platform-only): once-guard `P3DS_SoftReset`; join engine B / c1, g3thr and par workers before freeing game heap or GPU state. Save sync/backup order unchanged. See HANDOFF.md.
+
 ## 2026-11 release state
 
 - **Speed:** about 60 fps in mono and close to it in stereo 3D (#517-#540). GPU right eye, hidden-rows skip, 3D state cache and screen hand-off are always on.

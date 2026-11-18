@@ -191,6 +191,11 @@ static void hardExit(int code) {
     { extern void P3DS_HuntFlush(void); extern void P3DS_HuntWait(void); P3DS_HuntFlush(); P3DS_HuntWait(); } /* shiny_suite: hunt time since the last write */
     /* save first: ShutdownThreads frees the game's partition blocks, which the backup close may still touch */
     extern BOOL PSPNative_CloseBackup(void); PSPNative_CloseBackup(); ssSaveBackup("exit");
+    /* Run 934 soft-reset crash: join every platform worker BEFORE freeing game heap / GPU state.
+       Order: render (engine B / c1) → g3thr → par helper → SCE/game threads → SDL timers → gfxExit. */
+    { extern void PSPNativeRenderShutdown(void); PSPNativeRenderShutdown(); }
+    { extern void P3DS_G3ThrShutdown(void); P3DS_G3ThrShutdown(); }
+    { extern void P3DS_ParShutdown(void); P3DS_ParShutdown(); }
     P3DS_ShutdownThreads(); P3DS_ShutdownSDL();
     { extern void P3U_ClearPending(void); P3U_ClearPending(); }
     { extern void P3DS_UseSummary(const char *); P3DS_UseSummary("clean exit"); }
@@ -288,6 +293,14 @@ void P3DS_BikeEvent(int on) { extern unsigned PSPNativeRenderFrameCount(void); P
    (the same way hbmenu starts us). If that isn't available we simply exit cleanly (back to the homebrew menu). */
 extern int __system_argc; extern char **__system_argv;
 void P3DS_SoftReset(unsigned param) {
+    /* Run 934: OS_ResetSystem logs then calls SoftReset, then sceKernelLoadExec also calls SoftReset
+       (0061 + psp_ss_ctru). A second entry must not re-run hunt/marker/sleep/hardExit while the first
+       teardown is in flight (worker jump through freed state). */
+    static volatile int entered;
+    if (__atomic_exchange_n(&entered, 1, __ATOMIC_ACQ_REL)) {
+        PSPNativeMemLog("[3DS] soft reset: already in progress (param %u ignored)", param);
+        return;
+    }
     extern int P3DS_CfgSoftReset(void);
     int how = 0;
     { extern void P3DS_HuntSoftReset(void), P3DS_HuntFlush(void); P3DS_HuntSoftReset(); P3DS_HuntFlush(); } /* shiny_suite: count it before the relaunch */
