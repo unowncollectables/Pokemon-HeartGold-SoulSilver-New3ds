@@ -12,6 +12,11 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - Sharp bottom text (2026-11-18, unbuilt): Bottom menu panel and settings text drawn at 320x240 instead of stretched. Settings > Display "Sharp text" (default ON).
 - Sharp game text (2026-11-19, patch 0289, unbuilt on hardware; cloud build + Azahar checked: dialogue, Yes/No, title menu, battle messages and buttons, party, summary with wide layout, bag): all game text windows on both screens drawn at the 3DS resolution (`ss3ds_gametext.c`, `gpuscale.c` gtDraw). Settings > Display "Sharp game text" (default ON, applies at once). If text goes missing or looks doubled: turn it OFF (the old text comes back at once) and send the log ([GTEXT] lines). Text in sprites (battle move names/PP, HP box names) is sharp too. Still DS-size: the HP box Lv/HP digits (box artwork, not the font).
 
+## Finder text layout (2026-11-19)
+
+- Finder header count and time buttons now have enough vertical room for the full native font. LIST rows and the paging footer have taller spacing; separators no longer cut through glyphs. Map controls and native map markers are hidden in LIST view, with their old touch rectangles cleared.
+- Checked in LOTUS/CITnLO with a corrected current-main game build: populated encounter chances, readable count/filter labels and list rows, page navigation and time filtering. `make check` and the platform link pass. A New 3DS check remains open.
+
 ## Known open items
 
 - Poké Ball opening in battle can show a double image with the 3D slider up (issue #484 covers battle 3D depth).
