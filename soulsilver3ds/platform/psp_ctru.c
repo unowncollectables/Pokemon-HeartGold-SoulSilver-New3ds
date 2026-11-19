@@ -575,3 +575,30 @@ void __wrap_NNS_SndPlayerMoveVolume(void *handle, int target, int frames)
     }
     __real_NNS_SndPlayerMoveVolume(handle, bounded, frames);
 }
+
+/* Upstream pspoke 41005bc (black Battle Frontier rooms): libntr's GX_BeginLoadBGExtPltt uses LCDC offset 0 for
+   GX_VRAM_BGEXTPLTT_23_G under SDK_PORT, where the DS uses 0x4000 (slots 2-3 start at bank G itself). The data then
+   landed 16 KB too far, in bank H: the Frontier's between-battle rooms (mode 5 extended affine BG) drew with an empty
+   palette, and the sub screen's BG VRAM (bank H) got overwritten. render3ds.cpp mapExtPalettes reads slots 2-3 from the
+   start of bank G, as on hardware. libntr is staged and built once, so fix it at the call instead: remember the bank in
+   Begin and shift the destination for bank G. Other banks are untouched. */
+extern int GX_GetBankForBGExtPltt(void);
+extern void __real_GX_BeginLoadBGExtPltt(void);
+extern void __real_GX_LoadBGExtPltt(const void *src, u32 destSlotAddr, u32 szByte);
+static int sBgExtPlttBankG;
+void __wrap_GX_BeginLoadBGExtPltt(void)
+{
+    sBgExtPlttBankG = (GX_GetBankForBGExtPltt() & 0xFF) == 0x40; /* GX_VRAM_BGEXTPLTT_23_G == GX_VRAM_G */
+    __real_GX_BeginLoadBGExtPltt();
+}
+void __wrap_GX_LoadBGExtPltt(const void *src, u32 destSlotAddr, u32 szByte)
+{
+    if (sBgExtPlttBankG && destSlotAddr >= 0x4000) {
+        static unsigned logged;
+        if (logged++ < 4)
+            PSPNativeMemLog("[GX] BG ext palette bank G slot 0x%lx +0x%lx -> bank G offset 0x%lx (upstream 41005bc)",
+                            (unsigned long)destSlotAddr, (unsigned long)szByte, (unsigned long)(destSlotAddr - 0x4000));
+        destSlotAddr -= 0x4000;
+    }
+    __real_GX_LoadBGExtPltt(src, destSlotAddr, szByte);
+}
