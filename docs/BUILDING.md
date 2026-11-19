@@ -1,62 +1,56 @@
-# Building guide
+# Building HeartGold and SoulSilver for New 3DS
 
-This project is a native 3DS port based on the upstream decompilation workflow. The exact build process may evolve as the project matures, so this guide is intentionally practical and modular.
+Build from your own US cartridge dump. The repository contains source, platform code and patches; the game data comes from your local ROM.
 
-## Prerequisites
+## Windows builder
 
-Before you build anything, make sure you have:
+Download [Pokémon 3DS Builder](https://github.com/unowncollectables/patch-builder/releases/latest), open it and select your US SoulSilver or HeartGold `.nds`. The builder sets up the toolchain, builds current main and can copy the result to your SD card. Both games can be built in one run.
 
-- A working 3DS homebrew toolchain
-- A local copy of the upstream decompilation or project source tree
-- A legal ROM dump of Pokémon SoulSilver generated on your own system
-- A compatible build environment for the target platform
-- A clean local workspace outside the repository for any extracted or generated data
+Launch paths and save layout are in the [README setup guide](../README.md#setup).
 
-## Current workflow (step 1: game objects)
+## Linux or WSL
 
-The port builds on [pspoke](https://github.com/IbrahimIrfan/pspoke), which already compiles SoulSilver natively
-(see `docs/ARCHITECTURE.md`). Today the scripts compile the game for the 3DS; the 3DS link comes next.
+Install devkitPro's `3ds-dev` toolchain, Python 3 with `ndspy`, Git, make, patch, rsync and curl. The default toolchain location is `/opt/devkitpro`; `DEVKITPRO` and `DEVKITARM` can override it. Allow roughly 3 GB for the build tree, plus your ROM and outputs.
 
-Needs: Linux or WSL2, devkitPro with `3ds-dev` (`DEVKITPRO=/opt/devkitpro`), Python 3 with `pip install ndspy`,
-git, make, patch, rsync, curl, about 3 GB of disk.
+Keep your dump outside the repository, for example `~/3ds/roms/SoulSilver.nds`.
+
+### SoulSilver
+
+From the repository root:
 
 ```sh
-bash scripts/bootstrap.sh                          # pspoke at upstream.lock + pspoke-patches/
-bash scripts/ss3ds_build.sh ~/roms/SoulSilver.nds  # your own dump, read in place
+bash scripts/bootstrap.sh
+bash scripts/ss3ds_build.sh ~/3ds/roms/SoulSilver.nds
+make -C soulsilver3ds/full check
+make -C soulsilver3ds/full
+make -C soulsilver3ds/full cia  # Optional HOME Menu package
 ```
 
-pspoke is tested with the SoulSilver (US) dump whose SHA1 is in `upstream.lock`; the build stops on another hash, and prints the ROM SHA1 and the expected one.
-Logs for each step are in `pspoke/.work/tree/logs/`. Keep your ROM outside this folder, for example:
+Outputs are `soulsilver3ds/full/soulsilver3ds.3dsx` and, with the last command, `soulsilver3ds/full/soulsilver3ds.cia`. The game build checks the US ROM SHA1 against `upstream.lock` and stops on a mismatch. The dump is read in place.
 
-```text
-~/3ds/
-├── pokemon-soulsilver-new3ds/
-└── roms/SoulSilver.nds
+### HeartGold (experimental)
+
+```sh
+bash scripts/hg_build.sh ~/3ds/roms/HeartGold.nds
+make -C heartgold3ds/full
+make -C heartgold3ds/full cia
 ```
 
-## Safety requirements
+HeartGold uses its own `pspoke-hg/` and `build-hg/` trees. Outputs, SD folder, save names and HOME Menu title are separate from SoulSilver. Its ROM check accepts the supported US dump or the US variant described by the file hashes in `upstream.lock`. Build/package success is not a HeartGold runtime test.
 
-- Never commit ROM files, extracted dumps, or Nintendo-owned assets to the repo
-- Keep your local game data outside the repository
-- Use the repo's `.gitignore` rules to avoid accidental uploads
-- Treat all copyrighted assets as local-only unless you are legally authorized to distribute them
+## Updating an existing checkout
 
-## Notes for developers
+Pull the current source and run the game-build script again before linking. New numbered patches can add game hooks; a platform-only link cannot add those hooks to old game objects. `bootstrap.sh` handles a leftover interrupted patch before applying the next one.
 
-Because this project is still evolving, exact commands and configuration may change. Keep the build process documented and update this file whenever a new stable workflow is established.
+Keep generated caches with the checkout that created them. Copied or relocated `pspoke/.work` trees can retain absolute paths in `compile-command.json` and `rebuild_game_object.sh`, causing hooks to rebuild a different checkout. Use a fresh generated tree when moving a build, or verify and regenerate those paths before trusting an incremental result.
 
-If you are contributing code or build fixes, document the exact toolchain requirements and any environment assumptions so others can reproduce them.
+Existing player settings override current defaults. See [Settings](../README.md#settings) for resetting an older configuration.
 
-## Troubleshooting checklist
+## Troubleshooting
 
-If the build fails, check:
+- Check that devkitARM and the devkitPro tools are on the script's PATH.
+- Read `pspoke/.work/tree/logs/` and the first failing compiler or hook message. A guarded hook failure deliberately stops the build.
+- If a new interface says it needs a hook, confirm that the full game-build step ran and that its generated paths point to this checkout.
+- A CIA uses the game's model from your ROM for its banner when possible; a failed 3D-banner check falls back to the flat banner.
 
-- toolchain installation and PATH configuration
-- local source tree integrity
-- whether ROM/extracted files are placed outside the repo
-- generated asset or output directories
-- whether the build script is targeting the correct platform and architecture
-
-## Long-term goal
-
-The goal is to move from a local experimental build to a cleaner, more documented, and more reproducible homebrew porting workflow.
+ROMs, saves, extracted game data and built binaries stay out of commits. Developer workflow and device-test requirements are in [AGENTS.md](../AGENTS.md).

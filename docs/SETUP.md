@@ -1,65 +1,27 @@
-# Project setup guide
+# Project setup
 
-This document covers the local environment and workflow needed to work on the project in a clean and reproducible way.
+For playing, start with the [README setup guide](../README.md#setup). Windows users can use the [Pokémon 3DS Builder](https://github.com/unowncollectables/patch-builder/releases/latest). Manual Linux/WSL commands are in [BUILDING.md](BUILDING.md).
 
-## Recommended structure
+## Local layout
 
-A simple local layout is the easiest way to keep extracted data and source separate from the Git repository:
+Keep a source checkout beside a folder containing your own ROM dumps:
 
 ```text
 ~/3ds/
 ├── pokemon-soulsilver-new3ds/
-├── pokeheartgold-src/
-├── roms/
-├── extracted/
-├── tools/
-└── build/
+└── roms/
+    ├── SoulSilver.nds
+    └── HeartGold.nds
 ```
 
-This keeps the repository focused on code and documentation while leaving legally sensitive or generated files outside the Git tree.
+The build scripts fetch the pinned pspoke source and apply this repository's patches. You do not need to prepare a separate decompilation checkout or manually extract a game-data folder. Generated trees and outputs are ignored by Git.
 
-## Prerequisites
+Manual builds need devkitPro `3ds-dev`, Python 3 with `ndspy`, Git, make, patch, rsync and curl. Keep the generated work tree with the checkout that created it; its compiler commands contain absolute paths.
 
-Before starting development, make sure you have:
+## Console and saves
 
-- a legal copy of Pokémon SoulSilver
-- a working 3DS homebrew toolchain
-- a local compiler and build environment
-- source access to upstream decompilation work used as the base
-- enough disk space for generated build artifacts
+The supported target is New 3DS, New 3DS XL or New 2DS XL with custom firmware. Copy your US dump to the game's SD folder and launch a `.3dsx`, or install a built `.cia` with FBI. Exact paths are in the [README](../README.md#setup).
 
-## Local workflow
+Before replacing a build or bringing in a save, keep a copy of the save off the SD card. Each game's `.sav` is a raw 512 KiB cartridge-compatible image. SoulSilver and HeartGold have separate folders and saves.
 
-1. Clone this repository.
-2. Prepare a legal local ROM dump or extracted game data in a non-committed folder.
-3. Set up your toolchain and environment variables if required by your build system.
-4. Keep generated files out of the repo using `.gitignore` and local folder conventions.
-5. Test changes on a real New 3DS or compatible environment when possible.
-
-## Safety and hygiene
-
-- Never commit ROM files, extracted dumps, or Nintendo-owned assets
-- Keep local game data separate from the repository working tree
-- Avoid uploading generated binaries or temporary build artifacts
-- Keep your build and test output clearly organized
-
-## Good development habits
-
-- make small, reviewable commits
-- document any setup changes
-- write clear PR summaries
-- record environment assumptions when a build is only reproducible under specific conditions
-
-## Troubleshooting
-
-If build setup fails, check:
-
-- missing toolchain dependencies
-- source tree path issues
-- generated file conflicts
-- incorrect local ROM/data path setup
-- stale build caches or old output files
-
-## Long-term goal
-
-The goal is to move from a mostly documentation-centered project toward a reproducible build flow that can be shared, tested, and refined by contributors.
+Current defaults are built in. Player options are under L+R+Y; old `config.txt` values still take priority. The [Settings section](../README.md#settings) explains how to reset an older setup.
