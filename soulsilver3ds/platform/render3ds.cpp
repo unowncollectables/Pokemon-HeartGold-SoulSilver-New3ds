@@ -1703,7 +1703,9 @@ struct SAppTab{int n;SAppRow r[kMaxTabRows];};
 enum { kPlayerTabs = 6, kTotalTabs = 7 };
 static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Play","Setup","Debug"};
 /* 2026-11-19 removed rows (built-in default kept, config.txt line still read): Live party/bag OFF, Menu button OFF, Kanto on map GATED,
-   X tile cursor ON, Map zoom (the map's -/+ chips), Roamer sprites ON, Contest helper ON, Breeding tab ON, Sprite depth ON, Fast tab swap ON, Pokegear tabs. */
+   X tile cursor ON, Map zoom (the map's -/+ chips), Roamer sprites ON, Contest helper ON, Breeding tab ON, Sprite depth ON, Fast tab swap ON, Pokegear tabs.
+   Also gone (owner's levels are the default): Even loudness ON, Steady music ON, Menu music ON, Visible at once 6, Visible shiny sparkle ON,
+   Visible wild cries ON, Low battery warning ON. */
 static const SAppTab kTabs[kTotalTabs]={
  {4,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
@@ -1716,19 +1718,15 @@ static const SAppTab kTabs[kTotalTabs]={
      {124,"Pokedex finder","On the JOHTO map tap a place, tap its card for the wild list, then tap a Pokemon: the map pins every place it lives. Chips filter by MORN / DAY / NITE; X clears."},
      {132,"Tap to Fly","On the JOHTO map tap a town you can Fly to, then the green FLY chip on its card: the game's own Fly starts (needs the Storm Badge, a Pokemon with Fly or HM-free, and an outdoor map)."},
      {114,"Auto run","Run by default; B walks instead. ZL or the RUN tile still flip it."}}},
- {14,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
+ {10,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
      {111,"Move type hint","FIGHT menu: badges on the move buttons show super/resisted/no effect."},
      {122,"Damage check","Y foe screen gets a page with a rough damage range for each of your moves and who moves first."},
      {78,"SELECT = reset","SELECT soft-resets the game. Handy for shiny hunting."},
      {79,"Skip intro on reset","After a soft reset, skips the logos and title straight to the menu."},
      {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
-     {105,"Low battery warning","Reminds you to save when the battery is at one bar and not charging."},
      {123,"Hunt stats (ZR)","ZR (back trigger) in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
      {97,"Visible wild Pokemon","Wild Pokemon walk about in grass and caves; walk into one to battle."},
-     {98,"Visible at once","How many visible wild Pokemon can be around you at once."},
-     {99,"Visible shiny sparkle","A visible Pokemon can be shiny: it sparkles and a chime plays."},
      {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."},
-     {101,"Visible wild cries","Pokemon cries and sounds from nearby activity."},
      {128,"Alive wild Pokemon","ON: visible Pokemon are solid, some chase you, A starts the battle. ON + TOWNS: towns get harmless Pokemon too."}}},
  {14,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
      {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},
@@ -1744,10 +1742,7 @@ static const SAppTab kTabs[kTotalTabs]={
      {69,"Hold B skips text","Holding B prints text instantly and moves on. Never picks a choice."},
      {70,"Auto-advance text","Text boxes move on by themselves after a moment."},
      {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions."}}},
- {6,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
-     {130,"Steady music","Keeps the field music at one volume. The game fades it down near water, trees and waterfalls and back up after. Ambient sounds still play."},
-     {18,"Menu music","Keeps music playing while this settings screen is open."},
-     {109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
+ {3,{{109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
      {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS)."},
      {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app."}}},
  {9,{{kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
