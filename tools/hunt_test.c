@@ -16,7 +16,7 @@ void PSPNativeMemLog(const char *f, ...) { va_list a; va_start(a, f); vprintf(f,
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
-static void reload(void) { memset(rec, 0, sizeof rec); target = 0; loaded = 0; }
+static void reload(void) { memset(rec, 0, sizeof rec); target = 0; pinned = 0; loaded = 0; }
 
 int main(void) {
     mkdir(HUNT_DIR, 0777); remove(HUNT_DIR "hunt.txt"); remove(HUNT_DIR "hunt.tmp");
@@ -71,6 +71,14 @@ int main(void) {
         for (long long i = 0; i < n; i++) { g = g * 1103515245u + 12345u; sh += P3DS_ShinyRoll() || (g >> 8) % 8192 == 0; }
         const double got = (double)n / (double)sh; printf("shiny_rate %d: 1 in %.0f (want %d)\n", ri, got, odds); CHECK(got > odds * 0.97 && got < odds * 1.03); }
     P3DS_HuntSetRate(0);
+    { /* 2026-11-19 pinned hunt: stays the target whatever else is met, survives a reload, older line format still parses */
+        cfgShiny = 1; P3DS_HuntSetOn(1); reload(); P3DS_HuntEncounter(302, 0); P3DS_HuntPin(300); CHECK(P3DS_HuntTarget() == 300); CHECK(P3DS_HuntPinned() == 300);
+        P3DS_HuntEncounter(301, 0); CHECK(P3DS_HuntTarget() == 300); CHECK(P3DS_HuntGet(301)->enc == 1);
+        P3DS_HuntSoftReset(); CHECK(P3DS_HuntGet(300)->resets == 1); CHECK(P3DS_HuntGet(301)->resets == 0);
+        P3DS_HuntEncounter(300, 0); CHECK(P3DS_HuntGet(300)->streak == 1);
+        reload(); CHECK(P3DS_HuntPinned() == 300); CHECK(P3DS_HuntTarget() == 300); CHECK(P3DS_HuntGet(300)->resets == 1);
+        P3DS_HuntClear(300); CHECK(P3DS_HuntGet(300)->enc == 0 && P3DS_HuntGet(300)->resets == 0); CHECK(P3DS_HuntPinned() == 300);
+        P3DS_HuntPin(0); P3DS_HuntEncounter(301, 0); CHECK(P3DS_HuntTarget() == 301); reload(); CHECK(P3DS_HuntPinned() == 0); }
     printf(fails ? "hunt_test: %d FAILED\n" : "hunt_test: all passed\n", fails);
     return fails != 0;
 }
