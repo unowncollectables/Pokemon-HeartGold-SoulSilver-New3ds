@@ -36,6 +36,11 @@ Fixes from upstream pspoke 7477648..95a99b0 that the 3DS stack was missing. Batt
 - pret head has verified C for only 4 of the 73 (BattleHpBar_LoadResources, ov12_02264F44, ov12_02265054, Pokegear phone ov02_02251FDC): all behave the same as slop's. pret's new overlay 35 and 57 decompilations add nothing (slop's ov35 C is equivalent; ov57 is translated from asm, which is exact).
 - No pret migration or pin bump is needed. If a Frontier screen still misbehaves, the next suspects are the remaining overlay 80 NONMATCHING functions (ov80_0222A*, FrtCmd_179, ov80_02236BE4/C2C/C9C/E90, ov80_022371B0, ov80_02237334/7448); compare each with its asm.
 
+## Project wiki (2026-11-19)
+
+- `scripts/build_wiki.py` exports every tracked Markdown document, the full settings reference and license into an existing wiki clone or an external output folder, plus curated player guides, sidebar, footer and library index. It rewrites relative links and images to wiki pages or pinned source URLs, labels historical archives, and validates local page links. No ROM, save or game build is involved.
+- Player summaries follow current README/FAQ/release notes, including the single `.bak1`, current menu tabs, Ambient Weather OFF, and separate HeartGold testing limits. Review those summaries when refreshing from a newer main. Publication is a separate wiki Git push; see `docs/WIKI.md`.
+
 ## Known open items
 
 - Poké Ball opening in battle can show a double image with the 3D slider up (issue #484 covers battle 3D depth).

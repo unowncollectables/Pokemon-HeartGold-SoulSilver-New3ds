@@ -4,6 +4,8 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
+- Complete project wiki: player guides, settings, saves, wireless, HeartGold, troubleshooting, all repository Markdown guides and tool READMEs, full settings reference, policies, and labeled historical archives. `scripts/build_wiki.py` exports pinned source pages and validates local page links; see [wiki maintenance](WIKI.md).
+
 - Finder readability (#566): count and time-filter rows, result separators and paging footer leave room for full glyphs. LIST hides map controls and markers that covered its first result. Built and checked in LOTUS/CITnLO; hardware validation remains open.
 
 - Battle companion: Y opens a sharp tabbed overlay while the battle keeps running. Tap or swipe through available info, catch, hunt, damage and trainer-party pages. FIGHT effectiveness hints and finder LIST rows have also been refreshed (PR #565); broader hardware coverage remains open.
