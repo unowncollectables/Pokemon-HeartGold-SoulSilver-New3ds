@@ -1,0 +1,179 @@
+From 5b7920e25dafa0b646c4c532132f223e39786a96 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 19 Nov 2026 19:09:13 +0000
+Subject: [PATCH] ss3ds: hook 0290 upstream Frontier and battle crash fixes
+
+Backports from upstream pspoke (pin 7477648, head 95a99b0), smallest form that fits the 3DS patch stack:
+
+- e03aace (Battle Factory first battle jumped to 0): ov80_02236F24 passed &trainerBuf, one pointer, where
+  ov80_02229F04 fills a 0x30-byte trainer record. Hook gives it the 0x30 bytes.
+- 7da56e7 (Battle Hall crashed in sub_02051D18 every battle): ov80_022375D0 argument order, trainer record
+  and opponent party slots fixed to match the asm.
+- e1e825a (freeze when the last Pokemon faints with the foe, Self-Destruct/Explosion): BtlCmd_CalcExpGain
+  returns early when nobody can take experience instead of dividing by 0.
+- 7d56c81 (frozen battle animations: Water Pulse, Pin Missile, Supersonic, Fly): arg-overrides gives
+  sub_02015484 (create emitter) its 3 arguments. 0262 already gave sub_020154C4 (delete) its 2.
+
+The C edits are a hook (staged decomp, idempotent; never stops the build: a file whose anchors moved is skipped
+with a log line, and a failed object rebuild restores the original source) so an already staged tree
+gets them; only changed objects are rebuilt. The resulting code is identical to upstream's src.patch.
+The arg-overrides change re-runs the translator through the existing re-sync.
+---
+ .../maploader/arg-overrides.json              |   1 +
+ scripts/ss3ds_hooks.d/0290_upstream_battle.py | 109 ++++++++++++++++++
+ scripts/ss3ds_hooks.d/0290_upstream_battle.sh |  15 +++
+ 3 files changed, 125 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0290_upstream_battle.py
+ create mode 100644 scripts/ss3ds_hooks.d/0290_upstream_battle.sh
+
+diff --git a/port/soulsilver-native-play/maploader/arg-overrides.json b/port/soulsilver-native-play/maploader/arg-overrides.json
+index 76d5952..6436dbf 100644
+--- a/port/soulsilver-native-play/maploader/arg-overrides.json
++++ b/port/soulsilver-native-play/maploader/arg-overrides.json
+@@ -4,6 +4,7 @@
+  "ov01_021FBA00": 1,
+  "sub_02054E20": 1,
+  "sub_020154C4": 2,
++ "sub_02015484": 3,
+  "NNS_G3dRenderObjInit": 2,
+  "NNS_GfdResetLnkTexVramState": 0,
+  "NNS_GfdResetLnkPlttVramState": 0,
+diff --git a/scripts/ss3ds_hooks.d/0290_upstream_battle.py b/scripts/ss3ds_hooks.d/0290_upstream_battle.py
+new file mode 100644
+index 0000000..0b9f89f
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0290_upstream_battle.py
+@@ -0,0 +1,109 @@
++#!/usr/bin/env python3
++"""ss3ds 0290: Battle Frontier + battle crash fixes backported from upstream pspoke (pin 7477648 -> 95a99b0), applied to
++the staged SoulSilver decomp in cwd (= $C). Idempotent: an edit is skipped when its marker is already in the file. Each
++file is all-or-nothing: if any anchor in it is missing, that file is left exactly as it was and a "skipped" line goes to
++stderr (the game keeps its old behaviour there; the build never stops). Prints the changed source files, one per line
++on stdout, so the .sh rebuilds only those objects.
++
++  pspoke e03aace  Battle Factory: ov80_02236F24's C passed &trainerBuf (one pointer) where ov80_02229F04 fills a 0x30-byte
++                  trainer record; it overran into the saved return address and the first Factory battle jumped to 0.
++  pspoke 7da56e7  Battle Hall: ov80_022375D0's C disagreed with its asm three ways (sub_02051D18 argument order, trainer
++                  record written into the work struct then freed, opponent parties 2/4 instead of 1/3); every Hall battle
++                  crashed in sub_02051D18.
++  pspoke e1e825a  BtlCmd_CalcExpGain divided by the number of party members able to take experience; 0 when the player's
++                  last Pokemon fainted with the foe (Self-Destruct, Explosion). Nobody gains experience: return early.
++"""
++import sys
++
++class Skip(Exception):
++    pass
++
++def sub1(s, old, new, tag):
++    if s.count(old) != 1:
++        raise Skip(f'{tag}: anchor found {s.count(old)} times (want 1): {old.strip()[:80]}')
++    return s.replace(old, new)
++
++def factory(s):
++    if 'SS3DS 0290 factory' in s:
++        return s
++    s = sub1(s, '    int i;\n    void *trainerBuf;\n',
++             '    int i;\n'
++             '    /* SS3DS 0290 factory (pspoke e03aace): ov80_02229F04 fills a 0x30-byte trainer record here (the asm reserves it on\n'
++             '     * the stack); as one pointer it overran the saved return address and the first Factory battle jumped to 0. */\n'
++             '    u32 trainerBuf[0x30 / 4];\n', 'factory decl')
++    if s.count('ov80_02229F04(&trainerBuf,') != 2 or s.count('ov80_0222A480(setup, &trainerBuf,') != 2:
++        raise Skip('factory: expected two &trainerBuf call pairs')
++    s = s.replace('ov80_02229F04(&trainerBuf,', 'ov80_02229F04(trainerBuf,')
++    s = s.replace('ov80_0222A480(setup, &trainerBuf,', 'ov80_0222A480(setup, trainerBuf,')
++    return s
++
++def hall(s):
++    if 'SS3DS 0290 hall' in s:
++        return s
++    s = sub1(s, '    int loopCnt;\n    void *trainerBuf;\n',
++             '    int loopCnt;\n'
++             '    /* SS3DS 0290 hall (pspoke 7da56e7): this C (NONMATCHING branch) disagreed with its asm: trainer data is a 0x30-byte\n'
++             '     * stack record, the battle setup call is (setup, NULL, save, mapno, bag, arg5), and the opponent parties are 1 and 3.\n'
++             '     * The Battle Hall crashed in sub_02051D18 starting every battle. */\n'
++             '    u8 trainerData[0x30];\n', 'hall decl')
++    s = sub1(s,
++             '        (FieldSystem *)*(void **)((u8 *)fieldCtx + 8),\n'
++             '        *(SaveData **)((u8 *)fieldCtx + 0x18),\n'
++             '        0,\n'
++             '        (BagCursor *)*(void **)((u8 *)fieldCtx + 0xc),\n',
++             '        NULL,\n'
++             '        *(SaveData **)((u8 *)fieldCtx + 8),\n'
++             '        *(u32 *)((u8 *)fieldCtx + 0x18),\n'
++             '        *(BagCursor **)((u8 *)fieldCtx + 0xc),\n', 'hall setup args')
++    s = sub1(s,
++             '        trainerBuf = (u8 *)work + 0x34;\n'
++             '        ov80_02229F04(trainerBuf, trainerId, 0xb, 0xcc);\n'
++             '        Heap_Free(trainerBuf);\n'
++             '        ov80_0222A480(setup, trainerBuf, sides_b, 1, 0xb);\n',
++             '        Heap_Free(ov80_02229F04(trainerData, trainerId, 0xb, 0xcc));\n'
++             '        ov80_0222A480(setup, trainerData, sides_b, 1, 0xb);\n', 'hall trainer 1')
++    s = sub1(s, '    Party_InitWithMaxSize(setup->party[2], sides_b);\n',
++             '    Party_InitWithMaxSize(setup->party[1], sides_b);\n', 'hall party 1')
++    s = sub1(s,
++             '            trainerBuf = (u8 *)work + 0x34;\n'
++             '            ov80_02229F04(trainerBuf, trainerId3, 0xb, 0xcc);\n'
++             '            Heap_Free(trainerBuf);\n'
++             '            ov80_0222A480(setup, trainerBuf, sides_b, 3, 0xb);\n',
++             '            Heap_Free(ov80_02229F04(trainerData, trainerId3, 0xb, 0xcc));\n'
++             '            ov80_0222A480(setup, trainerData, sides_b, 3, 0xb);\n', 'hall trainer 3')
++    s = sub1(s, '        Party_InitWithMaxSize(setup->party[4], sides_b);\n',
++             '        Party_InitWithMaxSize(setup->party[3], sides_b);\n', 'hall party 3')
++    return s
++
++def exp_gain(s):
++    if 'SS3DS 0290 exp' in s:
++        return s
++    old = ('        totalExp = (totalExp * ctx->battleMons[ctx->battlerIdFainted].level) / 7;\n'
++           '        if (expShareMonsCnt) {\n')
++    return sub1(s, old,
++                '        totalExp = (totalExp * ctx->battleMons[ctx->battlerIdFainted].level) / 7;\n'
++                '        /* SS3DS 0290 exp (pspoke e1e825a): with the player\'s last Pokemon fainted in the same turn (Self-Destruct,\n'
++                '         * Explosion) nobody can take experience and expMonsCnt is 0; do not divide by it. */\n'
++                '        if (expMonsCnt == 0) {\n'
++                '            return FALSE;\n'
++                '        }\n'
++                '        if (expShareMonsCnt) {\n', 'exp guard')
++
++EDITS = [('src/frontier/overlay_80_02236B78.c', factory),
++         ('src/frontier/overlay_80_022372D8.c', hall),
++         ('src/battle/battle_command.c', exp_gain)]
++
++for path, fn in EDITS:
++    try:
++        with open(path) as f:
++            s = f.read()
++        t = fn(s)
++    except (OSError, Skip) as e:
++        print(f'ss3ds 0290 skipped {path}: {e}', file=sys.stderr)
++        continue
++    if t != s:
++        with open(path + '.pre0290', 'w') as f:   # the .sh puts this back if the object does not rebuild
++            f.write(s)
++        with open(path, 'w') as f:
++            f.write(t)
++        print(path)
+diff --git a/scripts/ss3ds_hooks.d/0290_upstream_battle.sh b/scripts/ss3ds_hooks.d/0290_upstream_battle.sh
+new file mode 100644
+index 0000000..745dc95
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0290_upstream_battle.sh
+@@ -0,0 +1,15 @@
++# ss3ds 0290: Battle Frontier + battle crash fixes backported from upstream pspoke (Factory first battle, Battle Hall,
++# last Pokemon fainting with the foe). Edits the staged decomp (idempotent) and rebuilds only the objects it changed.
++# Never stops the build: a file whose anchors moved is left untouched (old behaviour) and logged as skipped, and a
++# failed object rebuild puts the original source back (so later full compiles match) and keeps the old object.
++if ! (cd "$C" && changed=$(python3 "$ROOT/scripts/ss3ds_hooks.d/0290_upstream_battle.py") && rc=0 &&
++      for f in $changed; do
++        case $f in
++          src/frontier/overlay_80_02236B78.c) bash rebuild_game_object.sh "$f" frontier__overlay_80_02236B78.o 80 || { mv -f "$f.pre0290" "$f"; rc=1; } ;;
++          src/frontier/overlay_80_022372D8.c) bash rebuild_game_object.sh "$f" frontier__overlay_80_022372D8.o 80 || { mv -f "$f.pre0290" "$f"; rc=1; } ;;
++          src/battle/battle_command.c)        bash rebuild_game_object.sh "$f" battle__battle_command.o 12 || { mv -f "$f.pre0290" "$f"; rc=1; } ;;
++        esac
++        rm -f "$f.pre0290"
++      done && echo "ss3ds 0290 rebuilt: ${changed:-nothing (already applied)}" && [ $rc = 0 ]); then
++  log "ss3ds 0290 upstream battle fixes: a rebuild failed (see message above); those objects keep their old code"
++fi
+-- 
+2.43.0
+
