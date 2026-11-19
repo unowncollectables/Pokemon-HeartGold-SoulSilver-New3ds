@@ -955,8 +955,9 @@ static void sharpTextSet(int v);
 static int sharpGameV=-1;static bool sharpGameCfg(){if(sharpGameV<0){sharpGameV=P3DS_CfgInt("sharp_game_text",1)!=0;PSPNativeMemLog("[GTEXT] sharp_game_text=%d (game text windows on both screens at the 3DS resolution)",sharpGameV);}return sharpGameV!=0;}
 extern "C" int P3DS_SharpGameTextCfg(void){return sharpGameCfg()?1:0;}
 extern "C" const unsigned char*P3DS_GtVram(int eng){return eng?GPU::VRAMFlat_BBG:GPU::VRAMFlat_ABG;}
+extern "C" unsigned char*P3DS_GtObjVram(int eng){return (unsigned char*)(eng?GPU::VRAMFlat_BOBJ:GPU::VRAMFlat_AOBJ);}
 /* sharp game text (ss3ds_gametext.c): which screens show the live engine picture (bit 0 top, bit 1 bottom), the wide layout of the top */
-extern "C" {extern volatile unsigned P3DS_GtScreensNow;extern const WcPlan*volatile P3DS_GtWidePlan;extern volatile int P3DS_GtWideEng;void P3DS_GtSync(unsigned);}
+extern "C" {extern volatile unsigned P3DS_GtScreensNow;extern const WcPlan*volatile P3DS_GtWidePlan;extern volatile int P3DS_GtWideEng;void P3DS_GtSync(unsigned);void P3DS_GtObjRestore(void);}
 static unsigned gtOkPrev;
 static int wideScreensV=-1;static int wideScreensCfg(){if(wideScreensV<0){wideScreensV=P3DS_CfgInt("wide_menu_screens",0)!=0;PSPNativeMemLog("[WIDE] wide_menu_screens=%d (party, bag, summary)",wideScreensV);}return wideScreensV;}
 /* ss3ds wide_boxes (Settings > Wide > Wide HP boxes, default 0): the Platinum port's battle layout. The game hook (pspoke patch
@@ -2323,7 +2324,11 @@ static void verifyGpuB(){if(!bGpuVerify||!bGpuCheck)return;
 }
 extern "C" volatile int P3DS_PanelBagOpening;
 static int sFieldHoldOk;
-static int Present(bool){
+static int PresentFrame(bool);
+/* sharp game text: the text tiles that sprites show were taken out for this present's picture only (P3DS_GtSync); the printed
+   tiles go back before the game runs again, on every way out of the present */
+static int Present(bool w){const int r=PresentFrame(w);P3DS_GtObjRestore();return r;}
+static int PresentFrame(bool){
  if(!openFrame)return -1;
  allocBufs();
  P3DS_GtSync(gtOkPrev);P3DS_GtWidePlan=nullptr; /* sharp game text: text whose screen could not show it last present goes back into VRAM before this compose */
