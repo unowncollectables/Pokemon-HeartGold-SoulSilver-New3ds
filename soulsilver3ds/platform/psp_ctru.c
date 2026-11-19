@@ -602,3 +602,20 @@ void __wrap_GX_LoadBGExtPltt(const void *src, u32 destSlotAddr, u32 szByte)
     }
     __real_GX_LoadBGExtPltt(src, destSlotAddr, szByte);
 }
+
+/* Upstream pspoke 66da681 (Pal Pad > Register Friend Code crashed on OK): the friend-code entry app (unk_020850F4,
+   translated asm) installs sub_020855CC as the VBlank callback and its exit destroys heap 0x6C without clearing it, so
+   the next VBlank ran on a freed BgConfig. Clear exactly that callback when heap 0x6C goes away; every other
+   Heap_Destroy is passed straight through. gSystem.vBlankIntr is the first member of struct System (system.h). */
+extern void *gSystem[];
+extern void sub_020855CC(void *);
+extern void Main_SetVBlankIntrCB(void *cb, void *arg);
+extern void __real_Heap_Destroy(u32 heapId);
+void __wrap_Heap_Destroy(u32 heapId)
+{
+    if (heapId == 0x6C && gSystem[0] == (void *)sub_020855CC) {
+        PSPNativeMemLog("[HEAP] heap 0x6C destroyed with the friend-code VBlank still set; cleared it (upstream 66da681)");
+        Main_SetVBlankIntrCB(NULL, NULL);
+    }
+    __real_Heap_Destroy(heapId);
+}

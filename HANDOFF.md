@@ -21,6 +21,14 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 
 Fixes from upstream pspoke 7477648..95a99b0 that the 3DS stack was missing. Battle Frontier: Factory first battle jumped to 0 (e03aace), Battle Hall crashed every battle (7da56e7), between-battle rooms drew black because bank G ext palettes landed in bank H (41005bc; fixed here as a `GX_*LoadBGExtPltt` link wrap in `psp_ctru.c`, logs `[GX] BG ext palette bank G` up to 4 times). Battles: freeze when the last Pokemon faints with the foe (Self-Destruct/Explosion, e1e825a), frozen move animations from the SPL create-emitter arity (7d56c81; delete half was 0262). Already covered before: Transform MOSAIC byte write (0162/0163), Frontier seeds (0273, a superset of upstream's). Still to review: translator ABI (aa8be86, 331cc8a, 66da681 64-bit returns), wider ioreg lanes (b1b2a66), 174e199 field/menu paths, then pret.
 
+## Upstream pspoke backports, part 2 (2026-11-19, patch 0291 + Heap_Destroy wrap, unbuilt)
+
+- Translator calls with 64-bit or float values now use the real ARM layout (upstream 66da681, aa8be86, 331cc8a): Pal Pad friend code entry (String_atoi), digit boxes (ManagedSprite_SetAffineScale), sub_0203088C (14 call sites), GF_RTC_DateTimeToSec, OS_SetTick, String16_FormatUnsignedLongLong, ov01_02203F2C. The translator log (ss-maploader) prints one `maploader ABI` line listing them. Externals in arg-overrides.json keep their old binding; where upstream would stop the build, the old binding is kept and named instead.
+- Pal Pad > Register Friend Code crash on OK: `__wrap_Heap_Destroy` in psp_ctru.c clears the friend-code VBlank callback when heap 0x6C goes away (logs `[HEAP] heap 0x6C`).
+- PC Ball Capsule exited the game: overlay 57 is supported now (logs `[SS-OVERLAY] ov57 sinit`).
+- Checked, nothing missing: every seed upstream added (ice, mail, Dowsing MCHN, Move Reminder, Frontier...) is already reached by the 3DS translator closure; overlay_67.s was already seeded by 0263.
+- Left out on purpose: upstream hides Pokewalker, Mystery Gift, WFC and Wii options on the title menu (PSP has no wireless; the 3DS has them working). Wider register lanes (b1b2a66): Transform is already fixed by 0162/0163 and the rest would turn loud aborts on side-effect registers into silent writes. Vertex-chunk flush (95a99b0): the 3DS buffer is already 4x larger and the fix needs a header change in a compile-once object; revisit only if `[NATIVE-RENDER] vertex overflow` is ever seen.
+
 ## Known open items
 
 - Poké Ball opening in battle can show a double image with the 3D slider up (issue #484 covers battle 3D depth).
