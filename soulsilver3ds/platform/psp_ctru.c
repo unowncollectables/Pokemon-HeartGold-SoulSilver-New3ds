@@ -503,7 +503,8 @@ int sceCtrlPeekBufferPositive(SceCtrlData *d, int n) {
       /* run 52: X reached the hidden Start menu when the tile flags flickered, so X stays ours for 45 polls (~0.75 s) after the tiles were last up, in the field */
       extern int P3DS_InField; static int grace; const int up = P3DS_TileOn && P3DS_BmOn; if (up) grace = 45; else if (grace) grace--;
       if ((up || (grace && P3DS_InField)) && !(h & (KEY_L | KEY_R))) {
-          if (up && (dn & KEY_X || (P3DS_TileCur >= 0 && (dn & nav)))) P3DS_TileKeys |= dn & nav;
+          { extern volatile int P3DS_CatchMask; /* 2026-11-19: the ZR hunt stats overlay sits over the panel tiles: its X/Y/D-pad never reach the tiles */
+          if (up && !P3DS_CatchMask && (dn & KEY_X || (P3DS_TileCur >= 0 && (dn & nav)))) P3DS_TileKeys |= dn & nav; }
           k &= ~KEY_X; if (P3DS_TileCur >= 0) k &= ~(KEY_A | KEY_B | KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT); } }
     { extern volatile int P3DS_CatchMask; if (P3DS_CatchMask) k &= ~(KEY_A | KEY_B | KEY_X | KEY_Y | KEY_L | KEY_R | KEY_START | KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT); } /* 2026-11-19: the battle Y screen is up (or just closed and keys are still held): the battle underneath gets none of these */
     { extern volatile int P3DS_BmBlock; if (P3DS_BmBlock) k &= ~(KEY_A | KEY_B | KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT); } /* run 142: the game's Start menu is alive under our panel: its cursor is not reachable (injected B below still gets through) */
