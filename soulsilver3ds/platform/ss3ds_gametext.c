@@ -7,7 +7,8 @@
    text), and the text is drawn at 1 font pixel = 1 screen pixel in a native layer on the screen that shows that engine (gpuscale.c:
    top layer 400x240 on both eyes, bottom layer 320x240 under the Bottom menu panel).
    All text windows of both display engines in every scene (overworld, battle, menus, bag, party, summary, Pokedex...) on 4 bit
-   text BGs. Text copied into sprites (battle move names, HP box names): see "text the game copies into sprites" below. 8 bit windows are not covered.
+   text BGs. Text copied into sprites (battle move names, HP box names, naming screen letters): see "text the game copies into sprites" below.
+   8 bit windows and affine / extended tile BGs are followed while the BG is 1:1 (not rotated or scaled).
    Safety rules (nothing doubled, nothing lost):
    - Only pixels a glyph changed are taken out, and only while the buffer still holds exactly the value the glyph wrote; a rectangle
      drawn over text (Blit / FillRect, the blinking arrow) or a full fill forgets the text pixels it covers.
@@ -42,12 +43,12 @@ volatile unsigned P3DS_GtScreensNow;
 const WcPlan *volatile P3DS_GtWidePlan; volatile int P3DS_GtWideEng;
 
 /* what the game side passes about a window (same struct in the patched bg_window.c) */
-typedef struct { const void *buf; int bg, left, top, wT, hT, pal, base, is4bpp; } P3DS_GtDesc;
+typedef struct { const void *buf; int bg, left, top, wT, hT, pal, base, is4bpp, is8bpp; } P3DS_GtDesc;
 
-enum { kWins = 48, kGlyphs = 4096, kScratch = 32 * 32 * 32, kNoInk = 0xFF, kLoose = 0xFF };   /* kLoose: a window on no BG (AddTextWindowTopLeftCorner, its pixels are copied into sprites) */
+enum { kWins = 48, kGlyphs = 4096, kScratch = 32 * 32 * 64, kNoInk = 0xFFFF, kLoose = 0xFF };   /* kLoose: a window on no BG (AddTextWindowTopLeftCorner, its pixels are copied into sprites) */
 typedef struct {
-    const void *buf; u8 used, gave, shown, pend, bg, left, top, wT, hT, pal, miss, vValid, loose, dirty; u16 base;
-    u8 *und, *val;                  /* per pixel (row major, wT*8 x hT*8): und = value before the text (kNoInk: not text), val = text value */
+    const void *buf; u8 used, gave, shown, pend, bg, left, top, wT, hT, pal, miss, vValid, loose, dirty, bpp8; u16 base;
+    u16 *und; u8 *val;              /* per pixel (row major, wT*8 x hT*8): und = value before the text (kNoInk: not text), val = text value */
     unsigned nInk, stamp;
     u8 *vram; unsigned vSize, vHash;
 } GtWin;
@@ -74,9 +75,18 @@ static unsigned fnv(unsigned h, unsigned v) { return (h ^ v) * 16777619u; }
 static inline unsigned nibAt(const u8 *b, int W, int X, int Y) { return (b[(((Y >> 3) * W + (X >> 3)) << 5) + ((Y & 7) << 2) + ((X & 7) >> 1)] >> ((X & 1) * 4)) & 15; }
 static inline void nibSet(u8 *b, int W, int X, int Y, unsigned v) { u8 *d = b + (((Y >> 3) * W + (X >> 3)) << 5) + ((Y & 7) << 2) + ((X & 7) >> 1);
     *d = (u8)((X & 1) ? ((*d & 0x0F) | (v << 4)) : ((*d & 0xF0) | v)); }
+/* a window pixel, 4 or 8 bit tiles */
+static inline unsigned pixAt(const u8 *b, int W, int X, int Y, int b8) { return b8 ? b[(((Y >> 3) * W + (X >> 3)) << 6) + ((Y & 7) << 3) + (X & 7)] : nibAt(b, W, X, Y); }
+static inline void pixSet(u8 *b, int W, int X, int Y, unsigned v, int b8) { if (b8) b[(((Y >> 3) * W + (X >> 3)) << 6) + ((Y & 7) << 3) + (X & 7)] = (u8)v; else nibSet(b, W, X, Y, v); }
+static inline unsigned tileBytes(const GtWin *w) { return w->bpp8 ? 64u : 32u; }
 
+/* can the native layer follow this window's BG now? An affine or 8 bit BG (the trainer card flip scales its BG) cannot:
+   its text goes back into the DS picture, which transforms it with the BG */
+typedef struct GtBg GtBg;
+static void readBg(int eng, int b, GtBg *o);
+static int bgDrawable(const GtWin *w);
 static void dropGlyphs(int wi) { for (int i = 0; i < kGlyphs; i++) if (gGl[i].used && gGl[i].win == wi) gGl[i].used = 0; gGen++; }
-static void clearInk(GtWin *w) { if (w->und) memset(w->und, kNoInk, (size_t)w->wT * 8 * w->hT * 8); w->nInk = 0; dropGlyphs((int)(w - gWin)); }
+static void clearInk(GtWin *w) { if (w->und) memset(w->und, 0xFF, (size_t)w->wT * 8 * w->hT * 8 * 2); w->nInk = 0; dropGlyphs((int)(w - gWin)); }
 static void freeWin(GtWin *w) { dropGlyphs((int)(w - gWin)); free(w->und); free(w->val); memset(w, 0, sizeof *w); }
 /* put the full text back into this window's VRAM (when it is still ours) and forget the window */
 static void restoreVram(GtWin *w) {
@@ -87,13 +97,13 @@ static void snapLoose(GtWin *w);
 static GtWin *gtFind(const P3DS_GtDesc *d, int create) {
     GtWin *w = 0, *fr = 0;
     for (int i = 0; i < kWins; i++) { if (gWin[i].used && gWin[i].buf == d->buf) { w = &gWin[i]; break; } if (!gWin[i].used && !fr) fr = &gWin[i]; }
-    if (w && (w->bg != d->bg || w->wT != d->wT || w->hT != d->hT)) { restoreVram(w); freeWin(w); fr = w; w = 0; }   /* the buffer is another window now */
+    if (w && (w->bg != d->bg || w->wT != d->wT || w->hT != d->hT || w->bpp8 != (d->is8bpp != 0))) { restoreVram(w); freeWin(w); fr = w; w = 0; }   /* the buffer is another window now */
     if (!w) {
         if (!create) return 0;
         if (!fr) { /* evict the window used longest ago, preferring one whose text is not taken out */
             GtWin *o = 0; for (int i = 0; i < kWins; i++) if (!o || (gWin[i].shown < o->shown) || (gWin[i].shown == o->shown && gWin[i].stamp < o->stamp)) o = &gWin[i];
             restoreVram(o); if (o->loose) snapLoose(o); freeWin(o); fr = o; }
-        w = fr; memset(w, 0, sizeof *w); w->used = 1; w->buf = d->buf; w->bg = (u8)d->bg; w->wT = (u8)d->wT; w->hT = (u8)d->hT; w->loose = d->bg == kLoose; }
+        w = fr; memset(w, 0, sizeof *w); w->used = 1; w->buf = d->buf; w->bg = (u8)d->bg; w->wT = (u8)d->wT; w->hT = (u8)d->hT; w->loose = d->bg == kLoose; w->bpp8 = d->is8bpp != 0; }
     w->left = (u8)d->left; w->top = (u8)d->top; w->pal = (u8)d->pal; w->base = (u16)d->base; w->stamp = ++gStamp;
     return w;
 }
@@ -106,32 +116,32 @@ static void giveUp(GtWin *w, const char *why) {
 /* ---- calls from the patched bg_window.c (game thread) ---- */
 /* should the next glyph into this window be recorded? */
 int P3DS_GtWant(const P3DS_GtDesc *d) {
-    if (!d->is4bpp || d->bg < 0 || (d->bg > 7 && d->bg != kLoose) || d->wT < 1 || d->hT < 1 || d->wT > 32 || d->hT > 32 || !d->buf) return 0;
+    if (!(d->is4bpp || (d->is8bpp && d->bg >= 0 && d->bg <= 7)) || d->bg < 0 || (d->bg > 7 && d->bg != kLoose) || d->wT < 1 || d->hT < 1 || d->wT > 32 || d->hT > 32 || !d->buf) return 0;
     if (!cfgOn()) return 0;
     lk();
     GtWin *w = gtFind(d, 1); int r = 0;
     if (w && !w->gave) {
-        if (!w->und) { const size_t n = (size_t)w->wT * 8 * w->hT * 8; w->und = (u8 *)malloc(n); w->val = (u8 *)malloc(n);
-            if (!w->und || !w->val) { free(w->und); free(w->val); w->und = w->val = 0; gNoMem++; giveUp(w, "no memory for its text layer"); }
-            else memset(w->und, kNoInk, n); }
+        if (!w->und) { const size_t n = (size_t)w->wT * 8 * w->hT * 8; w->und = (u16 *)malloc(n * 2); w->val = (u8 *)malloc(n);
+            if (!w->und || !w->val) { free(w->und); free(w->val); w->und = 0; w->val = 0; gNoMem++; giveUp(w, "no memory for its text layer"); }
+            else memset(w->und, 0xFF, n * 2); }
         r = w->und != 0;
     }
     ulk();
     return r;
 }
-static u8 gPre[32][16];
+static u16 gPre[32][16];
 void P3DS_GtPre(const P3DS_GtDesc *d, int x, int y) {
     const int wpx = d->wT * 8, hpx = d->hT * 8; const u8 *b = (const u8 *)d->buf;
     for (int py = 0; py < 32; py++) for (int px = 0; px < 16; px++) { const int X = x + px, Y = y + py;
-        gPre[py][px] = (X < 0 || Y < 0 || X >= wpx || Y >= hpx) ? 0xFF : (u8)nibAt(b, d->wT, X, Y); }
+        gPre[py][px] = (X < 0 || Y < 0 || X >= wpx || Y >= hpx) ? 0xFFFF : (u16)pixAt(b, d->wT, X, Y, d->is8bpp); }
 }
 void P3DS_GtPost(const P3DS_GtDesc *d, int x, int y) {
     lk();
     GtWin *w = gtFind(d, 0);
     if (!w || w->gave || !w->und) { ulk(); return; }
     const int wpx = w->wT * 8; const u8 *b = (const u8 *)d->buf; int x0 = 16, x1 = -1, y0 = 32, y1 = -1;
-    for (int py = 0; py < 32; py++) for (int px = 0; px < 16; px++) { if (gPre[py][px] == 0xFF) continue; const int X = x + px, Y = y + py;
-        const unsigned now = nibAt(b, w->wT, X, Y); if (now == gPre[py][px]) continue;
+    for (int py = 0; py < 32; py++) for (int px = 0; px < 16; px++) { if (gPre[py][px] == 0xFFFF) continue; const int X = x + px, Y = y + py;
+        const unsigned now = pixAt(b, w->wT, X, Y, w->bpp8); if (now == gPre[py][px]) continue;
         const int i = Y * wpx + X; if (w->und[i] == kNoInk) { w->und[i] = gPre[py][px]; w->nInk++; } w->val[i] = (u8)now;
         if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py; }
     if (x1 >= 0 && w->loose) w->dirty = 1;
@@ -169,9 +179,9 @@ void P3DS_GtScroll(const P3DS_GtDesc *d, int dir, int amount, int fillValue) {
     if (w && w->und) {
         const int wpx = w->wT * 8, hpx = w->hT * 8, wi = (int)(w - gWin);
         if (dir == 0) { for (int Y = 0; Y < hpx; Y++) { const int s = Y + amount;
-                if (s < hpx) { memcpy(w->und + Y * wpx, w->und + s * wpx, wpx); memcpy(w->val + Y * wpx, w->val + s * wpx, wpx); } else memset(w->und + Y * wpx, kNoInk, wpx); } }
+                if (s < hpx) { memcpy(w->und + Y * wpx, w->und + s * wpx, wpx * 2); memcpy(w->val + Y * wpx, w->val + s * wpx, wpx); } else memset(w->und + Y * wpx, 0xFF, wpx * 2); } }
         else { for (int Y = hpx - 1; Y >= 0; Y--) { const int s = Y - amount;
-                if (s >= 0) { memcpy(w->und + Y * wpx, w->und + s * wpx, wpx); memcpy(w->val + Y * wpx, w->val + s * wpx, wpx); } else memset(w->und + Y * wpx, kNoInk, wpx); } }
+                if (s >= 0) { memcpy(w->und + Y * wpx, w->und + s * wpx, wpx * 2); memcpy(w->val + Y * wpx, w->val + s * wpx, wpx); } else memset(w->und + Y * wpx, 0xFF, wpx * 2); } }
         for (int i = 0; i < kGlyphs; i++) { GtGlyph *g = &gGl[i]; if (!g->used || g->win != wi) continue;
             g->y = (int16_t)(g->y + (dir == 0 ? -amount : amount));
             if (g->y + g->y1 < 0 || g->y + g->y0 >= hpx) g->used = 0; }
@@ -191,14 +201,14 @@ const void *P3DS_GtUpload(const P3DS_GtDesc *d, unsigned size) {
     GtWin *w = gtFind(d, 0); const void *r = d->buf;
     if (w) {
         w->pend = 0;
-        if (w->und && !w->gave && w->nInk && size == (unsigned)(w->wT * w->hT * 32) && size <= kScratch) {
+        if (w->und && !w->gave && w->nInk && size == w->wT * w->hT * tileBytes(w) && size <= kScratch) {
             const int wpx = w->wT * 8, hpx = w->hT * 8, W = w->wT; const u8 *b = (const u8 *)d->buf;
-            const int want = cfgOn() && screenOk(scrOf(engOf(w)));
+            const int want = cfgOn() && screenOk(scrOf(engOf(w))) && bgDrawable(w);
             if (want) memcpy(gScratch, b, size);
             unsigned n = 0, live = 0;
             for (int Y = 0; Y < hpx; Y++) for (int X = 0; X < wpx; X++) { const int i = Y * wpx + X; if (w->und[i] == kNoInk) continue;
-                if (nibAt(b, W, X, Y) != w->val[i]) { w->und[i] = kNoInk; continue; }   /* written over by something we did not see: not text any more */
-                live++; if (want && w->val[i] != w->und[i]) { nibSet(gScratch, W, X, Y, w->und[i]); n++; } }
+                if (pixAt(b, W, X, Y, w->bpp8) != w->val[i]) { w->und[i] = kNoInk; continue; }   /* written over by something we did not see: not text any more */
+                live++; if (want && w->val[i] != w->und[i]) { pixSet(gScratch, W, X, Y, w->und[i], w->bpp8); n++; } }
             w->nInk = live;
             if (want && n) { r = gScratch; w->pend = 1; gErased++;
                 static unsigned lg; if (lg < 12) { lg++; PSPNativeMemLog("[GTEXT] window bg%d %dx%d tiles at %d,%d (%s screen): %u text pixels taken out of the VRAM copy",
@@ -264,7 +274,7 @@ static void recAdd(const u8 *full, const u8 *ers) {
 /* a window on no BG: keep each of its tiles that has text, as printed and with the text taken out */
 static void snapLoose(GtWin *w) {
     w->dirty = 0;
-    if (!w->und || !w->nInk || w->gave || !w->buf) return;
+    if (!w->und || !w->nInk || w->gave || !w->buf || w->bpp8) return;
     const int W = w->wT, wpx = W * 8; const u8 *b = (const u8 *)w->buf; u8 full[32] __attribute__((aligned(4))), ers[32] __attribute__((aligned(4)));
     for (int ty = 0; ty < w->hT; ty++) for (int tx = 0; tx < W; tx++) {
         memcpy(full, b + ((ty * W + tx) << 5), 32); memcpy(ers, full, 32); int n = 0;
@@ -272,6 +282,14 @@ static void snapLoose(GtWin *w) {
             if (u == kNoInk || nibAt(b, W, X, Y) != w->val[i] || w->val[i] == u) continue;
             nibSet(ers, 1, px, py, u); n++; }
         if (n) recAdd(full, ers); }
+}
+/* unk_02013534.c sub_02013A50 (patch 0289): this window's tiles are being copied for sprites (TextOBJ, naming screen letters,
+   Pokegear map markings): keep its text tiles now, whatever BG the window is on */
+void P3DS_GtToSprite(const void *buf) {
+    if (!buf || !cfgOn()) return;
+    lk();
+    for (int i = 0; i < kWins; i++) if (gWin[i].used && gWin[i].buf == buf) { snapLoose(&gWin[i]); break; }
+    ulk();
 }
 /* start of a present: find the text tiles visible sprites show, take their text out for this present, list them for the layer */
 static void objStep(int on) {
@@ -325,20 +343,20 @@ void P3DS_GtSync(unsigned okBits) {
     gOkBits = okBits;
     lk();
     for (int k = 0; k < kWins; k++) { GtWin *w = &gWin[k];
-        if (!w->used || !w->vValid || !w->vram || !w->buf || w->vSize != (unsigned)(w->wT * w->hT * 32)) continue;
-        const int want = on && !w->gave && w->und && w->nInk && screenOk(scrOf(engOf(w)));
+        if (!w->used || !w->vValid || !w->vram || !w->buf || w->vSize != w->wT * w->hT * tileBytes(w)) continue;
+        const int want = on && !w->gave && w->und && w->nInk && screenOk(scrOf(engOf(w))) && bgDrawable(w);
         if (want == w->shown) continue;
         if (hashMem(w->vram, w->vSize) != w->vHash) { w->vValid = 0; w->shown = 0; gStale++; gGen++; continue; }   /* not ours any more */
         const int wpx = w->wT * 8, hpx = w->hT * 8, W = w->wT; const u8 *b = (const u8 *)w->buf; unsigned n = 0;
         memcpy(gScratchR, b, w->vSize);
         if (want) for (int Y = 0; Y < hpx; Y++) for (int X = 0; X < wpx; X++) { const int i = Y * wpx + X; if (w->und[i] == kNoInk) continue;
-            if (nibAt(b, W, X, Y) != w->val[i]) { w->und[i] = kNoInk; continue; }
-            if (w->val[i] != w->und[i]) { nibSet(gScratchR, W, X, Y, w->und[i]); n++; } }
+            if (pixAt(b, W, X, Y, w->bpp8) != w->val[i]) { w->und[i] = kNoInk; continue; }
+            if (w->val[i] != w->und[i]) { pixSet(gScratchR, W, X, Y, w->und[i], w->bpp8); n++; } }
         memcpy(w->vram, gScratchR, w->vSize);
         w->vHash = hashMem(w->vram, w->vSize); w->shown = want && n; gGen++;
         if (want) gSyncOn++; else gSyncOff++;
-        static unsigned lg; if (lg < 16) { lg++; PSPNativeMemLog("[GTEXT] window bg%d %dx%d: text %s (%s)", w->bg, w->wT, w->hT, w->shown ? "taken out again, native layer draws it" : "put back into the DS picture",
-            !on ? "setting OFF" : !screenOk(scrOf(engOf(w))) ? "its screen cannot show the layer now" : "screen can show the layer"); }
+        static unsigned lg; if (lg < 40) { lg++; PSPNativeMemLog("[GTEXT] window bg%d %dx%d: text %s (%s)", w->bg, w->wT, w->hT, w->shown ? "taken out again, native layer draws it" : "put back into the DS picture",
+            !on ? "setting OFF" : !screenOk(scrOf(engOf(w))) ? "its screen cannot show the layer now" : !bgDrawable(w) ? "its BG is scaled, rotated or uses extended palettes" : "screen can show the layer"); }
     }
     objStep(on);
     ulk();
@@ -352,19 +370,35 @@ static u32 gfx555(u16 c, int mode, int ev, unsigned a) {
     return ((u32)r << 24) | ((u32)g << 16) | ((u32)b << 8) | (a & 0xFF);
 }
 /* one BG of an engine, as the per pixel checks read it */
-typedef struct { int on, text, prio, bpp8; unsigned cnt, hofs, vofs, W, H, cbase, sbase; } GtBg;
+/* text = the native layer can follow this BG: a text BG, or an affine BG (8 bit map) / extended tile BG (16 bit map) whose matrix is
+   1:1 (then its reference point acts as the scroll). aff: 0 text, 1 affine, 2 extended tiles */
+struct GtBg { int on, text, prio, bpp8, aff; unsigned cnt, hofs, vofs, W, H, cbase, sbase; };
 static void readBg(int eng, int b, GtBg *o) {
     const unsigned R = eng ? 0x1000 : 0, dc = reg32(R), mode = dc & 7, cnt = reg16(R + 8 + 2 * b), size = (cnt >> 14) & 3;
     memset(o, 0, sizeof *o);
     o->on = (dc >> (8 + b)) & 1; o->cnt = cnt; o->prio = (int)(cnt & 3); o->bpp8 = (cnt & 0x80) != 0;
-    o->text = b < 2 ? !(b == 0 && eng == 0 && (dc & 8)) : b == 2 ? mode <= 1 : mode == 0;
+    const int isText = b < 2 ? !(b == 0 && eng == 0 && (dc & 8)) : b == 2 ? (mode <= 1 || mode == 3) : mode == 0;
+    o->text = isText;
     o->hofs = reg16(R + 0x10 + 4 * b) & 0x1FF; o->vofs = reg16(R + 0x12 + 4 * b) & 0x1FF;
     o->W = (size & 1) ? 512 : 256; o->H = (size & 2) ? 512 : 256;
+    if (!isText && b >= 2 && mode <= 5) {
+        const int affine = b == 2 ? (mode == 2 || mode == 4) : (mode == 1 || mode == 2), ext = b == 2 ? mode == 5 : mode >= 3;
+        if (affine || (ext && !(cnt & 0x80))) {
+            const unsigned A = R + 0x20 + (unsigned)(b - 2) * 0x10;
+            const int pa = (int16_t)reg16(A), pb = (int16_t)reg16(A + 2), pc = (int16_t)reg16(A + 4), pd = (int16_t)reg16(A + 6);
+            const int rx = (int)(reg32(A + 8) << 4) >> 4, ry = (int)(reg32(A + 12) << 4) >> 4;
+            o->aff = affine ? 1 : 2; o->bpp8 = 1; o->W = o->H = 128u << size;
+            o->text = pa == 0x100 && pb == 0 && pc == 0 && pd == 0x100 && !(rx & 0xFF) && !(ry & 0xFF);
+            o->hofs = (unsigned)(rx >> 8); o->vofs = (unsigned)(ry >> 8); } }
     o->cbase = (eng ? 0 : ((dc >> 24) & 7) * 0x10000) + ((cnt >> 2) & 15) * 0x4000;
     o->sbase = (eng ? 0 : ((dc >> 27) & 7) * 0x10000) + ((cnt >> 8) & 31) * 0x800;
 }
+static int bgDrawable(const GtWin *w) { GtBg g; readBg(engOf(w), w->bg & 3, &g);
+    return g.text && g.bpp8 == (int)w->bpp8 && !(g.bpp8 && g.aff != 1 && (reg32(engOf(w) ? 0x1000 : 0) & 0x40000000u)); }   /* 8 bit with extended palettes: not followed */
 static inline unsigned mapEntry(const u8 *V, unsigned vmask, const GtBg *g, unsigned px, unsigned py) {
     const unsigned tx = px >> 3, ty = py >> 3, sz = (g->cnt >> 14) & 3;
+    if (g->aff == 1) return V[(g->sbase + ty * (g->W >> 3) + tx) & vmask];
+    if (g->aff == 2) { const unsigned a = (g->sbase + (ty * (g->W >> 3) + tx) * 2) & vmask; return V[a] | (V[a + 1] << 8); }
     const unsigned blk = sz == 1 ? (tx >> 5) : sz == 2 ? (ty >> 5) : sz == 3 ? ((tx >> 5) + 2 * (ty >> 5)) : 0u;
     const unsigned a = (g->sbase + blk * 0x800 + ((ty & 31) * 32 + (tx & 31)) * 2) & vmask;
     return V[a] | (V[a + 1] << 8);
@@ -432,7 +466,7 @@ int P3DS_GtRender(int scr, u32 *buf, float fxf, float fyf, float fwf, float fhf,
     for (int li = 0; li < nl; li++) { const int wi = list[li]; GtWin *w = &gWin[wi]; const int e = engOf(w), b = w->bg & 3; const unsigned R = e ? 0x1000 : 0;
         const u8 *V = P3DS_GtVram(e); const unsigned vmask = e ? 0x1FFFF : 0x7FFFF; if (!V) continue;
         const unsigned dc = reg32(R); GtBg g; readBg(e, b, &g);
-        if (!g.on || !g.text || g.bpp8) continue;
+        if (!g.on || !g.text || g.bpp8 != (int)w->bpp8 || (g.bpp8 && g.aff != 1 && (dc & 0x40000000u))) continue;
         if (((dc >> 16) & 3) != 1) continue;                     /* display mode: not the graphics picture */
         /* the BGs drawn over this one */
         GtBg cov[3]; int nc = 0;
@@ -485,7 +519,7 @@ int P3DS_GtRender(int scr, u32 *buf, float fxf, float fyf, float fwf, float fhf,
                     const int nx = ox + (X - rx), ny = oy + (Y - ry);
                     if (nx < 0 || nx >= SW || ny < 0 || ny >= 240) continue;
                     claim[i >> 3] |= (u8)(1u << (i & 7));
-                    buf[ny * 512 + nx] = col[tp][n]; drawnPx++; } } } }
+                    buf[ny * 512 + nx] = w->bpp8 ? gfx555(*(const u16 *)(P + n * 2), bmode, ev, alpha) : col[tp][n]; drawnPx++; } } } }
     /* text in sprites: blocks of touching text tiles, each centred where the DS picture shows it, letters 1:1 */
     unsigned objPx = 0;
     if (nOt) {
@@ -525,7 +559,7 @@ int P3DS_GtRender(int scr, u32 *buf, float fxf, float fyf, float fwf, float fhf,
     }
     ulk();
     *dirty = 1;
-    { static unsigned n, lastKey[2]; const unsigned key = (unsigned)nl * 131071u + nGl * 8191u + drawnPx + nOt * 524287u + objPx * 31u; if ((key != lastKey[scr] && n < 80) || (n % 600) == 0) PSPNativeMemLog("[GTEXT] native layer (%s): %d windows, %u glyphs, %u pixels, sprite text %u tiles %u pixels (hidden: map %u, DS window %u, covered %u, off picture %u) | recorded %u, erased uploads %u, plain %u, pool full %u, no memory %u, stale %u, back on %u / off %u, sprite tile records %u (made %u), taken out %u, put back %u",
+    { static unsigned n, lastKey[2]; const unsigned key = (unsigned)nl * 131071u + nGl * 8191u + drawnPx + nOt * 524287u + objPx * 31u; if ((key != lastKey[scr] && n < 300) || (n % 600) == 0) PSPNativeMemLog("[GTEXT] native layer (%s): %d windows, %u glyphs, %u pixels, sprite text %u tiles %u pixels (hidden: map %u, DS window %u, covered %u, off picture %u) | recorded %u, erased uploads %u, plain %u, pool full %u, no memory %u, stale %u, back on %u / off %u, sprite tile records %u (made %u), taken out %u, put back %u",
         scr ? "bottom" : "top", nl, nGl, drawnPx, nOt, objPx, hMap, hWin, hCov, hOff, gRecorded, gErased, gPlain, gFull, gNoMem, gStale, gSyncOn, gSyncOff, gRecN, gObjRecs, gObjErased, gObjBack); lastKey[scr] = key; n++; }
     (void)gChanged; gRenders++;
     return 1;
