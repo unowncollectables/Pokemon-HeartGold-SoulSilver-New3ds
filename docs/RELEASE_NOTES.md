@@ -3,6 +3,7 @@
 Current build (main). Not an official release; see the [README](../README.md) for install and known issues. Older per-run notes are in [archive/RELEASE_NOTES-dev-2026-11-18.md](archive/RELEASE_NOTES-dev-2026-11-18.md).
 
 ## What is in it
+- A [complete project wiki](https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/wiki) with player guides, developer references, tool documentation and labeled archives. [Maintenance](WIKI.md) describes refreshing it from main; no game rebuild is required.
 - Native New 3DS port of SoulSilver (and HeartGold as a second game): boot, title, overworld, battles and menus on the pspoke base, with stereoscopic 3D, Wide view, GPU 3D and a GPU 2D compositor.
 - Overworld: about 60 fps in mono and close to it in stereo 3D; busy scenes, battles and transitions can dip. The tuned speed setup is the default; nothing to configure.
 - Settings app on L+R+Y with Display, 3D, Input, Battle, Play and Setup tabs. The old Debug and Render tabs are gone. Player options are here; the tested performance improvements are built in. Existing config values still override new defaults; see the README for resetting an older setup.

@@ -4,6 +4,8 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
+- Complete project wiki: player guides, settings, saves, wireless, HeartGold, troubleshooting, all repository Markdown guides and tool READMEs, full settings reference, policies, and labeled historical archives. `scripts/build_wiki.py` exports pinned source pages and validates local page links; see [wiki maintenance](WIKI.md).
+
 - Finder readability (#566): count and time-filter rows, result separators and paging footer leave room for full glyphs. LIST hides map controls and markers that covered its first result. Built and checked in LOTUS/CITnLO; hardware validation remains open.
 
 - Hunt stats (ZR): now a sharp tabbed overlay in the battle companion style while the field keeps running (it used to freeze the game). HUNT page shows chance so far, 50%/90% marks, encounters to go and pace; Up/Down flips species; X pins a species as your hunt, Y lets you pick any species, RESET (tap twice) clears one. TOTALS, TOP, RECENT and SHINY pages. Unbuilt.

@@ -26,6 +26,8 @@
   <a href="#setup"><strong>Setup guide</strong></a>
   &nbsp;·&nbsp;
   <a href="#02--build-your-copy"><strong>Build instructions</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/wiki"><strong>Complete wiki</strong></a>
 </p>
 
 <p align="center">
