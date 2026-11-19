@@ -1705,7 +1705,8 @@ static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Pla
 /* 2026-11-19 removed rows (built-in default kept, config.txt line still read): Live party/bag OFF, Menu button OFF, Kanto on map GATED,
    X tile cursor ON, Map zoom (the map's -/+ chips), Roamer sprites ON, Contest helper ON, Breeding tab ON, Sprite depth ON, Fast tab swap ON, Pokegear tabs.
    Also gone (owner's levels are the default): Even loudness ON, Steady music ON, Menu music ON, Visible at once 6, Visible shiny sparkle ON,
-   Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too), Pokewalker ON. */
+   Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too), Pokewalker ON.
+   Standard look, no row: 60 fps field ON, Wide layouts ON, Sharp text ON, Sharp game text ON, Sharp 3D FAST AUTO, Title layout WIDE. */
 static const SAppTab kTabs[kTotalTabs]={
  {3,{{9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
@@ -1743,13 +1744,7 @@ static const SAppTab kTabs[kTotalTabs]={
      {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions."}}},
  {2,{{109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
      {93,"Wireless","ONLINE (default): GTS and Wi-Fi through a community server. LOCAL: 3DS to 3DS trades and battles in the Union Room. OFF: no wireless."}}},
- {9,{{kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
-     {0,"FPS counter","Shows the frame rate on screen."},
-     {139,"Title layout","Classic uses plain borders. Wide fills the screen with the animated backdrop and keeps the logo proportional."},
-     {kWideLayItem,"Wide layouts","Menu screens are laid out for the full 400 px width instead of filling the sides."},
-     {kBottomHdItem,"Sharp text","Bottom-screen menus and these settings draw their text at the 3DS's own resolution: crisp letters at true DS size. OFF = the old bigger, stretched text."},
-     {kSharpGameItem,"Sharp game text","The game's text on both screens (dialogue, menus, battle, bag, party, summary) is drawn at the 3DS's own resolution (crisp, true DS size). OFF = the old stretched text."},
-     {117,"Sharp 3D","3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps."},
+ {3,{{0,"FPS counter","Shows the frame rate on screen."},
      {51,"Save backups","Keeps 8 rotating copies of your save: at launch, after each save, at exit."},
      {kGtsPickerItem,"GTS server picker","Adds Online Settings to the title menu."}}},
 };
