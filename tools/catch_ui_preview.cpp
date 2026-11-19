@@ -10,6 +10,7 @@
 extern "C" { int P3DS_GameFontGlyph(int, int, unsigned char (*)[16]); void host_set_font(uint8_t *, uint32_t); }
 #include "ss3ds_sharptext.h"
 #include "ss3ds_catchui.h"
+#include "ss3ds_huntui.h"
 #include "p3ds_abilnames.h"
 #include "p3ds_movenames.h"
 static SBtxRec gRec;
@@ -61,4 +62,17 @@ int main(int argc, char **argv) {
       if (m == 0) cc::cross(ds, px + 5, py + 2, SUI_RGB(255, 255, 255)); else if (m < 4) cc::triDn(ds, px + 5, py + 3, SUI_RGB(255, 255, 255)); else cc::triUp(ds, px + 5, py + 3, SUI_RGB(255, 255, 255));
       btxText(gRec, ds, px + 16, py - 1, t, SUI_RGB(255, 255, 255), cc::mixc(c, SUI_RGB(0, 0, 0), 150), false); }
     btxEnd(gRec, list); btxRender(list, atlas); stretch(ds, out); over(out, atlas); snprintf(path, sizeof path, "%s_hint.ppm", argv[2]); ppm(path, out); }
+  { /* field hunt stats screen (ss3ds_huntui.h), sample numbers */
+    hs::Data D{}; hs::View &v = D.v; snprintf(v.name, sizeof v.name, "Mareep"); v.sp = 179; v.enc = 3412; v.streak = 2108; v.resets = 41; v.shinies = 1; v.secs = 5 * 3600 + 22 * 60; v.start = 20261101;
+    v.lastShinyAt = 1304; v.odds = 8192; v.enc50 = 5678; v.enc90 = 18862; v.idx = 1; v.nIdx = 14; v.chance = 0.2265; v.target = true;
+    hs::Tot &t = D.t; t.met = 14; t.enc = 5210; t.resets = 63; t.shinies = 2; t.secs = 9 * 3600 + 5 * 60; t.start = 20261027; snprintf(t.luck, 24, "PIDGEY"); t.luckAt = 402;
+    snprintf(t.lng, 24, "MAREEP"); t.longN = 2108; snprintf(t.cur, 24, "MAREEP"); t.curStreak = 2108;
+    static const char *tn[6] = { "MAREEP", "PIDGEY", "SENTRET", "RATTATA", "HOOTHOOT", "WOOPER" }; static const int te[6] = { 3412, 702, 388, 301, 157, 96 }, ts[6] = { 1, 1, 0, 0, 0, 0 };
+    D.top.n = 6; for (int i = 0; i < 6; i++) { snprintf(D.top.name[i], 24, "%s", tn[i]); D.top.a[i] = te[i]; D.top.b[i] = ts[i]; }
+    static const char *rn[6] = { "WOOPER", "HOOTHOOT", "MAREEP", "SENTRET", "RATTATA", "PIDGEY" }; static const int rd[6] = { 20261118, 20261112, 20261101, 20261029, 20261028, 20261027 }, re[6] = { 96, 157, 3412, 388, 301, 702 };
+    D.recent.n = 6; for (int i = 0; i < 6; i++) { snprintf(D.recent.name[i], 24, "%s", rn[i]); D.recent.a[i] = rd[i]; D.recent.b[i] = re[i]; D.recent.c[i] = i == 2 || i == 5; }
+    D.shiny.n = 2; snprintf(D.shiny.name[0], 24, "PIDGEY"); D.shiny.a[0] = 402; D.shiny.b[0] = 1; snprintf(D.shiny.name[1], 24, "MAREEP"); D.shiny.a[1] = 1304; D.shiny.b[1] = 1;
+    for (int pg = 0; pg < hs::H_N; pg++) { btxBegin(gRec, ds); hs::page(ds, kNew, D, pg); btxEnd(gRec, list); btxRender(list, atlas); stretch(ds, out); over(out, atlas);
+      snprintf(path, sizeof path, "%s_hstat_%s.ppm", argv[2], hs::kTab[pg]); ppm(path, out); printf("hstat %s: %d strings native, %d covered, %d full\n", hs::kTab[pg], list.n, gRec.covered, gRec.full); }
+    hs::Data E{}; btxBegin(gRec, ds); hs::page(ds, kNew, E, hs::H_HUNT); btxEnd(gRec, list); btxRender(list, atlas); stretch(ds, out); over(out, atlas); snprintf(path, sizeof path, "%s_hstat_empty.ppm", argv[2]); ppm(path, out); }
   return 0; }

@@ -17,6 +17,14 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - Finder header count and time buttons now have enough vertical room for the full native font. LIST rows and the paging footer have taller spacing; separators no longer cut through glyphs. Map controls and native map markers are hidden in LIST view, with their old touch rectangles cleared.
 - Checked in LOTUS/CITnLO with a corrected current-main game build: populated encounter chances, readable count/filter labels and list rows, page navigation and time filtering. `make check` and the platform link pass. A New 3DS check remains open.
 
+## Hunt stats screen, ZR (2026-11-19, platform only, unbuilt)
+
+- ZR in the field opens the HUNT STATS screen as an overlay like the battle Y screen (ss3ds_huntui.h, hsOpen/hsFrame/hsInput in render3ds.cpp, cy.field = true). The old modal loop that froze the game is gone.
+- Pages HUNT (one species: since last shiny, odds, chance bar with 50%/90% marks, encounters to go, pace per hour; Up/Down or vertical swipe = other species), TOTALS, TOP, RECENT, SHINY. Off switch: Settings "HUNT STATS (ZR)".
+- The game gets no buttons or touches while it is up (P3DS_CatchMask; panel touch, corner touch and menu button skip it too). It closes itself when the field ends or a menu takes the bottom screen.
+- Logs: `[HSTAT] stats screen opened`, `drew <page> page in N us`, `page`, `species`, `closed (...) after N ms, N field frames ran underneath`. Stuck keys after close or a stale bottom picture: look at cyTick / cyClose.
+- Preview: tools/catch_ui_preview.cpp writes `<prefix>_hstat_*.ppm`.
+
 ## Upstream pspoke backports, part 1 (2026-11-19, patch 0290 + platform wrap, unbuilt)
 
 Fixes from upstream pspoke 7477648..95a99b0 that the 3DS stack was missing. Battle Frontier: Factory first battle jumped to 0 (e03aace), Battle Hall crashed every battle (7da56e7), between-battle rooms drew black because bank G ext palettes landed in bank H (41005bc; fixed here as a `GX_*LoadBGExtPltt` link wrap in `psp_ctru.c`, logs `[GX] BG ext palette bank G` up to 4 times). Battles: freeze when the last Pokemon faints with the foe (Self-Destruct/Explosion, e1e825a), frozen move animations from the SPL create-emitter arity (7d56c81; delete half was 0262). Already covered before: Transform MOSAIC byte write (0162/0163), Frontier seeds (0273, a superset of upstream's). Still to review: translator ABI (aa8be86, 331cc8a, 66da681 64-bit returns), wider ioreg lanes (b1b2a66), 174e199 field/menu paths, then pret.

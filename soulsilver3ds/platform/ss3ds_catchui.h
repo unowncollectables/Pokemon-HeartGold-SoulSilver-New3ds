@@ -68,8 +68,8 @@ static void ball(uint32_t *b, int cx, int cy, int r) { /* tiny Poke Ball icon */
     uint32_t c = d > r - 1.2f ? CC_RGB(24, 16, 24) : y < -1 ? CC_RGB(240, 60, 60) : y > 1 ? CC_RGB(248, 248, 252) : CC_RGB(24, 16, 24);
     if (d < 2.6f) c = d < 1.6f ? CC_RGB(255, 255, 255) : CC_RGB(24, 16, 24); blend(b, cx + x, cy + y, c, a); } }
 
-/* the frame every page shares */
-static void frame(uint32_t *b, const SUiText &T, const char *title, const char *badge, uint32_t badgeCol, int nTab, const int *tabs, int cur) {
+/* the frame every page shares (frameT: tab captions given directly, used by the field hunt stats screen in ss3ds_huntui.h) */
+static void frameT(uint32_t *b, const SUiText &T, const char *title, const char *badge, uint32_t badgeCol, int nTab, const char *const *tabName, int cur) {
   for (int y = 0; y < 192; y++) { const uint32_t c = suiMix(kBg0, kBg1, y, 191); for (int x = 0; x < 256; x++) b[y * 256 + x] = c; }
   for (int y = 0; y < 21; y++) { const uint32_t c = suiMix(kBar0, kBar1, y, 20); for (int x = 0; x < 256; x++) b[y * 256 + x] = c; }
   for (int x = 0; x < 256; x++) { blend(b, x, 1, CC_RGB(255, 255, 255), 60); suiPx(b, x, 21, kRule); blend(b, x, 22, kSh, 120); blend(b, x, 23, kSh, 50); }
@@ -78,8 +78,10 @@ static void frame(uint32_t *b, const SUiText &T, const char *title, const char *
   if (badge && *badge) { const int w = T.width(badge) + 14; pill(T, b, kCloseX0 - 6 - w, 3, kCloseX0 - 6, 18, badgeCol, badge, CC_RGB(255, 255, 255)); }
   if (nTab > 0) { const int w = (248 - 3 * (nTab - 1)) / nTab;
     for (int i = 0; i < nTab; i++) { const int x0 = 4 + i * (w + 3), on = i == cur;
-      if (on) { rrect(b, x0, kTabY0, x0 + w, kTabY1, 8, CC_RGB(255, 236, 140), CC_RGB(238, 176, 52)); centre(T, b, x0, x0 + w, kTabY0 + 3, kPageName[tabs[i]], CC_RGB(70, 40, 6), CC_RGB(255, 244, 190)); }
-      else { rrect(b, x0, kTabY0, x0 + w, kTabY1, 8, CC_RGB(64, 86, 148), CC_RGB(36, 50, 100)); centre(T, b, x0, x0 + w, kTabY0 + 3, kPageName[tabs[i]], kDim, kSh); } } } }
+      if (on) { rrect(b, x0, kTabY0, x0 + w, kTabY1, 8, CC_RGB(255, 236, 140), CC_RGB(238, 176, 52)); centre(T, b, x0, x0 + w, kTabY0 + 3, tabName[i], CC_RGB(70, 40, 6), CC_RGB(255, 244, 190)); }
+      else { rrect(b, x0, kTabY0, x0 + w, kTabY1, 8, CC_RGB(64, 86, 148), CC_RGB(36, 50, 100)); centre(T, b, x0, x0 + w, kTabY0 + 3, tabName[i], kDim, kSh); } } } }
+static void frame(uint32_t *b, const SUiText &T, const char *title, const char *badge, uint32_t badgeCol, int nTab, const int *tabs, int cur) {
+  const char *nm[6]; for (int i = 0; i < nTab && i < 6; i++) nm[i] = kPageName[tabs[i]]; frameT(b, T, title, badge, badgeCol, nTab > 6 ? 6 : nTab, nm, cur); }
 /* touch: -2 = close, 0..n-1 = a tab, -1 = nothing */
 static int hit(int nTab, int x, int y) {
   if (y < 24 && x >= kCloseX0 - 6) return -2;

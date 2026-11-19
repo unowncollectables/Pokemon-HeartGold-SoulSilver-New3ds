@@ -6,6 +6,7 @@ Short summary of what the port can do. The full per-run development log (every f
 
 - Finder readability (#566): count and time-filter rows, result separators and paging footer leave room for full glyphs. LIST hides map controls and markers that covered its first result. Built and checked in LOTUS/CITnLO; hardware validation remains open.
 
+- Hunt stats (ZR): now a sharp tabbed overlay in the battle companion style while the field keeps running (it used to freeze the game). HUNT page shows chance so far, 50%/90% marks, encounters to go and pace; Up/Down flips species. TOTALS, TOP, RECENT and SHINY pages. Unbuilt.
 - Battle companion: Y opens a sharp tabbed overlay while the battle keeps running. Tap or swipe through available info, catch, hunt, damage and trainer-party pages. FIGHT effectiveness hints and finder LIST rows have also been refreshed (PR #565); broader hardware coverage remains open.
 - Exploration: finder LIST with true-colour species icons, encounter-slot chances and time filters; AREAS page for map sub-areas and separate visit tracking. Smoother map panning, consistent cards and faster tab swaps (PRs #555, #557, #559–#562).
 - Visible wilds: groups, NPC avoidance, post-battle scattering and Safari Zone support (PRs #550, #552, #563). Shore encounters use the land-battle path; the water-battle intro has been repaired (#553–#554).
