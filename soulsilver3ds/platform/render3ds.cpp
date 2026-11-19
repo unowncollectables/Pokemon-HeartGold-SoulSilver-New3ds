@@ -2022,14 +2022,8 @@ static void batteryTick(){static u64 last;static int inited,warned;const u64 now
  u8 lv=5,ch=0;if(R_FAILED(PTMU_GetBatteryLevel(&lv))||R_FAILED(PTMU_GetBatteryChargeState(&ch)))return;
  if(lv>1||ch){warned=0;return;}
  if(warned++%6==0){P3DS_Toast("BATTERY LOW: SAVE NOW");P3DS_HuntFlush();PSPNativeMemLog("[BATTERY] low battery (level %u), hunt.txt written",(unsigned)lv);}}
-static void cBack(u32*b,const char*title,const char*right){
- for(int y=0;y<192;y++){const u32 c=suiMix(SUI_RGB(16,24,48),SUI_RGB(8,12,28),y,191);for(int x=0;x<256;x++)b[y*256+x]=c;}
- cFill(b,0,0,256,19,SUI_RGB(200,48,56));cFill(b,0,19,256,21,SUI_RGB(248,208,96));
- gtxt(b,6,1,title,SUI_RGB(255,255,255),SUI_RGB(104,16,24));if(right)gtxt(b,250-gw(right),1,right,SUI_RGB(255,240,200),SUI_RGB(104,16,24));}
-static void cPanel(u32*b,int x0,int y0,int x1,int y1){suiPanel(b,x0,y0,x1,y1,SUI_RGB(40,56,96),SUI_RGB(28,40,72),SUI_RGB(112,136,200),false);}
-static const u32 kCTx=SUI_RGB(244,248,255),kCSh=SUI_RGB(8,12,28),kCDim=SUI_RGB(160,176,216),kCGold=SUI_RGB(248,216,96);
 static int hintMultCb(int a,int d){return hintMult(a,d);}
-struct CyState{bool open,release,trainer,tPrev,zrPrev;int pg,n,kinds[4];u32 key;u64 t0;unsigned frames;u32*img;SBtxList*tx;int tx0,ty0,tx1,ty1;};
+struct CyState{bool open,release,trainer,tPrev,zrPrev,field;/* field: the overworld HUNT STATS screen (hsOpen below), not the battle Y screen */int pg,n,kinds[4];u32 key;u64 t0;unsigned frames;u32*img;SBtxList*tx;int tx0,ty0,tx1,ty1;};
 static CyState cy;
 struct CyData{cc::Wild w;cc::Foe fo;cc::Dmg dm;cc::Hunt hu;char wn[24],wab[24],fn[24],fab[24],dn[24],hn[24];bool huntPg,dmgPg;};
 static void cyGather(CyData&D,bool*trainer,int*kinds,int*n){
@@ -2049,16 +2043,19 @@ static void cyGather(CyData&D,bool*trainer,int*kinds,int*n){
 static u32 cyHash(const CyData&D,int pg){u32 h=2166136261u^(u32)pg;auto mx=[&](const int*a,int n){for(int i=0;i<n;i++){h^=(u32)a[i];h*=16777619u;}};mx(D.w.c,20);mx(D.fo.f,40);mx(D.dm.d,32);
  h^=D.huntPg?(u32)(D.hu.enc*31+D.hu.streak):0;h*=16777619u;return h;}
 static void cyClose(const char*why){if(!cy.open)return;cy.open=false;cy.release=true;P3DS_CatchMask=1;free(cy.img);cy.img=nullptr;P3DS_GpuInvalidateBot();P3DS_TxOn=0;txShownL=nullptr;
- PSPNativeMemLog("[CATCH] screen closed (%s) after %u ms, %u battle frames ran underneath, keys held back until released",why,(unsigned)((svcGetSystemTick()-cy.t0)/CPU_TICKS_PER_MSEC),cy.frames);}
+ if(cy.field)BLINV; /* the field panel picture is recomposed on the next present */
+ PSPNativeMemLog("%s screen closed (%s) after %u ms, %u %s frames ran underneath, keys held back until released",cy.field?"[HSTAT] stats":"[CATCH]",why,(unsigned)((svcGetSystemTick()-cy.t0)/CPU_TICKS_PER_MSEC),cy.frames,cy.field?"field":"battle");}
 static void cyOpen(){if(cy.open)return;static CyData D;bool tr;cyGather(D,&tr,cy.kinds,&cy.n);cy.img=(u32*)malloc(256*192*4);if(!cy.img){PSPNativeMemLog("[CATCH] no memory for the screen (%u bytes)",256u*192u*4u);return;}
- cy.open=true;cy.release=false;cy.trainer=tr;cy.pg=0;cy.key=0;cy.frames=0;cy.t0=svcGetSystemTick();cy.tPrev=hidKeysHeld()&KEY_TOUCH;cy.zrPrev=true;P3DS_CatchMask=1;
+ cy.open=true;cy.field=false;cy.release=false;cy.trainer=tr;cy.pg=0;cy.key=0;cy.frames=0;cy.t0=svcGetSystemTick();cy.tPrev=hidKeysHeld()&KEY_TOUCH;cy.zrPrev=true;P3DS_CatchMask=1;
  const int*c=D.w.c;const int*f=D.fo.f;
  PSPNativeMemLog("[CATCH] screen opened as an overlay, the battle keeps running (%s #%d, %d pages)",tr?"trainer foe":"wild",tr?f[4]:c[1],cy.n);
  if(tr)PSPNativeMemLog("[CATCH] foe Lv%d hp %d/%d status %d ability %d moves %d/%d/%d/%d pp %d/%d/%d/%d party %d",f[5],f[6],f[7],f[8],f[9],f[11],f[12],f[13],f[14],f[15],f[16],f[17],f[18],f[2]);
  if(D.dmgPg){const int*d=D.dm.d;PSPNativeMemLog("[DMG] me Lv%d atk %d spa %d spe %d st %d types %d/%d | foe #%d Lv%d def %d spd %d spe %d hp %d/%d st %d types %d/%d | moves %d/%d/%d/%d types %d/%d/%d/%d power %d/%d/%d/%d",d[2],d[3],d[4],d[5],d[6],d[7],d[8],d[17],d[9],d[10],d[11],d[12],d[13],d[30],d[16],d[14],d[15],d[18],d[19],d[20],d[21],d[22],d[23],d[24],d[25],d[26],d[27],d[28],d[29]);}}
 /* every present while it is up: returns the picture to show on the bottom screen (nullptr = the game's own). txOk = the sharp text layer can be used */
+static const u32*hsFrame(bool txOk);static void hsInput(u32 kd,u32 kh);
 static const u32*cyFrame(bool txOk){
  if(!cy.open)return nullptr;
+ if(cy.field)return hsFrame(txOk);
  if(P3DS_InField||!(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])){cyClose("battle moved on");return nullptr;}
  static CyData D;bool tr;int kinds[4],n;cyGather(D,&tr,kinds,&n);if(tr!=cy.trainer||n!=cy.n){cy.trainer=tr;cy.n=n;if(cy.pg>=n)cy.pg=0;}memcpy(cy.kinds,kinds,sizeof kinds);
  if(cy.pg>=cy.n)cy.pg=0;cy.frames++;
@@ -2074,6 +2071,7 @@ static const u32*cyFrame(bool txOk){
 /* input, once per present while it is up (hid state, the game is masked from these keys by P3DS_CatchMask) */
 static void cyInput(u32 kd,u32 kh){
  if(!cy.open)return;
+ if(cy.field){hsInput(kd,kh);return;}
  const bool zrEdge=(kh&KEY_ZR)&&!cy.zrPrev;cy.zrPrev=(kh&KEY_ZR)!=0;
  if((kd&(KEY_B|KEY_A|KEY_Y|KEY_START))||zrEdge){cyClose("button");return;}
  int np=cy.pg;if(cy.n>1){if(kd&(KEY_RIGHT|KEY_R|KEY_DRIGHT))np=(cy.pg+1)%cy.n;if(kd&(KEY_LEFT|KEY_L|KEY_DLEFT))np=(cy.pg+cy.n-1)%cy.n;}
@@ -2100,9 +2098,16 @@ static bool hintSharpDraw(u32*img,int x0,int y0,int m){
  btxText(*gBtx,img,px+16,py-1,t,SUI_RGB(255,255,255),cc::mixc(c,SUI_RGB(0,0,0),150),false);
  if(hintLogN<3){hintLogN++;PSPNativeMemLog("[HINT] sharp pill \"%s\" at DS %d,%d (%d wide)",t,px,py,pw);}
  return true;}
-static void hintSharpEnd(bool began){if(!began||!hintTx)return;btxEnd(*gBtx,*hintTx);btxShow(hintTx);}/* hunt_stats (2026-11-03, Battle tab, default OFF): read-only pages from the hunt counters (hunt.txt), opened with ZR in the
-   overworld (ZR then no longer sends Y, even with zr_item=1; Y stays the bike/item). 1 overview + best shiny, 2 most met species, 3 timeline (first met, newest first), 4 best streaks (fewest
-   encounters before a shiny). Only the existing counters are used: a shiny has no date of its own. */
+static void hintSharpEnd(bool began){if(!began||!hintTx)return;btxEnd(*gBtx,*hintTx);btxShow(hintTx);}
+/* hunt_stats (Battle tab "HUNT STATS (ZR)"): ZR in the overworld opens the HUNT STATS screen. Reworked 2026-11-19 (Nathan: "needs the same
+   overhaul as the y button in battle ... actually make it useful not kill the game"). It used to be a modal loop with its own presents: the
+   whole game (field, music timing, the panel) stood still until it closed. Now it is the same OVERLAY as the battle Y screen (cy above,
+   cy.field = true): the bottom picture is swapped in Present, the field keeps running, and the game only loses the buttons and the touch
+   screen (P3DS_CatchMask) while it is up and until every key is released after it closes. Drawing: ss3ds_huntui.h. Data: the hunt.txt
+   counters (hunt.c), read only. Pages HUNT / TOTALS / TOP / RECENT / SHINY; Up/Down on HUNT = other species. Closes itself if the field
+   ends (battle, warp fade does not count: P3DS_InField stays), a menu opens or the console takes the bottom screen.
+   Logs: [HSTAT] opened / page / species / closed (with the field frames that ran underneath). */
+#include "ss3ds_huntui.h"
 static const long kHsNone=-1000000000L;
 static long hsKeyEnc(const P3DS_HuntRec&r){return r.enc>0?(long)r.enc:kHsNone;}
 static long hsKeyStart(const P3DS_HuntRec&r){return r.start>0?(long)r.start:kHsNone;}
@@ -2116,77 +2121,84 @@ static int hsTop(int n,int*out,long(*key)(const P3DS_HuntRec&)){
  return cnt;
 }
 static void hsName(char*o,int n,int sp){snprintf(o,n,"%s",sp>0&&sp<P3DS_HUNT_SPECIES?kP3dsSpec[sp]:"?");for(char*q=o;*q;q++)if(*q>='a'&&*q<='z')*q-=32;}
-static void huntStatsDraw(u32*b,int pg){
- char l[96],nm[24];
- int met=0,enc=0,resets=0,shinies=0,secs=0,start=0,bestSp=0,bestAt=0,longSp=0,longN=0;
- for(int k=1;k<P3DS_HUNT_SPECIES;k++){const P3DS_HuntRec&r=*P3DS_HuntGet(k);
-  if(!r.enc&&!r.resets&&!r.shinies)continue;
-  met++;enc+=r.enc;resets+=r.resets;shinies+=r.shinies;secs+=r.secs;
-  if(r.shinies&&(!bestSp||r.lastShinyAt<bestAt)){bestSp=k;bestAt=r.lastShinyAt;}
-  if(r.streak>longN){longN=r.streak;longSp=k;}
-  if(r.start&&(!start||r.start<start))start=r.start;}
- static const char*const pgTag[4]={"1/4","2/4","3/4","4/4"};
- cBack(b,"HUNT STATS",pgTag[pg&3]);cPanel(b,4,24,252,172);
- int y=27;const int dy=17;
- if(pg==0){
-  snprintf(l,sizeof l,"Species met %d   Encounters %d",met,enc);gtxt(b,10,y,l,kCTx,kCSh);y+=dy;
-  snprintf(l,sizeof l,"Shinies found %d   Soft resets %d",shinies,resets);gtxt(b,10,y,l,kCTx,kCSh);y+=dy;
-  snprintf(l,sizeof l,"Play time %dh %02dm",secs/3600,secs/60%60);gtxt(b,10,y,l,kCTx,kCSh);y+=dy;
-  if(start)snprintf(l,sizeof l,"Hunting since %04d-%02d-%02d",start/10000,start/100%100,start%100);else snprintf(l,sizeof l,"No hunts recorded yet");
-  gtxt(b,10,y,l,kCDim,kCSh);y+=dy+4;
-  if(bestSp){hsName(nm,sizeof nm,bestSp);snprintf(l,sizeof l,"Best: %s after %d encounters",nm,bestAt);gtxt(b,10,y,l,kCGold,kCSh);}
-  else gtxt(b,10,y,"Best: no shiny yet",kCDim,kCSh);
-  y+=dy;
-  if(longN){hsName(nm,sizeof nm,longSp);snprintf(l,sizeof l,"Longest streak: %s, %d",nm,longN);gtxt(b,10,y,l,kCTx,kCSh);}
-  y+=dy;
-  const int tg=P3DS_HuntTarget();
-  if(tg){hsName(nm,sizeof nm,tg);snprintf(l,sizeof l,"Current hunt: %s (streak %d)",nm,P3DS_HuntGet(tg)->streak);gtxt(b,10,y,l,kCTx,kCSh);}
- }else if(pg==1){
-  int ids[6];const int n=hsTop(6,ids,hsKeyEnc);
-  gtxt(b,10,y,"Most met: encounters, shinies",kCDim,kCSh);y+=dy+2;
-  if(!n)gtxt(b,10,y,"No wild encounters yet",kCDim,kCSh);
-  for(int i=0;i<n;i++){const P3DS_HuntRec&r=*P3DS_HuntGet(ids[i]);hsName(nm,sizeof nm,ids[i]);
-   gtxt(b,10,y,nm,kCTx,kCSh);snprintf(l,sizeof l,"%d",r.enc);gtxt(b,150,y,l,kCTx,kCSh);
-   snprintf(l,sizeof l,"shiny %d",r.shinies);gtxt(b,200,y,l,r.shinies?kCGold:kCDim,kCSh);y+=dy;}
- }else if(pg==2){
-  int ids[6];const int n=hsTop(6,ids,hsKeyStart);
-  gtxt(b,10,y,"First met, newest first",kCDim,kCSh);y+=dy+2;
-  if(!n)gtxt(b,10,y,"No hunts recorded yet",kCDim,kCSh);
-  for(int i=0;i<n;i++){const P3DS_HuntRec&r=*P3DS_HuntGet(ids[i]);hsName(nm,sizeof nm,ids[i]);
-   snprintf(l,sizeof l,"%04d-%02d-%02d",r.start/10000,r.start/100%100,r.start%100);gtxt(b,10,y,l,kCDim,kCSh);
-   gtxt(b,88,y,nm,kCTx,kCSh);snprintf(l,sizeof l,"%d enc",r.enc);gtxt(b,190,y,l,kCTx,kCSh);y+=dy;}
- }else{
-  int ids[6];const int n=hsTop(6,ids,hsKeyBest);
-  gtxt(b,10,y,"Fewest encounters before a shiny",kCDim,kCSh);y+=dy+2;
-  if(!n)gtxt(b,10,y,"No shiny yet. Keep hunting!",kCGold,kCSh);
-  for(int i=0;i<n;i++){const P3DS_HuntRec&r=*P3DS_HuntGet(ids[i]);hsName(nm,sizeof nm,ids[i]);
-   gtxt(b,10,y,nm,kCTx,kCSh);snprintf(l,sizeof l,"after %d",r.lastShinyAt);gtxt(b,130,y,l,kCGold,kCSh);
-   snprintf(l,sizeof l,"x%d",r.shinies);gtxt(b,220,y,l,kCTx,kCSh);y+=dy;}
- }
- gtxt(b,128-gw("Left/Right: page   B: close")/2,177,"Left/Right: page   B: close",kCDim,kCSh);
+static bool hsHas(const P3DS_HuntRec&r){return r.enc||r.resets||r.shinies;}
+static int hsSp; /* species shown on the HUNT page (0 = none recorded) */
+static bool hsAll; /* Y on the HUNT page: Up/Down walks every species (to pin one not met yet), not only the recorded ones */
+static unsigned hsArmed; /* RESET was tapped once: a second tap before this frame count clears the species (cy.frames) */
+/* cheap fingerprint of everything the pages show; a change redraws the picture */
+static u32 hsKey(int pg){u32 h=2166136261u^(u32)pg^((u32)hsSp<<8);auto mx=[&](int v){h^=(u32)v;h*=16777619u;};
+ for(int k=1;k<P3DS_HUNT_SPECIES;k++){const P3DS_HuntRec&r=*P3DS_HuntGet(k);if(!hsHas(r))continue;mx(k);mx(r.enc);mx(r.resets);mx(r.shinies);mx(r.streak);}
+ const P3DS_HuntRec&v=*P3DS_HuntGet(hsSp);mx(v.secs/60);mx(P3DS_HuntTarget());mx(P3DS_HuntPinned());mx(hsAll);mx(hsArmed>cy.frames);mx(P3DS_HuntRateOdds());mx(P3DS_Cheat(2)!=0);return h;}
+static void hsGather(hs::Data&D){
+ memset(&D,0,sizeof D);const int odds=P3DS_HuntRateOdds(),tg=P3DS_HuntTarget();
+ hs::Tot&t=D.t;int luckSp=0,longSp=0,n=0,idx=0;
+ for(int k=1;k<P3DS_HUNT_SPECIES;k++){const P3DS_HuntRec&r=*P3DS_HuntGet(k);if(!hsHas(r))continue;n++;if(k==hsSp)idx=n;
+  t.met++;t.enc+=r.enc;t.resets+=r.resets;t.shinies+=r.shinies;t.secs+=r.secs;
+  if(r.shinies&&(!luckSp||r.lastShinyAt<t.luckAt)){luckSp=k;t.luckAt=r.lastShinyAt;}
+  if(r.streak>t.longN){t.longN=r.streak;longSp=k;}
+  if(r.start&&(!t.start||r.start<t.start))t.start=r.start;}
+ if(luckSp)hsName(t.luck,sizeof t.luck,luckSp);if(longSp)hsName(t.lng,sizeof t.lng,longSp);
+ if(tg>0&&hsHas(*P3DS_HuntGet(tg))){hsName(t.cur,sizeof t.cur,tg);t.curStreak=P3DS_HuntGet(tg)->streak;}
+ hs::View&v=D.v;
+ const int pin=P3DS_HuntPinned();t.pinned=pin>0&&pin==tg;if(t.pinned&&!t.cur[0]){hsName(t.cur,sizeof t.cur,tg);t.curStreak=0;}
+ v.all=hsAll;
+ if(hsSp>0&&(hsAll||hsSp==pin||hsHas(*P3DS_HuntGet(hsSp)))){const P3DS_HuntRec&r=*P3DS_HuntGet(hsSp);hsName(v.name,sizeof v.name,hsSp);v.sp=hsSp;
+  v.pinned=hsSp==pin;v.met=r.enc>0;v.armed=hsArmed>cy.frames;
+  v.enc=r.enc;v.streak=r.streak;v.resets=r.resets;v.shinies=r.shinies;v.secs=r.secs;v.start=r.start;v.lastShinyAt=r.lastShinyAt;
+  v.odds=odds;v.enc50=P3DS_HuntEncFor(0.5,odds);v.enc90=P3DS_HuntEncFor(0.9,odds);v.chance=P3DS_HuntChanceBy(r.streak,odds);v.cheat=P3DS_Cheat(2)!=0;
+  v.target=hsSp==tg;v.idx=idx;v.nIdx=n;}
+ int ids[6];
+ D.top.n=hsTop(6,ids,hsKeyEnc);for(int i=0;i<D.top.n;i++){const P3DS_HuntRec&r=*P3DS_HuntGet(ids[i]);hsName(D.top.name[i],24,ids[i]);D.top.a[i]=r.enc;D.top.b[i]=r.shinies;}
+ D.recent.n=hsTop(6,ids,hsKeyStart);for(int i=0;i<D.recent.n;i++){const P3DS_HuntRec&r=*P3DS_HuntGet(ids[i]);hsName(D.recent.name[i],24,ids[i]);D.recent.a[i]=r.start;D.recent.b[i]=r.enc;D.recent.c[i]=r.shinies;}
+ D.shiny.n=hsTop(6,ids,hsKeyBest);for(int i=0;i<D.shiny.n;i++){const P3DS_HuntRec&r=*P3DS_HuntGet(ids[i]);hsName(D.shiny.name[i],24,ids[i]);D.shiny.a[i]=r.lastShinyAt;D.shiny.b[i]=r.shinies;}
 }
-static void runHuntStats(const u32*top,int mode,bool gpu){
- const size_t PX=256*192;u32*img=(u32*)malloc(PX*4*2);if(!img)return;u32*bimg=img+PX;memcpy(img,top,PX*4);
- int pg=0;P3DS_MenuOpen=1;P3DS_OvN=0; /* run 148: the Bottom menu icon overlay (side column, bottom border strip) was left on top and clipped the page footer */
- u64 t0=svcGetSystemTick();huntStatsDraw(bimg,pg);PSPNativeMemLog("[HSTAT] stats page opened");
- u32 held=hidKeysHeld();bool tPrev=true;bool zrPrev=true;/* ZR from our own held history: hidKeysDown() can miss ZR (see psp_ctru.c) */
- while(aptMainLoop()){hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
-  const bool zrEdge=(kh&KEY_ZR)&&!zrPrev;zrPrev=(kh&KEY_ZR)!=0;if(zrEdge)kd|=KEY_B;
-  const bool tNow=(kh&KEY_TOUCH)!=0;const bool tap=tNow&&!tPrev;tPrev=tNow;
-  if(kd&(KEY_B|KEY_A|KEY_Y|KEY_START))break;
-  int np=pg;
-  if(kd&(KEY_LEFT|KEY_DLEFT|KEY_L))np=(pg+3)%4;
-  if((kd&(KEY_RIGHT|KEY_DRIGHT|KEY_R))||tap)np=(pg+1)%4;
-  if(np!=pg){pg=np;huntStatsDraw(bimg,pg);PSPNativeMemLog("[HSTAT] page %d",pg+1);}
-  {extern int P3DS_GpuBotSame;P3DS_GpuBotSame=0;}
-  if(mode&&gpu)P3DS_GpuPresent(img,bimg,mode,true,nullptr);
-  else{P3DS_PresentDeferSettle();present(GFX_TOP,400,img,0);present(GFX_BOTTOM,320,bimg,0);gfxFlushBuffers();gfxSwapBuffers();}
-  gspWaitForVBlank();
- }
- for(int i=0;i<120&&aptMainLoop();i++){hidScanInput();if(!(hidKeysHeld()&(KEY_A|KEY_B|KEY_X|KEY_START|KEY_Y|KEY_L|KEY_R|KEY_TOUCH)))break;gspWaitForVBlank();}
- free(img);P3DS_GpuInvalidateBot();P3DS_MenuOpen=0;
- PSPNativeMemLog("[HSTAT] stats page closed after %u ms",(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_MSEC));
-}
+static void hsOpen(){if(cy.open)return;cy.img=(u32*)malloc(256*192*4);if(!cy.img){PSPNativeMemLog("[HSTAT] no memory for the screen (%u bytes)",256u*192u*4u);return;}
+ const int tg=P3DS_HuntTarget(),pin=P3DS_HuntPinned();hsSp=pin>0?pin:tg>0&&hsHas(*P3DS_HuntGet(tg))?tg:P3DS_HuntNext(0,1);hsAll=false;hsArmed=0;
+ cy.open=true;cy.field=true;cy.release=false;cy.pg=hs::H_HUNT;cy.n=hs::H_N;cy.key=0;cy.frames=0;cy.t0=svcGetSystemTick();cy.tPrev=hidKeysHeld()&KEY_TOUCH;cy.zrPrev=true;P3DS_CatchMask=1;
+ PSPNativeMemLog("[HSTAT] stats screen opened as an overlay, the field keeps running (species #%d, target #%d, pinned #%d, odds 1/%d)",hsSp,tg,pin,P3DS_HuntRateOdds());}
+static const u32*hsFrame(bool txOk){
+ if(!P3DS_InField){cyClose("left the field");return nullptr;}
+ if(P3DS_MenuOpen||P3DS_ConsoleOnBottom()||P3DS_PanelPartyOn||P3DS_PanelPartyWant){cyClose("a menu took the screen");return nullptr;}
+ cy.frames++;
+ /* the fingerprint walks every species: every 15th frame is plenty (a new encounter cannot happen while the field is masked anyway) */
+ if(cy.tx&&cy.key&&(cy.frames%15)!=1&&((cy.key&1u)==(txOk?1u:0u))){if(txOk)btxShow(cy.tx);else P3DS_TxOn=0;P3DS_OvN=0;return cy.img;}
+ const u32 key=(hsKey(cy.pg)&~1u)|(txOk?1u:0u);
+ if(key!=cy.key||!cy.tx){cy.key=key;if(!cy.tx)cy.tx=(SBtxList*)calloc(1,sizeof(SBtxList));
+  static hs::Data D;const u64 tg=svcGetSystemTick();hsGather(D);
+  const bool rec=txOk&&cy.tx;if(rec)btxBegin(*gBtx,cy.img);const SUiText&T=rec?kSuiText:SUiText{suiDraw,gw,suiDrawS,gwS};
+  hs::page(cy.img,T,D,cy.pg);
+  if(rec){btxEnd(*gBtx,*cy.tx);btxLog("hunt stats screen",cy.tx);}else{if(gBtx)gBtx->on=false;}
+  static unsigned nLog;if(nLog++<12)PSPNativeMemLog("[HSTAT] drew %s page in %u us (%d species, %d encounters, %d shinies)",hs::kTab[cy.pg],(unsigned)((svcGetSystemTick()-tg)/CPU_TICKS_PER_USEC),D.t.met,D.t.enc,D.t.shinies);}
+ if(txOk&&cy.tx)btxShow(cy.tx);else P3DS_TxOn=0;
+ P3DS_OvN=0;return cy.img;}
+/* HUNT page actions: Up/Down species, X pin/unpin, Y every species on/off, RESET (touch, twice) clears the shown species' counters */
+static void hsStep(int dir,const char*how){int nx;
+ if(hsAll){nx=hsSp+dir;if(nx<1)nx=P3DS_HUNT_SPECIES-1;if(nx>=P3DS_HUNT_SPECIES)nx=1;}else nx=P3DS_HuntNext(hsSp,dir);
+ if(nx&&nx!=hsSp){hsSp=nx;hsArmed=0;cy.key=0;PSPNativeMemLog("[HSTAT] species #%d (%s%s)",hsSp,how,hsAll?", all species":"");}}
+static void hsPinToggle(){if(hsSp<=0)return;const bool un=P3DS_HuntPinned()==hsSp;P3DS_HuntPin(un?0:hsSp);hsArmed=0;cy.key=0;
+ PSPNativeMemLog("[HSTAT] %s species #%d",un?"unpinned":"pinned the hunt to",hsSp);P3DS_Toast(un?"HUNT UNPINNED":"HUNT SET");}
+static void hsAllToggle(){hsAll=!hsAll;hsArmed=0;if(!hsAll&&hsSp>0&&!hsHas(*P3DS_HuntGet(hsSp))&&hsSp!=P3DS_HuntPinned()){const int t=P3DS_HuntTarget();hsSp=t>0&&hsHas(*P3DS_HuntGet(t))?t:P3DS_HuntNext(0,1);}
+ if(hsAll&&hsSp<=0)hsSp=1;cy.key=0;PSPNativeMemLog("[HSTAT] all species %s",hsAll?"on":"off");}
+static void hsResetTap(){const P3DS_HuntRec&r=*P3DS_HuntGet(hsSp);if(hsSp<=0||!(r.enc||r.resets||r.shinies))return;
+ if(hsArmed>cy.frames){P3DS_HuntClear(hsSp);hsArmed=0;cy.key=0;P3DS_Toast("HUNT COUNTER RESET");PSPNativeMemLog("[HSTAT] species #%d counters reset",hsSp);
+  if(!hsAll&&hsSp!=P3DS_HuntPinned()){const int nx=P3DS_HuntNext(hsSp,1);hsSp=nx;}}
+ else{hsArmed=cy.frames+180;cy.key=0;PSPNativeMemLog("[HSTAT] reset armed for species #%d (tap again within 3 s)",hsSp);}}
+static void hsInput(u32 kd,u32 kh){
+ const bool zrEdge=(kh&KEY_ZR)&&!cy.zrPrev;cy.zrPrev=(kh&KEY_ZR)!=0;
+ if((kd&(KEY_B|KEY_A|KEY_START))||zrEdge){cyClose("button");return;}
+ if(hsArmed&&hsArmed<=cy.frames){hsArmed=0;cy.key=0;}
+ int np=cy.pg;if(kd&(KEY_RIGHT|KEY_R|KEY_DRIGHT))np=(cy.pg+1)%cy.n;if(kd&(KEY_LEFT|KEY_L|KEY_DLEFT))np=(cy.pg+cy.n-1)%cy.n;
+ if(kd&(KEY_X|KEY_Y)){if(cy.pg!=hs::H_HUNT){np=hs::H_HUNT;}else if(kd&KEY_X)hsPinToggle();else hsAllToggle();}
+ if(cy.pg==hs::H_HUNT&&(kd&(KEY_UP|KEY_DUP|KEY_DOWN|KEY_DDOWN)))hsStep((kd&(KEY_UP|KEY_DUP))?-1:1,"D-pad");
+ const bool tNow=(kh&KEY_TOUCH)!=0;
+ if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){if(!cy.tPrev){cy.tx0=x;cy.ty0=y;}cy.tx1=x;cy.ty1=y;}}
+ else if(cy.tPrev){const int dx=cy.tx1-cy.tx0,dy=cy.ty1-cy.ty0;
+  if((dx>=36||dx<=-36)&&(dy<40&&dy>-40))np=dx<0?(cy.pg+1)%cy.n:(cy.pg+cy.n-1)%cy.n;
+  else if(cy.pg==hs::H_HUNT&&(dy>=30||dy<=-30)&&dx<30&&dx>-30)hsStep(dy>0?-1:1,"swipe");
+  else if(dx<10&&dx>-10&&dy<10&&dy>-10){const int h=cc::hit(cy.n,cy.tx0,cy.ty0);if(h==-2){cyClose("X tapped");cy.tPrev=false;return;}if(h>=0&&h<cy.n)np=h;
+   else if(cy.pg==hs::H_HUNT){const int bt=hs::btnHit(cy.tx0,cy.ty0);if(bt==0)hsPinToggle();else if(bt==1)hsAllToggle();else if(bt==2)hsResetTap();}}}
+ cy.tPrev=tNow;
+ if(np!=cy.pg){cy.pg=np;cy.key=0;PSPNativeMemLog("[HSTAT] page %d/%d: %s",np+1,cy.n,hs::kTab[np]);}}
 extern "C" int PSPNativeRenderBegin(){if(!initialized||openFrame)return -1;openFrame=true;G3SIM_DrawCleanUp();P3DS_G3BeginFrame();return 0;}
 /* Precompute pixel coverage for the exact box filter. Geometry rarely changes,
  * so division is confined to setup rather than the scanline loops. */
@@ -2690,7 +2702,7 @@ static int PresentFrame(bool){
    if(!P3DS_PgItemReq)itemReqAge=0;
    else if(!P3DS_InField||bmHold||++itemReqAge>=12){P3DS_PgItemReq=0;itemReqAge=0;}
   }
-  const bool panelTouchHeld = (hidKeysHeld() & KEY_TOUCH) != 0;
+  const bool panelTouchHeld = (hidKeysHeld() & KEY_TOUCH) != 0 && !cy.open && !cy.release; /* 2026-11-19: the HUNT STATS overlay owns the touch screen */
   if (!panelTouchHeld) ignorePanelTouch = false;
   else if (bmFlow || P3DS_PanelPartyWant || P3DS_StartReq >= 0 || sRetHold) {
     ignorePanelTouch = true;
@@ -2705,7 +2717,7 @@ static int PresentFrame(bool){
   }
   if(show){
    static int swTgt=-1;static unsigned swT;static bool swPrev; /* run 143: tab tap while an app is open in the panel = close the app and switch (no Cancel first) */
-   {const bool swTouch=(hidKeysHeld()&KEY_TOUCH)!=0;
+   {const bool swTouch=(hidKeysHeld()&KEY_TOUCH)!=0&&!cy.open&&!cy.release;
     const bool fastT=fastTabsCfg();
     if(P3DS_PanelPartyOn&&bmFlow==2){
      if(swTouch&&!swPrev&&swTgt<0){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)&&blHit(x,y)==11&&pxOn()){const int t=pxChipHit(kSuiText,kBlPanX1,kBlPanY0,x);if(t>=0&&t!=pxPane()){swTgt=t;swT=0;ppTapQ=frames;PSPNativeMemLog("[PANEL] tab swap: %s tapped while an app is open, closing it first",kPxTabs[t]);}}}
@@ -3189,7 +3201,7 @@ static int PresentFrame(bool){
     (Pokemon / Bag through its Start-menu hook) and the catch-info Y shortcut need Platinum game hooks and are gone. */
  static int stCfg=-1;if(stCfg<0){stCfg=P3DS_CfgInt("settings_touch",1)!=0;PSPNativeMemLog("[APP] settings_touch=%d",stCfg);}
  bool cornerOpen=false;
- if(stCfg&&P3DS_InField&&menuCfg()&&!P3DS_ConsoleOnBottom()){static u64 cT;static int cZone;static bool cPrev;u32 kh=hidKeysHeld();const bool tNow=(kh&KEY_TOUCH)!=0,tDown=tNow&&!cPrev;cPrev=tNow;
+ if(stCfg&&P3DS_InField&&menuCfg()&&!P3DS_ConsoleOnBottom()&&!cy.open&&!cy.release){static u64 cT;static int cZone;static bool cPrev;u32 kh=hidKeysHeld();const bool tNow=(kh&KEY_TOUCH)!=0,tDown=tNow&&!cPrev;cPrev=tNow;
   if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y,z=0;
    if(touchToDS(tp.px,tp.py,&x,&y)){if(x<16&&y<16)z=1;}else if(tp.px<160&&tp.py<120)z=1; /* 1:1 mode: the black border around the DS screen */
    if(tDown){cZone=z;cT=svcGetSystemTick();}else if(z!=cZone)cZone=0;
@@ -3197,7 +3209,7 @@ static int PresentFrame(bool){
   else cZone=0;}
  bool btnOpen=false;
  {static bool bPrev,bIn;const int side=menuBtnCfg()-1;const u32 kh=hidKeysHeld();const bool tNow=(kh&KEY_TOUCH)!=0;bool in=false;
-  if(side>=0&&!bmShow&&!subBusyV&&P3DS_InField&&!P3DS_MenuOpen&&menuCfg()&&!P3DS_ConsoleOnBottom()){
+  if(side>=0&&!bmShow&&!subBusyV&&P3DS_InField&&!P3DS_MenuOpen&&menuCfg()&&!P3DS_ConsoleOnBottom()&&!cy.open&&!cy.release){
    if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;in=touchToDS(tp.px,tp.py,&x,&y)&&suiBtnHit(side,x,y);if(!bPrev)bIn=in;}
    else if(bPrev&&bIn&&btnPressed){btnOpen=true;PSPNativeMemLog("[BTN] opened by menu button tap");}}
   const bool pr=tNow&&bIn&&in&&side>=0;if(pr!=btnPressed){btnPressed=pr;btnDirty=true;BLINV;}
@@ -3208,10 +3220,11 @@ static int PresentFrame(bool){
   return 0;
  }
  {u32 kd=hidKeysDown(),kh=hidKeysHeld();catchTick();
+  static bool zrHeldPrev=true;const bool zrDown=(kh&KEY_ZR)&&!zrHeldPrev;zrHeldPrev=(kh&KEY_ZR)!=0; /* ZR edge from our own held history: hidKeysDown() can miss ZR (see psp_ctru.c) */
   cyTick(kh);
   if(cy.open)cyInput(kd,kh);
   else if((kd&KEY_Y)&&!cy.release&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&!P3DS_InField&&!P3DS_SumOpen&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))cyOpen();
-  else if((kd&KEY_ZR)&&!(kh&(KEY_L|KEY_R|KEY_X|KEY_Y))&&P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&P3DS_CfgInt("hunt_stats",0)&&P3DS_HuntCounting())runHuntStats(stereo?eyeL:top,mode,mode&&gpuOk==1);
+  else if(zrDown&&!cy.release&&!(kh&(KEY_L|KEY_R|KEY_X|KEY_Y))&&P3DS_InField&&!P3DS_MenuOpen&&!bmShow&&!P3DS_BmBlock&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&!P3DS_ConsoleOnBottom()&&P3DS_CfgInt("hunt_stats",0)&&P3DS_HuntCounting())hsOpen();
   else if(cornerOpen||btnOpen||((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R)&&!(kh&KEY_X)&&menuCfg())){if(!P3DS_ConsoleOnBottom())runApp(stereo?eyeL:top,mode,mode&&gpuOk==1);BLINV;}}
  return 0;
 }

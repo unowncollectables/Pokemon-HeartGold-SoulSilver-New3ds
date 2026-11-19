@@ -18,6 +18,8 @@ void P3DS_HuntSoftReset(void);
 void P3DS_HuntFrame(int paused);       /* every frame: time spent + periodic write */
 void P3DS_HuntFlush(void);
 void P3DS_HuntClear(int sp);
+int P3DS_HuntPinned(void);              /* species pinned as the hunt (ZR HUNT STATS screen), 0 = follow the last species met */
+void P3DS_HuntPin(int sp);             /* 0 unpins */
 double P3DS_HuntChanceBy(int n, int odds); /* chance to have seen at least one shiny in n encounters */
 int P3DS_HuntExportCsv(const char *const *names, int nNames, char *path, int pathN);
 void P3DS_HuntChime(void);
