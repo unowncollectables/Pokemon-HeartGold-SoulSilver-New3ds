@@ -16,7 +16,7 @@ extern "C" void PSPNativeMemLog(const char*,...);
 extern "C" int P3DS_CfgInt(const char*,int);
 extern "C" unsigned PSPNativeVramPageGen[];
 extern "C" { extern volatile int P3DS_MmMap,P3DS_MmX,P3DS_MmZ,P3DS_MmCx,P3DS_MmCy,P3DS_MmType,P3DS_MmMain,P3DS_MmSec;extern volatile unsigned P3DS_MmTick;extern char P3DS_MmName[24]; }
-extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn,P3DS_BmBlock; /* run 142: BmBlock = the game's own Start menu is alive in the field and not ours to use: no touch, no A/B/D-pad reach it */ extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; extern volatile int P3DS_PanelDest[4], P3DS_PanelSrcHeight, P3DS_PanelGearTooltip; }
+extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn,P3DS_BmBlock,P3DS_CatchMask; /* CatchMask: the battle Y screen (or the moment after it closes) owns the buttons and touch screen, the game gets none */ /* run 142: BmBlock = the game's own Start menu is alive in the field and not ours to use: no touch, no A/B/D-pad reach it */ extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; extern volatile int P3DS_PanelDest[4], P3DS_PanelSrcHeight, P3DS_PanelGearTooltip; }
 static unsigned P3DS_Perf3Worst;extern "C" int P3DS_CurMap;extern "C" void P3DS_ZoneInfo(int*,int*,int*,unsigned*),P3DS_RomSpikeFiles(char*,unsigned),P3DS_RomSpikeReset(void);extern "C" const char*P3DS_AreaName(int);
 
 /* run 76 hunt_counter / shiny_suite (ported from Platinum run 88): wild encounters per species in sdmc:/3ds/soulsilver3ds/hunt.txt
@@ -1664,6 +1664,7 @@ static int hintMult(int a,int d){/* x2 units: 0 immune, 1 half, 2 normal, 4 doub
    2 bottom-left, 3 bottom-right), so the tag is drawn on the white name plate above the move name (checked against an Azahar screenshot of the FIGHT menu:
    buttons x 4..124 / 132..252, plates start at y 26 and 98 in DS pixels). Neutral and status moves show nothing. kHintX/kHintY are the button tops; the first time a
    FIGHT menu opens the log prints a colour profile of the bottom image so the offsets can be checked from a log. */
+static bool hintSharpBegin(u32*img);static bool hintSharpDraw(u32*img,int x0,int y0,int mult);static void hintSharpEnd(bool began);
 static void drawTypeHint(u32*img){
  if(!P3DS_InBattle||!P3DS_MoveHint[0]||!P3DS_CfgInt("type_hint",0))return;
  static const int kHintX[2]={4,132},kHintY[2]={79,144},kHintW=120;/* badge tops: in the gap under each button row (measured on the FIGHT menu: gaps y 77..88 and 143..152) */
@@ -1682,13 +1683,15 @@ static void drawTypeHint(u32*img){
   for(int c=0;c<2;c++){char ln[300];int o=snprintf(ln,sizeof ln,"[HINT] bottom column x=%d colour runs (y:rgb):",c?192:64);u32 prev=0xFFFFFFFFu;
    for(int y=0;y<192&&o<(int)sizeof ln-20;y++){u32 v=img[y*256+(c?192:64)]&0xF8F8F8u;if(v!=prev){o+=snprintf(ln+o,sizeof ln-o," %d:%06x",y,(unsigned)v);prev=v;}}
    PSPNativeMemLog("%s",ln);}}
- for(int k=0;k<4;k++){if(!txt[k])continue;const int x0=kHintX[k&1],y0=kHintY[k>>1];const int w=(int)strlen(txt[k])*4-1;
+ const bool sharp=hintSharpBegin(img);
+ for(int k=0;k<4;k++){if(!txt[k])continue;const int x0=kHintX[k&1],y0=kHintY[k>>1];if(sharp&&hintSharpDraw(img,x0,y0,bm[k]))continue;const int w=(int)strlen(txt[k])*4-1;
   /* small badge like the game's own NORMAL/WATER type tags: coloured rounded tag, white 3x5 text, darker lower edge,
      in the gap under the move button so it never covers the move name, type tag or PP */
   const int pw=w+6,px=x0+kHintW-4-pw,py=y0,ph=9;const u32 dk=(col[k]>>1)&0x007F7F7Fu;
   for(int yy=0;yy<ph;yy++)for(int xx=0;xx<pw;xx++){if((xx==0||xx==pw-1)&&(yy==0||yy>=ph-2))continue;
    const int X=px+xx,Y=py+yy;if(X>=0&&X<256&&Y>=0&&Y<192)img[Y*256+X]=yy>=ph-1?dk:col[k];}
-  drawTiny(img,px+3,py+2,txt[k],0x00FFFFFFu);}}
+  drawTiny(img,px+3,py+2,txt[k],0x00FFFFFFu);}
+ hintSharpEnd(sharp);}
 /* Settings app tabs. Each row = mItems index, short name, tooltip (shown under the list; keep each under ~80 characters).
    Rows may be more than one screen long (the list scrolls). */
 struct SAppRow{int it;const char*nm,*tip;};
@@ -1997,10 +2000,17 @@ static void catchTick(){static int seen;volatile int*ci=P3DS_CatchInfo;
  if(!ci[0]||ci[19]==seen)return;seen=ci[19];
  PSPNativeMemLog("[CATCH] wild #%d Lv%d hp %d/%d nature %d ability %d IVs %d/%d/%d/%d/%d/%d catch rate %d %s%s",ci[1],ci[2],ci[3],ci[4],ci[7],ci[6],ci[9],ci[10],ci[11],ci[12],ci[13],ci[14],ci[15],ci[16]?"(caught before)":"(new)",ci[18]?" SHINY":"");
  if(ci[18]&&P3DS_CfgInt("catch_overlay",0)){P3DS_Toast("SHINY POKEMON!");PSPNativeMemLog("[CATCH] shiny alert");}}
-/* Catch/foe info screen (Y in battle, catch_overlay=1): its own full-screen scouter look, deliberately not the settings app
-   (no tabs, dark panels). Wild battle = one page of catch data. Trainer battle (hook 0031, P3DS_FoeInfo) = page 1 the
-   active foe with moves and PP, page 2 its whole party. Left/Right or a touch flips the page, B/A/Y closes. */
+/* 2026-11-19 battle Y screen, rework (Nathan: "total reworking, ugly, old text", "must not interrupt the battle at all", "Ultra Sun and Moon pretty").
+   It is an OVERLAY now, not a modal loop: the game, the top screen, the music and the battle all keep running. Y (catch_overlay or the hunt
+   counter on, command menu up) swaps the bottom picture for this screen; while it is up the game gets no buttons or touches (P3DS_CatchMask,
+   psp_ctru.c / main3ds.c) and for a few frames after, until every key is released, so the B that closes it cannot also cancel a game menu.
+   Pages (tabs on the screen): wild = INFO, CATCH, [HUNT], [DAMAGE]; trainer = FOE, PARTY, [DAMAGE]. Tap a tab, swipe, Left/Right or L/R to
+   change page; B, A, Y, Start, ZR or the X chip close it. Drawing lives in ss3ds_catchui.h (sharp native text through the same recorder
+   as the settings app); this file only gathers the snapshots and runs the input. Logs: [CATCH] open / page / close with the battle frames passed. */
+#include "ss3ds_catchui.h"
 extern "C" volatile int P3DS_FoeInfo[40];
+extern "C" volatile int P3DS_DmgInfo[32];
+static const char*cStatus(int st){return (st&7)?"SLP":(st&0x20)?"FRZ":(st&0x40)?"PAR":(st&0x10)?"BRN":(st&0x88)?"PSN":"";}
 static void cFill(u32*b,int x0,int y0,int x1,int y1,u32 c){for(int y=y0;y<y1;y++)for(int x=x0;x<x1;x++)suiPx(b,x,y,c);}
 static void cBar(u32*b,int x,int y,int w,int hp,int mx){cFill(b,x-1,y-1,x+w+1,y+7,SUI_RGB(8,12,24));cFill(b,x,y,x+w,y+6,SUI_RGB(52,60,84));
  if(mx<=0||hp<=0)return;int f=hp*w/mx;if(f<1)f=1;const int pc=hp*100/mx;cFill(b,x,y,x+f,y+6,pc>50?SUI_RGB(64,216,96):pc>20?SUI_RGB(240,200,48):SUI_RGB(232,64,56));}
@@ -2012,140 +2022,85 @@ static void batteryTick(){static u64 last;static int inited,warned;const u64 now
  u8 lv=5,ch=0;if(R_FAILED(PTMU_GetBatteryLevel(&lv))||R_FAILED(PTMU_GetBatteryChargeState(&ch)))return;
  if(lv>1||ch){warned=0;return;}
  if(warned++%6==0){P3DS_Toast("BATTERY LOW: SAVE NOW");P3DS_HuntFlush();PSPNativeMemLog("[BATTERY] low battery (level %u), hunt.txt written",(unsigned)lv);}}
-static const char*cStatus(int st){return (st&7)?"SLP":(st&0x20)?"FRZ":(st&0x40)?"PAR":(st&0x10)?"BRN":(st&0x88)?"PSN":"";}
 static void cBack(u32*b,const char*title,const char*right){
  for(int y=0;y<192;y++){const u32 c=suiMix(SUI_RGB(16,24,48),SUI_RGB(8,12,28),y,191);for(int x=0;x<256;x++)b[y*256+x]=c;}
  cFill(b,0,0,256,19,SUI_RGB(200,48,56));cFill(b,0,19,256,21,SUI_RGB(248,208,96));
  gtxt(b,6,1,title,SUI_RGB(255,255,255),SUI_RGB(104,16,24));if(right)gtxt(b,250-gw(right),1,right,SUI_RGB(255,240,200),SUI_RGB(104,16,24));}
 static void cPanel(u32*b,int x0,int y0,int x1,int y1){suiPanel(b,x0,y0,x1,y1,SUI_RGB(40,56,96),SUI_RGB(28,40,72),SUI_RGB(112,136,200),false);}
 static const u32 kCTx=SUI_RGB(244,248,255),kCSh=SUI_RGB(8,12,28),kCDim=SUI_RGB(160,176,216),kCGold=SUI_RGB(248,216,96);
-static int sPgN=2;/* total pages on the foe screen (set by runCatch) */
-static void drawFoePage(u32*b,const int*f,int pg){
- char l[96];const int sp=f[4];
- snprintf(l,sizeof l,"TRAINER'S %s",sp>0&&sp<494?kP3dsSpec[sp]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
- {char pn[8];snprintf(pn,sizeof pn,"%d/%d",pg+1,sPgN);cBack(b,pg?"FOE PARTY":l,pn);}
- if(pg==0){
-  cPanel(b,4,25,252,65);
-  snprintf(l,sizeof l,"Lv%d",f[5]);gtxt(b,10,26,l,kCGold,kCSh);
-  if(f[19])gtxt(b,60,26,"SHINY!",SUI_RGB(255,120,96),kCSh);
-  const char*sn=cStatus(f[8]);if(*sn)gtxt(b,246-gw(sn),26,sn,SUI_RGB(255,160,96),kCSh);
-  cBar(b,10,45,150,f[6],f[7]);snprintf(l,sizeof l,"%d / %d",f[6],f[7]);gtxt(b,166,38,l,kCTx,kCSh);
-  snprintf(l,sizeof l,"Ability: %s%s",f[9]>=0&&f[9]<124?kP3dsAbil[f[9]]:"?",f[10]?"   Holds an item":"");gtxt(b,10,47,l,kCDim,kCSh);
-  for(int k=0;k<4;k++){const int x0=k&1?130:4,y0=68+(k>>1)*50,id=f[11+k];cPanel(b,x0,y0,x0+122,y0+46);
-   if(id>0&&id<468){gtxt(b,x0+6,y0+2,kP3dsMove[id],kCTx,kCSh);snprintf(l,sizeof l,"PP %d",f[15+k]);gtxt(b,x0+6,y0+22,l,f[15+k]?kCGold:SUI_RGB(255,120,96),kCSh);}
-   else gtxt(b,x0+6,y0+2,"-",kCDim,kCSh);}
- }else{
-  for(int i=0;i<6;i++){const int y0=24+i*27,sp2=f[20+3*i],hp=f[21+3*i],mx=f[22+3*i];cPanel(b,4,y0,252,y0+25);
-   if(sp2<=0){gtxt(b,10,y0+3,"-",kCDim,kCSh);continue;}
-   gtxt(b,10,y0+3,sp2<494?kP3dsSpec[sp2]:"?",hp>0?kCTx:kCDim,kCSh);if(i==f[3])gtxt(b,100,y0+3,"<",kCGold,kCSh);
-   cBar(b,130,y0+9,70,hp,mx);if(hp<=0)snprintf(l,sizeof l,"FNT");else snprintf(l,sizeof l,"%d/%d",hp,mx);gtxt(b,206,y0+3,l,hp>0?kCTx:SUI_RGB(255,120,96),kCSh);}
- }
- gtxt(b,128-gw("Left/Right: page   B: close")/2,177,"Left/Right: page   B: close",kCDim,kCSh);
-}
-/* ss3ds 0208 damage check (dmg_check): rough Gen 4 damage range of each of your moves on the foe + who moves first, from P3DS_DmgInfo.
-   Ignores crits, held items, abilities, weather, screens, stat stages and priority; physical/special by type; burn halves physical. */
-extern "C" volatile int P3DS_DmgInfo[32];
-static void drawDmgPage(u32*b,const int*d,int pgNo){
- char l[96];const int fs=d[17];
- snprintf(l,sizeof l,"YOUR MOVES VS %s",fs>0&&fs<494?kP3dsSpec[fs]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
- {char pn[8];snprintf(pn,sizeof pn,"%d/%d",pgNo,sPgN);cBack(b,l,pn);}
- const int ms=(d[6]&0x40)?d[5]/4:d[5],fsp=(d[16]&0x40)?d[12]/4:d[12];/* paralysis quarters speed in Gen 4 */
- cPanel(b,4,24,252,43);
- snprintf(l,sizeof l,"Speed  you %d  foe %d",ms,fsp);gtxt(b,10,28,l,kCTx,kCSh);
- const char*who=ms>fsp?"YOU MOVE FIRST":ms<fsp?"FOE MOVES FIRST":"SPEED TIE";
- gtxt(b,246-gw(who),28,who,ms>fsp?SUI_RGB(96,232,128):ms<fsp?SUI_RGB(255,120,96):kCGold,kCSh);
- for(int k=0;k<4;k++){const int y0=46+k*28,id=d[18+k],ty=d[22+k],pw=d[26+k];cPanel(b,4,y0,252,y0+26);
-  if(id<=0||id>=468){gtxt(b,10,y0+8,"-",kCDim,kCSh);continue;}
-  gtxt(b,10,y0+2,kP3dsMove[id],kCTx,kCSh);
-  if(pw<=0||ty>=18){gtxt(b,130,y0+2,"no damage",kCDim,kCSh);continue;}
-  if(pw==1){gtxt(b,130,y0+2,"varies",kCDim,kCSh);continue;}
-  const bool phys=ty<9;const int A=phys?d[3]/((d[6]&0x10)?2:1):d[4];int D=phys?d[10]:d[11];
-  const int t1=d[14],t2=d[15];int m=hintMult(ty,t1)*(t2<18&&t2!=t1?hintMult(ty,t2):2);/* x4 units */
-  if(m==0){gtxt(b,130,y0+2,"NO EFFECT",SUI_RGB(160,160,160),kCSh);continue;}
-  if(D<1)D=1;int base=((2*d[2]/5+2)*pw*A/D)/50+2;
-  const bool stab=ty==d[7]||ty==d[8];if(stab)base=base*3/2;
-  const int hi=base*m/4,lo=hi*85/100;const int hp=d[13];
-  snprintf(l,sizeof l,"%d-%d",lo,hi);gtxt(b,130,y0+2,l,kCTx,kCSh);
-  const int pl=hp>0?lo*100/hp:0,ph=hp>0?hi*100/hp:0;
-  snprintf(l,sizeof l,"%d-%d%% of its HP",pl>999?999:pl,ph>999?999:ph);gtxt(b,10,y0+14,l,kCDim,kCSh);
-  const char*e=lo>=hp?"KO!":hi>=hp?"may KO":m>4?(m>8?"x4":"x2"):m<4?(m<2?"x1/4":"x1/2"):"";
-  if(*e)gtxt(b,246-gw(e),y0+14,e,lo>=hp||hi>=hp?SUI_RGB(255,120,96):m>4?SUI_RGB(96,232,128):kCGold,kCSh);}
- gtxt(b,128-gw("Rough: no crits, items, abilities, priority")/2,161,"Rough: no crits, items, abilities, priority",kCDim,kCSh);
- gtxt(b,128-gw("Left/Right: page   B: close")/2,177,"Left/Right: page   B: close",kCDim,kCSh);
-}
-/* shiny_suite: wild foe page 2 (Left/Right/tap): this species' hunt counters from hunt.txt and the odds */
-static void drawHuntPage(u32*b,int sp){
- char l[96];const P3DS_HuntRec&r=*P3DS_HuntGet(sp);const int odds=P3DS_HuntRateOdds();
- snprintf(l,sizeof l,"HUNT: %s",sp>0&&sp<494?kP3dsSpec[sp]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
- {char pn[8];snprintf(pn,sizeof pn,"2/%d",sPgN);cBack(b,l,pn);}cPanel(b,4,24,252,172);
- int y=27;const int dy=17;
- snprintf(l,sizeof l,"Encounters %d   Since last shiny %d",r.enc,r.streak);gtxt(b,10,y,l,kCTx,kCSh);y+=dy;
- snprintf(l,sizeof l,"Soft resets %d   Shinies found %d",r.resets,r.shinies);gtxt(b,10,y,l,kCTx,kCSh);y+=dy;
- if(r.start)snprintf(l,sizeof l,"Time %dh %02dm   Started %04d-%02d-%02d",r.secs/3600,r.secs/60%60,r.start/10000,r.start/100%100,r.start%100);else snprintf(l,sizeof l,"Time %dh %02dm",r.secs/3600,r.secs/60%60);
- gtxt(b,10,y,l,kCTx,kCSh);y+=dy+4;
- snprintf(l,sizeof l,"Odds 1 in %d per wild encounter",odds);gtxt(b,10,y,l,kCGold,kCSh);y+=dy;
- snprintf(l,sizeof l,"Chance of a shiny by now: %.1f%%",100.0*P3DS_HuntChanceBy(r.streak,odds));gtxt(b,10,y,l,kCTx,kCSh);y+=dy;
- if(r.shinies)snprintf(l,sizeof l,"Last shiny came after %d encounters",r.lastShinyAt);else snprintf(l,sizeof l,"50%% by %d, 90%% by %d",P3DS_HuntEncFor(0.5,odds),P3DS_HuntEncFor(0.9,odds));
- gtxt(b,10,y,l,kCDim,kCSh);y+=dy;
- if(P3DS_Cheat(2))gtxt(b,10,y,"Shiny wild cheat is on.",SUI_RGB(255,120,96),kCSh);
- gtxt(b,128-gw("Left/Right: page   B: close")/2,177,"Left/Right: page   B: close",kCDim,kCSh);
-}
-static void runCatch(const u32*top,int mode,bool gpu){
- const size_t PX=256*192;u32*img=(u32*)malloc(PX*4*2);if(!img)return;u32*bimg=img+PX;memcpy(img,top,PX*4);
+static int hintMultCb(int a,int d){return hintMult(a,d);}
+struct CyState{bool open,release,trainer,tPrev,zrPrev;int pg,n,kinds[4];u32 key;u64 t0;unsigned frames;u32*img;SBtxList*tx;int tx0,ty0,tx1,ty1;};
+static CyState cy;
+struct CyData{cc::Wild w;cc::Foe fo;cc::Dmg dm;cc::Hunt hu;char wn[24],wab[24],fn[24],fab[24],dn[24],hn[24];bool huntPg,dmgPg;};
+static void cyGather(CyData&D,bool*trainer,int*kinds,int*n){
  static const char*const nat[25]={"Hardy","Lonely","Brave","Adamant","Naughty","Bold","Docile","Relaxed","Impish","Lax","Timid","Hasty","Serious","Jolly","Naive","Modest","Mild","Quiet","Bashful","Rash","Calm","Gentle","Sassy","Careful","Quirky"};
- const volatile int*ci=P3DS_CatchInfo;int c[20];for(int i=0;i<20;i++)c[i]=ci[i];int fo[40];for(int i=0;i<40;i++)fo[i]=P3DS_FoeInfo[i];
- const bool trainer=!c[0]&&fo[0];const bool huntPg=!trainer&&P3DS_HuntOn()&&c[1]>0;int pg=0;
- int dm[32];for(int i=0;i<32;i++)dm[i]=P3DS_DmgInfo[i];const bool dmgPg=P3DS_CfgInt("dmg_check",0)&&dm[0];
- const int npg=trainer?2+(dmgPg?1:0):1+(huntPg?1:0)+(dmgPg?1:0);sPgN=npg;/* last page = damage check when on */
- const auto isDmg=[&](int p){return dmgPg&&p==npg-1;};
- PSPNativeMemLog("[CATCH] screen opened (%s #%d)",trainer?"trainer foe":"wild",trainer?fo[4]:c[1]);P3DS_MenuOpen=1;u64 t0=svcGetSystemTick();
- if(dmgPg)PSPNativeMemLog("[DMG] me Lv%d atk %d spa %d spe %d st %d types %d/%d | foe #%d Lv%d def %d spd %d spe %d hp %d/%d st %d types %d/%d | moves %d/%d/%d/%d types %d/%d/%d/%d power %d/%d/%d/%d",dm[2],dm[3],dm[4],dm[5],dm[6],dm[7],dm[8],dm[17],dm[9],dm[10],dm[11],dm[12],dm[13],dm[30],dm[16],dm[14],dm[15],dm[18],dm[19],dm[20],dm[21],dm[22],dm[23],dm[24],dm[25],dm[26],dm[27],dm[28],dm[29]);
- if(trainer)PSPNativeMemLog("[CATCH] foe Lv%d hp %d/%d status %d ability %d moves %d/%d/%d/%d pp %d/%d/%d/%d party %d",fo[5],fo[6],fo[7],fo[8],fo[9],fo[11],fo[12],fo[13],fo[14],fo[15],fo[16],fo[17],fo[18],fo[2]);
- const int st=c[5];const char*stn=(st&7)?"Asleep":(st&0x20)?"Frozen":(st&0x40)?"Paralyzed":(st&0x10)?"Burned":(st&0x88)?"Poisoned":"OK";
- const double sm=(st&0x27)?2.0:(st&0xD8)?1.5:1.0;
- auto odds=[&](int ball)->int{if(c[4]<=0)return 0;double a=(double)(c[15]*ball/10)*(3.0*c[4]-2.0*c[3])/(3.0*c[4]);a=(double)(int)a*sm;if(a>=255)return 100;if(a<1)a=1;
-  double b=1048560.0/sqrt(sqrt(16711680.0/a));double p=b/65536.0;p=p*p*p*p;if(p>1)p=1;return (int)(p*100+0.5);};
- int tot=0;for(int k=0;k<6;k++)tot+=c[9+k];
- auto draw=[&](){char l[96];
-  if(isDmg(pg)){drawDmgPage(bimg,dm,pg+1);return;}
-  if(trainer){drawFoePage(bimg,fo,pg);return;}
-  if(huntPg&&pg==1){drawHuntPage(bimg,c[1]);return;}
-  const int sp=c[1],ab=c[6];int y=24;const int dy=14; /* run 148: 14 (was 15) so the legend and footer fit above the screen bottom */
-  snprintf(l,sizeof l,"WILD %s",sp>0&&sp<494?kP3dsSpec[sp]:"?");for(char*q=l;*q;q++)if(*q>='a'&&*q<='z')*q-=32;
-  cBack(bimg,l,c[16]?"CAUGHT BEFORE":"NEW");cPanel(bimg,4,24,252,172);y=26;
-  snprintf(l,sizeof l,"Lv%d   %s",c[2],nat[c[7]%25]);gtxt(bimg,10,y,l,kCGold,kCSh);if(c[18])gtxt(bimg,246-gw("SHINY!"),y,"SHINY!",SUI_RGB(255,120,96),kCSh);y+=dy;
-  cBar(bimg,10,y+4,120,c[3],c[4]);snprintf(l,sizeof l,"%d%%  %s  Pk: %s",c[4]?c[3]*100/c[4]:0,stn,c[8]?((c[8]&15)?"Yes":"Cured"):"No");gtxt(bimg,136,y-1,l,kCTx,kCSh);y+=dy;
-  snprintf(l,sizeof l,"Ability: %s",ab>=0&&ab<124?kP3dsAbil[ab]:"?");gtxt(bimg,10,y,l,kCTx,kCSh);y+=dy;
-  snprintf(l,sizeof l,"IVs %d/%d/%d/%d/%d/%d",c[9],c[10],c[11],c[12],c[13],c[14]);gtxt(bimg,10,y,l,kCTx,kCSh);y+=dy;
-  snprintf(l,sizeof l,"IV total %d: %s",tot,tot>=151?"Outstanding":tot>=121?"Relatively superior":tot>=91?"Above average":"Decent");gtxt(bimg,10,y,l,kCDim,kCSh);y+=dy;
-  snprintf(l,sizeof l,"Catch rate %d.  Odds per throw:",c[15]);gtxt(bimg,10,y,l,kCGold,kCSh);y+=dy;
-  snprintf(l,sizeof l,"Pok\xe9 %d%%  Great %d%%  Ultra %d%%",odds(10),odds(15),odds(20));gtxt(bimg,10,y,l,kCTx,kCSh);y+=dy;
-  const int tm=c[17]+10>40?40:c[17]+10;
-  snprintf(l,sizeof l,"Quick %d%%  Timer %d%%  Nest %d%%",odds(c[17]<1?40:10),odds(tm),odds(c[2]<30?40-c[2]:10));gtxt(bimg,10,y,l,kCTx,kCSh);y+=dy;
-  snprintf(l,sizeof l,"Dusk %d%%  Net %d%%",odds(35),odds(30));gtxt(bimg,10,y,l,kCTx,kCSh);
-  if(P3DS_CfgInt("hunt_counter",0)){snprintf(l,sizeof l,"Met %d times",P3DS_HuntCount(sp));gtxt(bimg,246-gw(l),y,l,kCDim,kCSh);}
-  gtxt(bimg,128-gw("Quick=turn 1  Dusk=night/cave  Net=Water/Bug")/2,155,"Quick=turn 1  Dusk=night/cave  Net=Water/Bug",kCDim,kCSh);
-  if(npg>1)gtxt(bimg,128-gw("Left/Right: more pages   B: close")/2,177,"Left/Right: more pages   B: close",kCDim,kCSh);else gtxt(bimg,128-gw("B: close")/2,177,"B: close",kCDim,kCSh);};
- draw();
- u32 held=hidKeysHeld();bool tPrev=true;bool zrPrev=true;/* ZR from our own held history: hidKeysDown() can miss ZR (see psp_ctru.c) */
- while(aptMainLoop()){hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
-  const bool zrEdge=(kh&KEY_ZR)&&!zrPrev;zrPrev=(kh&KEY_ZR)!=0;if(zrEdge)kd|=KEY_B;
-  const bool tNow=(kh&KEY_TOUCH)!=0;const bool tap=tNow&&!tPrev;tPrev=tNow;
-  if(kd&(KEY_B|KEY_A|KEY_Y|KEY_START))break;
-  if(npg>1){int np=pg;if(kd&(KEY_RIGHT|KEY_R|KEY_DRIGHT))np=(pg+1)%npg;if(kd&(KEY_LEFT|KEY_L|KEY_DLEFT))np=(pg+npg-1)%npg;if(tap)np=(pg+1)%npg;
-   if(np!=pg){pg=np;draw();PSPNativeMemLog("[CATCH] %s page %d/%d",isDmg(pg)?"damage":trainer?"foe":"hunt",pg+1,npg);}}
-  else if(tap)break;
-  {extern int P3DS_GpuBotSame;P3DS_GpuBotSame=0;}
-  if(mode&&gpu)P3DS_GpuPresent(img,bimg,mode,true,nullptr);
-  else{P3DS_PresentDeferSettle();present(GFX_TOP,400,img,0);present(GFX_BOTTOM,320,bimg,0);gfxFlushBuffers();gfxSwapBuffers();}
-  gspWaitForVBlank();
-  if(menuAudioCfg()){static u64 mt;u64 nw=svcGetSystemTick();unsigned us=mt&&nw>mt?(unsigned)((nw-mt)/CPU_TICKS_PER_USEC):16667;mt=nw;if(us>66666)us=16667;PSPNativeSoundAdvance(us);}}
- for(int i=0;i<120&&aptMainLoop();i++){hidScanInput();if(!(hidKeysHeld()&(KEY_A|KEY_B|KEY_X|KEY_START|KEY_Y|KEY_L|KEY_R|KEY_TOUCH)))break;gspWaitForVBlank();}
- free(img);P3DS_GpuInvalidateBot();P3DS_MenuOpen=0;
- PSPNativeMemLog("[CATCH] screen closed after %u ms",(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_MSEC));
- tPrevEnd=svcGetSystemTick();secStart=0;secFrames=secG3=secComp=secGpu=secGame=secTris=0;secG3G=0;
-}
-/* hunt_stats (2026-11-03, Battle tab, default OFF): read-only pages from the hunt counters (hunt.txt), opened with ZR in the
+ for(int i=0;i<20;i++)D.w.c[i]=P3DS_CatchInfo[i];for(int i=0;i<40;i++)D.fo.f[i]=P3DS_FoeInfo[i];for(int i=0;i<32;i++)D.dm.d[i]=P3DS_DmgInfo[i];
+ const int*c=D.w.c;const int*f=D.fo.f;const int*d=D.dm.d;const bool tr=!c[0]&&f[0];*trainer=tr;
+ D.huntPg=!tr&&P3DS_HuntOn()&&c[1]>0;D.dmgPg=P3DS_CfgInt("dmg_check",0)&&d[0];
+ snprintf(D.wn,sizeof D.wn,"%s",c[1]>0&&c[1]<494?kP3dsSpec[c[1]]:"?");D.w.name=D.wn;D.w.ability=c[6]>=0&&c[6]<124?kP3dsAbil[c[6]]:"?";D.w.nature=nat[c[7]%25];
+ D.w.metOn=P3DS_CfgInt("hunt_counter",0)!=0;D.w.met=D.w.metOn?P3DS_HuntCount(c[1]):0;
+ snprintf(D.fn,sizeof D.fn,"%s",f[4]>0&&f[4]<494?kP3dsSpec[f[4]]:"?");D.fo.name=D.fn;D.fo.ability=f[9]>=0&&f[9]<124?kP3dsAbil[f[9]]:"?";
+ D.fo.moves=kP3dsMove;D.fo.nMoves=468;D.fo.spec=kP3dsSpec;D.fo.nSpec=494;D.fo.moveType=nullptr;
+ snprintf(D.dn,sizeof D.dn,"%s",d[17]>0&&d[17]<494?kP3dsSpec[d[17]]:"?");D.dm.foeName=D.dn;D.dm.moves=kP3dsMove;D.dm.nMoves=468;D.dm.mult=hintMultCb;
+ if(D.huntPg){const P3DS_HuntRec&r=*P3DS_HuntGet(c[1]);const int odds=P3DS_HuntRateOdds();snprintf(D.hn,sizeof D.hn,"%s",D.wn);
+  D.hu={D.hn,r.enc,r.streak,r.resets,r.shinies,r.secs,r.start,r.lastShinyAt,odds,P3DS_HuntEncFor(0.5,odds),P3DS_HuntEncFor(0.9,odds),P3DS_HuntChanceBy(r.streak,odds),P3DS_Cheat(2)!=0};}
+ int k=0;if(tr){kinds[k++]=cc::P_FOE;kinds[k++]=cc::P_PARTY;}else{kinds[k++]=cc::P_INFO;kinds[k++]=cc::P_CATCH;if(D.huntPg)kinds[k++]=cc::P_HUNT;}
+ if(D.dmgPg)kinds[k++]=cc::P_DMG;*n=k;}
+static u32 cyHash(const CyData&D,int pg){u32 h=2166136261u^(u32)pg;auto mx=[&](const int*a,int n){for(int i=0;i<n;i++){h^=(u32)a[i];h*=16777619u;}};mx(D.w.c,20);mx(D.fo.f,40);mx(D.dm.d,32);
+ h^=D.huntPg?(u32)(D.hu.enc*31+D.hu.streak):0;h*=16777619u;return h;}
+static void cyClose(const char*why){if(!cy.open)return;cy.open=false;cy.release=true;P3DS_CatchMask=1;free(cy.img);cy.img=nullptr;P3DS_GpuInvalidateBot();P3DS_TxOn=0;txShownL=nullptr;
+ PSPNativeMemLog("[CATCH] screen closed (%s) after %u ms, %u battle frames ran underneath, keys held back until released",why,(unsigned)((svcGetSystemTick()-cy.t0)/CPU_TICKS_PER_MSEC),cy.frames);}
+static void cyOpen(){if(cy.open)return;static CyData D;bool tr;cyGather(D,&tr,cy.kinds,&cy.n);cy.img=(u32*)malloc(256*192*4);if(!cy.img){PSPNativeMemLog("[CATCH] no memory for the screen (%u bytes)",256u*192u*4u);return;}
+ cy.open=true;cy.release=false;cy.trainer=tr;cy.pg=0;cy.key=0;cy.frames=0;cy.t0=svcGetSystemTick();cy.tPrev=hidKeysHeld()&KEY_TOUCH;cy.zrPrev=true;P3DS_CatchMask=1;
+ const int*c=D.w.c;const int*f=D.fo.f;
+ PSPNativeMemLog("[CATCH] screen opened as an overlay, the battle keeps running (%s #%d, %d pages)",tr?"trainer foe":"wild",tr?f[4]:c[1],cy.n);
+ if(tr)PSPNativeMemLog("[CATCH] foe Lv%d hp %d/%d status %d ability %d moves %d/%d/%d/%d pp %d/%d/%d/%d party %d",f[5],f[6],f[7],f[8],f[9],f[11],f[12],f[13],f[14],f[15],f[16],f[17],f[18],f[2]);
+ if(D.dmgPg){const int*d=D.dm.d;PSPNativeMemLog("[DMG] me Lv%d atk %d spa %d spe %d st %d types %d/%d | foe #%d Lv%d def %d spd %d spe %d hp %d/%d st %d types %d/%d | moves %d/%d/%d/%d types %d/%d/%d/%d power %d/%d/%d/%d",d[2],d[3],d[4],d[5],d[6],d[7],d[8],d[17],d[9],d[10],d[11],d[12],d[13],d[30],d[16],d[14],d[15],d[18],d[19],d[20],d[21],d[22],d[23],d[24],d[25],d[26],d[27],d[28],d[29]);}}
+/* every present while it is up: returns the picture to show on the bottom screen (nullptr = the game's own). txOk = the sharp text layer can be used */
+static const u32*cyFrame(bool txOk){
+ if(!cy.open)return nullptr;
+ if(P3DS_InField||!(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])){cyClose("battle moved on");return nullptr;}
+ static CyData D;bool tr;int kinds[4],n;cyGather(D,&tr,kinds,&n);if(tr!=cy.trainer||n!=cy.n){cy.trainer=tr;cy.n=n;if(cy.pg>=n)cy.pg=0;}memcpy(cy.kinds,kinds,sizeof kinds);
+ if(cy.pg>=cy.n)cy.pg=0;cy.frames++;
+ const u32 key=cyHash(D,cy.pg)^(txOk?0x9E3779B9u:0);
+ if(key!=cy.key||!cy.tx){cy.key=key;if(!cy.tx)cy.tx=(SBtxList*)calloc(1,sizeof(SBtxList));
+  const bool rec=txOk&&cy.tx;if(rec)btxBegin(*gBtx,cy.img);const SUiText&T=rec?kSuiText:SUiText{suiDraw,gw,suiDrawS,gwS};const int k=cy.kinds[cy.pg];
+  switch(k){case cc::P_INFO:cc::wildInfo(cy.img,T,D.w,cy.n,cy.kinds,cy.pg);break;case cc::P_CATCH:cc::wildCatch(cy.img,T,D.w,cy.n,cy.kinds,cy.pg);break;
+   case cc::P_HUNT:cc::huntPage(cy.img,T,D.hu,cy.n,cy.kinds,cy.pg);break;case cc::P_DMG:cc::dmgPage(cy.img,T,D.dm,cy.n,cy.kinds,cy.pg);break;
+   case cc::P_FOE:cc::foePage(cy.img,T,D.fo,cy.n,cy.kinds,cy.pg);break;default:cc::partyPage(cy.img,T,D.fo,cy.n,cy.kinds,cy.pg);}
+  if(rec){btxEnd(*gBtx,*cy.tx);btxLog("battle Y screen",cy.tx);}else{if(gBtx)gBtx->on=false;}}
+ if(txOk&&cy.tx)btxShow(cy.tx);else P3DS_TxOn=0;
+ P3DS_OvN=0;return cy.img;}
+/* input, once per present while it is up (hid state, the game is masked from these keys by P3DS_CatchMask) */
+static void cyInput(u32 kd,u32 kh){
+ if(!cy.open)return;
+ const bool zrEdge=(kh&KEY_ZR)&&!cy.zrPrev;cy.zrPrev=(kh&KEY_ZR)!=0;
+ if((kd&(KEY_B|KEY_A|KEY_Y|KEY_START))||zrEdge){cyClose("button");return;}
+ int np=cy.pg;if(cy.n>1){if(kd&(KEY_RIGHT|KEY_R|KEY_DRIGHT))np=(cy.pg+1)%cy.n;if(kd&(KEY_LEFT|KEY_L|KEY_DLEFT))np=(cy.pg+cy.n-1)%cy.n;}
+ const bool tNow=(kh&KEY_TOUCH)!=0;
+ if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){if(!cy.tPrev){cy.tx0=x;cy.ty0=y;}cy.tx1=x;cy.ty1=y;}}
+ else if(cy.tPrev){const int dx=cy.tx1-cy.tx0,dy=cy.ty1-cy.ty0;
+  if(cy.n>1&&(dx>=36||dx<=-36)&&(dy<40&&dy>-40))np=dx<0?(cy.pg+1)%cy.n:(cy.pg+cy.n-1)%cy.n;
+  else if(dx<10&&dx>-10&&dy<10&&dy>-10){const int h=cc::hit(cy.n,cy.tx0,cy.ty0);if(h==-2){cyClose("X tapped");cy.tPrev=false;return;}if(h>=0&&h<cy.n)np=h;}}
+ cy.tPrev=tNow;
+ if(np!=cy.pg){cy.pg=np;PSPNativeMemLog("[CATCH] page %d/%d: %s",np+1,cy.n,cc::kPageName[cy.kinds[np]]);}}
+/* after it closed: keep the game masked until every key and the stylus are up, so the closing press never reaches the game as a new press */
+static void cyTick(u32 kh){if(cy.release&&!cy.open){const u32 m=KEY_A|KEY_B|KEY_X|KEY_Y|KEY_L|KEY_R|KEY_ZL|KEY_ZR|KEY_START|KEY_DUP|KEY_DDOWN|KEY_DLEFT|KEY_DRIGHT|KEY_TOUCH;if(!(kh&m)){cy.release=false;P3DS_CatchMask=0;}}}
+
+/* 2026-11-19 FIGHT-menu type hint, prettier (Nathan: old, primitive, blocky): a glossy pill with an arrow and sharp native text in the gap under each
+   move button. Same data and chart as before (hintMult); only the drawing changed. Falls back to the old 3x5 badge when the sharp text layer is off. */
+static SBtxList*hintTx;static unsigned hintLogN;
+static bool hintSharpBegin(u32*img){if(!btxMode())return false;if(!hintTx)hintTx=(SBtxList*)calloc(1,sizeof(SBtxList));if(!hintTx)return false;btxBegin(*gBtx,img);return true;}
+static bool hintSharpDraw(u32*img,int x0,int y0,int m){
+ const char*t=m==0?"No effect":m==1?"Resist x1/4":m==2?"Resist x1/2":m==8?"Super x2":"Super x4";
+ const u32 c=m==0?SUI_RGB(110,116,132):m<4?SUI_RGB(208,86,62):m==8?SUI_RGB(48,168,84):SUI_RGB(30,192,70);
+ const int tw=btxDsW(t,false),pw=tw+22,px=x0+120-4-pw,py=y0-2,ph=10;
+ cc::pillBase(img,px,py,px+pw,py+ph,c);
+ if(m==0)cc::cross(img,px+5,py+2,SUI_RGB(255,255,255));else if(m<4)cc::triDn(img,px+5,py+3,SUI_RGB(255,255,255));else cc::triUp(img,px+5,py+3,SUI_RGB(255,255,255));
+ btxText(*gBtx,img,px+16,py-1,t,SUI_RGB(255,255,255),cc::mixc(c,SUI_RGB(0,0,0),150),false);
+ if(hintLogN<3){hintLogN++;PSPNativeMemLog("[HINT] sharp pill \"%s\" at DS %d,%d (%d wide)",t,px,py,pw);}
+ return true;}
+static void hintSharpEnd(bool began){if(!began||!hintTx)return;btxEnd(*gBtx,*hintTx);btxShow(hintTx);}/* hunt_stats (2026-11-03, Battle tab, default OFF): read-only pages from the hunt counters (hunt.txt), opened with ZR in the
    overworld (ZR then no longer sends Y, even with zr_item=1; Y stays the bike/item). 1 overview + best shiny, 2 most met species, 3 timeline (first met, newest first), 4 best streaks (fewest
    encounters before a shiny). Only the existing counters are used: a shiny has no date of its own. */
 static const long kHsNone=-1000000000L;
@@ -3137,6 +3092,9 @@ static int PresentFrame(bool){
  if(titleCleanActive){P3DS_WideStrip[0]=P3DS_WideStrip[1]=nullptr;P3DS_WideFxOn=0;}
  if(titleWideValid){P3DS_WideStrip[0]=P3DS_WideStrip[1]=titleStrips;P3DS_WideFxOn=1;}
  if(P3DS_GcTitleWideValid&&!bGpuVerify){P3DS_WideStrip[0]=P3DS_WideStrip[1]=P3DS_GcTitleStrips;P3DS_WideFxOn=1;}
+ bool cyShow=false;
+ {/* battle Y screen overlay (ss3ds_catchui.h): the bottom picture is ours while it is up; the battle underneath keeps running */
+  const bool txOk=mode&&gpuOk==1&&btxMode();const u32*cyImg=cyFrame(txOk);if(cyImg){bot=cyImg;cyShow=true;{extern int P3DS_BotFade;P3DS_BotFade=0;}{extern volatile int P3DS_PnOn;P3DS_PnOn=0;}}}
  unsigned presentFenceIdleUs=0;
  {/* sharp game text: the screens whose picture this present is the live engine picture (not a held, black, panel or menu picture) */
   static bool gtBmPrev;const u32*liveTop=(power&0x8000)?display[0]:display[1],*liveBot=(power&0x8000)?display[1]:display[0];
@@ -3146,7 +3104,7 @@ static int PresentFrame(bool){
   if(P3DS_GtScreensNow!=gtOkPrev){static unsigned n;if(n++<60)PSPNativeMemLog("[GTEXT] screens: top %s, bottom %s",topOk?"live":top!=liveTop?"held/other picture":"not scaled",
    botOk?"live":P3DS_ConsoleOnBottom()?"console":bot!=liveBot?"panel picture":bmShow||gtBmPrev?"Bottom menu":P3DS_MenuOpen?"menu open":(P3DS_PanelPartyOn||P3DS_PanelPartyWant)?"panel party":"not scaled");}
   gtOkPrev=P3DS_GtScreensNow;}
- if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=P3DS_PanelPartyOn?0:((power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty);btnDirty=false;
+ if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=(P3DS_PanelPartyOn||cyShow)?0:((power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty);btnDirty=false;
   /* fps60: the in-between picture goes out first, top screen only; the present below then waits for the screen to take it, so the two
      land on two V-blanks in a row. Only while this tick's own picture is still on the GPU and is what gets shown. */
   if(f60L){const u32*tp0=stereo?eyeL:top;
@@ -3250,7 +3208,9 @@ static int PresentFrame(bool){
   return 0;
  }
  {u32 kd=hidKeysDown(),kh=hidKeysHeld();catchTick();
-  if((kd&KEY_Y)&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&!P3DS_InField&&!P3DS_SumOpen&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))runCatch(stereo?eyeL:top,mode,mode&&gpuOk==1);
+  cyTick(kh);
+  if(cy.open)cyInput(kd,kh);
+  else if((kd&KEY_Y)&&!cy.release&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&!P3DS_InField&&!P3DS_SumOpen&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))cyOpen();
   else if((kd&KEY_ZR)&&!(kh&(KEY_L|KEY_R|KEY_X|KEY_Y))&&P3DS_InField&&!P3DS_MenuOpen&&!P3DS_ConsoleOnBottom()&&P3DS_CfgInt("hunt_stats",0)&&P3DS_HuntCounting())runHuntStats(stereo?eyeL:top,mode,mode&&gpuOk==1);
   else if(cornerOpen||btnOpen||((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R)&&!(kh&KEY_X)&&menuCfg())){if(!P3DS_ConsoleOnBottom())runApp(stereo?eyeL:top,mode,mode&&gpuOk==1);BLINV;}}
  return 0;

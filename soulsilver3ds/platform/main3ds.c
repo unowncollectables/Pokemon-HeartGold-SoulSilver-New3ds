@@ -429,6 +429,7 @@ int P3DS_TouchRead(int *x, int *y) {
         if (x1 > x0 && y1 > y0 && dx >= x0 && dx < x1 && dy >= y0 && dy < y1) { *x = (dx - x0) * 256 / (x1 - x0); *y = (dy - y0) * P3DS_PanelSrcHeight / (y1 - y0); touchPrev = 1; return 1; }
         touchPrev = 1; return 0; } }
     { extern int P3DS_StripOn; if (P3DS_StripOn && dy >= 176 && dx >= 8 && dx < 208) { touchPrev = 1; return 0; } } /* run 78 bottom strip owns these taps */
+    { extern volatile int P3DS_CatchMask; if (P3DS_CatchMask) { touchPrev = 1; return 0; } } /* 2026-11-19: battle Y screen owns the touch screen */
     { extern volatile int P3DS_BmOn, P3DS_BmBlock; if (P3DS_BmOn || P3DS_BmBlock) { touchPrev = 1; return 0; } } /* ss3ds 0060: bottom-screen Start-menu tiles own the touch screen */
     *x = dx; *y = dy; touchPrev = 1; return 1;
 }
