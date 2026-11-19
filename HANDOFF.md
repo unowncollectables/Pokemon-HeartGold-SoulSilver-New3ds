@@ -10,6 +10,7 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - GTS network debug logging is off by default (build with `-DSS3DS_NET_LOG` to bring it back).
 - HeartGold is the same port built as a second game (see AGENTS.md section 12).
 - Sharp bottom text (2026-11-18, unbuilt): Bottom menu panel and settings text drawn at 320x240 instead of stretched. Settings > Display "Sharp text" (default ON).
+- Sharp game text stage 1 (2026-11-19, patch 0286, unbuilt on hardware; cloud build + Azahar checked): overworld text windows on the top screen drawn at 400x240 (`ss3ds_gametext.c`, `gpuscale.c` topTxDraw). Settings > Display "Sharp game text" (default ON). If text goes missing or looks doubled: turn it OFF and send the log ([GTEXT] lines). Next stages: battle text, game menus (party/bag/summary), bottom-screen game text.
 
 ## Known open items
 
