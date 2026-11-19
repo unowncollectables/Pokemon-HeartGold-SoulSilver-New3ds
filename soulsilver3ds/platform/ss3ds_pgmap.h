@@ -592,13 +592,16 @@ static void pgFindDetail(int loc, int sp, int tm, char *out, int sz) {
 static void pgFindListDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1) {
   const uint32_t paper = SUI_RGB(236, 244, 240), ink = SUI_RGB(8, 40, 56), dim = SUI_RGB(70, 110, 100), edge = SUI_RGB(190, 214, 206), gold = SUI_RGB(246, 214, 96), chip = SUI_RGB(40, 130, 100);
   const int top = Y0 + kPgFindH, bot = Y1 - 14; suiFill(b, X0, top, X1, Y1, paper);
-  int rows[100]; const int n = pgFindRows(p, rows, 100); const int per = (bot - top - 2) / 22 > 0 ? (bot - top - 2) / 22 : 1; const int pages = n ? (n + per - 1) / per : 1;
+  /* 2026-11-19: one line per place, name left and the chances right-aligned (was two lines on a 22 px pitch: the second line's glyphs ran into the
+     separator and the next name, which is what made "Grass H1% ..." unreadable). 15 px pitch = 6 places per page instead of 4. */
+  int rows[100]; const int n = pgFindRows(p, rows, 100); const int pitch = 15; const int per = (bot - top - 2) / pitch > 0 ? (bot - top - 2) / pitch : 1; const int pages = n ? (n + per - 1) / per : 1;
   if (p.findPage >= pages) p.findPage = pages - 1; if (p.findPage < 0) p.findPage = 0;
   if (!n) T.draw(b, X0 + 6, top + 8, "Not found in the wild here", dim, paper);
-  for (int r = 0; r < per; r++) { const int i = p.findPage * per + r; if (i >= n) break; const int y = top + 2 + r * 22, l = rows[i];
-    char nmb[40]; pgFit(T, nmb, sizeof nmb, P3DS_PgName[l][0] ? P3DS_PgName[l] : "?", X1 - X0 - 12); T.draw(b, X0 + 5, y, nmb, ink, paper);
-    char dt[80], fit[80]; pgFindDetail(l, p.find, p.findTm, dt, sizeof dt); pgFit(T, fit, sizeof fit, dt, X1 - X0 - 14); T.draw(b, X0 + 8, y + 10, fit, dim, paper);
-    suiFill(b, X0 + 3, y + 21, X1 - 3, y + 22, edge); }
+  for (int r = 0; r < per; r++) { const int i = p.findPage * per + r; if (i >= n) break; const int y = top + 2 + r * pitch, l = rows[i];
+    char dt[80], fit[80]; pgFindDetail(l, p.find, p.findTm, dt, sizeof dt); const int room = X1 - X0 - 12; pgFit(T, fit, sizeof fit, dt, room * 11 / 20); const int dw = T.width(fit);
+    char nmb[40]; pgFit(T, nmb, sizeof nmb, P3DS_PgName[l][0] ? P3DS_PgName[l] : "?", room - dw - 8); T.draw(b, X0 + 5, y, nmb, ink, paper);
+    T.draw(b, X1 - 6 - dw, y, fit, dim, paper);
+    suiFill(b, X0 + 3, y + pitch - 2, X1 - 3, y + pitch - 1, edge); }
   suiFill(b, X0, bot, X1, Y1, chip);
   for (int k = 0; k < 2; k++) { const bool en = k ? p.findPage + 1 < pages : p.findPage > 0; const int x0 = k ? X1 - 50 : X0 + 2; pgChip(b, x0, bot + 1, x0 + 48, Y1 - 1, en); T.draw(b, x0 + 8, bot + 3, k ? "NEXT >" : "< PREV", en ? SUI_RGB(8, 40, 56) : dim, en ? SUI_RGB(236, 244, 240) : paper); }
   char pg[24]; snprintf(pg, sizeof pg, "%d/%d  (%d places)", p.findPage + 1, pages, n); T.draw(b, (X0 + X1) / 2 - T.width(pg) / 2, bot + 3, pg, gold, chip); }
