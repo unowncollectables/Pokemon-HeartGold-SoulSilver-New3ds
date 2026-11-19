@@ -952,9 +952,12 @@ static int bottomHdCfg(){bottomHdV=1;return 1;} /* run 151 (Nathan): the sharp c
 /* 2026-11-18 sharp_text (Settings > Display "Sharp text", default ON; row 90, the old bottom_hd slot): panel and settings text at 320x240 (ss3ds_sharptext.h) */
 static int sharpTextV=-1;static bool sharpTextCfg(){if(sharpTextV<0){sharpTextV=P3DS_CfgInt("sharp_text",1)!=0;PSPNativeMemLog("[TEXT] sharp_text=%d",sharpTextV);}return sharpTextV!=0;}
 static void sharpTextSet(int v);
-static int sharpGameV=-1;static bool sharpGameCfg(){if(sharpGameV<0){sharpGameV=P3DS_CfgInt("sharp_game_text",1)!=0;PSPNativeMemLog("[GTEXT] sharp_game_text=%d (overworld text windows at 400x240; applies to the next text box)",sharpGameV);}return sharpGameV!=0;}
+static int sharpGameV=-1;static bool sharpGameCfg(){if(sharpGameV<0){sharpGameV=P3DS_CfgInt("sharp_game_text",1)!=0;PSPNativeMemLog("[GTEXT] sharp_game_text=%d (game text windows on both screens at the 3DS resolution)",sharpGameV);}return sharpGameV!=0;}
 extern "C" int P3DS_SharpGameTextCfg(void){return sharpGameCfg()?1:0;}
-extern "C" const unsigned char*P3DS_GtVramABG(void){return GPU::VRAMFlat_ABG;}
+extern "C" const unsigned char*P3DS_GtVram(int eng){return eng?GPU::VRAMFlat_BBG:GPU::VRAMFlat_ABG;}
+/* sharp game text (ss3ds_gametext.c): which screens show the live engine picture (bit 0 top, bit 1 bottom), the wide layout of the top */
+extern "C" {extern volatile unsigned P3DS_GtScreensNow;extern const WcPlan*volatile P3DS_GtWidePlan;extern volatile int P3DS_GtWideEng;void P3DS_GtSync(unsigned);}
+static unsigned gtOkPrev;
 static int wideScreensV=-1;static int wideScreensCfg(){if(wideScreensV<0){wideScreensV=P3DS_CfgInt("wide_menu_screens",0)!=0;PSPNativeMemLog("[WIDE] wide_menu_screens=%d (party, bag, summary)",wideScreensV);}return wideScreensV;}
 /* ss3ds wide_boxes (Settings > Wide > Wide HP boxes, default 0): the Platinum port's battle layout. The game hook (pspoke patch
    0100, battle_hp_bar.c) moves the player's HP box 32 px right and the enemy's 32 px left via P3DS_WideBoxExtra(); the wide
@@ -1402,7 +1405,7 @@ static const MItem mItems[]={
  /* 2026-11-18 (Nathan: tab swaps laggy): fast_tabs, default ON: going from one app tab (PARTY/BAG/PHONE/RADIO) to another picks the
     new app straight from the Start menu the game returns to, instead of closing it and opening it again. Input tab, remove once tested. */
  {"FAST TAB SWAP","fast_tabs",2,{"OFF","ON"}},
- /* 2026-11-18 sharp_game_text (ss3ds_gametext.c, patch 0289): overworld text windows (dialogue, Yes/No, field lists) at 400x240; Display tab, default ON */
+ /* 2026-11-18/19 sharp_game_text (ss3ds_gametext.c, patch 0289): the game's text windows on both screens at the 3DS resolution; Display tab, default ON */
  {"SHARP GAME TEXT","sharp_game_text",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
@@ -1540,7 +1543,7 @@ static int menuGet(int i){
 extern "C" int P3DS_SaveExport(void);
 static void menuSet(int i,int v){
  if(i==kGtsPickerItem){P3DS_CfgWrite("gts_picker",v);return;}
- if(i==kSharpGameItem){sharpGameV=v!=0;P3DS_CfgWrite("sharp_game_text",sharpGameV);PSPNativeMemLog("[GTEXT] sharp_game_text=%d from settings (applies to the next text box)",sharpGameV);return;}
+ if(i==kSharpGameItem){sharpGameV=v!=0;P3DS_CfgWrite("sharp_game_text",sharpGameV);PSPNativeMemLog("[GTEXT] sharp_game_text=%d from settings (applies at once)",sharpGameV);return;}
  if(i==kFastTabsItem){fastTabsV=v!=0;P3DS_CfgWrite("fast_tabs",fastTabsV);PSPNativeMemLog("[PANEL] fast_tabs=%d from settings",fastTabsV);return;}
  if(i==kG3ThrItem){P3DS_SetG3Thread(v);P3DS_CfgWrite("g3_thread",v);return;}
  if(i==kFps60Item){P3DS_SetFps60(v);P3DS_CfgWrite("fps60",v);return;}
@@ -1705,7 +1708,7 @@ static const SAppTab kTabs[kTotalTabs]={
      {kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
      {0,"FPS counter","Shows the frame rate on screen."},
      {kBottomHdItem,"Sharp text","Bottom-screen menus and these settings draw their text at the 3DS's own resolution: crisp letters at true DS size. OFF = the old bigger, stretched text."},
-     {kSharpGameItem,"Sharp game text","Dialogue boxes, Yes/No and menu lists in the overworld draw their text at the 3DS's own resolution (crisp, true DS size). Applies to the next text box. OFF = the old stretched text."}}},
+     {kSharpGameItem,"Sharp game text","The game's text on both screens (dialogue, menus, battle, bag, party, summary) is drawn at the 3DS's own resolution (crisp, true DS size). OFF = the old stretched text."}}},
  {4,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up. FOE DEEPER: the foe and its platform sit further back, yours nearer."},
      {117,"Sharp 3D","3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps."},
@@ -2323,6 +2326,7 @@ static int sFieldHoldOk;
 static int Present(bool){
  if(!openFrame)return -1;
  allocBufs();
+ P3DS_GtSync(gtOkPrev);P3DS_GtWidePlan=nullptr; /* sharp game text: text whose screen could not show it last present goes back into VRAM before this compose */
  P3DS_RomCachePumpC(); /* run 51 zone_prefetch: adopt staged blocks on the game thread */
  if(earlyCfg<0){earlyCfg=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"early_b=%d",&x)==1)earlyCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] early_b=%d",earlyCfg);}
  P3DS_TitleWideRequested=P3DS_InTitle&&titleCleanCfg()==2;P3DS_GcTitleWideValid=0;
@@ -2563,7 +2567,7 @@ static int Present(bool){
    {if(P3DS_WideShow[eng]!=0x1F){static u8 rc[0x100] __attribute__((aligned(4)));memcpy(rc,R,sizeof rc);*(u32*)rc&=~((u32)(~P3DS_WideShow[eng]&0x1F)<<8);R=rc;}}
    WcSrc ws=eng?WcSrc{GPU::VRAMFlat_BBG,GPU::VRAMFlat_BOBJ,GPU::VRAMFlat_BBGExtPal,GPU::VRAMFlat_BOBJExtPal,(const u16*)(GPU::Palette+1024),(const u16*)(GPU::Palette+1536),(const u16*)(GPU::OAM+1024),nullptr}
                 :WcSrc{GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,GPU::VRAMFlat_ABGExtPal,GPU::VRAMFlat_AOBJExtPal,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,GPU3D::NativeFrame};
-   const u64 t0=svcGetSystemTick();WC_Plan(&wlPlan,R,wlParts,np);if(wlPlan.changed){wlPlan.changed=0;static unsigned nl;if(nl++<120)PSPNativeMemLog("[WIDE] wide_layouts plan: %s engine %c DISPCNT %08X BGCNT %04X %04X %04X %04X hofs %d %d %d %d vofs %d %d %d %d",P3DS_WideScreenName,eng?'B':'A',*(const u32*)R,*(const u16*)(R+8),*(const u16*)(R+10),*(const u16*)(R+12),*(const u16*)(R+14),*(const u16*)(R+0x10)&511,*(const u16*)(R+0x14)&511,*(const u16*)(R+0x18)&511,*(const u16*)(R+0x1C)&511,*(const u16*)(R+0x12)&511,*(const u16*)(R+0x16)&511,*(const u16*)(R+0x1A)&511,*(const u16*)(R+0x1E)&511);}const int r=WC_Compose(&wlPlan,R,&ws,(u32*)display[eng],P3DS_WideFillBuf);
+   const u64 t0=svcGetSystemTick();WC_Plan(&wlPlan,R,wlParts,np);if(wlPlan.changed){wlPlan.changed=0;static unsigned nl;if(nl++<120)PSPNativeMemLog("[WIDE] wide_layouts plan: %s engine %c DISPCNT %08X BGCNT %04X %04X %04X %04X hofs %d %d %d %d vofs %d %d %d %d",P3DS_WideScreenName,eng?'B':'A',*(const u32*)R,*(const u16*)(R+8),*(const u16*)(R+10),*(const u16*)(R+12),*(const u16*)(R+14),*(const u16*)(R+0x10)&511,*(const u16*)(R+0x14)&511,*(const u16*)(R+0x18)&511,*(const u16*)(R+0x1C)&511,*(const u16*)(R+0x12)&511,*(const u16*)(R+0x16)&511,*(const u16*)(R+0x1A)&511,*(const u16*)(R+0x1E)&511);}const int r=WC_Compose(&wlPlan,R,&ws,(u32*)display[eng],P3DS_WideFillBuf);if(r){P3DS_GtWidePlan=&wlPlan;P3DS_GtWideEng=eng;}
    static unsigned nF,nDrawn,nNo,us;static int lastWhy=-1;nF++;us+=(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_USEC);
    if(r){wlDone=true;if(r==1)nDrawn++;
     /* the centre reaches the screen as RGB565; give the strips the same 5-bit red and blue so no seam shows at DS x 0 / 255 */
@@ -3129,6 +3133,14 @@ static int Present(bool){
  if(titleWideValid){P3DS_WideStrip[0]=P3DS_WideStrip[1]=titleStrips;P3DS_WideFxOn=1;}
  if(P3DS_GcTitleWideValid&&!bGpuVerify){P3DS_WideStrip[0]=P3DS_WideStrip[1]=P3DS_GcTitleStrips;P3DS_WideFxOn=1;}
  unsigned presentFenceIdleUs=0;
+ {/* sharp game text: the screens whose picture this present is the live engine picture (not a held, black, panel or menu picture) */
+  static bool gtBmPrev;const u32*liveTop=(power&0x8000)?display[0]:display[1],*liveBot=(power&0x8000)?display[1]:display[0];
+  const bool topOk=mode&&gpuOk==1&&top==liveTop&&(!stereo||(eyeL!=(const u32*)sFieldHold&&eyeL!=nullptr));
+  const bool botOk=mode&&gpuOk==1&&!P3DS_ConsoleOnBottom()&&bot==liveBot&&!bmShow&&!gtBmPrev&&!P3DS_MenuOpen&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant;
+  gtBmPrev=bmShow;P3DS_GtScreensNow=(topOk?1u:0u)|(botOk?2u:0u);if(!topOk)P3DS_GtWidePlan=nullptr;
+  if(P3DS_GtScreensNow!=gtOkPrev){static unsigned n;if(n++<60)PSPNativeMemLog("[GTEXT] screens: top %s, bottom %s",topOk?"live":top!=liveTop?"held/other picture":"not scaled",
+   botOk?"live":P3DS_ConsoleOnBottom()?"console":bot!=liveBot?"panel picture":bmShow||gtBmPrev?"Bottom menu":P3DS_MenuOpen?"menu open":(P3DS_PanelPartyOn||P3DS_PanelPartyWant)?"panel party":"not scaled");}
+  gtOkPrev=P3DS_GtScreensNow;}
  if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=P3DS_PanelPartyOn?0:((power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty);btnDirty=false;
   /* fps60: the in-between picture goes out first, top screen only; the present below then waits for the screen to take it, so the two
      land on two V-blanks in a row. Only while this tick's own picture is still on the GPU and is what gets shown. */
@@ -3147,7 +3159,7 @@ static int Present(bool){
   else if(G3G_FpsHold()){const u32*tp0=stereo?eyeL:top;void*rl=P3DS_GcPendTex(display[0]);void*rr=stereo?(void*)P3DS_GcPendTex(rawR):nullptr;
    if(tp0!=display[0]||(stereo&&eyeR!=rawR)||P3DS_MenuOpen||!rl||(stereo&&!rr))f60Why=2;
    else f60Shown=P3DS_GpuPresentMid(rl,rr,P3DS_WideStrip[0],stereo?P3DS_WideStrip[1]:nullptr,mode,stereo?1:0);}
-  {const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;presentFenceIdleUs=P3DS_GpFenceIdleUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
+  {const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);P3DS_GtScreensNow=0;pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;presentFenceIdleUs=P3DS_GpFenceIdleUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
  else{P3DS_PresentDeferSettle();topTouch();present(GFX_TOP,400,top,0);if(!P3DS_ConsoleOnBottom())present(GFX_BOTTOM,320,bot,0);gfxFlushBuffers();gfxSwapBuffers();}
  P3DS_GameFramePresented();
  u64 tEnd=svcGetSystemTick();last2DUs=(unsigned)((tEnd-t0)/CPU_TICKS_PER_USEC);frames++;

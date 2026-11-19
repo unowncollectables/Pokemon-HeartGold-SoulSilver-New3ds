@@ -548,6 +548,6 @@ pokewalker=1       (Setup > Pokewalker, default 1) 1 = the original Pokewalker a
 sharp_text=1       (2026-11-18, Display > Sharp text, default 1) Bottom menu panel and settings menu text drawn at the 3DS
   resolution (320x240, game font, 1 font pixel = 1 screen pixel) instead of DS-size text stretched 1.25x. 0 = the old
   bigger, stretched text. Off by itself while the party/bag app is in the panel. Log: [TEXT] sharp ...
-sharp_game_text=1  (2026-11-19, Display > Sharp game text, default 1) Overworld text windows on the top screen (dialogue,
-  Yes/No, field lists) drawn at the 3DS resolution (game glyphs, 1 font pixel = 1 screen pixel; patch 0289). Applies to
-  the next text box. 0 = the old stretched text. Log: [GTEXT].
+sharp_game_text=1  (2026-11-19, Display > Sharp game text, default 1) The game's text windows on both screens (dialogue,
+  menus, battle messages, party, bag, summary...) drawn at the 3DS resolution (game glyphs, 1 font pixel = 1 screen pixel;
+  patch 0289). Applies at once. 0 = the old stretched text. Log: [GTEXT].
