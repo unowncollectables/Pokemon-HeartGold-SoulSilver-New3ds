@@ -1,63 +1,32 @@
 # Project roadmap
 
-This document tracks the general direction of the project and the milestones that matter most for making the port usable and maintainable.
+Current direction, November 2026. Test results and open bugs live in [HANDOFF.md](../HANDOFF.md); player-facing features are in the [README](../README.md).
 
-## Current direction
+## Already reached
 
-The project is focused on making a native New 3DS homebrew port of Pokémon SoulSilver using the upstream decompilation as a base. The near-term priority is to stabilize the build flow and port key systems while keeping the repo legal and clean.
+- Native SoulSilver boot, exploration, battles, menus and cartridge-compatible saves on New 3DS.
+- Stereoscopic 3D, widescreen and a touch-screen Pokégear with map, party, bag and helper tools.
+- The overworld performance pass: about 60 fps in mono and close to it in stereo, with the tested setup built in.
+- Hardware results for local Union Room trades, the original community GTS path, WFC Mystery Gift and Pokéwalker send/return.
+- A separate experimental HeartGold build from the same source.
 
-## Where things stand (2026-10-29)
+## Current work
 
-Boot, overworld, battles, menus, saving, 3D, the Johto touch-screen map with Pokégear tabs, and local wireless trading
-between two consoles work on real hardware at about 30 fps at the time; the later 60 fps push brought mono to about 60 fps and stereo close to it. Still ahead: testing the other Union Room options, the
-roamer/breeding tracker and radio tap, online trading with a real DS, and a late 60 fps attempt. The phases below are
-the long-term shape and are no longer a strict order.
+- Validate the newest interface changes on hardware: sharp game and panel text, battle-info overlay, finder LIST, sub-area tracking, map panning and tab swaps.
+- Expand real-device coverage of visible wild behaviour, Safari Zone encounters, seasonal trees and Ambient Weather. Ambient Weather currently defaults OFF.
+- Check soft-reset teardown, water-battle transitions and other recent stability repairs on real hardware.
+- Exercise the seeded Battle Frontier and Safari editor screens; fill remaining missing-screen paths as they are reached.
 
-## Planned phases
+## Next coverage priorities
 
-### Phase 1: core boot and exploration
+- Two-console Union Room battles and remaining local activities.
+- StarMe live deposit/pickup and GTS hardware re-entry, plus Pokéwalker repeatability.
+- More radio tuning, roamer, breeding, Contest helper, Tap to Fly, achievement and item-shortcut coverage.
+- Battle 3D depth and Poké Ball double-image fixes; remaining wide-screen layouts.
+- A dedicated HeartGold emulator and hardware playtest, including its online paths.
 
-- boot sequence and title screen
-- overworld rendering and basic navigation
-- stereo 3D compatibility checks
-- basic hardware validation on New 3DS
+## Longer term
 
-### Phase 2: gameplay systems
+Broader side-system parity, fewer load and transition hitches, simpler packaging, and release readiness backed by repeatable hardware checks. The Wi-Fi Plaza currently shows a closed message and Wi-Fi Club minigames remain unavailable; they are not completed milestones.
 
-- battle flow
-- menus and interfaces
-- Pokégear flow and system integration
-- save/load flow and stability checks
-
-### Phase 3: world and event systems
-
-- followers
-- day/night cycle
-- weekly events and recurring systems
-- environmental and script consistency improvements
-
-### Phase 4: broad feature parity
-
-- Pokéathlon integration
-- Battle Frontier systems
-- side systems and gameplay loops
-- deeper compatibility testing on real hardware
-
-### Phase 5: polish and packaging
-
-- cleanup and refactoring
-- documentation finalization
-- packaging and distribution guidelines
-- public-facing release readiness
-
-## Design goals
-
-- keep the repo legal and clean
-- maintain a decompilation-based foundation
-- prioritize real hardware testing
-- document unknowns honestly
-- avoid shipping bundled Nintendo-owned content
-
-## Notes
-
-This roadmap is intentionally flexible. Project milestones may shift as work reveals new blockers or as the upstream decompilation changes.
+Keep the source and patch workflow reproducible, preserve raw 512 KiB save compatibility, and require users to supply their own game dump. Plans may change as testing exposes new blockers.

@@ -5,7 +5,7 @@
 <h1 align="center">Pokémon HeartGold &amp; SoulSilver for New 3DS</h1>
 
 <p align="center">
-  Return to Johto in widescreen, with stereoscopic 3D and the Pokégear on the touch screen.
+  Return to Johto in widescreen, with stereoscopic 3D, a near-60-fps overworld, and a touch-screen Pokégear.
 </p>
 
 <p align="center">
@@ -29,11 +29,11 @@
 </p>
 
 <p align="center">
-  <img src="assets/readme/gameplay.gif" alt="Animated tour of the port: Goldenrod and Route 35, the zoomed Johto map, Olivine, Ecruteak, Mahogany, and Blackthorn, then the touch-screen party, bag, and radio panels" width="360">
+  <img src="assets/readme/gameplay.gif" alt="Capture tour of current main: Cianwood, Ecruteak and Olivine, then a Groudon battle and the new battle-info and damage pages" width="360">
 </p>
 
 <p align="center">
-  <sub>A quick tour of the field, Johto towns, and the touch-screen Pokégear. Still images are under See it in play.</sub>
+  <sub>A fresh tour of current main: Johto towns, a Groudon battle, and the new battle toolkit. Explore the full gallery below.</sub>
 </p>
 
 ## Contents
@@ -66,7 +66,7 @@
   <img src="assets/readme/banner-features.webp" alt="Features: a painted ring of rocky islands and a lighthouse at sunset" width="900">
 </p>
 
-SoulSilver is the build played on hardware. HeartGold installs beside it.
+**A smoother, sharper Johto.** The overworld runs at about 60 fps in mono and close to it with stereoscopic 3D on New 3DS. The tuned speed setup is built in. Busy scenes, transitions, and battles can still dip. SoulSilver is the build played on hardware; HeartGold installs beside it as an experimental second game.
 
 <table>
   <tr>
@@ -80,7 +80,7 @@ SoulSilver is the build played on hardware. HeartGold installs beside it.
     </td>
     <td align="center" width="20%" valign="top">
       <img src="assets/readme/tile-smoother-fps.webp" alt="Smoother frame rate: a silky waterfall turning a wooden waterwheel" width="160"><br>
-      <sub><strong>Smoother frame rate.</strong> GPU shortcuts for a steadier picture. About 60 fps in 2D; with the 3D slider up it stays close to 60 but can dip in busy scenes.</sub>
+      <sub><strong>Near-60-fps overworld.</strong> About 60 fps in mono and close to it in stereo 3D. The tested speed setup is the default.</sub>
     </td>
     <td align="center" width="20%" valign="top">
       <img src="assets/readme/tile-pokegear.webp" alt="Touch-screen Pokégear: a finger tapping a live painted map" width="160"><br>
@@ -106,7 +106,7 @@ SoulSilver is the build played on hardware. HeartGold installs beside it.
     </td>
     <td align="center" valign="top">
       <img src="assets/readme/tile-seasonal.webp" alt="Seasonal scenery: a shrine path with cherry blossoms, maples, pines, and falling petals" width="160"><br>
-      <sub><strong>Seasonal scenery.</strong> Petals, seeds, leaves, and flurries on clear outdoor maps when Ambient Weather is on.</sub>
+      <sub><strong>Living Johto.</strong> Visible wild Pokémon, lively towns, and seasonal trees. Optional Ambient Weather adds petals, leaves, seeds, and flurries.</sub>
     </td>
     <td align="center" valign="top">
       <img src="assets/readme/tile-heartgold.webp" alt="HeartGold: a shrine bell and gate under a huge gold sun and scarlet maples, labelled experimental" width="160"><br>
@@ -115,15 +115,21 @@ SoulSilver is the build played on hardware. HeartGold installs beside it.
   </tr>
 </table>
 
-The map can also pin encounters, offer Fly, and show egg progress, a seasonal forecast, and Bug-Catching Contest stats. New behaviour is a toggle in Settings (<kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>). Open checks are under [Status](#status).
+- **Sharp text on both screens.** Dialogue, menus, battle messages, move names, and Pokémon names use native-resolution text. The Pokégear and Settings get their own sharp text layer. Both options start on.
+- **Find your next catch.** Tap a species in a location’s wild list to see its true-colour icon, encounter pins, time-of-day filters, and a **LIST** of locations with encounter-slot chances. **AREAS** lists recognized sub-areas inside a place and tracks your visits separately from the save.
+- **A battle companion.** Press <kbd>Y</kbd> in battle for a tabbed overlay with the available Pokémon info, catch odds, hunt stats, damage checks, or trainer party. Tap or swipe between pages while the battle keeps running. FIGHT also has move-effectiveness hints.
+- **A livelier world.** Visible wild Pokémon can form groups, react to one another, step aside for NPCs, and scatter after a battle. There are ambient town Pokémon and visible encounters in the Safari Zone too.
+- **Less menu-hopping.** Pan and fling the map, switch tabs more quickly, check party and bag, follow roamers and eggs, or use Tap to Fly and the Bug-Catching Contest helper.
+
+Open Settings with <kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>. Recent additions and their remaining hardware checks are under [Status](#status).
 
 ## About
 
 **Pokémon HeartGold & SoulSilver for New 3DS** is a fan-made, native New Nintendo 3DS port of Pokémon SoulSilver and Pokémon HeartGold (HGSS), built from the [pret/pokeheartgold](https://github.com/pret/pokeheartgold) decompilation. It is not a DS emulator and not a ROM hack: the game is compiled to run directly on the 3DS, and you install it as a `.cia` from the HOME Menu (or launch the `.3dsx` from the Homebrew Launcher) on a New 3DS, New 3DS XL, or New 2DS XL with custom firmware (Luma3DS).
 
-It adds things the original DS game can't do: stereoscopic 3D with the 3D slider, a widescreen Wide View, a smoother frame rate, and a touch-screen Pokégear with a live map, party, and bag. Trading, the GTS, Mystery Gift, and the Pokéwalker (send and return over the 3DS infrared port) still work. Everything new is a toggle in the in-game settings.
+It adds things the original DS game can't do: stereoscopic 3D with the 3D slider, a widescreen Wide View, a smoother frame rate, and a touch-screen Pokégear with a live map, party, and bag. Trading, the GTS, Mystery Gift, and the Pokéwalker (send and return over the 3DS infrared port) still work. Player options live in the in-game settings; the tested performance improvements are built in.
 
-This repository holds only source code and patches. It contains no ROMs, game assets, or saves. You build your own copy from a legally dumped HeartGold or SoulSilver ROM you own.
+This repository holds source code, patches, tooling, and documentation. It contains no ROMs, extracted game-data bundles, saves, or prebuilt game packages. You build your own copy from a legally dumped HeartGold or SoulSilver ROM you own.
 
 ## See it in play
 
@@ -131,70 +137,101 @@ This repository holds only source code and patches. It contains no ROMs, game as
   <img src="assets/readme/banner-see-it-in-play.webp" alt="See it in play: a dual-screen handheld on a window ledge, showing a cobblestone town at sunset" width="900">
 </p>
 
-### Goldenrod above. Johto below.
+### A new view of Johto
+
+A bright morning in Cianwood, with Feraligatr following. In battle, the new Y overlay keeps the information close without pausing the fight.
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <img src="assets/screens/field-goldenrod.png" alt="Goldenrod City with visible wild Pokémon on the top screen and the Johto map with roamer sprites below" width="260"><br>
-      <sub>Goldenrod with visible wild Pokémon and roamer sprites on the map.</sub>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/field-cianwood.png" alt="Cianwood City in Wide View, with Feraligatr following and the Johto map below" width="320"><br>
+      <sub>Cianwood: Wide View, your partner, and the Johto map on the touch screen.</sub>
     </td>
-    <td align="center" width="33%">
-      <img src="assets/screens/map-2x.png" alt="The bottom-screen Johto map zoomed to 2X" width="260"><br>
-      <sub>Bottom map at 2X zoom.</sub>
-    </td>
-    <td align="center" width="33%">
-      <img src="assets/screens/route-35.png" alt="Route 35 grass and trees north of Goldenrod" width="260"><br>
-      <sub>Route 35, just north of Goldenrod.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="assets/screens/panel-party.png" alt="Party panel on the touch screen" width="260"><br>
-      <sub>Party panel without leaving the field.</sub>
-    </td>
-    <td align="center">
-      <img src="assets/screens/panel-bag.png" alt="Bag panel on the touch screen" width="260"><br>
-      <sub>Bag panel.</sub>
-    </td>
-    <td align="center">
-      <img src="assets/screens/panel-radio.png" alt="Pokégear Radio panel on the touch screen" width="260"><br>
-      <sub>Radio panel. Tap-to-tune still needs more hardware testing.</sub>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/battle-info.png" alt="Groudon battle above the new tabbed battle-info overlay" width="320"><br>
+      <sub>Press Y for battle info. Browse the available pages by tab or swipe; the battle keeps running.</sub>
     </td>
   </tr>
 </table>
 
-### Around Johto
+### The touch screen earns its place
+
+Close-ups of the actual touch screen:
 
 <table>
   <tr>
-    <td align="center" width="50%">
-      <img src="assets/screens/olivine.png" alt="Olivine City Pokémon Center and seaside boardwalk" width="340"><br>
-      <sub>Olivine City.</sub>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/finder.png" alt="Species encounter finder on the Pokégear, with a true-colour species icon and encounter locations" width="320"><br>
+      <sub>Tap a species to pin its encounter locations and filter by time of day.</sub>
     </td>
-    <td align="center" width="50%">
-      <img src="assets/screens/ecruteak.png" alt="Ecruteak City streets" width="340"><br>
-      <sub>Ecruteak City.</sub>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/finder-list.png" alt="The encounter finder LIST with readable location names, encounter-slot chances and paging controls" width="320"><br>
+      <sub>LIST shows where to catch it, with encounter-slot chances and paged locations.</sub>
     </td>
   </tr>
+</table>
+<table>
   <tr>
-    <td align="center">
-      <img src="assets/screens/mahogany.png" alt="Mahogany Town among the pines" width="340"><br>
-      <sub>Mahogany Town.</sub>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/party.png" alt="The party screen embedded in the touch-screen Pokégear panel" width="320"><br>
+      <sub>Your actual party in the touch-screen panel.</sub>
     </td>
-    <td align="center">
-      <img src="assets/screens/blackthorn.png" alt="Blackthorn City on its rocky plateau" width="340"><br>
-      <sub>Blackthorn City, with Tap to Fly on the bottom map.</sub>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/bag.png" alt="The bag screen embedded in the touch-screen Pokégear panel" width="320"><br>
+      <sub>Browse bag pockets and items without leaving the field.</sub>
     </td>
   </tr>
 </table>
 
-<sub>All screenshots captured in the Azahar emulator from a personal SoulSilver build.</sub>
+<table>
+  <tr>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/battle-fight.png" alt="Groudon battle with the FIGHT move-selection screen" width="320"><br>
+      <sub>Sharper battle text and move-effectiveness hints.</sub>
+    </td>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/battle-damage.png" alt="The DAMAGE page of the battle overlay showing speed and move estimates against Groudon" width="320"><br>
+      <sub>Check speed and rough move damage from the same battle overlay.</sub>
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary><strong>Take the scenic route · more from the new build</strong></summary>
+
+<table>
+  <tr>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/ecruteak.png" alt="Ecruteak City with Feraligatr and ambient town Pokémon" width="320"><br>
+      <sub>Ecruteak: your follower and the town’s ambient Pokémon.</sub>
+    </td>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/olivine.png" alt="Olivine City near the Pokémon Center, with Feraligatr following" width="320"><br>
+      <sub>Olivine: the seaside streets in Wide View.</sub>
+    </td>
+  </tr>
+</table>
+<table>
+  <tr>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/bellchime.png" alt="Feraligatr on Bellchime Trail beneath autumn trees" width="320"><br>
+      <sub>Bellchime Trail’s autumn canopy, falling leaves, and Feraligatr.</sub>
+    </td>
+    <td align="center" width="50%" valign="top">
+      <img src="assets/screens/bellchime-geodude.png" alt="Geodude following on Bellchime Trail beneath autumn trees" width="320"><br>
+      <sub>Switch partners and take Geodude through the autumn canopy.</sub>
+    </td>
+  </tr>
+</table>
+
+</details>
+
+<sub>Fresh SoulSilver captures from main <a href="https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/commit/5e39a63d3412facf1c5df21f038a696e80e161a0">5e39a63</a>, 19 November 2026, using <a href="https://github.com/estyseesghosts/lotus">Jules’s LOTUS/CITnLO</a> and <a href="https://github.com/estyseesghosts/SAV4HGSS-cli">SAV4HGSS-cli</a>. A fixed morning clock, optional Ambient Weather, camera settings and copied-save warps were used for the tour; achievement popups and the FPS counter were disabled. The Groudon scene uses a staged postgame save. Images show mono output; stereo depth and hardware frame rate cannot be demonstrated by these screenshots. <a href="assets/screens/README.md">Capture notes</a>.</sub>
 
 - **Top screen.** Walk through towns and routes in widescreen, with optional stereoscopic depth in the field and in battles on consoles with a 3D slider.
 - **Touch screen.** Check your party, bag, map, phone, or radio without leaving the field. Optional tools surface encounter locations, Fly destinations, egg progress, a seasonal forecast, and Bug-Catching Contest stats.
-- **Your save.** Bring over a standard 512 KiB cartridge or flashcart save by copying it onto the save file. The port keeps rolling backups and can export a copy from Settings. Shiny hunt stats live in `hunt.txt`, and a StarMe profile lives in its own files.
-- **Your pace.** Customize battle speed, text speed, move effectiveness hints, and visible wild encounters. With Ambient Weather on, clear outdoor maps can show the current season.
+- **Your save.** Bring over a standard 512 KiB cartridge or flashcart save by copying it onto the save file. The port keeps one backup (`soulsilver.sav.bak1`) and can export a copy from Settings. Shiny hunt stats live in `hunt.txt`, and a StarMe profile lives in its own files.
+- **Your pace.** Customize battle speed, text speed, move effectiveness hints, and visible wild encounters. With Ambient Weather on, clear outdoor maps can show the current season. Seasonal trees are a separate option.
 
 <p align="center">
   <img src="assets/johto-waystation.webp" alt="A compass and folded chart on a window ledge overlooking islands at dawn" width="900">
@@ -326,11 +363,18 @@ Install it beside SoulSilver:
 
 Open Settings with <kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>, or hold the top-left corner of the touch screen.
 
+<p align="center">
+  <img src="assets/screens/settings.png" alt="Display settings showing Wide View, seasonal trees and 60 fps field enabled" width="320"><br>
+  <sub>The capture session’s Display tab. Ambient Weather is enabled for this tour; new setups currently default it OFF.</sub>
+</p>
+
 | | |
 | --- | --- |
 | Browse | <kbd>L</kbd> and <kbd>R</kbd>, or tap a tab. |
 | Change | <kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> |
 | Apply and save | Close with <kbd>B</kbd>, <kbd>START</kbd>, or <kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>. Changes are written to `config.txt`. |
+
+**Updating from an older build?** Saved settings take priority over new defaults. To start with the current tuned setup, close the game, keep a copy of `config.txt`, then remove it from the game’s folder and relaunch. This resets settings; keep your `.sav` in place. No performance tuning is needed on a fresh setup.
 
 <details>
 <summary><strong>Built-in defaults</strong></summary>
@@ -343,6 +387,8 @@ A missing `config.txt` line uses `kCfgDefaults` in `soulsilver3ds/platform/psp_c
 | Command shortcut, Bounds shortcut, Affine object GPU, Second screen fades | ON |
 | Second screen GPU | ON (`gpu_compose_b=1`; CHECK is 2) |
 | Sharp 3D | FAST AUTO |
+| Sharp text / Sharp game text | ON / ON |
+| Fast tab swap | ON |
 | Ambient weather | OFF (until it is fixed) |
 | Seasonal trees | ON |
 | Wide layouts | ON |
@@ -398,19 +444,17 @@ The old Debug and Render tabs are gone from the menu: their keys use this same t
 When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/issues), include your console model and `log.txt` or `log_crash.txt` from `sdmc:/3ds/soulsilver3ds/` (or `sdmc:/3ds/heartgold3ds/` for that build).
 
 <details>
-<summary><strong>What's new</strong></summary>
+<summary><strong>Recent highlights · November 2026</strong></summary>
 
-> [!NOTE]
-> Highlights merged after the previous README pass. A 3DS result is listed only where the [changelog](docs/CHANGELOG.md), [handoff](HANDOFF.md), or [release notes](docs/RELEASE_NOTES.md) record one.
+- **Near-60-fps overworld:** the performance push is complete and its tested setup is now the default. Mono is about 60 fps; stereo stays close, with dips in heavier scenes. The title’s Lugia animation remains at 30 fps.
+- **Sharp game text:** native-resolution text across both screens, including dialogue, menus, battle messages, move names and HP-box names. **Sharp game text** applies immediately. The HP-box level/HP digits remain part of the original artwork.
+- **Sharp Pokégear and Settings:** native bottom-screen text and count icons, consistent cards and buttons, smoother map panning with inertia, and faster tab swaps.
+- **Encounter finder and exploration:** true-colour species icons, a paged where-to-catch list with slot chances and time filters, plus an **AREAS** page for recognized sub-areas. The finder currently covers normal grass, surf, Rock Smash and fishing tables; special encounters such as swarms, Headbutt and Safari tables are outside that list. Slot chances describe an encounter once it starts, rather than the chance per step.
+- **Battle info:** <kbd>Y</kbd> opens a sharp, tabbed overlay without pausing the battle. Available pages include info, catching, hunting, damage and trainer party; tap or swipe to browse. The FIGHT effectiveness hints have been refreshed too.
+- **Visible wild Pokémon:** herds and families, dawn/dusk and rain behaviour, NPC avoidance, scattering after battles, and Safari Zone support. A shore encounter uses the land-battle path; the water-battle intro has also been repaired.
+- **Stability and saves:** render workers are joined before soft-reset teardown. Save backup writes preserve the existing backup if the new write fails. The save stays a plain 512 KiB cartridge-compatible file.
 
-| Topic | In the tree | Checked |
-| --- | --- | --- |
-| Starter Poké Balls | In Elm's lab the three Poké Balls and the turntable draw on the touch screen again. The port's rotation matrices kept a garbage translation, so the balls sat off screen. Platform-only. | Azahar, from a copied save. A New 3DS look is still open. |
-| Seasons | With Ambient Weather on, petals, seeds, leaves, and flurries spread across the field (still six at a time). Clear spring has more petals by Goldenrod's Flower Shop and wooded routes; clear autumn has more leaves around Ecruteak, those routes, and Kanto Route 2. **Seasonal trees** (Display, off until you turn it on) recolors supported outdoor canopies the next time the area loads. Summer keeps the original greens. Trunks, models, and shadows stay original. | Visibility and frame time are still open on a New 3DS, in both games. |
-| Fresh `config.txt` | A missing line uses the built-in table. Alive wild Pokémon starts at ON + TOWNS, Ambient weather and Pokéwalker start on, and the other tuned keys under [Settings](#settings) follow. A line already in the file is kept. HeartGold uses the same table. The save file is untouched. | Defaults only. No new device pass. |
-| GTS | **GTS server picker** (Setup, off until you turn it on) adds Online Settings to the title menu: Poké Classic, StarMe, or Wi-Fi setup. The row can show the last deposit seen for that trainer on that server. StarMe keeps its WFC profile in its own files, separate from the cartridge save. Poké Classic still uses the profile in the save. Leaving the GTS shuts that WFC session down. | The menu, a StarMe profile, and Mystery Gift were checked in Azahar on a copied save. Live deposit, pickup, and a hardware re-entry are still open. |
-| Frontier, Safari, Plaza | The Battle Frontier and the Safari Zone area customizer and decoration screens are seeded. Talking to the Wi-Fi Plaza attendant shows `WI-FI PLAZA IS CLOSED`. The Wi-Fi Club minigames still stop. | A SoulSilver package was produced from this work. Those screens have not been opened on a 3DS. |
-| Saves | Bring a save in by copying it over `soulsilver.sav` (or `heartgold.sav`). There is no import step. Rolling backups and Export save stay. The GTS preview and a StarMe profile replace the previous file; a damaged StarMe profile is kept as `.bad` and a new one is made. | A device look at a second GTS preview and the boot backup line is still open. |
+The [changelog](docs/CHANGELOG.md) and [handoff](HANDOFF.md) record implementation and test coverage. New text, finder, sub-area, battle-overlay and wild-behaviour changes still need broader hardware coverage.
 
 </details>
 
@@ -419,11 +463,11 @@ When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold
 
 - **HeartGold.** Compiles and packages. A console or emulator playtest has not been done.
 - **Starter Poké Balls.** Elm's lab balls and turntable draw in Azahar. A New 3DS look is still open. A Poké Ball *opening in battle* can still show a double image with the 3D slider up.
-- **Seasons.** Ambient scenery, the Johto WX radar, and Seasonal trees are awaiting on-device checks.
+- **Seasons.** Seasonal trees start ON. Ambient Weather starts OFF while its remaining issues are worked on; it can be enabled in Display. Ambient scenery and the Johto WX radar still need broader on-device checks.
 - **Frontier, Safari, Plaza.** Seeded in the tree. The Plaza shows a closed toast. None of these screens have been opened on a 3DS. The Club minigames still stop.
 - **GTS picker and StarMe.** Checked in Azahar on a copied save. Live GTS and hardware re-entry are still open.
 - **Pokéwalker.** Send and return transfers completed on a New 3DS. Repeatability and the latest menu rendering fix still need hardware verification.
-- **Touch-screen panel.** The two registered item shortcuts are awaiting on-device checks.
+- **New interface work.** Sharp game text, native panel text, the finder LIST, sub-area tracking and the reworked battle overlay need broader hardware checks. Turn the corresponding sharp-text option off if text is missing or doubled. The two registered item shortcuts also await on-device checks.
 - **3D and widescreen.** Wide FX is expensive. The wide title presentation still needs a dedicated hardware check.
 - **Other checks.** Radio tuning, the roamer tracker, Contest helper, Tap to Fly, Alive wild Pokémon, and achievements still need more device coverage.
 
@@ -464,7 +508,8 @@ Conduct, contributing, and security live in [`.github/`](.github/).
 - [unowncollectables](https://github.com/unowncollectables) leads the project and tests on hardware.
 - [pret/pokeheartgold](https://github.com/pret/pokeheartgold), [pret/pokeplatinum](https://github.com/pret/pokeplatinum), and [IbrahimIrfan/pspoke](https://github.com/IbrahimIrfan/pspoke) provide the decompilation and native build foundations.
 - [3ds-platinum](https://github.com/unowncollectables/3ds-platinum) and [GabeSud0/pokeplatinum-3ds](https://github.com/GabeSud0/pokeplatinum-3ds) contributed platform code, patches, and interface work.
-- [devkitPro](https://devkitpro.org/), libctru, citro3d, and [Azahar](https://azahar-emu.org/) provide tooling for development and testing. Claude and Grok Bot contributed code, tooling, and documentation.
+- [Jules (estyseesghosts)](https://github.com/estyseesghosts) created [LOTUS / CITnLO](https://github.com/estyseesghosts/lotus) and [SAV4HGSS-cli](https://github.com/estyseesghosts/SAV4HGSS-cli). Her tools made this showcase possible: direct control and clean captures of both screens, plus reproducible warp and story scenes on disposable save copies.
+- [devkitPro](https://devkitpro.org/), libctru, citro3d, and [Azahar](https://azahar-emu.org/) provide tooling for development and testing. Claude, Grok Bot, and Codex contributed code, tooling, and documentation.
 - New3DS FBI is this project's installer fork of [FBI by Steveice10](https://github.com/Steveice10/FBI).
 - Thanks to everyone who tests builds and shares logs. See [third-party notices](docs/THIRD_PARTY.md) for full attributions.
 

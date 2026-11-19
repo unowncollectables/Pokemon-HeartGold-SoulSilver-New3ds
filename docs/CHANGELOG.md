@@ -4,6 +4,12 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
+- Finder readability (#566): count and time-filter rows, result separators and paging footer leave room for full glyphs. LIST hides map controls and markers that covered its first result. Built and checked in LOTUS/CITnLO; hardware validation remains open.
+
+- Battle companion: Y opens a sharp tabbed overlay while the battle keeps running. Tap or swipe through available info, catch, hunt, damage and trainer-party pages. FIGHT effectiveness hints and finder LIST rows have also been refreshed (PR #565); broader hardware coverage remains open.
+- Exploration: finder LIST with true-colour species icons, encounter-slot chances and time filters; AREAS page for map sub-areas and separate visit tracking. Smoother map panning, consistent cards and faster tab swaps (PRs #555, #557, #559–#562).
+- Visible wilds: groups, NPC avoidance, post-battle scattering and Safari Zone support (PRs #550, #552, #563). Shore encounters use the land-battle path; the water-battle intro has been repaired (#553–#554).
+
 - Sharp game text (patch 0289, untested on hardware): the game's text windows on both screens, in every scene (dialogue, menus, battle messages, battle move names and HP box names, party, bag, summary, title menu), draw their text at the 3DS resolution (1 font pixel = 1 screen pixel) instead of DS text stretched 1.25x. The text pixels are taken out of the copy that goes to VRAM (the game's own window buffer is untouched) and drawn by native layers on each screen; where a screen cannot show the layer the text goes straight back into the picture. Settings > Display "Sharp game text", default ON, applies at once. Log: [GTEXT].
 - Sharp bottom-screen text: the Bottom menu panel and the L+R+Y settings menu draw their text at the 3DS resolution (320x240) instead of stretching DS-size text 1.25x. Settings > Display "Sharp text", default ON. Platform only.
 - Soft-reset / exit teardown (run 934, platform-only): once-guard `P3DS_SoftReset`; join engine B / c1, g3thr and par workers before freeing game heap or GPU state. Save sync/backup order unchanged. See HANDOFF.md.
@@ -12,7 +18,7 @@ Short summary of what the port can do. The full per-run development log (every f
 
 - **Speed:** about 60 fps in mono and close to it in stereo 3D (#517-#540). GPU right eye, hidden-rows skip, 3D state cache and screen hand-off are always on.
 - **Settings:** trimmed to the player menu (L+R+Y). The tuned setup is the default, so no `config.txt` editing is needed.
-- **Online:** GTS (Poké Classic, optional StarMe server), Mystery Gift, Union Room trades and battles, Pokéwalker over the New 3DS infrared port.
+- **Online:** GTS (Poké Classic, optional StarMe server), Mystery Gift, Union Room trades (battles still need a two-console test), and Pokéwalker over the New 3DS infrared port.
 - **Touch screen:** Pokégear panel with Johto map, party, bag, radio, roamer and breeding trackers, Contest helper and Tap to Fly.
 - **Display:** stereoscopic 3D, Wide view, wide layouts, sharper title, living world with seasons and weather.
 - **Extras:** hunt stats, damage check, achievements (never written to the save), Scratch-Off, Photo Album, Pal Park, Ball seals and Accessory Portrait screens.
