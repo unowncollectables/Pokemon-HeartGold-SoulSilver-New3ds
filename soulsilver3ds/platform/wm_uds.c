@@ -295,18 +295,25 @@ void PSPNativeWMPump(void){
 static void stop(void){parent=FALSE;parentCallback=NULL;drop(WM_APIID_START_SCAN);}
 
 /* ---------------------------------------------------------------- WM API */
+/* Auto wireless (no Settings toggle): wireless=0 stays a kill switch; any other value is AUTO. The game picks by what it asks for:
+   WM init (Union Room, trade desk, local Mystery Gift) = 3DS local wireless (UDS), unless the game's own Wi-Fi Connection session is up
+   (DWC inet status 4, GTS/WFC), then WM stays the radio-with-nobody and the sockets keep working. Sockets are released while a UDS session
+   runs and come back lazily afterwards. */
+static int sLocalActive;
+int P3DS_LocalWirelessActive(void){return sLocalActive;}
 static void chooseMode(void){
+ extern int DWC_GetInetStatus(void);extern int P3DS_NetInit(void);extern void P3DS_NetRelease(void);
  if(initialized)return;
  udsMode=0;
  { extern void P3DS_LogFlushSync(void); PSPNativeMemLog("[WIRELESS] WM init called by the game (wireless=%d)",P3DS_CfgInt("wireless",1)); P3DS_LogFlushSync(); }
- if(P3DS_CfgInt("wireless",1)==2){
-  /* ONLINE (online trading, patch 0137): WM stays the radio-with-nobody; the game's Wi-Fi Connection code runs over 3DS sockets (ss3ds_net.c). */
-  extern int P3DS_NetInit(void);
-  PSPNativeMemLog("[NET] online mode (wireless=2): sockets %s",P3DS_NetInit()?"up":"unavailable");
- }
- else if(P3DS_CfgInt("wireless",1)){
-  if(P3U_Init()){udsMode=1;PSPNativeMemLog("[WIRELESS] WM on 3DS local wireless (wireless=1)");}
-  else PSPNativeMemLog("[WIRELESS] wireless=1 but UDS is unavailable: radio with nobody in range");
+ if(P3DS_CfgInt("wireless",1)){
+  int inet=DWC_GetInetStatus();
+  if(inet==4){PSPNativeMemLog("[WIRELESS] auto: WM init while the Wi-Fi Connection session is up (inet %d) -> ONLINE, WM stays a stand-in",inet);}
+  else{
+   P3DS_NetRelease();
+   if(P3U_Init()){udsMode=1;sLocalActive=1;PSPNativeMemLog("[WIRELESS] auto: WM init, no online session (inet %d) -> LOCAL (3DS local wireless, sockets released)",inet);}
+   else PSPNativeMemLog("[WIRELESS] auto: WM init -> LOCAL wanted but UDS is unavailable: radio with nobody in range");
+  }
  }
  if(!udsMode){static BOOL told;if(!told){told=TRUE;PSPNativeMemLog("[WIRELESS] WM stand-in: radio on, no other DS in range");}}
 }
@@ -315,7 +322,7 @@ WMErrCode WM_Initialize(void*buf,WMCallbackFunc fn,u16 dma){
  (void)buf;(void)dma;chooseMode();initialized=TRUE;return done(fn,WM_APIID_INITIALIZE);
 }
 WMErrCode WM_InitializeForListening(void*buf,WMCallbackFunc fn,u16 dma,BOOL blink){(void)blink;return WM_Initialize(buf,fn,dma);}
-static void finishUds(void){if(udsMode){udsTeardown("WM end");P3U_Exit();udsMode=0;}memset(ports,0,sizeof ports);connectCallback=mpCallback=NULL;}
+static void finishUds(void){if(udsMode){udsTeardown("WM end");P3U_Exit();udsMode=0;}if(sLocalActive){sLocalActive=0;PSPNativeMemLog("[WIRELESS] auto: local session ended, ONLINE (GTS/WFC) available again");}memset(ports,0,sizeof ports);connectCallback=mpCallback=NULL;}
 WMErrCode WM_Finish(void){stop();queued=0;finishUds();initialized=FALSE;return WM_ERRCODE_SUCCESS;}
 WMErrCode WM_Enable(WMCallbackFunc fn){return done(fn,WM_APIID_ENABLE);}
 WMErrCode WM_Disable(WMCallbackFunc fn){return done(fn,WM_APIID_DISABLE);}

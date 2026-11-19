@@ -82,6 +82,8 @@ int P3DS_OnlineCheatBlocked(void)
     return on;
 }
 
+void P3DS_NetRelease(void) { netExit(); NLOG("[NET] sockets released for local wireless"); }
+
 int P3DS_NetInit(void)
 {
     if (sState) return sState > 0;
@@ -188,7 +190,9 @@ struct AuthWiFiId { unsigned long long uId; unsigned long long notAttestedId; un
 static unsigned long long sAdoptedUid;
 static int sAdopted;
 
-static int onlineMode(void) { return P3DS_CfgInt("wireless", 0) == 2; }
+/* Auto wireless: online whenever wireless is not 0 (kill switch) and no local (UDS) session is running (wm_uds.c). */
+extern int P3DS_LocalWirelessActive(void);
+static int onlineMode(void) { return P3DS_CfgInt("wireless", 1) != 0 && !P3DS_LocalWirelessActive(); }
 
 static int starMeOnline(void)
 {

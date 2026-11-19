@@ -16,6 +16,12 @@ Battle, Records, Draw, Greet, Spin; the Wireless Trade desk; anything with a rea
 
 **Online GTS and Mystery Gift WFC work on SoulSilver.** With Settings > Play > Wireless = ONLINE (`wireless=2`) and no `cheat_*` options, the Global Terminal (GTS) and Mystery Gift → Receive → Get via Nintendo WFC paths both complete on hardware against community revival servers. Local wireless MG parent search still cannot succeed without a real DS parent (ONLINE mode redirects that confirm to WFC download).
 
+## Auto wireless (2026-11-19)
+
+No toggle needed: `wireless=0` is only a kill switch, anything else is AUTO. The game's WM init (Union Room, trade desk, local Mystery Gift)
+starts 3DS local wireless (UDS) unless the game's Wi-Fi Connection session is already up (DWC inet status 4); GTS/WFC run on sockets whenever
+no UDS session is running. Sockets are released while UDS runs and re-opened lazily afterwards. Log lines: `[WIRELESS] auto: ...`, `[NET] sockets released`.
+
 ## Short answer
 
 | Goal | Realistic? | How |

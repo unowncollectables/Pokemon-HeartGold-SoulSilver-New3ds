@@ -343,8 +343,9 @@ unsigned int __wrap_ov74_0222A560(void *man)
 unsigned int __wrap_ov74_0222A4CC(void *man)
 {
     int w = P3DS_CfgInt("wireless", 1);
-    if (w == 2) {
-        PSPNativeMemLog("[SS-MG] path=WIRELESS confirm with wireless=2: redirect to WFC-download (local WM search cannot find a parent in ONLINE mode)");
+    extern int P3DS_NetInit(void); extern int P3DS_OnlineCheatBlocked(void);
+    if (w != 0 && !P3DS_OnlineCheatBlocked() && P3DS_NetInit()) {
+        PSPNativeMemLog("[SS-MG] path=WIRELESS confirm, auto wireless (wireless=%d, Wi-Fi up): redirect to WFC-download (local WM search cannot find a real DS parent)", w);
         return __wrap_ov74_0222A560(man);
     }
     PSPNativeMemLog("[SS-MG] path=local-wireless entry (ov74_0222A4CC) wireless=%d -> state 0x20 / ov74_0222CEE0", w);
