@@ -157,6 +157,7 @@ Debug and Render tabs were removed. The tested performance setup is built in.
 - Pan the map; use `-` and `+` for zoom. Tap a species in a location’s wild list for encounter pins and time filters. LIST shows locations and encounter-slot chances. AREAS tracks recognized sub-area visits separately from the save.
 - Press **Y in battle** for the tabbed information overlay. Tap or swipe between available info, catch, hunt, damage, and trainer-party pages. The battle keeps running.
 - FIGHT offers move-effectiveness hints. Optional tools include Tap to Fly, roamer sprites, breeding progress, and the Contest helper.
+- Press **ZR in the field** for Hunt Stats. The latest overlay has Hunt, Totals, Top, Recent, and Shiny pages. On Hunt, use up/down or swipe to choose a species. X pins or unpins it, Y lets you browse all species, and tapping Reset twice clears that species’ counters. Hunt stats are stored separately in `hunt.txt`. The latest overlay still needs a device check.
 
 ## Current fresh-setup defaults
 
@@ -268,6 +269,8 @@ Core gameplay, stereo 3D, save round-trips, local Union Room trading, the origin
 ## Recent features needing broader hardware coverage
 
 Sharp game text and panel text, refreshed finder LIST layout, the tabbed Y battle companion, map navigation improvements, visible wild behavior changes, and newer StarMe flows have varying build/emulator checks. These are not blanket hardware certifications. The current handoff records the exact evidence and outstanding checks.
+
+Main also includes the redesigned ZR Hunt Stats overlay, with species pinning, browsing and counter reset. The handoff records host test coverage for pinning. The updated overlay still needs a build and device test.
 
 ## Known limits and remaining work
 
