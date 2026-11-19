@@ -1705,7 +1705,7 @@ static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Pla
 /* 2026-11-19 removed rows (built-in default kept, config.txt line still read): Live party/bag OFF, Menu button OFF, Kanto on map GATED,
    X tile cursor ON, Map zoom (the map's -/+ chips), Roamer sprites ON, Contest helper ON, Breeding tab ON, Sprite depth ON, Fast tab swap ON, Pokegear tabs.
    Also gone (owner's levels are the default): Even loudness ON, Steady music ON, Menu music ON, Visible at once 6, Visible shiny sparkle ON,
-   Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too). */
+   Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too), Pokewalker ON. */
 static const SAppTab kTabs[kTotalTabs]={
  {3,{{9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
@@ -1741,9 +1741,8 @@ static const SAppTab kTabs[kTotalTabs]={
      {69,"Hold B skips text","Holding B prints text instantly and moves on. Never picks a choice."},
      {70,"Auto-advance text","Text boxes move on by themselves after a moment."},
      {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions."}}},
- {3,{{109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
-     {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS)."},
-     {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app."}}},
+ {2,{{109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
+     {93,"Wireless","ONLINE (default): GTS and Wi-Fi through a community server. LOCAL: 3DS to 3DS trades and battles in the Union Room. OFF: no wireless."}}},
  {9,{{kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
      {0,"FPS counter","Shows the frame rate on screen."},
      {139,"Title layout","Classic uses plain borders. Wide fills the screen with the animated backdrop and keeps the logo proportional."},
