@@ -2123,10 +2123,12 @@ static int hsTop(int n,int*out,long(*key)(const P3DS_HuntRec&)){
 static void hsName(char*o,int n,int sp){snprintf(o,n,"%s",sp>0&&sp<P3DS_HUNT_SPECIES?kP3dsSpec[sp]:"?");for(char*q=o;*q;q++)if(*q>='a'&&*q<='z')*q-=32;}
 static bool hsHas(const P3DS_HuntRec&r){return r.enc||r.resets||r.shinies;}
 static int hsSp; /* species shown on the HUNT page (0 = none recorded) */
+static bool hsAll; /* Y on the HUNT page: Up/Down walks every species (to pin one not met yet), not only the recorded ones */
+static unsigned hsArmed; /* RESET was tapped once: a second tap before this frame count clears the species (cy.frames) */
 /* cheap fingerprint of everything the pages show; a change redraws the picture */
 static u32 hsKey(int pg){u32 h=2166136261u^(u32)pg^((u32)hsSp<<8);auto mx=[&](int v){h^=(u32)v;h*=16777619u;};
  for(int k=1;k<P3DS_HUNT_SPECIES;k++){const P3DS_HuntRec&r=*P3DS_HuntGet(k);if(!hsHas(r))continue;mx(k);mx(r.enc);mx(r.resets);mx(r.shinies);mx(r.streak);}
- const P3DS_HuntRec&v=*P3DS_HuntGet(hsSp);mx(v.secs/60);mx(P3DS_HuntTarget());mx(P3DS_HuntRateOdds());mx(P3DS_Cheat(2)!=0);return h;}
+ const P3DS_HuntRec&v=*P3DS_HuntGet(hsSp);mx(v.secs/60);mx(P3DS_HuntTarget());mx(P3DS_HuntPinned());mx(hsAll);mx(hsArmed>cy.frames);mx(P3DS_HuntRateOdds());mx(P3DS_Cheat(2)!=0);return h;}
 static void hsGather(hs::Data&D){
  memset(&D,0,sizeof D);const int odds=P3DS_HuntRateOdds(),tg=P3DS_HuntTarget();
  hs::Tot&t=D.t;int luckSp=0,longSp=0,n=0,idx=0;
@@ -2138,7 +2140,10 @@ static void hsGather(hs::Data&D){
  if(luckSp)hsName(t.luck,sizeof t.luck,luckSp);if(longSp)hsName(t.lng,sizeof t.lng,longSp);
  if(tg>0&&hsHas(*P3DS_HuntGet(tg))){hsName(t.cur,sizeof t.cur,tg);t.curStreak=P3DS_HuntGet(tg)->streak;}
  hs::View&v=D.v;
- if(hsSp>0&&hsHas(*P3DS_HuntGet(hsSp))){const P3DS_HuntRec&r=*P3DS_HuntGet(hsSp);hsName(v.name,sizeof v.name,hsSp);v.sp=hsSp;
+ const int pin=P3DS_HuntPinned();t.pinned=pin>0&&pin==tg;if(t.pinned&&!t.cur[0]){hsName(t.cur,sizeof t.cur,tg);t.curStreak=0;}
+ v.all=hsAll;
+ if(hsSp>0&&(hsAll||hsSp==pin||hsHas(*P3DS_HuntGet(hsSp)))){const P3DS_HuntRec&r=*P3DS_HuntGet(hsSp);hsName(v.name,sizeof v.name,hsSp);v.sp=hsSp;
+  v.pinned=hsSp==pin;v.met=r.enc>0;v.armed=hsArmed>cy.frames;
   v.enc=r.enc;v.streak=r.streak;v.resets=r.resets;v.shinies=r.shinies;v.secs=r.secs;v.start=r.start;v.lastShinyAt=r.lastShinyAt;
   v.odds=odds;v.enc50=P3DS_HuntEncFor(0.5,odds);v.enc90=P3DS_HuntEncFor(0.9,odds);v.chance=P3DS_HuntChanceBy(r.streak,odds);v.cheat=P3DS_Cheat(2)!=0;
   v.target=hsSp==tg;v.idx=idx;v.nIdx=n;}
@@ -2148,9 +2153,9 @@ static void hsGather(hs::Data&D){
  D.shiny.n=hsTop(6,ids,hsKeyBest);for(int i=0;i<D.shiny.n;i++){const P3DS_HuntRec&r=*P3DS_HuntGet(ids[i]);hsName(D.shiny.name[i],24,ids[i]);D.shiny.a[i]=r.lastShinyAt;D.shiny.b[i]=r.shinies;}
 }
 static void hsOpen(){if(cy.open)return;cy.img=(u32*)malloc(256*192*4);if(!cy.img){PSPNativeMemLog("[HSTAT] no memory for the screen (%u bytes)",256u*192u*4u);return;}
- const int tg=P3DS_HuntTarget();hsSp=tg>0&&hsHas(*P3DS_HuntGet(tg))?tg:P3DS_HuntNext(0,1);
+ const int tg=P3DS_HuntTarget(),pin=P3DS_HuntPinned();hsSp=pin>0?pin:tg>0&&hsHas(*P3DS_HuntGet(tg))?tg:P3DS_HuntNext(0,1);hsAll=false;hsArmed=0;
  cy.open=true;cy.field=true;cy.release=false;cy.pg=hs::H_HUNT;cy.n=hs::H_N;cy.key=0;cy.frames=0;cy.t0=svcGetSystemTick();cy.tPrev=hidKeysHeld()&KEY_TOUCH;cy.zrPrev=true;P3DS_CatchMask=1;
- PSPNativeMemLog("[HSTAT] stats screen opened as an overlay, the field keeps running (species #%d, target #%d, odds 1/%d)",hsSp,tg,P3DS_HuntRateOdds());}
+ PSPNativeMemLog("[HSTAT] stats screen opened as an overlay, the field keeps running (species #%d, target #%d, pinned #%d, odds 1/%d)",hsSp,tg,pin,P3DS_HuntRateOdds());}
 static const u32*hsFrame(bool txOk){
  if(!P3DS_InField){cyClose("left the field");return nullptr;}
  if(P3DS_MenuOpen||P3DS_ConsoleOnBottom()||P3DS_PanelPartyOn||P3DS_PanelPartyWant){cyClose("a menu took the screen");return nullptr;}
@@ -2166,18 +2171,32 @@ static const u32*hsFrame(bool txOk){
   static unsigned nLog;if(nLog++<12)PSPNativeMemLog("[HSTAT] drew %s page in %u us (%d species, %d encounters, %d shinies)",hs::kTab[cy.pg],(unsigned)((svcGetSystemTick()-tg)/CPU_TICKS_PER_USEC),D.t.met,D.t.enc,D.t.shinies);}
  if(txOk&&cy.tx)btxShow(cy.tx);else P3DS_TxOn=0;
  P3DS_OvN=0;return cy.img;}
+/* HUNT page actions: Up/Down species, X pin/unpin, Y every species on/off, RESET (touch, twice) clears the shown species' counters */
+static void hsStep(int dir,const char*how){int nx;
+ if(hsAll){nx=hsSp+dir;if(nx<1)nx=P3DS_HUNT_SPECIES-1;if(nx>=P3DS_HUNT_SPECIES)nx=1;}else nx=P3DS_HuntNext(hsSp,dir);
+ if(nx&&nx!=hsSp){hsSp=nx;hsArmed=0;cy.key=0;PSPNativeMemLog("[HSTAT] species #%d (%s%s)",hsSp,how,hsAll?", all species":"");}}
+static void hsPinToggle(){if(hsSp<=0)return;const bool un=P3DS_HuntPinned()==hsSp;P3DS_HuntPin(un?0:hsSp);hsArmed=0;cy.key=0;
+ PSPNativeMemLog("[HSTAT] %s species #%d",un?"unpinned":"pinned the hunt to",hsSp);P3DS_Toast(un?"HUNT UNPINNED":"HUNT SET");}
+static void hsAllToggle(){hsAll=!hsAll;hsArmed=0;if(!hsAll&&hsSp>0&&!hsHas(*P3DS_HuntGet(hsSp))&&hsSp!=P3DS_HuntPinned()){const int t=P3DS_HuntTarget();hsSp=t>0&&hsHas(*P3DS_HuntGet(t))?t:P3DS_HuntNext(0,1);}
+ if(hsAll&&hsSp<=0)hsSp=1;cy.key=0;PSPNativeMemLog("[HSTAT] all species %s",hsAll?"on":"off");}
+static void hsResetTap(){const P3DS_HuntRec&r=*P3DS_HuntGet(hsSp);if(hsSp<=0||!(r.enc||r.resets||r.shinies))return;
+ if(hsArmed>cy.frames){P3DS_HuntClear(hsSp);hsArmed=0;cy.key=0;P3DS_Toast("HUNT COUNTER RESET");PSPNativeMemLog("[HSTAT] species #%d counters reset",hsSp);
+  if(!hsAll&&hsSp!=P3DS_HuntPinned()){const int nx=P3DS_HuntNext(hsSp,1);hsSp=nx;}}
+ else{hsArmed=cy.frames+180;cy.key=0;PSPNativeMemLog("[HSTAT] reset armed for species #%d (tap again within 3 s)",hsSp);}}
 static void hsInput(u32 kd,u32 kh){
  const bool zrEdge=(kh&KEY_ZR)&&!cy.zrPrev;cy.zrPrev=(kh&KEY_ZR)!=0;
- if((kd&(KEY_B|KEY_A|KEY_Y|KEY_START|KEY_X))||zrEdge){cyClose("button");return;}
+ if((kd&(KEY_B|KEY_A|KEY_START))||zrEdge){cyClose("button");return;}
+ if(hsArmed&&hsArmed<=cy.frames){hsArmed=0;cy.key=0;}
  int np=cy.pg;if(kd&(KEY_RIGHT|KEY_R|KEY_DRIGHT))np=(cy.pg+1)%cy.n;if(kd&(KEY_LEFT|KEY_L|KEY_DLEFT))np=(cy.pg+cy.n-1)%cy.n;
- if(cy.pg==hs::H_HUNT&&(kd&(KEY_UP|KEY_DUP|KEY_DOWN|KEY_DDOWN))){const int nx=P3DS_HuntNext(hsSp,(kd&(KEY_UP|KEY_DUP))?-1:1);
-  if(nx&&nx!=hsSp){hsSp=nx;cy.key=0;PSPNativeMemLog("[HSTAT] species #%d",hsSp);}}
+ if(kd&(KEY_X|KEY_Y)){if(cy.pg!=hs::H_HUNT){np=hs::H_HUNT;}else if(kd&KEY_X)hsPinToggle();else hsAllToggle();}
+ if(cy.pg==hs::H_HUNT&&(kd&(KEY_UP|KEY_DUP|KEY_DOWN|KEY_DDOWN)))hsStep((kd&(KEY_UP|KEY_DUP))?-1:1,"D-pad");
  const bool tNow=(kh&KEY_TOUCH)!=0;
  if(tNow){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){if(!cy.tPrev){cy.tx0=x;cy.ty0=y;}cy.tx1=x;cy.ty1=y;}}
  else if(cy.tPrev){const int dx=cy.tx1-cy.tx0,dy=cy.ty1-cy.ty0;
   if((dx>=36||dx<=-36)&&(dy<40&&dy>-40))np=dx<0?(cy.pg+1)%cy.n:(cy.pg+cy.n-1)%cy.n;
-  else if(cy.pg==hs::H_HUNT&&(dy>=30||dy<=-30)&&dx<30&&dx>-30){const int nx=P3DS_HuntNext(hsSp,dy>0?-1:1);if(nx&&nx!=hsSp){hsSp=nx;cy.key=0;PSPNativeMemLog("[HSTAT] species #%d (swipe)",hsSp);}}
-  else if(dx<10&&dx>-10&&dy<10&&dy>-10){const int h=cc::hit(cy.n,cy.tx0,cy.ty0);if(h==-2){cyClose("X tapped");cy.tPrev=false;return;}if(h>=0&&h<cy.n)np=h;}}
+  else if(cy.pg==hs::H_HUNT&&(dy>=30||dy<=-30)&&dx<30&&dx>-30)hsStep(dy>0?-1:1,"swipe");
+  else if(dx<10&&dx>-10&&dy<10&&dy>-10){const int h=cc::hit(cy.n,cy.tx0,cy.ty0);if(h==-2){cyClose("X tapped");cy.tPrev=false;return;}if(h>=0&&h<cy.n)np=h;
+   else if(cy.pg==hs::H_HUNT){const int bt=hs::btnHit(cy.tx0,cy.ty0);if(bt==0)hsPinToggle();else if(bt==1)hsAllToggle();else if(bt==2)hsResetTap();}}}
  cy.tPrev=tNow;
  if(np!=cy.pg){cy.pg=np;cy.key=0;PSPNativeMemLog("[HSTAT] page %d/%d: %s",np+1,cy.n,hs::kTab[np]);}}
 extern "C" int PSPNativeRenderBegin(){if(!initialized||openFrame)return -1;openFrame=true;G3SIM_DrawCleanUp();P3DS_G3BeginFrame();return 0;}

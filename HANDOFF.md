@@ -21,6 +21,7 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 
 - ZR in the field opens the HUNT STATS screen as an overlay like the battle Y screen (ss3ds_huntui.h, hsOpen/hsFrame/hsInput in render3ds.cpp, cy.field = true). The old modal loop that froze the game is gone.
 - Pages HUNT (one species: since last shiny, odds, chance bar with 50%/90% marks, encounters to go, pace per hour; Up/Down or vertical swipe = other species), TOTALS, TOP, RECENT, SHINY. Off switch: Settings "HUNT STATS (ZR)".
+- Pick and reset (same day): HUNT page buttons X: SET HUNT / UNPIN (pins that species as the hunt in hunt.txt `pinned=`; soft resets and time go to it whatever else is met), Y: ALL (Up/Down walks every species, to pin one not met yet), RESET (tap twice within 3 s, clears that species' counters). Host test tools/hunt_test.c covers the pin.
 - The game gets no buttons or touches while it is up (P3DS_CatchMask; panel touch, corner touch and menu button skip it too). It closes itself when the field ends or a menu takes the bottom screen.
 - Logs: `[HSTAT] stats screen opened`, `drew <page> page in N us`, `page`, `species`, `closed (...) after N ms, N field frames ran underneath`. Stuck keys after close or a stale bottom picture: look at cyTick / cyClose.
 - Preview: tools/catch_ui_preview.cpp writes `<prefix>_hstat_*.ppm`.

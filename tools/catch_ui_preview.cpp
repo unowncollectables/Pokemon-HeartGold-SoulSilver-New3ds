@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
     btxEnd(gRec, list); btxRender(list, atlas); stretch(ds, out); over(out, atlas); snprintf(path, sizeof path, "%s_hint.ppm", argv[2]); ppm(path, out); }
   { /* field hunt stats screen (ss3ds_huntui.h), sample numbers */
     hs::Data D{}; hs::View &v = D.v; snprintf(v.name, sizeof v.name, "Mareep"); v.sp = 179; v.enc = 3412; v.streak = 2108; v.resets = 41; v.shinies = 1; v.secs = 5 * 3600 + 22 * 60; v.start = 20261101;
-    v.lastShinyAt = 1304; v.odds = 8192; v.enc50 = 5678; v.enc90 = 18862; v.idx = 1; v.nIdx = 14; v.chance = 0.2265; v.target = true;
+    v.lastShinyAt = 1304; v.odds = 8192; v.enc50 = 5678; v.enc90 = 18862; v.idx = 1; v.nIdx = 14; v.chance = 0.2265; v.target = true; v.pinned = true; v.met = true;
     hs::Tot &t = D.t; t.met = 14; t.enc = 5210; t.resets = 63; t.shinies = 2; t.secs = 9 * 3600 + 5 * 60; t.start = 20261027; snprintf(t.luck, 24, "PIDGEY"); t.luckAt = 402;
     snprintf(t.lng, 24, "MAREEP"); t.longN = 2108; snprintf(t.cur, 24, "MAREEP"); t.curStreak = 2108;
     static const char *tn[6] = { "MAREEP", "PIDGEY", "SENTRET", "RATTATA", "HOOTHOOT", "WOOPER" }; static const int te[6] = { 3412, 702, 388, 301, 157, 96 }, ts[6] = { 1, 1, 0, 0, 0, 0 };
@@ -74,5 +74,7 @@ int main(int argc, char **argv) {
     D.shiny.n = 2; snprintf(D.shiny.name[0], 24, "PIDGEY"); D.shiny.a[0] = 402; D.shiny.b[0] = 1; snprintf(D.shiny.name[1], 24, "MAREEP"); D.shiny.a[1] = 1304; D.shiny.b[1] = 1;
     for (int pg = 0; pg < hs::H_N; pg++) { btxBegin(gRec, ds); hs::page(ds, kNew, D, pg); btxEnd(gRec, list); btxRender(list, atlas); stretch(ds, out); over(out, atlas);
       snprintf(path, sizeof path, "%s_hstat_%s.ppm", argv[2], hs::kTab[pg]); ppm(path, out); printf("hstat %s: %d strings native, %d covered, %d full\n", hs::kTab[pg], list.n, gRec.covered, gRec.full); }
+    { hs::Data A = D; A.v.pinned = false; A.v.target = false; A.v.all = true; A.v.armed = true; A.v.sp = 25; snprintf(A.v.name, 24, "Pikachu"); A.v.enc = 12; A.v.streak = 12; A.v.resets = 0; A.v.shinies = 0; A.v.secs = 900; A.v.start = 20261119; A.v.lastShinyAt = 0; A.v.chance = 0.0015;
+      btxBegin(gRec, ds); hs::page(ds, kNew, A, hs::H_HUNT); btxEnd(gRec, list); btxRender(list, atlas); stretch(ds, out); over(out, atlas); snprintf(path, sizeof path, "%s_hstat_armed.ppm", argv[2]); ppm(path, out); }
     hs::Data E{}; btxBegin(gRec, ds); hs::page(ds, kNew, E, hs::H_HUNT); btxEnd(gRec, list); btxRender(list, atlas); stretch(ds, out); over(out, atlas); snprintf(path, sizeof path, "%s_hstat_empty.ppm", argv[2]); ppm(path, out); }
   return 0; }
