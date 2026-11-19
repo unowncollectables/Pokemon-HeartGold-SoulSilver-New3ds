@@ -356,7 +356,7 @@ static const struct { const char *key; int def; } kCfgDefaults[] = {
     /* 2026-11-09: used only when the key is absent. A saved line wins, including OFF and LEGACY. gpu_compose_b 1 = ON (2 stays CHECK). title_clean_sides 2 = WIDE. */
     { "g3_packets", 1 }, { "g3_fast_bounds", 1 }, { "gpu_compose_b", 1 }, { "gpu_obj_affine", 1 }, { "gpu_b_fades", 1 }, { "title_clean_sides", 2 },
     /* 2026-11-11: owner's config.txt, only when the key is absent. g3_sharp 3 = FAST AUTO (0..4). wild_vis_alive 2 = ON + TOWNS (0..2). */
-    { "g3_sharp", 3 }, { "g3_smooth_dbg", 0 }, { "dmg_check", 1 }, { "pg_find", 1 }, { "breed_tab", 1 }, { "reusable_tms", 1 }, { "pg_flytap", 1 }, { "roamer_sprites", 1 }, { "ambient_weather", 0 }, { "pokewalker", 1 },
+    { "g3_sharp", 3 }, { "g3_smooth_dbg", 0 }, { "dmg_check", 1 }, { "pg_find", 1 }, { "breed_tab", 1 }, { "reusable_tms", 1 }, { "pg_flytap", 1 }, { "roamer_sprites", 1 }, { "ambient_weather", 1 }, { "pokewalker", 1 },
     /* 2026-11-18 release cleanup: the Debug and Render settings tabs are gone, so the owner's tested 60 fps setup (run 927 config.txt) is the default.
        log_level 1 = SHORT (errors and events always written; detail kept in RAM and dumped on a crash). */
     { "fps60", 1 }, { "g3_thread", 1 }, { "fps60_pipe", 1 }, { "fps60_hold", 1 }, { "fps60_strips", 1 }, { "fps60_vram", 1 }, { "g3_xfcache", 1 },
@@ -367,6 +367,8 @@ static const struct { const char *key; int def; } kCfgDefaults[] = {
     { "wide_layouts", 1 }, { "gts_picker", 1 }, { "seasonal_trees", 1 },
     /* 2026-11-18 sharp bottom-screen text (ss3ds_sharptext.h): ON when the key is absent. */
     { "sharp_text", 1 }, { "sharp_game_text", 1 },
+    /* 2026-11-19 owner config (SD config.txt read 2026-11-19): ambient_weather ON (fixed in #544), union_guard OFF (Union Room works), battle 3D depth FOE DEEPER. */
+    { "union_guard", 0 }, { "stereo_2d", 4 },
 };
 /* The default a missing key gets: this table if it lists the key, else the caller's `def`. logring.c reports with it, so the two cannot drift. */
 int P3DS_CfgDefault(const char *key, int def) { for (unsigned i = 0; i < sizeof kCfgDefaults / sizeof kCfgDefaults[0]; i++) if (!strcmp(key, kCfgDefaults[i].key)) return kCfgDefaults[i].def; return def; }
