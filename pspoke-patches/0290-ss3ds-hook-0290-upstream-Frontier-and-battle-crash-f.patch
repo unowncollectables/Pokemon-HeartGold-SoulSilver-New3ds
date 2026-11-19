@@ -1,4 +1,4 @@
-From ed1bbb4526ec7647e01d692eeda720e886e02e4b Mon Sep 17 00:00:00 2001
+From 5b7920e25dafa0b646c4c532132f223e39786a96 Mon Sep 17 00:00:00 2001
 From: ss3ds <ss3ds@localhost>
 Date: Thu, 19 Nov 2026 19:09:13 +0000
 Subject: [PATCH] ss3ds: hook 0290 upstream Frontier and battle crash fixes
@@ -14,14 +14,15 @@ Backports from upstream pspoke (pin 7477648, head 95a99b0), smallest form that f
 - 7d56c81 (frozen battle animations: Water Pulse, Pin Missile, Supersonic, Fly): arg-overrides gives
   sub_02015484 (create emitter) its 3 arguments. 0262 already gave sub_020154C4 (delete) its 2.
 
-The C edits are a hook (staged decomp, idempotent, loud on a missing anchor) so an already staged tree
+The C edits are a hook (staged decomp, idempotent; never stops the build: a file whose anchors moved is skipped
+with a log line, and a failed object rebuild restores the original source) so an already staged tree
 gets them; only changed objects are rebuilt. The resulting code is identical to upstream's src.patch.
 The arg-overrides change re-runs the translator through the existing re-sync.
 ---
- .../maploader/arg-overrides.json              |  1 +
- scripts/ss3ds_hooks.d/0290_upstream_battle.py | 99 +++++++++++++++++++
- scripts/ss3ds_hooks.d/0290_upstream_battle.sh | 13 +++
- 3 files changed, 113 insertions(+)
+ .../maploader/arg-overrides.json              |   1 +
+ scripts/ss3ds_hooks.d/0290_upstream_battle.py | 109 ++++++++++++++++++
+ scripts/ss3ds_hooks.d/0290_upstream_battle.sh |  15 +++
+ 3 files changed, 125 insertions(+)
  create mode 100644 scripts/ss3ds_hooks.d/0290_upstream_battle.py
  create mode 100644 scripts/ss3ds_hooks.d/0290_upstream_battle.sh
 
@@ -39,15 +40,16 @@ index 76d5952..6436dbf 100644
   "NNS_GfdResetLnkPlttVramState": 0,
 diff --git a/scripts/ss3ds_hooks.d/0290_upstream_battle.py b/scripts/ss3ds_hooks.d/0290_upstream_battle.py
 new file mode 100644
-index 0000000..1ab3a8e
+index 0000000..0b9f89f
 --- /dev/null
 +++ b/scripts/ss3ds_hooks.d/0290_upstream_battle.py
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,109 @@
 +#!/usr/bin/env python3
 +"""ss3ds 0290: Battle Frontier + battle crash fixes backported from upstream pspoke (pin 7477648 -> 95a99b0), applied to
-+the staged SoulSilver decomp in cwd (= $C). Idempotent: an edit is skipped when its marker is already in the file. Fails
-+loudly if an anchor is missing, so a decomp bump that moves the code is noticed. Prints the changed source files, one per
-+line, so the .sh rebuilds only those objects.
++the staged SoulSilver decomp in cwd (= $C). Idempotent: an edit is skipped when its marker is already in the file. Each
++file is all-or-nothing: if any anchor in it is missing, that file is left exactly as it was and a "skipped" line goes to
++stderr (the game keeps its old behaviour there; the build never stops). Prints the changed source files, one per line
++on stdout, so the .sh rebuilds only those objects.
 +
 +  pspoke e03aace  Battle Factory: ov80_02236F24's C passed &trainerBuf (one pointer) where ov80_02229F04 fills a 0x30-byte
 +                  trainer record; it overran into the saved return address and the first Factory battle jumped to 0.
@@ -59,9 +61,12 @@ index 0000000..1ab3a8e
 +"""
 +import sys
 +
++class Skip(Exception):
++    pass
++
 +def sub1(s, old, new, tag):
 +    if s.count(old) != 1:
-+        sys.exit(f'0290_upstream_battle: {tag}: anchor found {s.count(old)} times (want 1): {old.strip()[:80]}')
++        raise Skip(f'{tag}: anchor found {s.count(old)} times (want 1): {old.strip()[:80]}')
 +    return s.replace(old, new)
 +
 +def factory(s):
@@ -73,7 +78,7 @@ index 0000000..1ab3a8e
 +             '     * the stack); as one pointer it overran the saved return address and the first Factory battle jumped to 0. */\n'
 +             '    u32 trainerBuf[0x30 / 4];\n', 'factory decl')
 +    if s.count('ov80_02229F04(&trainerBuf,') != 2 or s.count('ov80_0222A480(setup, &trainerBuf,') != 2:
-+        sys.exit('0290_upstream_battle: factory: expected two &trainerBuf call pairs')
++        raise Skip('factory: expected two &trainerBuf call pairs')
 +    s = s.replace('ov80_02229F04(&trainerBuf,', 'ov80_02229F04(trainerBuf,')
 +    s = s.replace('ov80_0222A480(setup, &trainerBuf,', 'ov80_0222A480(setup, trainerBuf,')
 +    return s
@@ -135,32 +140,40 @@ index 0000000..1ab3a8e
 +         ('src/battle/battle_command.c', exp_gain)]
 +
 +for path, fn in EDITS:
-+    with open(path) as f:
-+        s = f.read()
-+    t = fn(s)
++    try:
++        with open(path) as f:
++            s = f.read()
++        t = fn(s)
++    except (OSError, Skip) as e:
++        print(f'ss3ds 0290 skipped {path}: {e}', file=sys.stderr)
++        continue
 +    if t != s:
++        with open(path + '.pre0290', 'w') as f:   # the .sh puts this back if the object does not rebuild
++            f.write(s)
 +        with open(path, 'w') as f:
 +            f.write(t)
 +        print(path)
 diff --git a/scripts/ss3ds_hooks.d/0290_upstream_battle.sh b/scripts/ss3ds_hooks.d/0290_upstream_battle.sh
 new file mode 100644
-index 0000000..88ee700
+index 0000000..745dc95
 --- /dev/null
 +++ b/scripts/ss3ds_hooks.d/0290_upstream_battle.sh
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,15 @@
 +# ss3ds 0290: Battle Frontier + battle crash fixes backported from upstream pspoke (Factory first battle, Battle Hall,
 +# last Pokemon fainting with the foe). Edits the staged decomp (idempotent) and rebuilds only the objects it changed.
-+# A missing anchor stops the build: these are crash fixes, so losing one silently is worse than a clear failure.
-+step ss-hook-0290 bash -c "cd '$C' && changed=\$(python3 '$ROOT/scripts/ss3ds_hooks.d/0290_upstream_battle.py') || exit 1
-+  for f in \$changed; do
-+    case \$f in
-+      src/frontier/overlay_80_02236B78.c) bash rebuild_game_object.sh \$f frontier__overlay_80_02236B78.o 80 || exit 1 ;;
-+      src/frontier/overlay_80_022372D8.c) bash rebuild_game_object.sh \$f frontier__overlay_80_022372D8.o 80 || exit 1 ;;
-+      src/battle/battle_command.c)        bash rebuild_game_object.sh \$f battle__battle_command.o 12 || exit 1 ;;
-+      *) echo \"0290: no rebuild rule for \$f\"; exit 1 ;;
-+    esac
-+  done
-+  echo \"0290 rebuilt: \${changed:-nothing (already applied)}\""
++# Never stops the build: a file whose anchors moved is left untouched (old behaviour) and logged as skipped, and a
++# failed object rebuild puts the original source back (so later full compiles match) and keeps the old object.
++if ! (cd "$C" && changed=$(python3 "$ROOT/scripts/ss3ds_hooks.d/0290_upstream_battle.py") && rc=0 &&
++      for f in $changed; do
++        case $f in
++          src/frontier/overlay_80_02236B78.c) bash rebuild_game_object.sh "$f" frontier__overlay_80_02236B78.o 80 || { mv -f "$f.pre0290" "$f"; rc=1; } ;;
++          src/frontier/overlay_80_022372D8.c) bash rebuild_game_object.sh "$f" frontier__overlay_80_022372D8.o 80 || { mv -f "$f.pre0290" "$f"; rc=1; } ;;
++          src/battle/battle_command.c)        bash rebuild_game_object.sh "$f" battle__battle_command.o 12 || { mv -f "$f.pre0290" "$f"; rc=1; } ;;
++        esac
++        rm -f "$f.pre0290"
++      done && echo "ss3ds 0290 rebuilt: ${changed:-nothing (already applied)}" && [ $rc = 0 ]); then
++  log "ss3ds 0290 upstream battle fixes: a rebuild failed (see message above); those objects keep their old code"
++fi
 -- 
 2.43.0
 
