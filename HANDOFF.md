@@ -29,6 +29,13 @@ Fixes from upstream pspoke 7477648..95a99b0 that the 3DS stack was missing. Batt
 - Checked, nothing missing: every seed upstream added (ice, mail, Dowsing MCHN, Move Reminder, Frontier...) is already reached by the 3DS translator closure; overlay_67.s was already seeded by 0263.
 - Left out on purpose: upstream hides Pokewalker, Mystery Gift, WFC and Wii options on the title menu (PSP has no wireless; the 3DS has them working). Wider register lanes (b1b2a66): Transform is already fixed by 0162/0163 and the rest would turn loud aborts on side-effect registers into silent writes. Vertex-chunk flush (95a99b0): the 3DS buffer is already 4x larger and the fix needs a header change in a compile-once object; revisit only if `[NATIVE-RENDER] vertex overflow` is ever seen.
 
+## pret/pokeheartgold review (2026-11-19, no code change)
+
+- Sources: slop 808283ee supplies all compiled C and the asm the translator reads; pret 0985e87 is only the asset member-order audit. pret head 4e95633 (580 commits on) is not used by the build.
+- The risky code is slop's 73 hand-written `#ifdef NONMATCHING` functions (crossprobe.py compiles with -DNONMATCHING); two of them were the Factory and Hall crashes fixed in 0290.
+- pret head has verified C for only 4 of the 73 (BattleHpBar_LoadResources, ov12_02264F44, ov12_02265054, Pokegear phone ov02_02251FDC): all behave the same as slop's. pret's new overlay 35 and 57 decompilations add nothing (slop's ov35 C is equivalent; ov57 is translated from asm, which is exact).
+- No pret migration or pin bump is needed. If a Frontier screen still misbehaves, the next suspects are the remaining overlay 80 NONMATCHING functions (ov80_0222A*, FrtCmd_179, ov80_02236BE4/C2C/C9C/E90, ov80_022371B0, ov80_02237334/7448); compare each with its asm.
+
 ## Known open items
 
 - Poké Ball opening in battle can show a double image with the 3D slider up (issue #484 covers battle 3D depth).
