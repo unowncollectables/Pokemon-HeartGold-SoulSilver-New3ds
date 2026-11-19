@@ -1705,10 +1705,9 @@ static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Pla
 /* 2026-11-19 removed rows (built-in default kept, config.txt line still read): Live party/bag OFF, Menu button OFF, Kanto on map GATED,
    X tile cursor ON, Map zoom (the map's -/+ chips), Roamer sprites ON, Contest helper ON, Breeding tab ON, Sprite depth ON, Fast tab swap ON, Pokegear tabs.
    Also gone (owner's levels are the default): Even loudness ON, Steady music ON, Menu music ON, Visible at once 6, Visible shiny sparkle ON,
-   Visible wild cries ON, Low battery warning ON. */
+   Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too). */
 static const SAppTab kTabs[kTotalTabs]={
- {4,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
-     {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
+ {3,{{9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
      {kSeasonalTreesItem,"Seasonal trees","Changes common outdoor tree colors. Applies when the area reloads."}}},
  {2,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
@@ -2983,7 +2982,7 @@ static int PresentFrame(bool){
      the pillarbox (mode 1, overworld only, 3D on BG0). The flag drives the NEXT frame's 3D pass; the strips drawn now
      come from this frame's pass. Off = no extra work at all. */
   if(wideCfg<0){wideCfg=1;/* ss3ds: default on (wide 400 px top screen) */FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"wideview=%d",&x)==1)wideCfg=x!=0;fclose(f);}PSPNativeMemLog("[WIDE] wideview=%d",wideCfg);}
-  {u32 kd=hidKeysDown(),kh=hidKeysHeld();if(((kd&KEY_X)&&(kh&KEY_L)&&(kh&KEY_R)&&!(kh&KEY_Y))){wideCfg=!wideCfg;PSPNativeMemLog("[QUICK] L+R+X wide view toggle: wideview=%d",wideCfg);P3DS_Toast(wideCfg?"WIDE VIEW ON":"WIDE VIEW OFF");}}
+  /* 2026-11-19: the L+R+X wide view toggle is gone; wide view is how the port looks (config.txt wideview=0 is still read as an escape hatch) */
   const u32 dc=reg32(0);const bool act=wideCfg&&P3DS_InField&&mode==1&&gpuOk==1&&(dc&8)&&(dc&0x100)&&((dc>>16)&3)==1&&engineA.Enabled;
   {static int lastAct=-1;if((int)act!=lastAct){lastAct=act;PSPNativeMemLog("[WIDE] active=%d (cfg %d field %d mode %d 3Dbg0 %d)",(int)act,wideCfg,P3DS_InField,mode,(int)((dc&0x108)==0x108));}}
   {const u64 tds=svcGetSystemTick();G3G_DirectStrips();pfT[PF_DSTRIP]+=svcGetSystemTick()-tds;}/* gpu_direct3d wide: convert this frame's side strips from the readback G3G_End queued */
