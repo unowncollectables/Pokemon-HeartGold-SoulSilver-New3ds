@@ -21,6 +21,21 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 
 Fixes from upstream pspoke 7477648..95a99b0 that the 3DS stack was missing. Battle Frontier: Factory first battle jumped to 0 (e03aace), Battle Hall crashed every battle (7da56e7), between-battle rooms drew black because bank G ext palettes landed in bank H (41005bc; fixed here as a `GX_*LoadBGExtPltt` link wrap in `psp_ctru.c`, logs `[GX] BG ext palette bank G` up to 4 times). Battles: freeze when the last Pokemon faints with the foe (Self-Destruct/Explosion, e1e825a), frozen move animations from the SPL create-emitter arity (7d56c81; delete half was 0262). Already covered before: Transform MOSAIC byte write (0162/0163), Frontier seeds (0273, a superset of upstream's). Still to review: translator ABI (aa8be86, 331cc8a, 66da681 64-bit returns), wider ioreg lanes (b1b2a66), 174e199 field/menu paths, then pret.
 
+## Upstream pspoke backports, part 2 (2026-11-19, patch 0291 + Heap_Destroy wrap, unbuilt)
+
+- Translator calls with 64-bit or float values now use the real ARM layout (upstream 66da681, aa8be86, 331cc8a): Pal Pad friend code entry (String_atoi), digit boxes (ManagedSprite_SetAffineScale), sub_0203088C (14 call sites), GF_RTC_DateTimeToSec, OS_SetTick, String16_FormatUnsignedLongLong, ov01_02203F2C. The translator log (ss-maploader) prints one `maploader ABI` line listing them. Externals in arg-overrides.json keep their old binding; where upstream would stop the build, the old binding is kept and named instead.
+- Pal Pad > Register Friend Code crash on OK: `__wrap_Heap_Destroy` in psp_ctru.c clears the friend-code VBlank callback when heap 0x6C goes away (logs `[HEAP] heap 0x6C`).
+- PC Ball Capsule exited the game: overlay 57 is supported now (logs `[SS-OVERLAY] ov57 sinit`).
+- Checked, nothing missing: every seed upstream added (ice, mail, Dowsing MCHN, Move Reminder, Frontier...) is already reached by the 3DS translator closure; overlay_67.s was already seeded by 0263.
+- Left out on purpose: upstream hides Pokewalker, Mystery Gift, WFC and Wii options on the title menu (PSP has no wireless; the 3DS has them working). Wider register lanes (b1b2a66): Transform is already fixed by 0162/0163 and the rest would turn loud aborts on side-effect registers into silent writes. Vertex-chunk flush (95a99b0): the 3DS buffer is already 4x larger and the fix needs a header change in a compile-once object; revisit only if `[NATIVE-RENDER] vertex overflow` is ever seen.
+
+## pret/pokeheartgold review (2026-11-19, no code change)
+
+- Sources: slop 808283ee supplies all compiled C and the asm the translator reads; pret 0985e87 is only the asset member-order audit. pret head 4e95633 (580 commits on) is not used by the build.
+- The risky code is slop's 73 hand-written `#ifdef NONMATCHING` functions (crossprobe.py compiles with -DNONMATCHING); two of them were the Factory and Hall crashes fixed in 0290.
+- pret head has verified C for only 4 of the 73 (BattleHpBar_LoadResources, ov12_02264F44, ov12_02265054, Pokegear phone ov02_02251FDC): all behave the same as slop's. pret's new overlay 35 and 57 decompilations add nothing (slop's ov35 C is equivalent; ov57 is translated from asm, which is exact).
+- No pret migration or pin bump is needed. If a Frontier screen still misbehaves, the next suspects are the remaining overlay 80 NONMATCHING functions (ov80_0222A*, FrtCmd_179, ov80_02236BE4/C2C/C9C/E90, ov80_022371B0, ov80_02237334/7448); compare each with its asm.
+
 ## Known open items
 
 - Poké Ball opening in battle can show a double image with the 3D slider up (issue #484 covers battle 3D depth).

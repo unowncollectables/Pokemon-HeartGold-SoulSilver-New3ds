@@ -1,0 +1,174 @@
+From 07314416e30f8873e1c4450b8f0d473d013e8191 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 19 Nov 2026 19:19:37 +0000
+Subject: [PATCH] ss3ds: upstream translator ABI fixes (64-bit/float externals)
+ and Ball Capsule overlay 57
+
+Backports from upstream pspoke (pin 7477648, head 95a99b0):
+
+- 66da681 / aa8be86 / 331cc8a (port.py): translated assembly called every C function as
+  uint32_t f(uint32_t...). That is wrong on the 3DS (devkitARM hard-float) in three cases, the same
+  as on the PSP:
+  * a 64-bit return (String_atoi, sub_0203088C): the high word in r1 was clobbered, so the Pal Pad
+    friend code came back as garbage;
+  * a float parameter or return (ManagedSprite_SetAffineScale, ov01_02203F2C): ARM code passes the
+    bits in an integer register, the hard-float callee reads s0 (Pal Pad digit boxes vanished);
+  * a 64-bit parameter (OS_SetTick, String16_FormatUnsignedLongLong): AAPCS puts it in an even
+    register pair or 8-aligned stack slot and shifts the arguments after it.
+  Where upstream stops the build (a double parameter, or 64-bit and float together) this keeps the
+  old binding and prints it instead, so a build that worked never fails on it. Externals listed in
+  arg-overrides.json keep their old binding, as before. One "maploader ABI" line in the translator
+  log lists every external that got the new binding.
+- 66da681 (overlay.c): the PC's Ball Capsule option exited the game; the native overlay loader
+  refused overlay 57 for its static initializer, which only loads overlays 6 and 7. Supported now,
+  logged as "[SS-OVERLAY] ov57 sinit".
+
+port.py and overlay.c are already re-synced into a staged tree by ss3ds_game.sh.
+---
+ port/soulsilver-native-overlays/overlay.c     |  5 +-
+ port/soulsilver-native-play/maploader/port.py | 86 ++++++++++++++++++-
+ 2 files changed, 89 insertions(+), 2 deletions(-)
+
+diff --git a/port/soulsilver-native-overlays/overlay.c b/port/soulsilver-native-overlays/overlay.c
+index afe3ef3..f26c9c4 100644
+--- a/port/soulsilver-native-overlays/overlay.c
++++ b/port/soulsilver-native-overlays/overlay.c
+@@ -29,8 +29,11 @@ BOOL PSPNativeOverlay_Init(void){
+  *      (libntrdwc), so loading it only resets the overlay's own data/bss, like any supported module;
+  *  38  the second DWC overlay (LoadOVY38), same reason as 0. */
+ extern BOOL sub_02039998(void);extern BOOL HandleLoadOverlay(FSOverlayID id,int loadType);
+-static BOOL Supported(unsigned id){return bounds[id].supported||id==12||id==123||id==0||id==38;}
++static BOOL Supported(unsigned id){return bounds[id].supported||id==12||id==57||id==123||id==0||id==38;}
+ static void NativeStaticInit(unsigned id){
++ /* ov57 (Ball Capsule) .sinit ov57_022378C0: load OVY_6 and OVY_7 (upstream pspoke 66da681; the PC Ball Capsule
++    option exited the game because the loader refused ov57 for its static initializer). */
++ if(id==57){extern void PSPNativeMemLog(const char*,...);PSPNativeMemLog("[SS-OVERLAY] ov57 sinit: loading OVY_6, OVY_7");HandleLoadOverlay(6,2);HandleLoadOverlay(7,2);}
+  if(id==12&&!sub_02039998()){extern void PSPNativeMemLog(const char*,...);PSPNativeMemLog("[SS-OVERLAY] ov12 sinit: loading OVY_18");HandleLoadOverlay(18,2);}
+ }
+ static BOOL Valid(const FSOverlayInfo *o){
+diff --git a/port/soulsilver-native-play/maploader/port.py b/port/soulsilver-native-play/maploader/port.py
+index 4c873be..6ad38b2 100644
+--- a/port/soulsilver-native-play/maploader/port.py
++++ b/port/soulsilver-native-play/maploader/port.py
+@@ -212,6 +212,44 @@ def _typedef_struct_names(text):
+     return names - {'return', 'break', 'continue', 'else', 'while', 'do'}
+ STRUCT_TYPES = _typedef_struct_names(TEXT)
+ STRUCT_RETURNS = {}
++# C functions returning a 64-bit value: the result travels in r1:r0, and hand assembly reads r1 after the call
++# (ov43's Pal Pad friend code: `bl String_atoi; add r7, r0, #0; add r6, r1, #0`). Bound as uint64_t, split into
++# r0/r1, and exempt from the r1 clobber that follows every other external call.
++RET64 = set()
++# C functions taking or returning single floats. The ARM code passes an f32 as its bit pattern in an integer register
++# (soft-float AAPCS); the PSP build of that function reads it from an FPU register. Without converting, the sprite
++# scale for the Pal Pad's digit boxes arrived as 0.0 and the boxes vanished. Doubles are refused (would need pairs).
++FLOAT_PARAMS = {}
++FLOAT_RET = set()
++FLOAT_TYPES = {'f32', 'float'}
++# C functions with 64-bit parameters. ARM AAPCS puts each in an even-aligned register pair (r0:r1 or r2:r3) or an
++# 8-aligned stack slot, shifting the arguments after it; the generic binding passed plain words (OS_SetTick,
++# String16_FormatUnsignedLongLong).
++WIDE_PARAMS = {}
++WIDE_TYPES = {'u64', 's64', 'fx64', 'OSTick', 'int64_t', 'uint64_t'}
++
++
++def aapcs_args(widths):
++    """C argument expressions for parameters of the given widths (4 or 8 bytes), read where ARM code put them."""
++    reg, stack, out = 0, 0, []
++    for w in widths:
++        if w == 8:
++            if reg % 2:
++                reg += 1
++            if reg <= 2:
++                out.append(f'(((uint64_t)r{reg + 1}<<32)|r{reg})'); reg += 2
++            else:
++                reg = 4; stack = (stack + 7) & ~7
++                out.append(f'(((uint64_t)ld32(sp+{stack + 4})<<32)|ld32(sp+{stack}))'); stack += 8
++        elif reg < 4:
++            out.append(f'r{reg}'); reg += 1
++        else:
++            out.append(f'ld32(sp+{stack})'); stack += 4
++    return out
++RET64_TYPES = {'s64', 'u64', 'fx64', 'OSTick', 'int64_t', 'uint64_t'}
++# ss3ds: externals bound with the new 64-bit/float rules (printed once per translator run for the build log), and the
++# ones that keep the old binding because upstream would have stopped the build on them.
++ABI_LOG, ABI_KEPT = [], []
+ 
+ 
+ def arg_count(name):
+@@ -225,9 +263,24 @@ def arg_count(name):
+         hidden = 1 if (toks and toks[-1] != '*' and toks[-1] in STRUCT_TYPES) else 0
+         if hidden:
+             STRUCT_RETURNS[name] = toks[-1]
++        if toks and toks[-1] != '*' and (toks[-1] in RET64_TYPES or toks[-2:] == ['long', 'long']):
++            RET64.add(name)
++        if toks and toks[-1] in FLOAT_TYPES:
++            FLOAT_RET.add(name)
+         if args in ('', 'void'):
+             return hidden
+         parts = split_top(args)
++        ptypes = [re.sub(r'\s+\w+$', '', p).replace('const ', '').strip() for p in parts]
++        if any(t in ('f64', 'double') for t in ptypes):
++            # ss3ds: upstream stops the build here. Keep the old word-by-word binding instead and say so, so a build
++            # that worked before never fails on this (a double parameter would need a register pair).
++            ABI_KEPT.append(name + ' (double parameter)')
++            RET64.discard(name); FLOAT_RET.discard(name)
++            return len(parts) + hidden
++        if any(t in WIDE_TYPES or t == 'long long' for t in ptypes):
++            WIDE_PARAMS[name] = [4] * hidden + [8 if (t in WIDE_TYPES or t == 'long long') else 4 for t in ptypes]
++        if any(t in FLOAT_TYPES for t in ptypes):
++            FLOAT_PARAMS[name] = [i + hidden for i, t in enumerate(ptypes) if t in FLOAT_TYPES]
+         if any(p == '...' for p in parts):
+             raise SystemExit('variadic external not supported: ' + name)
+         return len(parts) + hidden
+@@ -286,9 +339,37 @@ for name in extern:
+         fmt = ' '.join(['%08lx'] * c)
+         t.CALLS[name] = (f'printf("[DBG] {name} {fmt}"' + ''.join(',' + x for x in a) + f');r0={name}(' + ','.join(a) + ');printf(" -> %08lx\\n", r0);', c)
+         continue
+-    protos.append(f'extern uint32_t {name}(' + (','.join(['uint32_t'] * c) or 'void') + ');')
+     args = [f'r{i}' if i < 4 else f'ld32(sp+{4 * (i - 4)})' for i in range(c)]
++    if name in WIDE_PARAMS and (name in FLOAT_PARAMS or name in FLOAT_RET):
++        ABI_KEPT.append(name + ' (64-bit and float parameters)')   # ss3ds: upstream stops the build; keep the old binding
++        WIDE_PARAMS.pop(name); FLOAT_PARAMS.pop(name, None); FLOAT_RET.discard(name); RET64.discard(name)
++    if name in WIDE_PARAMS:
++        ABI_LOG.append(name + ' 64-bit args')
++        widths = WIDE_PARAMS[name]
++        rtype = 'uint64_t' if name in RET64 else 'uint32_t'
++        protos.append(f'extern {rtype} {name}(' + ','.join('uint64_t' if w == 8 else 'uint32_t' for w in widths) + ');')
++        call = f'{name}(' + ','.join(aapcs_args(widths)) + ')'
++        t.CALLS[name] = ((f'{{uint64_t v64={call};r0=(uint32_t)v64;r1=(uint32_t)(v64>>32);}}' if name in RET64 else f'r0={call};'), c)
++        continue
++    if name in FLOAT_PARAMS or name in FLOAT_RET:
++        ABI_LOG.append(name + ' float')
++        fl = set(FLOAT_PARAMS.get(name, []))
++        rtype = 'float' if name in FLOAT_RET else 'uint32_t'
++        protos.append(f'extern {rtype} {name}(' + (','.join('float' if i in fl else 'uint32_t' for i in range(c)) or 'void') + ');')
++        cargs = [f'ssf_bits({a})' if i in fl else a for i, a in enumerate(args)]
++        call = f'{name}(' + ','.join(cargs) + ')'
++        t.CALLS[name] = ((f'{{float fr={call};memcpy(&r0,&fr,4);}}' if name in FLOAT_RET else f'r0={call};'), c)
++        continue
++    if name in RET64:
++        ABI_LOG.append(name + ' 64-bit return')
++        protos.append(f'extern uint64_t {name}(' + (','.join(['uint32_t'] * c) or 'void') + ');')
++        t.CALLS[name] = (f'{{uint64_t v64={name}(' + ','.join(args) + ');r0=(uint32_t)v64;r1=(uint32_t)(v64>>32);}', c)
++        continue
++    protos.append(f'extern uint32_t {name}(' + (','.join(['uint32_t'] * c) or 'void') + ');')
+     t.CALLS[name] = (f'r0={name}(' + ','.join(args) + ');', c)
++print('maploader ABI (upstream aa8be86/331cc8a/66da681):', len(ABI_LOG), 'externals rebound:', ', '.join(sorted(ABI_LOG)) or 'none')
++if ABI_KEPT:
++    print('maploader ABI: kept the old binding for', ', '.join(sorted(ABI_KEPT)))
+ for name, kind in DIV.items():
+     t.CALLS[name] = (f'ssdiv_{kind}(&r0,&r1);', 2)
+ for name, stmt in RUNTIME64.items():
+@@ -314,6 +395,9 @@ for name in closure:
+                                 stmt + '\nr1=0xa1a1a1a1; r2=0xa2a2a2a2; r3=0xa3a3a3a3; /* caller-clobbered, flags kept */')
+     for stmt in RUNTIME64.values():
+         code = code.replace(stmt + '\nr1=0xa1a1a1a1; ', stmt + '\n')
++    for ext in RET64:
++        if ext in t.CALLS:
++            code = code.replace(t.CALLS[ext][0] + '\nr1=0xa1a1a1a1; ', t.CALLS[ext][0] + '\n')
+     for other in closure + extern:
+         code = code.replace(f'extern unsigned char {other}[];\n', '')
+     if trace and (not os.environ.get('TRACE_ONLY') or name in os.environ['TRACE_ONLY'].split(',')):
+-- 
+2.43.0
+
