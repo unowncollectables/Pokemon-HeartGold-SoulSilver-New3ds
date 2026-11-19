@@ -1,44 +1,44 @@
 From 3826c1574b0aaa6f93d9e8e9169260893848b904 Mon Sep 17 00:00:00 2001
 From: ss3ds <ss3ds@localhost>
 Date: Wed, 18 Nov 2026 23:33:02 +0000
-Subject: [PATCH] ss3ds: hook 0286 sharp game text (bg_window.c glyph recording
+Subject: [PATCH] ss3ds: hook 0289 sharp game text (bg_window.c glyph recording
  for the native top text layer)
 
 ---
- scripts/ss3ds_hooks.d/0286_gametext.py | 91 ++++++++++++++++++++++++++
- scripts/ss3ds_hooks.d/0286_gametext.sh |  4 ++
+ scripts/ss3ds_hooks.d/0289_gametext.py | 91 ++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0289_gametext.sh |  4 ++
  2 files changed, 95 insertions(+)
- create mode 100644 scripts/ss3ds_hooks.d/0286_gametext.py
- create mode 100644 scripts/ss3ds_hooks.d/0286_gametext.sh
+ create mode 100644 scripts/ss3ds_hooks.d/0289_gametext.py
+ create mode 100644 scripts/ss3ds_hooks.d/0289_gametext.sh
 
-diff --git a/scripts/ss3ds_hooks.d/0286_gametext.py b/scripts/ss3ds_hooks.d/0286_gametext.py
+diff --git a/scripts/ss3ds_hooks.d/0289_gametext.py b/scripts/ss3ds_hooks.d/0289_gametext.py
 new file mode 100644
 index 0000000..b80f9aa
 --- /dev/null
-+++ b/scripts/ss3ds_hooks.d/0286_gametext.py
++++ b/scripts/ss3ds_hooks.d/0289_gametext.py
 @@ -0,0 +1,91 @@
 +#!/usr/bin/env python3
-+"""ss3ds 0286 sharp game text, stage 1: bg_window.c tells the platform (soulsilver3ds/platform/ss3ds_gametext.c) about every glyph a
++"""ss3ds 0289 sharp game text, stage 1: bg_window.c tells the platform (soulsilver3ds/platform/ss3ds_gametext.c) about every glyph a
 +text window gets, and the platform hands back a copy of the window's pixels WITHOUT the recorded glyphs for the VRAM upload (the
 +window's own buffer is never changed, so everything that reads it still sees the text). The platform draws those glyphs at the
-+screen's own resolution. Applied to the staged SoulSilver decomp in cwd (= $C). Idempotent ('SS3DS 0286'); fails loudly if an anchor moved.
++screen's own resolution. Applied to the staged SoulSilver decomp in cwd (= $C). Idempotent ('SS3DS 0289'); fails loudly if an anchor moved.
 +Platform off / not in the overworld / window not eligible: every call returns at once and the game behaves exactly as before."""
 +import sys
 +p = 'src/bg_window.c'
 +s = open(p).read()
-+if 'SS3DS 0286' in s:
++if 'SS3DS 0289' in s:
 +    sys.exit(0)
 +
 +def sub(old, new, count=1):
 +    global s
 +    if s.count(old) != count:
-+        sys.exit('0286_gametext: anchor not found %d time(s): %r' % (count, old[:70]))
++        sys.exit('0289_gametext: anchor not found %d time(s): %r' % (count, old[:70]))
 +    s = s.replace(old, new)
 +
 +# 1. declarations, after the first include block
 +inc = '#include "bg_window.h"\n'
 +sub(inc, inc + '''
-+/* SS3DS 0286: sharp game text hooks (soulsilver3ds/platform/ss3ds_gametext.c) */
++/* SS3DS 0289: sharp game text hooks (soulsilver3ds/platform/ss3ds_gametext.c) */
 +typedef struct { const void *buf; int bg, left, top, wT, hT, pal, base, is4bpp; } P3DS_GtDesc;
 +extern int P3DS_GtWant(const P3DS_GtDesc *d);
 +extern void P3DS_GtGlyph(const P3DS_GtDesc *d, int x, int y, const unsigned char *tile16x32, int hasInk);
@@ -55,34 +55,34 @@ index 0000000..b80f9aa
 +
 +# 2. RemoveWindow / WindowArray_Delete: forget the window
 +sub('void RemoveWindow(Window *window) {\n    Heap_Free(window->pixelBuffer);\n',
-+    'void RemoveWindow(Window *window) {\n    P3DS_GtRemove(window->pixelBuffer); /* SS3DS 0286 */\n    Heap_Free(window->pixelBuffer);\n')
++    'void RemoveWindow(Window *window) {\n    P3DS_GtRemove(window->pixelBuffer); /* SS3DS 0289 */\n    Heap_Free(window->pixelBuffer);\n')
 +sub('        if (windows[i].pixelBuffer != NULL) {\n            Heap_Free(windows[i].pixelBuffer);',
-+    '        if (windows[i].pixelBuffer != NULL) {\n            P3DS_GtRemove(windows[i].pixelBuffer); /* SS3DS 0286 */\n            Heap_Free(windows[i].pixelBuffer);')
++    '        if (windows[i].pixelBuffer != NULL) {\n            P3DS_GtRemove(windows[i].pixelBuffer); /* SS3DS 0289 */\n            Heap_Free(windows[i].pixelBuffer);')
 +
 +# 3. the upload: the platform decides which buffer goes to VRAM
 +sub('void CopyWindowPixelsToVram_TextMode(Window *window) {\n    BG_LoadCharTilesData(window->bgConfig, window->bgId, window->pixelBuffer, window->width * window->height * window->bgConfig->bgs[window->bgId].tileSize, window->baseTile);\n}',
-+    'void CopyWindowPixelsToVram_TextMode(Window *window) {\n    /* SS3DS 0286: the platform may return a copy without the glyphs it draws natively */\n    P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd);\n    const unsigned gtSize = window->width * window->height * window->bgConfig->bgs[window->bgId].tileSize;\n    const void *gtSrc = window->bgConfig->bgs[window->bgId].tileSize == TILE_SIZE_4BPP ? P3DS_GtUpload(&gtd, gtSize) : window->pixelBuffer;\n    BG_LoadCharTilesData(window->bgConfig, window->bgId, gtSrc, gtSize, window->baseTile);\n}')
++    'void CopyWindowPixelsToVram_TextMode(Window *window) {\n    /* SS3DS 0289: the platform may return a copy without the glyphs it draws natively */\n    P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd);\n    const unsigned gtSize = window->width * window->height * window->bgConfig->bgs[window->bgId].tileSize;\n    const void *gtSrc = window->bgConfig->bgs[window->bgId].tileSize == TILE_SIZE_4BPP ? P3DS_GtUpload(&gtd, gtSize) : window->pixelBuffer;\n    BG_LoadCharTilesData(window->bgConfig, window->bgId, gtSrc, gtSize, window->baseTile);\n}')
 +
 +# 4. fills: a full fill makes the window "one colour"
 +sub('void FillWindowPixelBuffer(Window *window, u8 fillValue) {\n',
-+    'void FillWindowPixelBuffer(Window *window, u8 fillValue) {\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtFill(&gtd, fillValue); } /* SS3DS 0286 */\n')
++    'void FillWindowPixelBuffer(Window *window, u8 fillValue) {\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtFill(&gtd, fillValue); } /* SS3DS 0289 */\n')
 +sub('void FillWindowPixelBufferText_AssumeTileSize32(Window *window, u8 fillValue) {\n',
-+    'void FillWindowPixelBufferText_AssumeTileSize32(Window *window, u8 fillValue) {\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtFill(&gtd, fillValue); } /* SS3DS 0286 */\n')
++    'void FillWindowPixelBufferText_AssumeTileSize32(Window *window, u8 fillValue) {\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtFill(&gtd, fillValue); } /* SS3DS 0289 */\n')
 +
 +# 5. other writers: glyphs under the rectangle are forgotten (only glyph pixels are ever erased)
 +sub('void FillWindowPixelRect(Window *window, u8 fillValue, u16 x, u16 y, u16 width, u16 height) {\n    Bitmap bmp;\n',
-+    'void FillWindowPixelRect(Window *window, u8 fillValue, u16 x, u16 y, u16 width, u16 height) {\n    Bitmap bmp;\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtRect(&gtd, x, y, width, height); } /* SS3DS 0286 */\n')
++    'void FillWindowPixelRect(Window *window, u8 fillValue, u16 x, u16 y, u16 width, u16 height) {\n    Bitmap bmp;\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtRect(&gtd, x, y, width, height); } /* SS3DS 0289 */\n')
 +sub('void BlitBitmapRect(Window *window, void *src, u16 srcX, u16 srcY, u16 srcWidth, u16 srcHeight, u16 destX, u16 destY, u16 destWidth, u16 destHeight, u16 colorKey) {\n    Bitmap bmpSrc, bmpDest;\n',
-+    'void BlitBitmapRect(Window *window, void *src, u16 srcX, u16 srcY, u16 srcWidth, u16 srcHeight, u16 destX, u16 destY, u16 destWidth, u16 destHeight, u16 colorKey) {\n    Bitmap bmpSrc, bmpDest;\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtRect(&gtd, destX, destY, destWidth, destHeight); } /* SS3DS 0286 */\n')
++    'void BlitBitmapRect(Window *window, void *src, u16 srcX, u16 srcY, u16 srcWidth, u16 srcHeight, u16 destX, u16 destY, u16 destWidth, u16 destHeight, u16 colorKey) {\n    Bitmap bmpSrc, bmpDest;\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtRect(&gtd, destX, destY, destWidth, destHeight); } /* SS3DS 0289 */\n')
 +sub('void ScrollWindow(Window *window, u8 direction, u8 y, u8 fillValue) {\n',
-+    'void ScrollWindow(Window *window, u8 direction, u8 y, u8 fillValue) {\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtScroll(&gtd, direction, y, fillValue); } /* SS3DS 0286 */\n')
++    'void ScrollWindow(Window *window, u8 direction, u8 y, u8 fillValue) {\n    { P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd); P3DS_GtScroll(&gtd, direction, y, fillValue); } /* SS3DS 0289 */\n')
 +
 +# 6. the glyph copy: the original becomes static, the wrapper records the glyph (drawn once more into a 16x32 scratch, so it has
 +#    exactly the pixels, row doubling and clipping the game gives it)
 +old = 'void CopyGlyphToWindow(Window *window, u8 *glyphPixels, u16 srcWidth, u16 srcHeight, u16 destX, u16 destY, u16 table) {\n'
 +new = '''static void CopyGlyphToWindow_ss3ds_orig(Window *window, u8 *glyphPixels, u16 srcWidth, u16 srcHeight, u16 destX, u16 destY, u16 table);
 +void CopyGlyphToWindow(Window *window, u8 *glyphPixels, u16 srcWidth, u16 srcHeight, u16 destX, u16 destY, u16 table) {
-+    /* SS3DS 0286 */
++    /* SS3DS 0289 */
 +    P3DS_GtDesc gtd; SS3DS_GtD(window, &gtd);
 +    CopyGlyphToWindow_ss3ds_orig(window, glyphPixels, srcWidth, srcHeight, destX, destY, table);
 +    if (P3DS_GtWant(&gtd)) {
@@ -107,16 +107,16 @@ index 0000000..b80f9aa
 +'''
 +sub(old, new)
 +open(p, 'w').write(s)
-+print('0286_gametext: bg_window.c hooked')
-diff --git a/scripts/ss3ds_hooks.d/0286_gametext.sh b/scripts/ss3ds_hooks.d/0286_gametext.sh
++print('0289_gametext: bg_window.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0289_gametext.sh b/scripts/ss3ds_hooks.d/0289_gametext.sh
 new file mode 100644
 index 0000000..26e6890
 --- /dev/null
-+++ b/scripts/ss3ds_hooks.d/0286_gametext.sh
++++ b/scripts/ss3ds_hooks.d/0289_gametext.sh
 @@ -0,0 +1,4 @@
-+# ss3ds 0286: sharp game text hooks in bg_window.c (soulsilver3ds/platform/ss3ds_gametext.c). Not fatal: without it all game text stays in the DS picture.
-+if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0286_gametext.py" && bash rebuild_game_object.sh src/bg_window.c bg_window.o none); then
-+  log "ss3ds 0286 sharp game text hooks NOT applied (see message above); game text stays in the DS picture"
++# ss3ds 0289: sharp game text hooks in bg_window.c (soulsilver3ds/platform/ss3ds_gametext.c). Not fatal: without it all game text stays in the DS picture.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0289_gametext.py" && bash rebuild_game_object.sh src/bg_window.c bg_window.o none); then
++  log "ss3ds 0289 sharp game text hooks NOT applied (see message above); game text stays in the DS picture"
 +fi
 -- 
 2.43.0

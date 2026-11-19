@@ -564,7 +564,7 @@ static void txDraw(C3D_RenderTarget *t) {
     C3D_ImmDrawEnd();
     C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
 }
-/* 2026-11-18 sharp game text, stage 1 (ss3ds_gametext.c, patch 0286): the text of the overworld's text windows at the final 400x240
+/* 2026-11-18 sharp game text, stage 1 (ss3ds_gametext.c, patch 0289): the text of the overworld's text windows at the final 400x240
    resolution. P3DS_GtRender fills P3DS_TopTxBuf (512x256 words R<<24|G<<16|B<<8|A, 400x240 used) and says whether it changed;
    drawn 1:1 NEAREST, alpha-blended, on both eyes at screen depth, after the strips and the other top overlays. The buffer and the
    texture are made on first use (P3DS_TopTxReady, called by the game side before any glyph is taken out of the picture); if either

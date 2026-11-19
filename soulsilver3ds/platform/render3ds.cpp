@@ -1402,7 +1402,7 @@ static const MItem mItems[]={
  /* 2026-11-18 (Nathan: tab swaps laggy): fast_tabs, default ON: going from one app tab (PARTY/BAG/PHONE/RADIO) to another picks the
     new app straight from the Start menu the game returns to, instead of closing it and opening it again. Input tab, remove once tested. */
  {"FAST TAB SWAP","fast_tabs",2,{"OFF","ON"}},
- /* 2026-11-18 sharp_game_text (ss3ds_gametext.c, patch 0286): overworld text windows (dialogue, Yes/No, field lists) at 400x240; Display tab, default ON */
+ /* 2026-11-18 sharp_game_text (ss3ds_gametext.c, patch 0289): overworld text windows (dialogue, Yes/No, field lists) at 400x240; Display tab, default ON */
  {"SHARP GAME TEXT","sharp_game_text",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))

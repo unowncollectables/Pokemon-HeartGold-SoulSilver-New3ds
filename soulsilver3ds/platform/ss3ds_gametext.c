@@ -1,6 +1,6 @@
 /* ss3ds sharp game text, stage 1 (2026-11-18, Nathan: "can we do this for all text boxes and everything in the entire game").
    The game prints every string through CopyGlyphToWindow (bg_window.c) into a window's pixel buffer, copies that buffer to BG VRAM,
-   and the DS picture (256x192) is stretched 1.25x to the screen, so letters come out uneven and soft. Here (patch 0286 hooks the
+   and the DS picture (256x192) is stretched 1.25x to the screen, so letters come out uneven and soft. Here (patch 0289 hooks the
    window code) the glyphs of a text window are RECORDED, taken out of the copy that goes to VRAM (the game's own pixel buffer is
    never touched, so every game routine that reads it still sees the text), and drawn at 1 font pixel = 1 screen pixel in a native
    top-screen layer (gpuscale.c topTxDraw, both eyes, after the stretched picture).
