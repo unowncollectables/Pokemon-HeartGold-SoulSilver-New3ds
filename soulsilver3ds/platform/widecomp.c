@@ -350,3 +350,18 @@ unsigned WC_StripHash(const u8 *R, const WcSrc *S) {
             for (int k = 0; k < rowBytes / 4 && (addr & ~3u) + (unsigned)k * 4 + 4 <= 0x40000; k++) HM(w[k]); } }
 #undef HM
     return h; }
+
+/* ss3ds sharp game text (ss3ds_gametext.c): the wide picture column (0..319 = DS -32..287) that shows column bgcol of layer L's map
+   on screen line y; -1 when no column shows it. Where a column is shown more than once (fills), the one that continues its
+   neighbours (a moved or unmoved panel) wins. */
+int WC_MapColumn(const WcPlan *p, int L, int y, int bgcol) {
+    if (!p || !p->valid || L < 0 || L > 3 || y < 0 || y > 191) return -1;
+    const WcLayer *l = &p->L[L]; if (!l->on || !l->text) return -1;
+    const int M = l->w * 8 - 1; short tmp[320]; const short *map; const uint8_t ri = p->rowOf[L][y];
+    if (ri != 255) map = p->rows[ri]; else { buildRow(p, L, y, tmp); map = tmp; }
+    int best = -1; bgcol &= M;
+    for (int X = 0; X < 320; X++) { if (map[X] != bgcol) continue;
+        if ((X > 0 && map[X - 1] == ((bgcol - 1) & M)) || (X < 319 && map[X + 1] == ((bgcol + 1) & M))) return X;
+        if (best < 0) best = X; }
+    return best;
+}

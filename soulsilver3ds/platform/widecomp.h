@@ -29,6 +29,8 @@ int WC_Compose(const WcPlan *p, const uint8_t *regs, const WcSrc *src, uint32_t 
 int WC_ComposeObjStrips(const WcPlan *p, const uint8_t *regs, const WcSrc *src, uint32_t *strip);
 /* hash of what that compose reads, limited to the sprites that reach into the strips (run 62) */
 unsigned WC_StripHash(const uint8_t *regs, const WcSrc *src);
+/* ss3ds sharp game text: wide picture column (0..319) showing map column bgcol of layer L on line y, or -1 */
+int WC_MapColumn(const WcPlan *p, int L, int y, int bgcol);
 #ifdef __cplusplus
 }
 #endif

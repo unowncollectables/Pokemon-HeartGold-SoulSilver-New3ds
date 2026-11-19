@@ -952,6 +952,13 @@ static int bottomHdCfg(){bottomHdV=1;return 1;} /* run 151 (Nathan): the sharp c
 /* 2026-11-18 sharp_text (Settings > Display "Sharp text", default ON; row 90, the old bottom_hd slot): panel and settings text at 320x240 (ss3ds_sharptext.h) */
 static int sharpTextV=-1;static bool sharpTextCfg(){if(sharpTextV<0){sharpTextV=P3DS_CfgInt("sharp_text",1)!=0;PSPNativeMemLog("[TEXT] sharp_text=%d",sharpTextV);}return sharpTextV!=0;}
 static void sharpTextSet(int v);
+static int sharpGameV=-1;static bool sharpGameCfg(){if(sharpGameV<0){sharpGameV=P3DS_CfgInt("sharp_game_text",1)!=0;PSPNativeMemLog("[GTEXT] sharp_game_text=%d (game text windows on both screens at the 3DS resolution)",sharpGameV);}return sharpGameV!=0;}
+extern "C" int P3DS_SharpGameTextCfg(void){return sharpGameCfg()?1:0;}
+extern "C" const unsigned char*P3DS_GtVram(int eng){return eng?GPU::VRAMFlat_BBG:GPU::VRAMFlat_ABG;}
+extern "C" unsigned char*P3DS_GtObjVram(int eng){return (unsigned char*)(eng?GPU::VRAMFlat_BOBJ:GPU::VRAMFlat_AOBJ);}
+/* sharp game text (ss3ds_gametext.c): which screens show the live engine picture (bit 0 top, bit 1 bottom), the wide layout of the top */
+extern "C" {extern volatile unsigned P3DS_GtScreensNow;extern const WcPlan*volatile P3DS_GtWidePlan;extern volatile int P3DS_GtWideEng;void P3DS_GtSync(unsigned);void P3DS_GtObjRestore(void);}
+static unsigned gtOkPrev;
 static int wideScreensV=-1;static int wideScreensCfg(){if(wideScreensV<0){wideScreensV=P3DS_CfgInt("wide_menu_screens",0)!=0;PSPNativeMemLog("[WIDE] wide_menu_screens=%d (party, bag, summary)",wideScreensV);}return wideScreensV;}
 /* ss3ds wide_boxes (Settings > Wide > Wide HP boxes, default 0): the Platinum port's battle layout. The game hook (pspoke patch
    0100, battle_hp_bar.c) moves the player's HP box 32 px right and the enemy's 32 px left via P3DS_WideBoxExtra(); the wide
@@ -1399,18 +1406,20 @@ static const MItem mItems[]={
  /* 2026-11-18 (Nathan: tab swaps laggy): fast_tabs, default ON: going from one app tab (PARTY/BAG/PHONE/RADIO) to another picks the
     new app straight from the Start menu the game returns to, instead of closing it and opening it again. Input tab, remove once tested. */
  {"FAST TAB SWAP","fast_tabs",2,{"OFF","ON"}},
+ /* 2026-11-18/19 sharp_game_text (ss3ds_gametext.c, patch 0289): the game's text windows on both screens at the 3DS resolution; Display tab, default ON */
+ {"SHARP GAME TEXT","sharp_game_text",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
 extern "C" {void P3DS_PresentDeferSettle(void);int G3G_GpuTimeCfg(void);void G3G_SetGpuTime(int);void G3G_AbComposeWait(unsigned);}
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
-enum{kGtsPickerItem=MENU_N-22,kWideLayItem=MENU_N-21,kG3ThrItem=MENU_N-20,kFps60Item=MENU_N-19,kFps60PipeItem=MENU_N-18,kFps60HoldItem=MENU_N-17,kFps60StripsItem=MENU_N-16,kFps60VramItem=MENU_N-15,kFps60AreaItem=MENU_N-14,kG3XfItem=MENU_N-13,kG3ProfItem=MENU_N-12,kG3WakeItem=MENU_N-11,kG3FastXfItem=MENU_N-10,kG3TexFenceItem=MENU_N-9,kG3TexSafeItem=MENU_N-8,kG3StereoShareItem=MENU_N-7,kPresentPaceItem=MENU_N-6,kG3FrontOvItem=MENU_N-5,kG3StereoGpuItem=MENU_N-4,kG3FrontBgItem=MENU_N-3,kGpuTimeItem=MENU_N-2,kFastTabsItem=MENU_N-1};
+enum{kGtsPickerItem=MENU_N-23,kWideLayItem=MENU_N-22,kG3ThrItem=MENU_N-21,kFps60Item=MENU_N-20,kFps60PipeItem=MENU_N-19,kFps60HoldItem=MENU_N-18,kFps60StripsItem=MENU_N-17,kFps60VramItem=MENU_N-16,kFps60AreaItem=MENU_N-15,kG3XfItem=MENU_N-14,kG3ProfItem=MENU_N-13,kG3WakeItem=MENU_N-12,kG3FastXfItem=MENU_N-11,kG3TexFenceItem=MENU_N-10,kG3TexSafeItem=MENU_N-9,kG3StereoShareItem=MENU_N-8,kPresentPaceItem=MENU_N-7,kG3FrontOvItem=MENU_N-6,kG3StereoGpuItem=MENU_N-5,kG3FrontBgItem=MENU_N-4,kGpuTimeItem=MENU_N-3,kFastTabsItem=MENU_N-2,kSharpGameItem=MENU_N-1};
 extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);int P3DS_G3XfCacheCfg(void);void P3DS_SetG3XfCache(int);int P3DS_G3ProfCfg(void);void P3DS_SetG3Prof(int);int P3DS_G3WakeCfg(void);void P3DS_SetG3Wake(int);int P3DS_G3ThrCheckCfg(void);void P3DS_SetG3ThrCheck(int);int P3DS_G3FastXformCfg(void);void P3DS_SetG3FastXform(int);int P3DS_G3TexFenceCfg(void);void P3DS_SetG3TexFence(int);int P3DS_G3TexSafeCfg(void);void P3DS_SetG3TexSafe(int);int P3DS_G3StereoShareCfg(void);void P3DS_SetG3StereoShare(int);int P3DS_PresentPaceCfg(void);void P3DS_SetPresentPace(int);int P3DS_G3FrontOvCfg(void);void P3DS_SetG3FrontOv(int);int P3DS_G3StereoGpuCfg(void);void P3DS_SetG3StereoGpu(int);int P3DS_G3FrontBgCfg(void);void P3DS_SetG3FrontBg(int);}
 /* fps60 (g3gpu.c, gpucomp.c, gpuscale.c): in-between pictures for the overworld */
 extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);void G3G_SetFps60Pipe(int);void G3G_SetFps60Hold(int);void G3G_SetFps60Strips(int);void P3DS_SetFps60Vram(int);void P3DS_SetFps60Area(int);void P3DS_Fps60Area(unsigned,int);int G3G_FpsHold(void);
  u32*P3DS_GpuMidStripBuffer(int);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
 static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
-enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-44&&kPgFindItem==MENU_N-43&&kBreedItem==MENU_N-42&&kBatchCullItem==MENU_N-41&&kGcDirectItem==MENU_N-40&&kWildAliveItem==MENU_N-39&&kEventAnyItem==MENU_N-38&&kSteadyItem==MENU_N-37&&kEvenItem==MENU_N-36&&kFlyTapItem==MENU_N-35&&kContestItem==MENU_N-34,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
+enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-45&&kPgFindItem==MENU_N-44&&kBreedItem==MENU_N-43&&kBatchCullItem==MENU_N-42&&kGcDirectItem==MENU_N-41&&kWildAliveItem==MENU_N-40&&kEventAnyItem==MENU_N-39&&kSteadyItem==MENU_N-38&&kEvenItem==MENU_N-37&&kFlyTapItem==MENU_N-36&&kContestItem==MENU_N-35,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
 extern "C" {extern volatile int P3DS_AudioGainV,P3DS_AudioLimiterV,P3DS_AudioStallFadeV;void P3DS_SetAudioGain(int);void P3DS_SetAudioLimiter(int);void P3DS_SetAudioStallFade(int);}
 static const int kVolGain[7]={4,5,6,7,8,9,10};
 static int volIdx(){int g=P3DS_AudioGainV;if(g<0)g=P3DS_CfgInt("audio_gain",7);int b=0;for(int k=1;k<7;k++)if(abs(kVolGain[k]-g)<abs(kVolGain[b]-g))b=k;return b;}
@@ -1505,6 +1514,7 @@ extern "C" int P3DS_AmbientWeatherCfg(void) {
 static int menuGet(int i){
  if(i==kGtsPickerItem)return P3DS_CfgInt("gts_picker",0)!=0;
  if(i==kFastTabsItem)return fastTabsCfg()?1:0;
+ if(i==kSharpGameItem)return sharpGameCfg()?1:0;
  if(i==kWideLayItem)return P3DS_WideLayoutsOn();
  if(i==kG3ThrItem)return P3DS_G3ThreadCfg();
  if(i==kFps60Item)return P3DS_Fps60Cfg()!=0;
@@ -1534,6 +1544,7 @@ static int menuGet(int i){
 extern "C" int P3DS_SaveExport(void);
 static void menuSet(int i,int v){
  if(i==kGtsPickerItem){P3DS_CfgWrite("gts_picker",v);return;}
+ if(i==kSharpGameItem){sharpGameV=v!=0;P3DS_CfgWrite("sharp_game_text",sharpGameV);PSPNativeMemLog("[GTEXT] sharp_game_text=%d from settings (applies at once)",sharpGameV);return;}
  if(i==kFastTabsItem){fastTabsV=v!=0;P3DS_CfgWrite("fast_tabs",fastTabsV);PSPNativeMemLog("[PANEL] fast_tabs=%d from settings",fastTabsV);return;}
  if(i==kG3ThrItem){P3DS_SetG3Thread(v);P3DS_CfgWrite("g3_thread",v);return;}
  if(i==kFps60Item){P3DS_SetFps60(v);P3DS_CfgWrite("fps60",v);return;}
@@ -1689,7 +1700,7 @@ struct SAppTab{int n;SAppRow r[kMaxTabRows];};
 enum { kPlayerTabs = 6, kTotalTabs = 6 };
 static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Play","Setup"};
 static const SAppTab kTabs[kTotalTabs]={
- {9,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
+ {10,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
      {kWideLayItem,"Wide layouts","Menu screens are laid out for the full 400 px width instead of filling the sides."},
      {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {139,"Title layout","Classic uses plain borders. Wide fills the screen with the animated backdrop and keeps the logo proportional."},
@@ -1697,7 +1708,8 @@ static const SAppTab kTabs[kTotalTabs]={
      {kSeasonalTreesItem,"Seasonal trees","Changes common outdoor tree colors. Applies when the area reloads."},
      {kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
      {0,"FPS counter","Shows the frame rate on screen."},
-     {kBottomHdItem,"Sharp text","Bottom-screen menus and these settings draw their text at the 3DS's own resolution: crisp letters at true DS size. OFF = the old bigger, stretched text."}}},
+     {kBottomHdItem,"Sharp text","Bottom-screen menus and these settings draw their text at the 3DS's own resolution: crisp letters at true DS size. OFF = the old bigger, stretched text."},
+     {kSharpGameItem,"Sharp game text","The game's text on both screens (dialogue, menus, battle, bag, party, summary) is drawn at the 3DS's own resolution (crisp, true DS size). OFF = the old stretched text."}}},
  {4,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up. FOE DEEPER: the foe and its platform sit further back, yours nearer."},
      {117,"Sharp 3D","3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps."},
@@ -2312,9 +2324,14 @@ static void verifyGpuB(){if(!bGpuVerify||!bGpuCheck)return;
 }
 extern "C" volatile int P3DS_PanelBagOpening;
 static int sFieldHoldOk;
-static int Present(bool){
+static int PresentFrame(bool);
+/* sharp game text: the text tiles that sprites show were taken out for this present's picture only (P3DS_GtSync); the printed
+   tiles go back before the game runs again, on every way out of the present */
+static int Present(bool w){const int r=PresentFrame(w);P3DS_GtObjRestore();return r;}
+static int PresentFrame(bool){
  if(!openFrame)return -1;
  allocBufs();
+ P3DS_GtSync(gtOkPrev);P3DS_GtWidePlan=nullptr; /* sharp game text: text whose screen could not show it last present goes back into VRAM before this compose */
  P3DS_RomCachePumpC(); /* run 51 zone_prefetch: adopt staged blocks on the game thread */
  if(earlyCfg<0){earlyCfg=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"early_b=%d",&x)==1)earlyCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] early_b=%d",earlyCfg);}
  P3DS_TitleWideRequested=P3DS_InTitle&&titleCleanCfg()==2;P3DS_GcTitleWideValid=0;
@@ -2555,7 +2572,7 @@ static int Present(bool){
    {if(P3DS_WideShow[eng]!=0x1F){static u8 rc[0x100] __attribute__((aligned(4)));memcpy(rc,R,sizeof rc);*(u32*)rc&=~((u32)(~P3DS_WideShow[eng]&0x1F)<<8);R=rc;}}
    WcSrc ws=eng?WcSrc{GPU::VRAMFlat_BBG,GPU::VRAMFlat_BOBJ,GPU::VRAMFlat_BBGExtPal,GPU::VRAMFlat_BOBJExtPal,(const u16*)(GPU::Palette+1024),(const u16*)(GPU::Palette+1536),(const u16*)(GPU::OAM+1024),nullptr}
                 :WcSrc{GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,GPU::VRAMFlat_ABGExtPal,GPU::VRAMFlat_AOBJExtPal,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,GPU3D::NativeFrame};
-   const u64 t0=svcGetSystemTick();WC_Plan(&wlPlan,R,wlParts,np);if(wlPlan.changed){wlPlan.changed=0;static unsigned nl;if(nl++<120)PSPNativeMemLog("[WIDE] wide_layouts plan: %s engine %c DISPCNT %08X BGCNT %04X %04X %04X %04X hofs %d %d %d %d vofs %d %d %d %d",P3DS_WideScreenName,eng?'B':'A',*(const u32*)R,*(const u16*)(R+8),*(const u16*)(R+10),*(const u16*)(R+12),*(const u16*)(R+14),*(const u16*)(R+0x10)&511,*(const u16*)(R+0x14)&511,*(const u16*)(R+0x18)&511,*(const u16*)(R+0x1C)&511,*(const u16*)(R+0x12)&511,*(const u16*)(R+0x16)&511,*(const u16*)(R+0x1A)&511,*(const u16*)(R+0x1E)&511);}const int r=WC_Compose(&wlPlan,R,&ws,(u32*)display[eng],P3DS_WideFillBuf);
+   const u64 t0=svcGetSystemTick();WC_Plan(&wlPlan,R,wlParts,np);if(wlPlan.changed){wlPlan.changed=0;static unsigned nl;if(nl++<120)PSPNativeMemLog("[WIDE] wide_layouts plan: %s engine %c DISPCNT %08X BGCNT %04X %04X %04X %04X hofs %d %d %d %d vofs %d %d %d %d",P3DS_WideScreenName,eng?'B':'A',*(const u32*)R,*(const u16*)(R+8),*(const u16*)(R+10),*(const u16*)(R+12),*(const u16*)(R+14),*(const u16*)(R+0x10)&511,*(const u16*)(R+0x14)&511,*(const u16*)(R+0x18)&511,*(const u16*)(R+0x1C)&511,*(const u16*)(R+0x12)&511,*(const u16*)(R+0x16)&511,*(const u16*)(R+0x1A)&511,*(const u16*)(R+0x1E)&511);}const int r=WC_Compose(&wlPlan,R,&ws,(u32*)display[eng],P3DS_WideFillBuf);if(r){P3DS_GtWidePlan=&wlPlan;P3DS_GtWideEng=eng;}
    static unsigned nF,nDrawn,nNo,us;static int lastWhy=-1;nF++;us+=(unsigned)((svcGetSystemTick()-t0)/CPU_TICKS_PER_USEC);
    if(r){wlDone=true;if(r==1)nDrawn++;
     /* the centre reaches the screen as RGB565; give the strips the same 5-bit red and blue so no seam shows at DS x 0 / 255 */
@@ -3121,6 +3138,14 @@ static int Present(bool){
  if(titleWideValid){P3DS_WideStrip[0]=P3DS_WideStrip[1]=titleStrips;P3DS_WideFxOn=1;}
  if(P3DS_GcTitleWideValid&&!bGpuVerify){P3DS_WideStrip[0]=P3DS_WideStrip[1]=P3DS_GcTitleStrips;P3DS_WideFxOn=1;}
  unsigned presentFenceIdleUs=0;
+ {/* sharp game text: the screens whose picture this present is the live engine picture (not a held, black, panel or menu picture) */
+  static bool gtBmPrev;const u32*liveTop=(power&0x8000)?display[0]:display[1],*liveBot=(power&0x8000)?display[1]:display[0];
+  const bool topOk=mode&&gpuOk==1&&top==liveTop&&(!stereo||(eyeL!=(const u32*)sFieldHold&&eyeL!=nullptr));
+  const bool botOk=mode&&gpuOk==1&&!P3DS_ConsoleOnBottom()&&bot==liveBot&&!bmShow&&!gtBmPrev&&!P3DS_MenuOpen&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant;
+  gtBmPrev=bmShow;P3DS_GtScreensNow=(topOk?1u:0u)|(botOk?2u:0u);if(!topOk)P3DS_GtWidePlan=nullptr;
+  if(P3DS_GtScreensNow!=gtOkPrev){static unsigned n;if(n++<60)PSPNativeMemLog("[GTEXT] screens: top %s, bottom %s",topOk?"live":top!=liveTop?"held/other picture":"not scaled",
+   botOk?"live":P3DS_ConsoleOnBottom()?"console":bot!=liveBot?"panel picture":bmShow||gtBmPrev?"Bottom menu":P3DS_MenuOpen?"menu open":(P3DS_PanelPartyOn||P3DS_PanelPartyWant)?"panel party":"not scaled");}
+  gtOkPrev=P3DS_GtScreensNow;}
  if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=P3DS_PanelPartyOn?0:((power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty);btnDirty=false;
   /* fps60: the in-between picture goes out first, top screen only; the present below then waits for the screen to take it, so the two
      land on two V-blanks in a row. Only while this tick's own picture is still on the GPU and is what gets shown. */
@@ -3139,7 +3164,7 @@ static int Present(bool){
   else if(G3G_FpsHold()){const u32*tp0=stereo?eyeL:top;void*rl=P3DS_GcPendTex(display[0]);void*rr=stereo?(void*)P3DS_GcPendTex(rawR):nullptr;
    if(tp0!=display[0]||(stereo&&eyeR!=rawR)||P3DS_MenuOpen||!rl||(stereo&&!rr))f60Why=2;
    else f60Shown=P3DS_GpuPresentMid(rl,rr,P3DS_WideStrip[0],stereo?P3DS_WideStrip[1]:nullptr,mode,stereo?1:0);}
-  {const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;presentFenceIdleUs=P3DS_GpFenceIdleUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
+  {const u64 tp=svcGetSystemTick();P3DS_GpuPresent(stereo?eyeL:top,bot,mode,!P3DS_ConsoleOnBottom(),stereo?eyeR:nullptr);P3DS_GtScreensNow=0;pfT[PF_PRESENT]+=svcGetSystemTick()-tp;pfU[PU_PB]+=P3DS_GpBeginUs;pfU[PU_PT]+=P3DS_GpTearUs;presentFenceIdleUs=P3DS_GpFenceIdleUs;pfU[PU_PE]+=P3DS_GpEndUs;pfU[PU_UP]+=P3DS_GpUpUs;pfU[PU_DR]+=P3DS_GpDrawUs;pfU[PU_ST]+=P3DS_GpStripUs;}}
  else{P3DS_PresentDeferSettle();topTouch();present(GFX_TOP,400,top,0);if(!P3DS_ConsoleOnBottom())present(GFX_BOTTOM,320,bot,0);gfxFlushBuffers();gfxSwapBuffers();}
  P3DS_GameFramePresented();
  u64 tEnd=svcGetSystemTick();last2DUs=(unsigned)((tEnd-t0)/CPU_TICKS_PER_USEC);frames++;
