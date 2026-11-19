@@ -472,14 +472,16 @@ static int pgWildHit(const SPg &p, int x, int y) {
   int wl[64], cg = 0; const int wn = pgWild(p.sel, wl, 64, &cg); if (!wn) return 0; int cw, rows, shown; pgWildLayout(aw, ch, wn, &cw, &rows, &shown);
   const int col = (x - (X0 + 4)) / cw, row = (y - (cy0 + 16)) / 10; if (x < X0 + 4 || y < cy0 + 16 || col < 0 || col > 2 || row < 0 || row >= rows) return 0;
   const int i = col * rows + row; return i < shown ? wl[i] : 0; }
+/* Leave room for the native font's full ink height before painting the next row. */
+enum { kPgFindH = 48, kPgFindTimeY = 31, kPgFindTimeH = 16, kPgFindRowH = 17, kPgFindFooterH = 18 };
 /* finder strip hit: 1 = clear (X), 2..5 = time filter 0..3 */
 static int pgFindHit(const SPg &p, int Y0, int x, int y) {
   if (p.find <= 0) return 0; const int X0 = kBlPanX0 + 2, X1 = kBlPanX1 - 2, tx = X0 + 42, cw = (X1 - tx - 2) / 4;
   if (x >= X1 - 17 && x < X1 && y >= Y0 && y < Y0 + 16) return 1;
   if (x >= X1 - 49 && x < X1 - 18 && y >= Y0 && y < Y0 + 16) return 6;
-  if (p.findList && y >= (kBlPanY1 - 2) - 14 && y < kBlPanY1 - 2) { if (x < X0 + 52) return 7; if (x >= X1 - 52) return 8; }
-  if (p.findList && y >= Y0 + 40) return 9;
-  if (y >= Y0 + 26 && y < Y0 + 39) { const int i = (x - tx) / cw; if (x >= tx && i >= 0 && i < 4) return 2 + i; }
+  if (p.findList && y >= (kBlPanY1 - 2) - kPgFindFooterH && y < kBlPanY1 - 2) { if (x < X0 + 52) return 7; if (x >= X1 - 52) return 8; }
+  if (p.findList && y >= Y0 + kPgFindH) return 9;
+  if (y >= Y0 + kPgFindTimeY - 1 && y < Y0 + kPgFindTimeY + kPgFindTimeH) { const int i = (x - tx) / cw; if (x >= tx && i >= 0 && i < 4) return 2 + i; }
   return 0; }
 static void pgFindPins(uint32_t *b, const SPg &p, int X0, int Y0, int X1, int oy) {
   const bool ok = pgTmHave();
@@ -554,7 +556,6 @@ static bool pgRoamBlit(uint32_t *b, int slot, int sp, int cx, int cy, int X0, in
     const int px = cx - 8 + x, py = cy - 8 + y; if (px < X0 || py < Y0 || px >= X1 || py >= Y1) continue; suiPx(b, px, py, c & 0xFFFFFF); }
   return true; }
 /* card: sprite box left, name + count, X top right, time chips below (hit: pgFindHit) */
-enum { kPgFindH = 40 };
 static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, int Y0, int X1) {
   const uint32_t ink = SUI_RGB(255, 255, 255), bar = SUI_RGB(7, 33, 54), edge = SUI_RGB(190, 214, 206), chip = SUI_RGB(40, 130, 100), gold = SUI_RGB(246, 214, 96);
   for (int y = Y0; y < Y0 + kPgFindH; y++) for (int x = X0; x < X1; x++) suiPx(b, x, y, y == Y0 + kPgFindH - 1 || y == Y0 ? edge : suiMix(SUI_RGB(14, 120, 90), bar, y - Y0, kPgFindH));
@@ -567,12 +568,12 @@ static void pgFindBanner(uint32_t *b, const SUiText &T, const SPg &p, int X0, in
   { const uint32_t lc = p.findList ? gold : chip; for (int y = Y0 + 3; y < Y0 + 14; y++) for (int x = X1 - 48; x < X1 - 19; x++) suiPx(b, x, y, lc); T.draw(b, X1 - 45, Y0 + 4, p.findList ? "MAP" : "LIST", p.findList ? bar : ink, lc); }
   char t[48]; snprintf(t, sizeof t, "%s", kP3dsSpecies[p.find]); int k = (int)strlen(t); const int room = X1 - 50 - tx; while (k > 3 && T.width(t) > room) t[--k] = 0;
   T.draw(b, tx, Y0 + 4, t, ink, SUI_RGB(14, 120, 90));
-  char cn[32]; snprintf(cn, sizeof cn, n == 1 ? "1 place" : "%d places", n); T.draw(b, tx, Y0 + 15, cn, n ? gold : SUI_RGB(200, 160, 160), SUI_RGB(12, 110, 84));
+  char cn[32]; snprintf(cn, sizeof cn, n == 1 ? "1 place" : "%d places", n); T.draw(b, tx, Y0 + 16, cn, n ? gold : SUI_RGB(200, 160, 160), SUI_RGB(12, 110, 84));
   const int now = pgTimeNow(), have = pgTmHave(), cw = (X1 - tx - 2) / 4;
   for (int i = 0; i < 4; i++) { const int x0 = tx + i * cw; const bool on = p.findTm == i, dim = i > 0 && !have;
-    for (int y = Y0 + 27; y < Y0 + 38; y++) for (int x = x0; x < x0 + cw - 2; x++) suiPx(b, x, y, on ? gold : chip);
-    T.draw(b, x0 + 3, Y0 + 28, kPgFindTm[i], on ? bar : dim ? SUI_RGB(140, 170, 160) : ink, on ? gold : chip);
-    if (i == now) for (int x = x0 + 2; x < x0 + cw - 4; x++) suiPx(b, x, Y0 + 37, SUI_RGB(120, 230, 140)); } }
+    for (int y = Y0 + kPgFindTimeY; y < Y0 + kPgFindTimeY + kPgFindTimeH; y++) for (int x = x0; x < x0 + cw - 2; x++) suiPx(b, x, y, on ? gold : chip);
+    T.draw(b, x0 + 3, Y0 + kPgFindTimeY + 1, kPgFindTm[i], on ? bar : dim ? SUI_RGB(140, 170, 160) : ink, on ? gold : chip);
+    if (i == now) for (int x = x0 + 2; x < x0 + cw - 4; x++) suiPx(b, x, Y0 + kPgFindTimeY + kPgFindTimeH - 1, SUI_RGB(120, 230, 140)); } }
 
 /* where to catch: one row per place (name + method chances), paged. Chances are the game's slot odds once an encounter starts. */
 static int pgFindRows(const SPg &p, int *out, int max) {
@@ -591,10 +592,9 @@ static void pgFindDetail(int loc, int sp, int tm, char *out, int sz) {
   for (int k = 3; k < 8 && o < sz - 1; k++) if (m[k]) o += snprintf(out + o, sz - o, "%s%s %d%%", o ? "  " : "", nm[k], m[k]); }
 static void pgFindListDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1) {
   const uint32_t paper = SUI_RGB(236, 244, 240), ink = SUI_RGB(8, 40, 56), dim = SUI_RGB(70, 110, 100), edge = SUI_RGB(190, 214, 206), gold = SUI_RGB(246, 214, 96), chip = SUI_RGB(40, 130, 100);
-  const int top = Y0 + kPgFindH, bot = Y1 - 14; suiFill(b, X0, top, X1, Y1, paper);
-  /* 2026-11-19: one line per place, name left and the chances right-aligned (was two lines on a 22 px pitch: the second line's glyphs ran into the
-     separator and the next name, which is what made "Grass H1% ..." unreadable). 15 px pitch = 6 places per page instead of 4. */
-  int rows[100]; const int n = pgFindRows(p, rows, 100); const int pitch = 15; const int per = (bot - top - 2) / pitch > 0 ? (bot - top - 2) / pitch : 1; const int pages = n ? (n + per - 1) / per : 1;
+  const int top = Y0 + kPgFindH, bot = Y1 - kPgFindFooterH; suiFill(b, X0, top, X1, Y1, paper);
+  /* One line per place, with enough room for the full font above the separator. */
+  int rows[100]; const int n = pgFindRows(p, rows, 100); const int pitch = kPgFindRowH; const int per = (bot - top - 2) / pitch > 0 ? (bot - top - 2) / pitch : 1; const int pages = n ? (n + per - 1) / per : 1;
   if (p.findPage >= pages) p.findPage = pages - 1; if (p.findPage < 0) p.findPage = 0;
   if (!n) T.draw(b, X0 + 6, top + 8, "Not found in the wild here", dim, paper);
   for (int r = 0; r < per; r++) { const int i = p.findPage * per + r; if (i >= n) break; const int y = top + 2 + r * pitch, l = rows[i];
@@ -603,8 +603,8 @@ static void pgFindListDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0
     T.draw(b, X1 - 6 - dw, y, fit, dim, paper);
     suiFill(b, X0 + 3, y + pitch - 2, X1 - 3, y + pitch - 1, edge); }
   suiFill(b, X0, bot, X1, Y1, chip);
-  for (int k = 0; k < 2; k++) { const bool en = k ? p.findPage + 1 < pages : p.findPage > 0; const int x0 = k ? X1 - 50 : X0 + 2; pgChip(b, x0, bot + 1, x0 + 48, Y1 - 1, en); T.draw(b, x0 + 8, bot + 3, k ? "NEXT >" : "< PREV", en ? SUI_RGB(8, 40, 56) : dim, en ? SUI_RGB(236, 244, 240) : paper); }
-  char pg[24]; snprintf(pg, sizeof pg, "%d/%d  (%d places)", p.findPage + 1, pages, n); T.draw(b, (X0 + X1) / 2 - T.width(pg) / 2, bot + 3, pg, gold, chip); }
+  for (int k = 0; k < 2; k++) { const bool en = k ? p.findPage + 1 < pages : p.findPage > 0; const int x0 = k ? X1 - 50 : X0 + 2; pgChip(b, x0, bot + 1, x0 + 48, Y1 - 1, en); T.draw(b, x0 + 8, bot + 2, k ? "NEXT >" : "< PREV", en ? SUI_RGB(8, 40, 56) : dim, en ? SUI_RGB(236, 244, 240) : paper); }
+  char pg[24]; snprintf(pg, sizeof pg, "%d/%d  (%d places)", p.findPage + 1, pages, n); T.draw(b, (X0 + X1) / 2 - T.width(pg) / 2, bot + 2, pg, gold, chip); }
 
 /* draw the map into the panel interior (X0,Y0)-(X1,Y1); the view follows the player's location unless panned */
 static void pxMapPins(uint32_t *b, const SPg &p, int X0, int Y0, int X1, int oy); /* ss3ds_pgextra.h: phone contact pins */
@@ -796,7 +796,7 @@ static inline uint32_t pgFade(uint32_t c) {
   const int r = c & 255, g = c >> 8 & 255, bl = c >> 16 & 255, l = (r * 77 + g * 150 + bl * 29) >> 8;
   return SUI_RGB((((r * 3 + l) >> 2) * 3 + 92) >> 2, (((g * 3 + l) >> 2) * 3 + 112) >> 2, (((bl * 3 + l) >> 2) * 3 + 120) >> 2); }
 static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1, int Y1, bool blink) {
-  const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0; p.zmX1 = p.zpX1 = p.wxX1 = 0; p.zoom = pgMapZoom(); gPgPress = &p;
+  const int aw = X1 - X0, ah = Y1 - Y0; p.nIco = 0; p.zmX1 = p.zpX1 = p.wxX1 = p.achX1 = p.dotsX1 = 0; p.zoom = pgMapZoom(); gPgPress = &p;
   if (p.achOpen) { p.markOk = false; pgAchPanel(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
   if (p.ov) { p.markOk = false; pgOverview(b, T, p, X0, Y0, X1, Y1); pgDots(b, p, X1, Y0); return; }
   const int z = p.zoom < 2 ? 1 : 2; int visW = aw / z; if (visW < 1) visW = 1;
@@ -931,11 +931,11 @@ static void pgDraw(uint32_t *b, const SUiText &T, SPg &p, int X0, int Y0, int X1
       if (hasWild) { const int bx1 = X1 - 4, bx0 = bx1 - bw; pgChip(b, bx0, by0, bx1, by0 + 12, true); suiSDraw(T, b, bx0 + 6, by0 + 2, wb, wh, kBlBlue); }
       if (sbw) { const int sx1 = (hasWild ? X1 - 4 - bw - 4 : X1 - 4), sx0 = sx1 - sbw; pgChip(b, sx0, by0, sx1, by0 + 12, true); suiSDraw(T, b, sx0 + 6, by0 + 2, sbl, wh, kBlBlue); p.subX0 = sx0; p.subY0 = by0; p.subX1 = sx1; p.subY1 = by0 + 12; }
       if (hasPc) suiSDraw(T, b, X0 + 4, by0 + 2, pcl, kBlSelO, sh); } }
-  if (p.find > 0 && pgFindCfg() && p.findList) pgFindListDraw(b, T, p, X0, Y0, X1, Y1);
+  if (p.find > 0 && pgFindCfg() && p.findList) { pgFindListDraw(b, T, p, X0, Y0, X1, Y1); p.markOk = false; p.nIco = 0; }
   if (p.find > 0 && pgFindCfg()) pgFindBanner(b, T, p, X0, Y0, X1);
   /* 2026-11-18 tool row: zoom on the left, WX / achievements / overview on the right, all one chip style, on one line at
      the top of the map (under the finder banner when it is open), so nothing floats over the bottom of the map or the card. */
-  { const int ty = finder ? Y0 + kPgFindH : Y0;
+  if (!finder || !p.findList) { const int ty = finder ? Y0 + kPgFindH : Y0;
     pgZoomChip(b, X0 + 2, ty + 2, false); pgZoomChip(b, X0 + 17, ty + 2, true);
     p.zmX0 = X0 + 2; p.zmY0 = ty + 2; p.zmX1 = X0 + 14; p.zmY1 = ty + 14; p.zpX0 = X0 + 17; p.zpY0 = ty + 2; p.zpX1 = X0 + 29; p.zpY1 = ty + 14;
     pgDots(b, p, X1, ty);
