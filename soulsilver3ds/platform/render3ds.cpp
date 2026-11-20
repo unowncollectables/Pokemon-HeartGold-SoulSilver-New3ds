@@ -1707,7 +1707,8 @@ static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Pla
    Also gone (owner's levels are the default): Even loudness ON, Steady music ON, Menu music ON, Visible at once 6, Visible shiny sparkle ON,
    Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too), Pokewalker ON.
    Standard look, no row: 60 fps field ON, Wide layouts ON, Sharp text ON, Sharp game text ON, Sharp 3D FAST AUTO, Title layout WIDE,
-   Tap to Fly ON, Pokedex finder ON, Party in panel ON. */
+   Tap to Fly ON, Pokedex finder ON, Party in panel ON,
+   Visible wild Pokemon ON, Alive wild Pokemon ON + TOWNS, Move type hint ON, Damage check ON. */
 static const SAppTab kTabs[kTotalTabs]={
  {3,{{9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
@@ -1716,16 +1717,12 @@ static const SAppTab kTabs[kTotalTabs]={
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up. FOE DEEPER: the foe and its platform sit further back, yours nearer."}}},
  {2,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
      {114,"Auto run","Run by default; B walks instead. ZL or the RUN tile still flip it."}}},
- {10,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
-     {111,"Move type hint","FIGHT menu: badges on the move buttons show super/resisted/no effect."},
-     {122,"Damage check","Y foe screen gets a page with a rough damage range for each of your moves and who moves first."},
+ {6,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
      {78,"SELECT = reset","SELECT soft-resets the game. Handy for shiny hunting."},
      {79,"Skip intro on reset","After a soft reset, skips the logos and title straight to the menu."},
      {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
      {123,"Hunt stats (ZR)","ZR (back trigger) in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
-     {97,"Visible wild Pokemon","Wild Pokemon walk about in grass and caves; walk into one to battle."},
-     {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."},
-     {128,"Alive wild Pokemon","ON: visible Pokemon are solid, some chase you, A starts the battle. ON + TOWNS: towns get harmless Pokemon too."}}},
+     {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."}}},
  {14,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
      {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},
      {25,"Repel prompt","When a Repel runs out, asks if you want to use another."},
