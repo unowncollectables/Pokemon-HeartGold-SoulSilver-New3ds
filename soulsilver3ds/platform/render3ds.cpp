@@ -1706,17 +1706,15 @@ static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Pla
    X tile cursor ON, Map zoom (the map's -/+ chips), Roamer sprites ON, Contest helper ON, Breeding tab ON, Sprite depth ON, Fast tab swap ON, Pokegear tabs.
    Also gone (owner's levels are the default): Even loudness ON, Steady music ON, Menu music ON, Visible at once 6, Visible shiny sparkle ON,
    Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too), Pokewalker ON.
-   Standard look, no row: 60 fps field ON, Wide layouts ON, Sharp text ON, Sharp game text ON, Sharp 3D FAST AUTO, Title layout WIDE. */
+   Standard look, no row: 60 fps field ON, Wide layouts ON, Sharp text ON, Sharp game text ON, Sharp 3D FAST AUTO, Title layout WIDE,
+   Tap to Fly ON, Pokedex finder ON, Party in panel ON. */
 static const SAppTab kTabs[kTotalTabs]={
  {3,{{9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
      {kSeasonalTreesItem,"Seasonal trees","Changes common outdoor tree colors. Applies when the area reloads."}}},
  {2,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up. FOE DEEPER: the foe and its platform sit further back, yours nearer."}}},
- {5,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
-     {120,"Party in panel","PARTY tab opens the real Pokemon menu inside the left panel; the field stays on the top screen. OFF = full-screen Party. Summary and reorder use the game's own menus."},
-     {124,"Pokedex finder","On the JOHTO map tap a place, tap its card for the wild list, then tap a Pokemon: the map pins every place it lives. Chips filter by MORN / DAY / NITE; X clears."},
-     {132,"Tap to Fly","On the JOHTO map tap a town you can Fly to, then the green FLY chip on its card: the game's own Fly starts (needs the Storm Badge, a Pokemon with Fly or HM-free, and an outdoor map)."},
+ {2,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
      {114,"Auto run","Run by default; B walks instead. ZL or the RUN tile still flip it."}}},
  {10,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
      {111,"Move type hint","FIGHT menu: badges on the move buttons show super/resisted/no effect."},
