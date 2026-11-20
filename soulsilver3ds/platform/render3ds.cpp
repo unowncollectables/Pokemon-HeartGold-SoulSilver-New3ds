@@ -1698,75 +1698,46 @@ struct SAppRow{int it;const char*nm,*tip;};
 enum { kMaxTabRows = 26 };
 struct SAppTab{int n;SAppRow r[kMaxTabRows];};
 /* the Wide tab was removed (its rows stay in config.txt: wide_battle, wide_boxes, wide_menus ... all default ON, wide_fx default OFF) */
-/* 2026-11-18 release cleanup: the hidden Debug and Render tabs are gone. Their keys keep their tuned defaults in psp_ctru.c kCfgDefaults
+/* 2026-11-19: a hidden Debug tab holds the odd toggles; SELECT in the menu shows or hides it. (2026-11-18: the old Render tab is gone.) Their keys keep their tuned defaults in psp_ctru.c kCfgDefaults
    (config.txt still overrides them as an escape hatch); FPS counter moved to Display. */
-enum { kPlayerTabs = 6, kTotalTabs = 6 };
-static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Play","Setup"};
+enum { kPlayerTabs = 4, kTotalTabs = 5 };
+static const char*const kTabNm[kTotalTabs]={"LOOK","BATTLE","PLAY","SYSTEM","DEBUG"};
+/* 2026-11-19 removed rows (built-in default kept, config.txt line still read): Live party/bag OFF, Menu button OFF, Kanto on map GATED,
+   X tile cursor ON, Map zoom (the map's -/+ chips), Roamer sprites ON, Contest helper ON, Breeding tab ON, Sprite depth ON, Fast tab swap ON, Pokegear tabs.
+   Also gone (owner's levels are the default): Even loudness ON, Steady music ON, Menu music ON, Visible at once 6, Visible shiny sparkle ON,
+   Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too), Pokewalker ON.
+   Standard look, no row: 60 fps field ON, Wide layouts ON, Sharp text ON, Sharp game text ON, Sharp 3D FAST AUTO, Title layout WIDE,
+   Tap to Fly ON, Pokedex finder ON, Party in panel ON,
+   Visible wild Pokemon ON, Alive wild Pokemon ON + TOWNS, Move type hint ON, Damage check ON, Roamer + breeding tracker ON, IV/EV on summary ON, Special date effects ON. */
 static const SAppTab kTabs[kTotalTabs]={
- {10,{{1,"Wide view","Shows extra scenery at the sides of the overworld. L+R+X also toggles it."},
-     {kWideLayItem,"Wide layouts","Menu screens are laid out for the full 400 px width instead of filling the sides."},
-     {9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
-     {139,"Title layout","Classic uses plain borders. Wide fills the screen with the animated backdrop and keeps the logo proportional."},
+ {5,{{9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
      {kSeasonalTreesItem,"Seasonal trees","Changes common outdoor tree colors. Applies when the area reloads."},
-     {kFps60Item,"60 fps field","Shows an in-between picture of the 3D world between game ticks, so walking looks twice as smooth."},
-     {0,"FPS counter","Shows the frame rate on screen."},
-     {kBottomHdItem,"Sharp text","Bottom-screen menus and these settings draw their text at the 3DS's own resolution: crisp letters at true DS size. OFF = the old bigger, stretched text."},
-     {kSharpGameItem,"Sharp game text","The game's text on both screens (dialogue, menus, battle, bag, party, summary) is drawn at the 3DS's own resolution (crisp, true DS size). OFF = the old stretched text."}}},
- {4,{{10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
-     {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up. FOE DEEPER: the foe and its platform sit further back, yours nearer."},
-     {117,"Sharp 3D","3D drawn at double size for smooth edges; fog areas stay normal. FAST 3D: with the 3D slider up only the left eye is double size (faster). FAST AUTO: like FAST 3D, but drops to normal size while frames cannot hold 30 fps."},
-     {115,"Sprite depth","Walking sprites (following Pokemon, NPCs, you) stand on the ground in 3D instead of leaning."}}},
- {14,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
-     {112,"Pokegear tabs","Original opens the game Phone and Radio in the Johto panel. Previews shows contact and station lists. Off hides the tabs."},
-     {120,"Party in panel","PARTY tab opens the real Pokemon menu inside the left panel; the field stays on the top screen. OFF = full-screen Party. Summary and reorder use the game's own menus."},
-     {121,"Live party/bag","PARTY and BAG tabs work with the world still running: tap two Pokemon to swap them, or a medicine then a Pokemon to use it. MENU opens the full menu."},
-     {124,"Pokedex finder","On the JOHTO map tap a place, tap its card for the wild list, then tap a Pokemon: the map pins every place it lives. Chips filter by MORN / DAY / NITE; X clears."},
-     {132,"Tap to Fly","On the JOHTO map tap a town you can Fly to, then the green FLY chip on its card: the game's own Fly starts (needs the Storm Badge, a Pokemon with Fly or HM-free, and an outdoor map)."},
-     {84,"Kanto on map","GATED: Kanto appears once you have been there. ALWAYS: shown from the start."},
-     {73,"Menu button","A touch button in the corner that opens these settings. L+R+Y always works."},
+     {10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
+     {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up. FOE DEEPER: the foe and its platform sit further back, yours nearer."}}},
+ {6,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
+     {78,"SELECT = reset","SELECT soft-resets the game. Handy for shiny hunting."},
+     {79,"Skip intro on reset","After a soft reset, skips the logos and title straight to the menu."},
+     {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
+     {123,"Hunt stats (ZR)","ZR (back trigger) in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
+     {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."}}},
+ {11,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
+     {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},
+     {25,"Repel prompt","When a Repel runs out, asks if you want to use another."},
+     {24,"No wild battles","Cheat: random wild encounters never happen."},
+     {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions."},
+     {106,"Ribbon checklist (X)","Press X on a summary screen to see which ribbons it has and is missing."},
+     {118,"Achievement toasts","Pop-up on the top screen when you unlock an achievement. The achievement list works either way."},
+     {113,"Pokemon menu X/Y","In the Pokemon menu, X opens the Move Reminder and Y the Move Tutor."},
+     {22,"Fast text","Speeds up text boxes: 2X, 4X, or instant. Never skips a prompt."},
+     {69,"Hold B skips text","Holding B prints text instantly and moves on. Never picks a choice."},
+     {70,"Auto-advance text","Text boxes move on by themselves after a moment."}}},
+ {3,{{76,"Bottom menu","Johto touch menu on the bottom screen. OFF = the stock touch screen."},
      {114,"Auto run","Run by default; B walks instead. ZL or the RUN tile still flip it."},
-     {116,"X tile cursor","X (or the D-pad) moves a highlight over the Bottom menu buttons, A taps the lit one, B drops it."},
-      {133,"Contest helper","Bug-Catching Contest: a card on the Bottom menu panel shows minutes left, Sport Balls left and the Pokemon you hold. Read-only."},
-      {140,"Map zoom","Closer Johto map. 1X is the normal map. 2X zooms in. The - and + on the map do the same."},
-      {141,"Roamer sprites","Roamers use their icon from your ROM. OFF keeps the coloured letter. Needs the roamer tracker."},
-      {kFastTabsItem,"Fast tab swap","Going from one app tab (PARTY, BAG, PHONE, RADIO) to another opens the new one straight away instead of closing the menu first. OFF = the old, slower swap."}}},
- {14,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
-      {111,"Move type hint","FIGHT menu: badges on the move buttons show super/resisted/no effect."},
-      {122,"Damage check","Y foe screen gets a page with a rough damage range for each of your moves and who moves first."},
-      {78,"SELECT = reset","SELECT soft-resets the game. Handy for shiny hunting."},
-      {79,"Skip intro on reset","After a soft reset, skips the logos and title straight to the menu."},
-      {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
-      {105,"Low battery warning","Reminds you to save when the battery is at one bar and not charging."},
-      {123,"Hunt stats (ZR)","ZR (back trigger) in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
-      {97,"Visible wild Pokemon","Wild Pokemon walk about in grass and caves; walk into one to battle."},
-      {98,"Visible at once","How many visible wild Pokemon can be around you at once."},
-      {99,"Visible shiny sparkle","A visible Pokemon can be shiny: it sparkles and a chime plays."},
-      {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."},
-      {101,"Visible wild cries","Pokemon cries and sounds from nearby activity."},
-      {128,"Alive wild Pokemon","ON: visible Pokemon are solid, some chase you, A starts the battle. ON + TOWNS: towns get harmless Pokemon too."}}},
- {14,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
-      {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},
-      {25,"Repel prompt","When a Repel runs out, asks if you want to use another."},
-      {24,"No wild battles","Cheat: random wild encounters never happen."},
-      {26,"IV/EV on summary","Press Y on a Pokemon's summary screen to show its IVs and EVs."},
-      {106,"Ribbon checklist (X)","Press X on a summary screen to see which ribbons it has and is missing."},
-      {107,"Special date effects","Birthday and holiday sparkles in the overworld."},
-      {110,"Roamer + breeding tracker","Johto map shows where roamers are; the progress page shows Day-Care egg odds."},
-      {118,"Achievement toasts","Pop-up on the top screen when you unlock an achievement. The achievement list works either way."},
-      {113,"Pokemon menu X/Y","In the Pokemon menu, X opens the Move Reminder and Y the Move Tutor."},
-      {22,"Fast text","Speeds up text boxes: 2X, 4X, or instant. Never skips a prompt."},
-      {69,"Hold B skips text","Holding B prints text instantly and moves on. Never picks a choice."},
-      {70,"Auto-advance text","Text boxes move on by themselves after a moment."},
-      {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions."}}},
- {8,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
-     {130,"Steady music","Keeps the field music at one volume. The game fades it down near water, trees and waterfalls and back up after. Ambient sounds still play."},
-     {18,"Menu music","Keeps music playing while this settings screen is open."},
-     {125,"Breeding tab","Adds an EGGS tab to the Johto panel (needs Pokegear tabs enabled): what is in the Day-Care, levels gained, whether an egg is waiting, and steps left on the eggs in your party. Read-only."},
+     {109,"Export save","Press A, then close this menu: copies your save to the SD export folder."}}},
+ {3,{{0,"FPS counter","Shows the frame rate on screen."},
      {51,"Save backups","Keeps 8 rotating copies of your save: at launch, after each save, at exit."},
-     {109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
-     {kGtsPickerItem,"GTS server picker","Adds Online Settings to the title menu."},
-     {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app."}}},
+     {kGtsPickerItem,"GTS server picker","Adds Online Settings to the title menu."}}},
 };
 static void prettyLab(char*d,const char*s,int n){/* run 64: "WIDE VIEW FX" -> "Wide view FX" (acronyms kept) */
  static const char*const acr[]={"FPS","GPU","ZL","ZR","FX","3D","1X","2X","25X","5X","ROM","IV","EV","TM","HM","LED","UI","OK","KB","MB","Y","X","A","B","L","R"};
@@ -1882,7 +1853,7 @@ static void runOnlineSettings(const u32 *top, int mode, bool gpu)
         if (wifiSetup) {
             gtxt(bottom, 12, 44, "Set up your connection in", kMsgFg, kMsgSh);
             gtxt(bottom, 12, 62, "Nintendo 3DS System Settings.", kMsgFg, kMsgSh);
-            gtxt(bottom, 12, 96, "Set Wireless to Online in Setup.", kMsgFg, kMsgSh);
+            gtxt(bottom, 12, 96, "Online connects on its own.", kMsgFg, kMsgSh);
         } else {
             const int active = P3DS_GtsStarMeSelected();
             for (int row = 0; row < 3; ++row) {
@@ -1949,12 +1920,13 @@ static void runApp(const u32*top,int mode,bool gpu){
  enum{N=MENU_N};int val[N];for(int i=0;i<N;i++)val[i]=menuGet(i);int old[N];memcpy(old,val,sizeof old);
  for(int i=0;i<256*192;i++){u32 c=base[i];base[i]=((c>>1)&0x007F7F7Fu)|(c&0xFF000000u);}
  P3DS_MenuOpen=1;P3DS_OvN=0;P3DS_BmOn=0;P3DS_Toast("");toastAt=0; /* the JOHTO icon overlay is drawn by the GPU present; clear it so it cannot sit on top of the settings screen */
- static int tab=0;const int NT=kPlayerTabs;if(tab>=NT)tab=0;int sel=0,ltop=0;
+ static int tab=0;static bool dbgOn=false;int NT=dbgOn?kTotalTabs:kPlayerTabs;if(tab>=NT)tab=0;int sel=0,ltop=0;
  PSPNativeMemLog("[APP] settings open (tab %s, font %d, frame %d)",kTabNm[tab],P3DS_GameFontReady(),P3DS_GameBoxReady());
  u32 held=hidKeysHeld();bool wasTouch=(held&KEY_TOUCH)!=0;u64 t0=svcGetSystemTick();
  while(aptMainLoop()){
   hidScanInput();u32 kh=hidKeysHeld(),kd=hidKeysDown()&~held;held&=kh;
   if(kd&(KEY_B|KEY_START))break;if((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R))break;
+  if(kd&KEY_SELECT){dbgOn=!dbgOn;NT=dbgOn?kTotalTabs:kPlayerTabs;if(tab>=NT)tab=0;sel=0;PSPNativeMemLog("[APP] debug tab %s",dbgOn?"shown":"hidden");}
   if(kd&KEY_L){tab=(tab+NT-1)%NT;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}if(kd&KEY_R){tab=(tab+1)%NT;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}
   const SAppTab&T=kTabs[tab];const int cnt=T.n;
   /* Up/Down = row, Left/X = value back, Right/A = value forward */
@@ -1964,23 +1936,21 @@ static void runApp(const u32*top,int mode,bool gpu){
    if(dv)PSPNativeMemLog("[APP] %s -> %s",T.r[sel].nm,mItems[it].lab[val[it]]);}
   /* touch: act on press (not while the opening combo is still held) */
   bool tdown=(kh&KEY_TOUCH)!=0;if(tdown&&!wasTouch){touchPosition tp;hidTouchRead(&tp);int x,y;if(touchToDS(tp.px,tp.py,&x,&y)){
-    if(y<22){int t=x*NT/256;if(t>=0&&t<NT&&t!=tab){tab=t;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}}
+    if(y<kSaTabH){int t=x*NT/256;if(t>=0&&t<NT&&t!=tab){tab=t;sel=0;PSPNativeMemLog("[APP] tab %s",kTabNm[tab]);}}
     else{/* tap a row's value: left half back, right half forward; tap its name: select it (a second tap steps it forward) */
-      const int r=(y-kSuiListY)/kSuiRowPitch,i=ltop+r;if(y>=kSuiListY&&r<kSuiRows&&i<cnt&&x<246){const bool was=sel==i;sel=i;const int it=T.r[i].it,nn=mItems[it].n;
-       const int dv=x>=kSuiValX?(x<(kSuiValX+240)/2?-1:1):was?1:0;if(dv){val[it]=(val[it]+nn+dv)%nn;PSPNativeMemLog("[APP] touch %s -> %s",T.r[i].nm,mItems[it].lab[val[it]]);}}}}}
+      const int r=(y-kSaListY)/kSaRowPitch,i=ltop+r;if(y>=kSaListY&&y<kSaFootY&&r<kSaRows&&i<cnt&&x<246){const bool was=sel==i;sel=i;const int it=T.r[i].it,nn=mItems[it].n;
+       const int dv=x>=kSaValX?(x<(kSaValX+240)/2?-1:1):was?1:0;if(dv){val[it]=(val[it]+nn+dv)%nn;PSPNativeMemLog("[APP] touch %s -> %s",T.r[i].nm,mItems[it].lab[val[it]]);}}}}}
   wasTouch=tdown;
   /* top: dimmed game + title box with version */
   memcpy(img,base,PX*4);
-  if(useGF()){P3DS_GameBoxDraw(img,256,256,192,16,16,216,32);gtxt(img,18,16,"Settings  (game paused)",kMsgFg,kMsgSh);gtxt(img,18,32,kAppVer,0x00787878u,0x00D0D0D0u);
-   P3DS_GameBoxDraw(img,256,256,192,16,152,216,32);gtxt(img,18,152,"Up/Down: setting  Left/Right: change",kMsgFg,kMsgSh);gtxt(img,18,168,"L/R: tab   B: close",kMsgFg,kMsgSh);}
+  if(useGF()){static const SUiText kTopText={gtxt,gw,suiDrawS,gwS};suiAppTop(img,kTopText,P3DS_VERSION,__DATE__,kTabNm[tab],T.r[sel].nm,T.r[sel].tip);}
   else{menuBox(img,8,10,248,52,0x00703020u,0x00F0E0D0u);drawBig(img,16,18,"SETTINGS (PAUSED)",0x00F8F0E0u);drawBig(img,16,34,"SOULSILVER 3DS",0x00E0C8B0u);}
   /* bottom: the app (sharp text: recorded while drawn, shown by the 320x240 text layer; only with the GPU present) */
   static SBtxList*appTx;const bool txApp=mode&&gpu&&btxMode();if(txApp&&!appTx)appTx=(SBtxList*)calloc(1,sizeof(SBtxList));if(txApp&&appTx)btxBegin(*gBtx,bimg);
-  suiBackground(bimg);suiHeader(bimg,kSuiText,kTabNm,NT,tab,nullptr);
   SUiCell cells[kMaxTabRows];char labs[kMaxTabRows][24];
   for(int i=0;i<cnt;i++){const int it=T.r[i].it;prettyLab(labs[i],mItems[it].lab[val[it]],sizeof labs[i]);cells[i]={T.r[i].nm,labs[i],i==sel,val[it]!=old[it]};}
-  if(sel<ltop)ltop=sel;if(sel>=ltop+kSuiRows)ltop=sel-kSuiRows+1;if(ltop>cnt-kSuiRows)ltop=cnt>kSuiRows?cnt-kSuiRows:0;if(ltop<0)ltop=0;
-  suiList(bimg,kSuiText,cells,cnt,ltop);suiTip(bimg,kSuiText,T.r[sel].tip);
+  if(sel<ltop)ltop=sel;if(sel>=ltop+kSaRows)ltop=sel-kSaRows+1;if(ltop>cnt-kSaRows)ltop=cnt>kSaRows?cnt-kSaRows:0;if(ltop<0)ltop=0;
+  suiAppBottom(bimg,kSuiText,kTabNm,NT,tab,cells,cnt,ltop);
   if(txApp&&appTx){btxEnd(*gBtx,*appTx);if(appTx->gen!=txShownGen||txShownL!=appTx)btxLog("settings",appTx);btxShow(appTx);}else{if(gBtx)gBtx->on=false;P3DS_TxOn=0;}
   {extern int P3DS_GpuBotSame;P3DS_GpuBotSame=0;}
   if(mode&&gpu)P3DS_GpuPresent(img,bimg,mode,true,nullptr);
@@ -2995,7 +2965,7 @@ static int PresentFrame(bool){
      the pillarbox (mode 1, overworld only, 3D on BG0). The flag drives the NEXT frame's 3D pass; the strips drawn now
      come from this frame's pass. Off = no extra work at all. */
   if(wideCfg<0){wideCfg=1;/* ss3ds: default on (wide 400 px top screen) */FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"wideview=%d",&x)==1)wideCfg=x!=0;fclose(f);}PSPNativeMemLog("[WIDE] wideview=%d",wideCfg);}
-  {u32 kd=hidKeysDown(),kh=hidKeysHeld();if(((kd&KEY_X)&&(kh&KEY_L)&&(kh&KEY_R)&&!(kh&KEY_Y))){wideCfg=!wideCfg;PSPNativeMemLog("[QUICK] L+R+X wide view toggle: wideview=%d",wideCfg);P3DS_Toast(wideCfg?"WIDE VIEW ON":"WIDE VIEW OFF");}}
+  /* 2026-11-19: the L+R+X wide view toggle is gone; wide view is how the port looks (config.txt wideview=0 is still read as an escape hatch) */
   const u32 dc=reg32(0);const bool act=wideCfg&&P3DS_InField&&mode==1&&gpuOk==1&&(dc&8)&&(dc&0x100)&&((dc>>16)&3)==1&&engineA.Enabled;
   {static int lastAct=-1;if((int)act!=lastAct){lastAct=act;PSPNativeMemLog("[WIDE] active=%d (cfg %d field %d mode %d 3Dbg0 %d)",(int)act,wideCfg,P3DS_InField,mode,(int)((dc&0x108)==0x108));}}
   {const u64 tds=svcGetSystemTick();G3G_DirectStrips();pfT[PF_DSTRIP]+=svcGetSystemTick()-tds;}/* gpu_direct3d wide: convert this frame's side strips from the readback G3G_End queued */

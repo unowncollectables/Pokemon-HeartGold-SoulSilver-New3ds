@@ -16,7 +16,7 @@ If something looks or sounds wrong after a change, delete that line (or the whol
 
 HOTKEYS (hold L and R, then press the button; the game never sees these presses)
   L+R+SELECT  cycle screen scale: 1:1 / 1.25x / fill (remembered) - happens when you let go of SELECT
-  L+R+X       wide view on/off (see more of the overworld at the sides)
+  L+R+X       (does nothing: wide view is always on since 2026-11-19)
   L+R+A       (does nothing: sharp 3D is disabled)
   L+R+START   FPS counter on/off - happens when you let go of START
   L+R+START+SELECT  soft reset, like the original game (the scale/FPS toggles do not fire with it)
