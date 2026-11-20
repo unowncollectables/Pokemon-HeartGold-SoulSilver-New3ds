@@ -283,15 +283,22 @@ static void ndspApplyClip(const char *why) {
     if (ndspOk != 1) return; int st = P3DS_AudioLimiterV; if (st < 0) st = P3DS_CfgInt("audio_limiter", 3);
     ndspClippingMode m = st == 3 ? NDSP_CLIP_NORMAL : NDSP_CLIP_SOFT; static int last = -1;
     ndspSetClippingMode(m); if ((int)m != last) { last = (int)m; PSPNativeMemLog("[AUDIO] dsp clipping %s (%s, audio style %d)", m == NDSP_CLIP_NORMAL ? "NORMAL: plain clamp like the DS, no DSP limiter" : "SOFT: DSP output limiter (rides the whole mix)", why, st); } }
+/* 2026-11-20 (Nathan: sound gone after a soft reset on his other 3DS): the relaunched process can start while the old one still
+   holds the DSP (or exited without ndspExit), so one failed ndspInit used to disable audio for the whole session. Now a failure is
+   retried about every 1.5 s (up to 20 tries) and every try is logged. ndspOk: -1 not started, 0 failed (retry later), 1 ready, 2 shut down. */
 static void ndspSetup(void) {
-    if (ndspOk >= 0) return;
-    Result r = ndspInit();
-    if (R_FAILED(r)) { ndspOk = 0; PSPNativeMemLog("[AUDIO] ndspInit failed %08lx: copy your console's DSP firmware to sdmc:/3ds/dspfirm.cdc (run 'DSP1' homebrew once). Audio disabled.", r); return; }
+    static int tries; static u64 nextTry;
+    if (ndspOk == 1 || ndspOk == 2) return;
+    if (ndspOk == 0) { if (tries >= 20 || svcGetSystemTick() < nextTry) return; }
+    Result r = ndspInit(); tries++;
+    if (R_FAILED(r)) { ndspOk = 0; nextTry = svcGetSystemTick() + (u64)SYSCLOCK_ARM11 * 3 / 2;
+        PSPNativeMemLog("[AUDIO] ndspInit failed %08lx (try %d/20%s): copy your console's DSP firmware to sdmc:/3ds/dspfirm.cdc (run 'DSP1' homebrew once) if this never succeeds.", r, tries, tries < 20 ? ", retrying" : ", giving up, audio disabled"); return; }
+    if (tries > 1) PSPNativeMemLog("[AUDIO] ndspInit ok on try %d (the DSP was still busy right after the reset)", tries);
     ndspSetOutputMode(NDSP_OUTPUT_STEREO); sasRateInit(); ndspChnSetInterp(0, P3DS_SasRate == 32728 ? NDSP_INTERP_NONE : NDSP_INTERP_LINEAR); ndspChnSetRate(0, P3DS_SasRate == 32728 ? 32728.498f : (float)P3DS_SasRate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
     float mix[12] = {1.0f, 1.0f}; ndspChnSetMix(0, mix);
     wbData = linearAlloc(NWB * sasGrain * 4); memset(wb, 0, sizeof wb);
     for (int i = 0; i < NWB; i++) { wb[i].data_vaddr = wbData + i * sasGrain * 2; wb[i].nsamples = sasGrain; wb[i].status = NDSP_WBUF_DONE; }
-    ndspOk = 1; ndspApplyClip("init"); PSPNativeMemLog("[AUDIO] ndsp ready: %d Hz stereo", P3DS_SasRate); PSPNativeMemLog("[AUDIO] buffers, %d x %d-sample buffers", NWB, sasGrain);
+    ndspOk = 1; wbNext = 0; ndspApplyClip("init"); PSPNativeMemLog("[AUDIO] ndsp ready: %d Hz stereo", P3DS_SasRate); PSPNativeMemLog("[AUDIO] buffers, %d x %d-sample buffers", NWB, sasGrain);
 }
 int sceAudioChReserve(int ch, int s, int f) { (void)s; (void)f; return ch < 0 ? 0 : ch; }
 int sceAudioChRelease(int ch) { (void)ch; return 0; }
@@ -317,6 +324,14 @@ int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
       unsigned ms = (unsigned)((svcGetSystemTick() - t0) / CPU_TICKS_PER_MSEC); if (ms > P3DS_AudioMaxWaitMs) P3DS_AudioMaxWaitMs = ms; }
     memcpy((void *)w->data_vaddr, b, sasGrain * 4); DSP_FlushDataCache(w->data_vaddr, sasGrain * 4);
     ndspChnWaveBufAdd(0, w); wbNext = (wbNext + 1) % lead; return 0;
+}
+/* Called by hardExit (soft reset or quit) after the workers are stopped: always hand the DSP back, even when a game thread did not
+   stop in time (the old code then skipped ndspExit and the relaunched process found the DSP busy = no sound). */
+void P3DS_AudioShutdown(void) {
+    if (ndspOk != 1) { ndspOk = 2; return; }
+    ndspOk = 2; /* the audio thread now just sleeps; ndspSetup will not start it again */
+    ndspChnWaveBufClear(0); ndspChnReset(0); ndspChnReset(1); ndspExit();
+    PSPNativeMemLog("[AUDIO] shutdown: DSP released before exit");
 }
 /* Pad, RTC, MAC, power callbacks, sysmem, file I/O. */
 #include <pspctrl.h>
@@ -555,7 +570,7 @@ void P3DS_ShutdownThreads(void) {
     if (alarmTh) { if (R_SUCCEEDED(threadJoin(alarmTh, 300000000ULL))) threadFree(alarmTh); else { alive++; PSPNativeMemLog("[3DS] exit: alarm thread did not stop in 300 ms"); } alarmTh = NULL; }
     if (alive) { PSPNativeMemLog("[3DS] exit: %d thread(s) still running; keeping game memory and ndsp for the process exit", alive); return; }
     for (int i = 0; i < P3DS_BLOCKS; i++) if (blocks[i]) { free(blocks[i]); blocks[i] = NULL; }
-    if (ndspOk == 1) { ndspExit(); ndspOk = -1; }
+    if (ndspOk == 1) { ndspExit(); ndspOk = 2; }
 }
 volatile int P3DS_FoeInfo[40]; /* hook 0031 trainer foe snapshot (battle -> foe info screen), read-only */
 volatile int P3DS_DmgInfo[32]; /* hook 0208 damage/speed check snapshot (battle -> foe info screen), read-only */

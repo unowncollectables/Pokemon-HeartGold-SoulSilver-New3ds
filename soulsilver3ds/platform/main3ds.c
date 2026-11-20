@@ -215,6 +215,7 @@ static void hardExit(int code) {
     { extern void P3U_ClearPending(void); P3U_ClearPending(); }
     { extern void P3DS_UseSummary(const char *); P3DS_UseSummary("clean exit"); }
     { extern void P3DS_FpsGuardClean(void); P3DS_FpsGuardClean(); }
+    { extern void P3DS_AudioShutdown(void); P3DS_AudioShutdown(); }
     PSPNativeMemLog("[3DS] exit: clean");
     P3DS_LogFlushSync(); aptUnhook(&hookCookie); gfxExit(); exit(code);
 }
