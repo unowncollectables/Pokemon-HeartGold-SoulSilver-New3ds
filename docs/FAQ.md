@@ -37,9 +37,9 @@ Always back up before swapping saves.
 
 ## Can I trade with another player?
 
-Yes. Set Settings > Setup > Wireless to **LOCAL** on both consoles and meet in the Union Room. A full trade between two consoles running the port was confirmed on hardware. A DS cartridge cannot join that local 3DS session. Union Room battles still need a two-console test.
+Yes. Turn the 3DS wireless on and meet in the Union Room; there is no setting, the port picks local wireless there by itself. A full trade between two consoles running the port was confirmed on hardware. A DS cartridge cannot join that local 3DS session. Union Room battles still need a two-console test.
 
-**ONLINE** uses community services for GTS and Mystery Gift. The original GTS path and WFC Mystery Gift have worked on SoulSilver hardware; the newer StarMe path still needs live deposit/pickup and hardware re-entry coverage. See the [wireless guide](WIRELESS.md).
+Online (GTS, Mystery Gift via WFC) uses community services, also with no setting. The original GTS path and WFC Mystery Gift have worked on SoulSilver hardware; the newer StarMe path still needs live deposit/pickup and hardware re-entry coverage. See the [wireless guide](WIRELESS.md).
 
 ## Does it really run at 60 fps?
 

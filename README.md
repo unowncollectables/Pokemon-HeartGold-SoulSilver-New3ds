@@ -399,7 +399,7 @@ A missing `config.txt` line uses `kCfgDefaults` in `soulsilver3ds/platform/psp_c
 | Pokédex finder, Tap to Fly, Roamer sprites, Contest helper, Breeding tab, Reusable TMs, Event Pokémon without the event flag, Hunt stats, Damage check, Pokéwalker | ON |
 | Map zoom | 1X (2X is the closer map; `-` / `+` on the map match it) |
 | GTS server picker | ON |
-| Wireless | ONLINE |
+| Wireless | Automatic (no setting) |
 | FPS counter | ON |
 | Log detail | SHORT (config only, `log_level=2` for FULL) |
 | 60 fps field | ON, with the tested speed setup (3D worker thread and the rest of the old Render tab) |
@@ -416,8 +416,9 @@ The old Debug and Render tabs are gone from the menu: their keys use this same t
 
 | Path | In short |
 | --- | --- |
-| Local | Settings → Setup → Wireless → **LOCAL** on both consoles, then the Union Room. Trading between two consoles running the port is confirmed on hardware. |
-| Online | With no `wireless` line, Wireless starts at **ONLINE**: community-server GTS, and Mystery Gift → Get via Nintendo WFC. Both paths have worked on SoulSilver hardware. |
+| Automatic | No setting: turn the 3DS wireless on and play. Entering the Union Room (or a wireless desk) uses 3DS-to-3DS local wireless; the GTS and Mystery Gift → Get via Nintendo WFC use the internet. The port switches by itself and logs `[WIRELESS] auto -> LOCAL` / `auto -> ONLINE`. |
+| Local | Meet in the Union Room on both consoles. Trading between two consoles running the port is confirmed on hardware. |
+| Online | Community-server GTS, and Mystery Gift → Get via Nintendo WFC. Both paths have worked on SoulSilver hardware. |
 | Pokéwalker | On by default. Send a Pokémon to a Pokéwalker from the PC and bring it back, over the New 3DS infrared port. Send and return have both worked on a New 3DS. Repeat runs and the latest menu fix still need more hardware checks. |
 
 <details>
