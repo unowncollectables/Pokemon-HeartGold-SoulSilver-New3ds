@@ -489,10 +489,17 @@ int P3DS_GtRender(int scr, u32 *buf, float fxf, float fyf, float fwf, float fhf,
         int ng = 0; for (int i = 0; i < kGlyphs; i++) if (gGl[i].used && gGl[i].win == wi) order[ng++] = (u16)i;
         if (!ng) continue;
         qsort(order, (size_t)ng, sizeof order[0], cmpGlyph);
+        extern const char *P3DS_WideScreenName; const int namingScr = P3DS_WideScreenName && !strcmp(P3DS_WideScreenName, "naming");
         const int wpx = w->wT * 8, hpx = w->hT * 8; memset(claim, 0, (size_t)(wpx * hpx + 7) / 8);
         const GtGlyph *prev = 0; int ox = 0, oy = 0, rx = 0, ry = 0, runOk = 0;
         for (int oi = 0; oi < ng; oi++) { const GtGlyph *g2 = &gGl[order[oi]]; nGl++;
-            if (!prev || g2->y != prev->y || g2->x - prev->x > 24) {
+            /* naming screen (2026-11-20, "tapping M enters L"): the keyboard prints every letter as its own string, centred in a 16 px key,
+               and the name field puts each letter in a 12 px cell. As one run the letters were laid out at the font's own advance (16 / 12 px
+               instead of the picture's 20 / 15), so a row came out narrower than its keys and the outer letters sat a key away from where the
+               game takes the tap. Here every letter that is not touching the one before it is placed by the picture's scale on its own. */
+            const int nameGap = namingScr && prev && g2->y == prev->y && (g2->x + g2->x0) - (prev->x + prev->x1) - 1 >= 3;
+            if (nameGap) { static unsigned nl; if (nl < 3) { nl++; PSPNativeMemLog("[GTEXT] naming screen: letters placed one by one (keyboard keys / name field)"); } }
+            if (!prev || g2->y != prev->y || g2->x - prev->x > 24 || nameGap) {
                 /* the run's first text pixel: where the picture shows it */
                 const int bx = w->left * 8 + g2->x, by = w->top * 8 + g2->y;
                 int sx = (int)(((unsigned)(bx - (int)g.hofs)) & (g.W - 1)), sy = (int)(((unsigned)(by - (int)g.vofs)) & (g.H - 1));
