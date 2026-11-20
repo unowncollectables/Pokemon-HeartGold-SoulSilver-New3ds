@@ -1276,7 +1276,7 @@ static const MItem mItems[]={
  /* 90-92: 90 was bottom_hd (run 18; the sharp column is the only one since run 151), now sharp_text (2026-11-18, Display tab, default ON:
     the Bottom menu panel and settings text at 320x240, ss3ds_sharptext.h); wide_pokedex / wide_pc (Wide tab, default OFF) */
  {"SHARP TEXT","sharp_text",2,{"OFF","ON"}},{"WIDE POKEDEX","wide_pokedex",2,{"OFF","ON"}},{"WIDE PC BOXES","wide_pc",2,{"OFF","ON"}},
- /* 93 (2026-10-26, docs/WIRELESS.md M3): wireless, WM on 3DS local wireless (wm_uds.c, read at WM init); Play tab, default LOCAL since run 59 (two-console trade works); 0 = off, 2 = online */
+ /* 93: retired 2026-11-20 (wireless is automatic, wm_uds.c; row in no tab, key ignored). Was (2026-10-26, docs/WIRELESS.md M3): wireless, WM on 3DS local wireless (wm_uds.c, read at WM init); Play tab, default LOCAL since run 59 (two-console trade works); 0 = off, 2 = online */
  {"WIRELESS","wireless",3,{"OFF","LOCAL","ONLINE"}},
  /* 94 (2026-10-27 fps thread): fps_tweaks (gpuscale.c P3DS_FpsTweaks), cumulative levels: lean GPU flush, + hidden bottom skip /
     blink cache, + GPU master-brightness fades, + 3D blend, + CPU trims (level 5); Debug tab, default OFF until tested; [PERF4] shows the stage times either way */
@@ -1759,13 +1759,12 @@ static const SAppTab kTabs[kTotalTabs]={
       {69,"Hold B skips text","Holding B prints text instantly and moves on. Never picks a choice."},
       {70,"Auto-advance text","Text boxes move on by themselves after a moment."},
       {129,"Event Pokemon w/o event","Ilex shrine (Spiky-eared Pichu, Celebi) and Arceus scenes start with any Pichu, Celebi or Arceus in the lead: no event Pokemon needed. Needs the scene's story conditions."}}},
- {9,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
+ {8,{{131,"Even loudness","Keeps the music at a similar loudness between areas (route vs city) and stops loud battle starts from crackling. Changes slowly, never on single notes. OFF = exact DS levels."},
      {130,"Steady music","Keeps the field music at one volume. The game fades it down near water, trees and waterfalls and back up after. Ambient sounds still play."},
      {18,"Menu music","Keeps music playing while this settings screen is open."},
      {125,"Breeding tab","Adds an EGGS tab to the Johto panel (needs Pokegear tabs enabled): what is in the Day-Care, levels gained, whether an egg is waiting, and steps left on the eggs in your party. Read-only."},
      {51,"Save backups","Keeps 8 rotating copies of your save: at launch, after each save, at exit."},
      {109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
-     {93,"Wireless","LOCAL (default): 3DS to 3DS trades and battles, Union Room. OFF: no wireless. ONLINE: Wi-Fi Connection through a community server (GTS)."},
      {kGtsPickerItem,"GTS server picker","Adds Online Settings to the title menu."},
      {kPokewalkerItem,"Pokewalker","Enable the original Pokewalker app."}}},
 };
