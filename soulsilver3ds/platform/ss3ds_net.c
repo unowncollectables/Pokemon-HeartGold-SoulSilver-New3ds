@@ -1,7 +1,7 @@
 /* online trading M4 (docs/WIRELESS.md Option B; GTS first): 3DS sockets for the game's own Wi-Fi Connection code.
  * pspoke already links cybervisi0n's libntrwifi (CPS TCP/IP) and libntrdwc (login, GTS); patch 0137 builds them with the
  * Linux socket backend (real BSD sockets plus a select thread). That backend needs three things from the platform:
- *   1. sockets: socInit with a 0x100000 byte aligned buffer (P3DS_NetInit, called from wm_uds.c when wireless=2),
+ *   1. sockets: socInit with a 0x100000 byte aligned buffer (P3DS_NetInit, opened at boot and on the first online call, closed while a local wireless session runs (wm_uds.c)),
  *   2. the local IP: getifaddrs() below (the 3DS's own Wi-Fi connection, so WPA2 works; the IP is read by connecting a UDP
  *      socket towards the DNS server and asking getsockname, which needs no extra libctru calls),
  *   3. the DNS server: the community Wi-Fi Connection DNS answers nas/gamestats2/gpcm with the revival servers' addresses,
@@ -82,11 +82,13 @@ int P3DS_OnlineCheatBlocked(void)
     return on;
 }
 
-void P3DS_NetRelease(void) { netExit(); NLOG("[NET] sockets released for local wireless"); }
-
 int P3DS_NetInit(void)
 {
-    if (sState) return sState > 0;
+    static u64 sFailedAt;
+    if (sState > 0) return 1;
+    /* Auto wireless: a failed start (Wi-Fi switched off) is tried again after 3 s, so turning Wi-Fi on mid-game works. */
+    if (sState < 0) { if (osGetTime() - sFailedAt < 3000) return 0; sState = 0; }
+    sFailedAt = osGetTime();
     if (P3DS_OnlineCheatBlocked()) return 0; /* sState stays 0: re-checked next call, so turning the cheat off works after a restart of the game */
     sState = -1;
     u32 wifi = 0;
@@ -109,7 +111,8 @@ int P3DS_NetInit(void)
         return 0;
     }
     sState = 1;
-    atexit(netExit);
+    PSPNativeMemLog("[NET] auto wireless: sockets up (online ready)");
+    { static int once; if (!once) { once = 1; atexit(netExit); } }
     return 1;
 }
 
@@ -190,9 +193,9 @@ struct AuthWiFiId { unsigned long long uId; unsigned long long notAttestedId; un
 static unsigned long long sAdoptedUid;
 static int sAdopted;
 
-/* Auto wireless: online whenever wireless is not 0 (kill switch) and no local (UDS) session is running (wm_uds.c). */
+/* Auto wireless (2026-11-20): online whenever the game is not in a local WM session (wm_uds.c); no setting. */
 extern int P3DS_LocalWirelessActive(void);
-static int onlineMode(void) { return P3DS_CfgInt("wireless", 1) != 0 && !P3DS_LocalWirelessActive(); }
+static int onlineMode(void) { return !P3DS_LocalWirelessActive(); }
 
 static int starMeOnline(void)
 {
@@ -948,6 +951,16 @@ extern unsigned int CPSMyIp; /* library global: the receive loop treats 0 as "no
 static struct { int fd; unsigned short rport; unsigned int rip; unsigned char rx[8192]; unsigned rxn; unsigned rxPos; int eof; unsigned idle; } sCps = { -1 };
 
 static void cpsClose(void) { if (sCps.fd >= 0) { close(sCps.fd); sCps.fd = -1; } sCps.rxn = sCps.rxPos = 0; sCps.eof = 0; sCps.idle = 0; }
+
+/* Auto wireless: wm_uds.c closes the 3DS sockets when the game starts a local (UDS) session, so the radio is exactly as in the
+ * tested LOCAL mode; P3DS_NetInit opens them again on the next online call. The game itself has ended its Wi-Fi Connection
+ * session by then (a DS must, WM and Wi-Fi share one radio); the CPS slot is dropped first so no stale fd is closed later. */
+void P3DS_NetRelease(void)
+{
+    if (sState == 1) PSPNativeMemLog("[NET] auto wireless: sockets closed for a local session (re-opened on the next online call)");
+    if (sState == 1) cpsClose();
+    netExit();
+}
 
 void CPS_SocRegister(void *soc) { (void)soc; cpsClose(); }
 void CPS_SocUnRegister(void) { cpsClose(); }
