@@ -1708,7 +1708,7 @@ static const char*const kTabNm[kTotalTabs]={"Display","3D","Input","Battle","Pla
    Visible wild cries ON, Low battery warning ON, Wide view ON (L+R+X toggle removed too), Pokewalker ON.
    Standard look, no row: 60 fps field ON, Wide layouts ON, Sharp text ON, Sharp game text ON, Sharp 3D FAST AUTO, Title layout WIDE,
    Tap to Fly ON, Pokedex finder ON, Party in panel ON,
-   Visible wild Pokemon ON, Alive wild Pokemon ON + TOWNS, Move type hint ON, Damage check ON. */
+   Visible wild Pokemon ON, Alive wild Pokemon ON + TOWNS, Move type hint ON, Damage check ON, Roamer + breeding tracker ON, IV/EV on summary ON. */
 static const SAppTab kTabs[kTotalTabs]={
  {3,{{9,"Camera zoom","Overworld camera distance. 0 is the original; minus is closer, plus is farther."},
      {kAmbientWeatherItem,"Ambient weather","Weekly seasons bring showers, snow and mist. Tap WX on the Johto map for the seasonal forecast."},
@@ -1723,14 +1723,12 @@ static const SAppTab kTabs[kTotalTabs]={
      {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
      {123,"Hunt stats (ZR)","ZR (back trigger) in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
      {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."}}},
- {14,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
+ {12,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
      {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},
      {25,"Repel prompt","When a Repel runs out, asks if you want to use another."},
      {24,"No wild battles","Cheat: random wild encounters never happen."},
-     {26,"IV/EV on summary","Press Y on a Pokemon's summary screen to show its IVs and EVs."},
      {106,"Ribbon checklist (X)","Press X on a summary screen to see which ribbons it has and is missing."},
      {107,"Special date effects","Birthday and holiday sparkles in the overworld."},
-     {110,"Roamer + breeding tracker","Johto map shows where roamers are; the progress page shows Day-Care egg odds."},
      {118,"Achievement toasts","Pop-up on the top screen when you unlock an achievement. The achievement list works either way."},
      {113,"Pokemon menu X/Y","In the Pokemon menu, X opens the Move Reminder and Y the Move Tutor."},
      {22,"Fast text","Speeds up text boxes: 2X, 4X, or instant. Never skips a prompt."},
