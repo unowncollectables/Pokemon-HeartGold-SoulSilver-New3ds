@@ -32,6 +32,11 @@ extern "C" {
 volatile int P3DS_PanelPartyWant;
 volatile int P3DS_PanelPartyOn;
 }
+extern "C" {
+int P3DS_MobilePcTabOn(void) { return 0; }
+void P3DS_MobilePcRequestOpen(void) {}
+int P3DS_MobilePcAnimFrame(void) { return -1; }
+}
 #include "ss3ds_minimap.h"
 #include "ss3ds_pgmap.h"
 #include "ss3ds_pgextra.h"

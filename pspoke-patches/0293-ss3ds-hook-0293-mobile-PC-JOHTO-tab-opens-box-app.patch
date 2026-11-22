@@ -1,0 +1,301 @@
+From 62df3be0a4a16bf2f880a60f4b5ba4390e8254b7 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Sun, 22 Nov 2026 18:26:38 -0500
+Subject: [PATCH] ss3ds: hook 0293 mobile PC (JOHTO PC tab -> box app,
+ HoF-gated)
+
+Settings toggle mobile_pc (default OFF) opens the game's own box
+storage (PCBox_LaunchApp mode 2) from a new JOHTO PC tab after the
+Hall of Fame. Unlock uses SEQ_ME_ITEM and a field DialogBox; shown
+state is a port sidecar, never the .sav. Append-only hook.
+---
+ scripts/ss3ds_hooks.d/0293_mobilepc.py | 264 +++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0293_mobilepc.sh |   5 +
+ 2 files changed, 269 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0293_mobilepc.py
+ create mode 100644 scripts/ss3ds_hooks.d/0293_mobilepc.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0293_mobilepc.py b/scripts/ss3ds_hooks.d/0293_mobilepc.py
+new file mode 100755
+index 0000000..04e6f6b
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0293_mobilepc.py
+@@ -0,0 +1,264 @@
++#!/usr/bin/env python3
++"""ss3ds 0293: mobile PC from the JOHTO panel (render3ds.cpp mobile_pc, default OFF).
++
++The platform posts P3DS_MobilePcReq (open boxes) or P3DS_MobilePcPreviewReq (unlock
++ceremony only). This hook runs on the game thread from FieldSystem_Main:
++
++  * only in a safe idle overworld (FieldSystem_IsPlayerMovementAllowed, player
++    standing still, MAP_LOAD_TYPE_OVERWORLD, not Mystery Zone / Safari / Bug
++    Contest / Pal Park, not Wi-Fi Plaza or Wi-Fi battle rooms);
++  * the box app is the game's own PCBox_LaunchApp mode 2 (Move Pokémon), same
++    overlay OVY_14 as a Pokemon Center PC; after close, sub_02093070 may queue
++    Bill's "PC is full" call. No auto-save, no auto-reset;
++  * the Hall of Fame gate is CheckGameClearFlag, read-only. mobile_pc_dev skips
++    that check at runtime only and never sets FLAG_GAME_CLEAR or the profile
++    flag;
++  * first idle overworld after Continue on a cleared save (sidecar not yet
++    marked) plays SEQ_ME_ITEM and a DialogBox, following pret/pokeheartgold
++    (GPL) Task_PrintRegisteredKeyItemUseMessage. The sidecar is a port file.
++
++Idempotent ('SS3DS 0293'). Applied after 0207.
++"""
++import sys
++
++def sub1(s, old, new):
++    if s.count(old) != 1:
++        sys.exit('0293_mobilepc: anchor not found exactly once: ' + old[:80].replace('\n', ' / '))
++    return s.replace(old, new)
++
++p = 'src/field/field_control.c'
++s = open(p).read()
++if 'SS3DS 0293' in s:
++    sys.exit(0)
++if 'SS3DS 0207' not in s:
++    sys.exit('0293_mobilepc: hook 0207 is not in field_control.c')
++
++s = sub1(s, '#include "use_item_on_mon.h" /* SS3DS 0207 */\n',
++         '#include "use_item_on_mon.h" /* SS3DS 0207 */\n'
++         '#include "launch_application.h" /* SS3DS 0293 */\n'
++         '#include "overlay_14.h" /* SS3DS 0293 */\n'
++         '#include "screen_fade.h" /* SS3DS 0293 */\n'
++         '#include "unk_020552A4.h" /* SS3DS 0293 */\n'
++         '#include "dialog_box.h" /* SS3DS 0293 */\n'
++         '#include "bg_window.h" /* SS3DS 0293 */\n'
++         '#include "render_window.h" /* SS3DS 0293 */\n'
++         '#include "constants/charcode.h" /* SS3DS 0293 */\n'
++         '#include "constants/sndseq.h" /* SS3DS 0293 */\n'
++         '#include "constants/gx.h" /* SS3DS 0293 */\n')
++
++helper = r'''/* SS3DS 0293 mobile PC: JOHTO PC tab -> the game's box app (mode 2). Read-only of flags. */
++extern int P3DS_MobilePcCfg(void);
++extern int P3DS_MobilePcDevCfg(void);
++extern int P3DS_MobilePcUnlockShown(unsigned tid);
++extern void P3DS_MobilePcUnlockMarkShown(unsigned tid);
++extern volatile int P3DS_MobilePcReq, P3DS_MobilePcPreviewReq, P3DS_MobilePcUnlockPlay, P3DS_GameClear;
++extern void PSPNativeMemLog(const char *fmt, ...);
++
++typedef struct SS3DS_MobilePcLaunch {
++    int state;
++    PCBoxArgs *args;
++} SS3DS_MobilePcLaunch;
++
++typedef struct SS3DS_MobilePcUnlock {
++    int state;
++    int mark;
++    unsigned tid;
++    u8 printerId;
++    Window window;
++    String *strbuf;
++} SS3DS_MobilePcUnlock;
++
++static BOOL SS3DS_MobilePcStanding(FieldSystem *fieldSystem) {
++    u32 moveState;
++    if (fieldSystem->playerAvatar == NULL) return FALSE;
++    moveState = PlayerAvatar_GetPlayerMoveState(fieldSystem->playerAvatar);
++    return moveState == PLAYER_MOVE_STATE_END || moveState == PLAYER_MOVE_STATE_NONE;
++}
++
++static BOOL SS3DS_MobilePcSafe(FieldSystem *fieldSystem) {
++    SaveVarsFlags *vf;
++    int mapId;
++    if (fieldSystem == NULL || fieldSystem->saveData == NULL || fieldSystem->location == NULL) return FALSE;
++    if (!FieldSystem_IsPlayerMovementAllowed(fieldSystem)) return FALSE;
++    if (!SS3DS_MobilePcStanding(fieldSystem)) return FALSE;
++    if (fieldSystem->mapLoadType != MAP_LOAD_TYPE_OVERWORLD) return FALSE;
++    if (FieldSystem_MapIsNotMysteryZone(fieldSystem) != TRUE) return FALSE;
++    vf = Save_VarsFlags_Get(fieldSystem->saveData);
++    if (Save_VarsFlags_CheckSafariSysFlag(vf) == TRUE) return FALSE;
++    if (Save_VarsFlags_CheckBugContestFlag(vf) == TRUE) return FALSE;
++    if (Save_VarsFlags_CheckPalParkSysFlag(vf) == TRUE) return FALSE;
++    mapId = fieldSystem->location->mapId;
++    if (mapId == MAP_WIFI_SINGLE_BATTLE_AREA || mapId == MAP_WIFI_MULTI_BATTLE_AREA
++        || mapId == MAP_WIFI_PLAZA_WARP_ROOM || mapId == MAP_POKEMON_LEAGUE_ENTRANCE_WIFI_ROOM) {
++        return FALSE;
++    }
++    return TRUE;
++}
++
++static void SS3DS_MobilePcAddAscii(String *str, const char *src) {
++    const unsigned char *p;
++    u16 ch;
++    for (p = (const unsigned char *)src; *p; p++) {
++        if (p[0] == 0xC3 && p[1] == 0xA9) { String_AddChar(str, CHAR_eacute); p++; continue; }
++        if (*p == '\n') ch = CHAR_LF;
++        else if (*p == ' ') ch = CHAR_SPACE;
++        else if (*p >= 'A' && *p <= 'Z') ch = (u16)(CHAR_A + (*p - 'A'));
++        else if (*p >= 'a' && *p <= 'z') ch = (u16)(CHAR_a + (*p - 'a'));
++        else if (*p >= '0' && *p <= '9') ch = (u16)(CHAR_0 + (*p - '0'));
++        else if (*p == '.') ch = CHAR_PERIOD;
++        else if (*p == ',') ch = CHAR_COMMA;
++        else if (*p == '!') ch = CHAR_EXCL;
++        else if (*p == '?') ch = CHAR_QMARK;
++        else if (*p == '\'') ch = CHAR_RAPOST;
++        else if (*p == '-') ch = CHAR_HYPHEN;
++        else continue;
++        String_AddChar(str, ch);
++    }
++}
++
++static BOOL Task_SS3DS_MobilePcLaunch(TaskManager *taskman) {
++    FieldSystem *fieldSystem = TaskManager_GetFieldSystem(taskman);
++    SS3DS_MobilePcLaunch *env = TaskManager_GetEnvironment(taskman);
++    switch (env->state) {
++    case 0:
++        BeginNormalPaletteFade(FADE_BOTH_SCREENS, FADE_TYPE_BRIGHTNESS_OUT, FADE_TYPE_BRIGHTNESS_OUT, RGB_BLACK, 6, 1, HEAP_ID_FIELD2);
++        env->state++;
++        break;
++    case 1:
++        if (IsPaletteFadeFinished()) env->state++;
++        break;
++    case 2:
++        env->args = Heap_Alloc(HEAP_ID_FIELD2, sizeof(PCBoxArgs));
++        env->args->saveData = fieldSystem->saveData;
++        env->args->unk8 = 2;
++        env->args->menuInputStatePtr = &fieldSystem->menuInputState;
++        PCBox_LaunchApp(fieldSystem, env->args);
++        PSPNativeMemLog("[MPC] launched box app (mode 2 Move Pokemon)");
++        env->state++;
++        break;
++    case 3:
++        if (!FieldSystem_ApplicationIsRunning(fieldSystem)) env->state++;
++        break;
++    case 4:
++        sub_02093070(fieldSystem);
++        if (env->args != NULL) { Heap_Free(env->args); env->args = NULL; }
++        CallTask_RestoreOverworld(taskman);
++        env->state++;
++        break;
++    case 5:
++        BeginNormalPaletteFade(FADE_BOTH_SCREENS, FADE_TYPE_BRIGHTNESS_IN, FADE_TYPE_BRIGHTNESS_IN, RGB_BLACK, 6, 1, HEAP_ID_FIELD2);
++        env->state++;
++        break;
++    case 6:
++        if (IsPaletteFadeFinished()) {
++            Heap_Free(env);
++            PSPNativeMemLog("[MPC] returned to the field (no auto-save)");
++            return TRUE;
++        }
++        break;
++    }
++    return FALSE;
++}
++
++static BOOL Task_SS3DS_MobilePcUnlock(TaskManager *taskman) {
++    FieldSystem *fieldSystem = TaskManager_GetFieldSystem(taskman);
++    SS3DS_MobilePcUnlock *env = TaskManager_GetEnvironment(taskman);
++    Options *options;
++    switch (env->state) {
++    case 0:
++        P3DS_MobilePcUnlockPlay = 1;
++        fieldSystem->textbox_open = TRUE;
++        MapObjectManager_PauseAllMovement(fieldSystem->mapObjectManager);
++        PlayFanfare(SEQ_ME_ITEM);
++        InitWindow(&env->window);
++        DialogBox_AddWindowToLayer3(fieldSystem->bgConfig, &env->window, GF_BG_LYR_MAIN_3);
++        options = Save_PlayerData_GetOptionsAddr(fieldSystem->saveData);
++        DialogBox_LoadFrame(&env->window, options);
++        env->strbuf = String_New(128, HEAP_ID_FIELD2);
++        SS3DS_MobilePcAddAscii(env->strbuf, "The Pok\xc3\xa9mon Storage System can now\nbe used from the Touch Screen.");
++        env->printerId = DialogBox_PrintMessage(&env->window, env->strbuf, options, TRUE);
++        PSPNativeMemLog("[MPC] unlock message + SEQ_ME_ITEM (preview=%d)", env->mark ? 0 : 1);
++        env->state++;
++        break;
++    case 1:
++        if (DialogBox_IsPrintFinished(env->printerId) == TRUE && !IsFanfarePlaying()) {
++            if ((gSystem.newKeys & (PAD_BUTTON_A | PAD_BUTTON_B)) || (gSystem.simulatedInputs & PAD_BUTTON_A)) {
++                fieldSystem->textbox_open = FALSE;
++                ClearFrameAndWindow2(&env->window, 0);
++                env->state++;
++            }
++        }
++        break;
++    case 2:
++        MapObjectManager_UnpauseAllMovement(fieldSystem->mapObjectManager);
++        RemoveWindow(&env->window);
++        String_Delete(env->strbuf);
++        env->strbuf = NULL;
++        if (env->mark) P3DS_MobilePcUnlockMarkShown(env->tid);
++        P3DS_MobilePcUnlockPlay = 0;
++        Heap_Free(env);
++        return TRUE;
++    }
++    return FALSE;
++}
++
++static void SS3DS_MobilePcStartLaunch(FieldSystem *fieldSystem) {
++    SS3DS_MobilePcLaunch *env = Heap_Alloc(HEAP_ID_FIELD2, sizeof(SS3DS_MobilePcLaunch));
++    env->state = 0;
++    env->args = NULL;
++    FieldSystem_CreateTask(fieldSystem, Task_SS3DS_MobilePcLaunch, env);
++}
++
++static void SS3DS_MobilePcStartUnlock(FieldSystem *fieldSystem, int mark) {
++    SS3DS_MobilePcUnlock *env = Heap_Alloc(HEAP_ID_FIELD2, sizeof(SS3DS_MobilePcUnlock));
++    MI_CpuClear8(env, sizeof(SS3DS_MobilePcUnlock));
++    env->mark = mark;
++    env->tid = PlayerProfile_GetTrainerID(Save_PlayerData_GetProfile(fieldSystem->saveData));
++    FieldSystem_CreateTask(fieldSystem, Task_SS3DS_MobilePcUnlock, env);
++}
++
++void SS3DS_MobilePcStep(FieldSystem *fieldSystem) {
++    unsigned tid;
++    int clear;
++    if (fieldSystem == NULL || fieldSystem->saveData == NULL) return;
++    clear = CheckGameClearFlag(Save_VarsFlags_Get(fieldSystem->saveData)) ? 1 : 0;
++    P3DS_GameClear = clear;
++    if (!P3DS_MobilePcCfg()) {
++        P3DS_MobilePcReq = 0;
++        P3DS_MobilePcPreviewReq = 0;
++        return;
++    }
++    if (!SS3DS_MobilePcSafe(fieldSystem)) return;
++    tid = PlayerProfile_GetTrainerID(Save_PlayerData_GetProfile(fieldSystem->saveData));
++    if (P3DS_MobilePcPreviewReq) {
++        P3DS_MobilePcPreviewReq = 0;
++        SS3DS_MobilePcStartUnlock(fieldSystem, 0);
++        return;
++    }
++    if (clear && tid && !P3DS_MobilePcUnlockShown(tid) && !P3DS_MobilePcUnlockPlay) {
++        SS3DS_MobilePcStartUnlock(fieldSystem, 1);
++        return;
++    }
++    if (P3DS_MobilePcReq) {
++        P3DS_MobilePcReq = 0;
++        if (clear || P3DS_MobilePcDevCfg()) SS3DS_MobilePcStartLaunch(fieldSystem);
++        else PSPNativeMemLog("[MPC] open ignored: not cleared and dev bypass off");
++    }
++}
++
++'''
++
++s = sub1(s, 'static void SS3DS_MinimapStep(FieldSystem *fieldSystem, int x, int z) {',
++         helper + 'static void SS3DS_MinimapStep(FieldSystem *fieldSystem, int x, int z) {')
++open(p, 'w').write(s)
++
++p = 'src/field_system.c'
++s = open(p).read()
++if 'SS3DS 0293' in s:
++    sys.exit(0)
++s = sub1(s, 'void SS3DS_LvStep(FieldSystem *fieldSystem); /* SS3DS 0207 */\n',
++         'void SS3DS_LvStep(FieldSystem *fieldSystem); /* SS3DS 0207 */\nvoid SS3DS_MobilePcStep(FieldSystem *fieldSystem); /* SS3DS 0293 */\n')
++s = sub1(s, '        SS3DS_LvStep(fieldSystem); /* SS3DS 0207 */\n',
++         '        SS3DS_LvStep(fieldSystem); /* SS3DS 0207 */\n        SS3DS_MobilePcStep(fieldSystem); /* SS3DS 0293 */\n')
++open(p, 'w').write(s)
++print('0293_mobilepc: field_control.c and field_system.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0293_mobilepc.sh b/scripts/ss3ds_hooks.d/0293_mobilepc.sh
+new file mode 100644
+index 0000000..bd3953a
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0293_mobilepc.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0293: mobile PC (JOHTO PC tab -> the game's box app, mode 2). Not fatal: without it the
++# tab's requests time out and the toggle does nothing. Never writes the save.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0293_mobilepc.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1 && bash rebuild_game_object.sh src/field_system.c field_system.o none); then
++  log "ss3ds 0293 mobile PC hook NOT applied (see message above); the PC tab will not open the boxes"
++fi
+-- 
+2.47.3
+

@@ -12,6 +12,13 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - Sharp bottom text (2026-11-18; built and checked in LOTUS/CITnLO on 2026-11-19, broader hardware checks open): Bottom menu panel and settings text drawn at 320x240 instead of stretched. Settings > Display "Sharp text" (default ON).
 - Sharp game text (2026-11-19, patch 0289, unbuilt on hardware; cloud build + Azahar checked: dialogue, Yes/No, title menu, battle messages and buttons, party, summary with wide layout, bag): all game text windows on both screens drawn at the 3DS resolution (`ss3ds_gametext.c`, `gpuscale.c` gtDraw). Settings > Display "Sharp game text" (default ON, applies at once). If text goes missing or looks doubled: turn it OFF (the old text comes back at once) and send the log ([GTEXT] lines). Text in sprites (battle move names/PP, HP box names) is sharp too. Still DS-size: the HP box Lv/HP digits (box artwork, not the font).
 
+## Mobile PC (2026-11-22, hook 0293)
+
+- Settings > SYSTEM "Mobile PC" (config `mobile_pc`, default OFF) adds a 7th JOHTO tab, "PC". After the Hall of Fame (`FLAG_GAME_CLEAR`, read-only) it opens the game's own box app (`PCBox_LaunchApp` mode 2, Move Pokémon, overlay 14) from a safe idle overworld. Blocked in battle, menus, scripts, Safari, Bug Contest, Pal Park, and Wi-Fi Plaza / Union / Mystery Gift / GTS rooms. Standing at a Center GTS desk is still overworld and is allowed. No auto-save (box edits stay in RAM until a normal save) and no auto-reset/relaunch.
+- First idle overworld after Continue on a cleared save plays SEQ_ME_ITEM, a field DialogBox ("The Pokémon Storage System can now be used from the Touch Screen."), and a PC-chip slide/pop/glow. "Already shown" is `sdmc:/3ds/soulsilver3ds/mobile_pc.txt` (`shown_tid=<trainer id>`), never the `.sav`.
+- Settings > DEBUG (SELECT to show): "Skip HoF gate" (`mobile_pc_dev`, default OFF) skips the Hall of Fame check at runtime only and never sets flags. "Preview unlock" plays the ceremony without writing the sidecar (repeatable; a real clear still fires later).
+- With both toggles off, gameplay is unchanged. Wide View, GTS and Mystery Gift are untouched. Field message + box launch follow pret/pokeheartgold (GPL-3.0) `Task_PrintRegisteredKeyItemUseMessage` and `ScrCmd_158` / `PCBox_LaunchApp`. Platform: `ss3ds_mobilepc.h`, `psp_ctru.c`. Log: `[MPC]`.
+
 ## Finder text layout (2026-11-19)
 
 - Finder header count and time buttons now have enough vertical room for the full native font. LIST rows and the paging footer have taller spacing; separators no longer cut through glyphs. Map controls and native map markers are hidden in LIST view, with their old touch rectangles cleared.
@@ -89,5 +96,5 @@ Start with the device `log.txt` on the SD card (`sdmc:/3ds/soulsilver3ds/`); the
 ## Where the real information is
 
 - Device `log.txt` `[SS-MISSING]` lines show which game screens still trap. `docs/archive/MISSING_AUDIT.md` is archaeology only.
-- Next free patch number: check `ls pspoke-patches | tail` before numbering (0289 was the last at this writing).
+- Next free patch number: check `ls pspoke-patches | tail` before numbering (0293 is used for Mobile PC; 0294 is next at this writing).
 - Builds are made by the owner with the patch-builder tool, which pulls the latest `main`.

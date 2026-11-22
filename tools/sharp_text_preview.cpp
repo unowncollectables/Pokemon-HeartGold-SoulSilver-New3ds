@@ -39,6 +39,11 @@ static bool pgFindCfg() { return false; }
 static bool pgFlyCfg() { return false; }
 static int pgMapZoom() { return 1; }
 static bool pgRoamSpr() { return false; }
+extern "C" {
+int P3DS_MobilePcTabOn(void) { return 0; }
+void P3DS_MobilePcRequestOpen(void) {}
+int P3DS_MobilePcAnimFrame(void) { return -1; }
+}
 #include "ss3ds_minimap.h"
 #include "ss3ds_pgmap.h"
 #include "ss3ds_pgextra.h"

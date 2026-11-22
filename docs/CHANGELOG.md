@@ -4,6 +4,8 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
+- Mobile PC (hook 0293): Settings > SYSTEM "Mobile PC" (default OFF) adds a 7th JOHTO PC tab after the Hall of Fame. The tab opens the game's own box app (PCBox_LaunchApp mode 2, Move Pokemon) from a safe idle overworld only (not battles, menus, scripts, Safari, Bug Contest, Pal Park, GTS/Mystery Gift/Union Room Wi-Fi rooms). No auto-save and no auto-reset. Unlock uses the item fanfare (SEQ_ME_ITEM) and a field message, with the PC chip sliding in; "already shown" is a port sidecar keyed by trainer ID, never the .sav. DEBUG "Skip HoF gate" (default OFF) skips the Hall of Fame check at runtime only and never writes flags; DEBUG "Preview unlock" plays the ceremony without writing the sidecar. Field message + box launch follow pret/pokeheartgold (GPL-3.0) Task_PrintRegisteredKeyItemUseMessage and ScrCmd_158.
+
 - Starter soft-reset (run 996): audio teardown frees ndsp wave buffers and exits the DSP once before relaunch; hook 0292 counts Elm starters on the hunt path; Select soft reset works on the ChooseStarter screen. Builds on #576. Unbuilt on hardware. Follow-up: `huntTick` no longer double-counts the last starter (Totodile) when leaving the field for ChooseStarter.
 
 - Complete project wiki: player guides, settings, saves, wireless, HeartGold, troubleshooting, all repository Markdown guides and tool READMEs, full settings reference, policies, and labeled historical archives. `scripts/build_wiki.py` exports pinned source pages and validates local page links; see [wiki maintenance](WIKI.md).
