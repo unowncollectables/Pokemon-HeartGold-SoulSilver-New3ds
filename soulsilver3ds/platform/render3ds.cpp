@@ -414,9 +414,11 @@ static void drawShinyFlash(u32*img,u64 now){/* 0.9 s white pulses + twinkling sp
  for(int k=0;k<7;k++){const int on=((int)ms/90+k)%3;if(!on)continue;const int cx=188+sx[k],cy=62+sy[k],r=on==1?2:4;
   for(int d=-r;d<=r;d++){const int pts[2][2]={{cx+d,cy},{cx,cy+d}};for(auto&p:pts)if(p[0]>=0&&p[0]<256&&p[1]>=0&&p[1]<192)img[p[1]*256+p[0]]=(img[p[1]*256+p[0]]&0xFF000000u)|0x00A0F8FFu;}}}
 static void huntTick(){static bool armed=true;
+ /* Wild battles only: gift/starter path already counted via P3DS_HuntGift (0292). Without InBattle, leaving the
+    field for ChooseStarter re-fired HuntEncounter on whatever CatchInfo the last HuntGift wrote (Totodile 158 = 2x). */
  P3DS_HuntFrame(P3DS_MenuOpen);
  if(P3DS_InField){if(!armed){armed=true;P3DS_CatchInfo[0]=0;}return;}
- if(!armed||!P3DS_CatchInfo[0])return;armed=false;if(!P3DS_HuntCounting())return;int sp=P3DS_CatchInfo[1];if(sp<=0||sp>=494)return;
+ if(!armed||!P3DS_CatchInfo[0]||!P3DS_InBattle)return;armed=false;if(!P3DS_HuntCounting())return;int sp=P3DS_CatchInfo[1];if(sp<=0||sp>=494)return;
  const bool shiny=P3DS_CatchInfo[18]!=0;P3DS_HuntEncounter(sp,shiny);
  if(shiny)P3DS_AchUnlock(ACH_SHINY);/* achievements: first shiny encounter */
  if(shiny&&P3DS_HuntOn()){shinyAt=svcGetSystemTick();P3DS_HuntChime();if(!P3DS_CfgInt("catch_overlay",0))P3DS_Toast("SHINY POKEMON!");}}

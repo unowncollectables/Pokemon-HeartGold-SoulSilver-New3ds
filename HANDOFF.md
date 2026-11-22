@@ -66,6 +66,8 @@ Select / L+R+START+SELECT soft reset in the field crashed (`pc` past `.text`, cr
 
 Hardware on `ec3fbe9` (#576): after ~10–15 Select soft resets on the starter screen, audio died until a console reboot; the hunt counter ignored starters; Select reset did nothing on ChooseStarter. Fixes (unbuilt on hardware): `P3DS_AudioShutdown` frees linear wave buffers, waits for the audio thread, `ndspExit` once (not also from `ShutdownThreads`), and reclaim+retry on first `ndspInit` failure; hook 0292 publishes each rolled starter via `P3DS_HuntGift` / CatchInfo (focus refresh in ChooseStarter_Main); `select_reset` also arms while `P3DS_WideScreenName` is `"starter"`. Log: `[AUDIO] shutdown`, `[HUNT] gift`, `[BOOT] select_reset: ... starter screen`.
 
+Azahar on #577 head `6087c50`: 18 Select resets counted Chikorita/Cyndaquil once each but Totodile twice (158 enc 36). Cause: `huntTick` treated gift CatchInfo as a wild battle when leaving the field, re-counting the last `HuntGift` (Totodile). Fix: `huntTick` requires `P3DS_InBattle` (gifts stay on `P3DS_HuntGift` only).
+
 ## If X breaks, do Y (stability notes, 2026-11-18)
 
 Start with the device `log.txt` on the SD card (`sdmc:/3ds/soulsilver3ds/`); the owner pastes it. The run number at the top shows which build it came from. Never ask the owner to edit `config.txt`.
