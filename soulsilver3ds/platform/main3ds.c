@@ -311,8 +311,6 @@ void P3DS_BikeEvent(int on) { extern unsigned PSPNativeRenderFrameCount(void); P
    this title; 3dsx under Luma's homebrew loader -> hb:ldr target = this 3dsx (argv[0]) + relaunch of the loader title
    (the same way hbmenu starts us). If that isn't available we simply exit cleanly (back to the homebrew menu). */
 extern int __system_argc; extern char **__system_argv;
-/* 1 when P3DS_SoftReset can relaunch (CIA via APT, or a 3dsx started from the SD card under the homebrew loader). */
-int P3DS_CanRelaunch(void) { return !envIsHomebrew() || (__system_argc > 0 && __system_argv && __system_argv[0] && !strncmp(__system_argv[0], "sdmc:/", 6)); }
 void P3DS_SoftReset(unsigned param) {
     /* Run 934: OS_ResetSystem logs then calls SoftReset, then sceKernelLoadExec also calls SoftReset
        (0061 + psp_ss_ctru). A second entry must not re-run hunt/marker/sleep/hardExit while the first
@@ -324,7 +322,7 @@ void P3DS_SoftReset(unsigned param) {
     }
     extern int P3DS_CfgSoftReset(void);
     int how = 0;
-    if (param != 0xA0D10u) { extern void P3DS_HuntSoftReset(void), P3DS_HuntFlush(void); P3DS_HuntSoftReset(); P3DS_HuntFlush(); } /* shiny_suite: count it before the relaunch (not for the audio-recovery relaunch) */
+    { extern void P3DS_HuntSoftReset(void), P3DS_HuntFlush(void); P3DS_HuntSoftReset(); P3DS_HuntFlush(); } /* shiny_suite: count it before the relaunch */
     { extern int P3DS_CfgInt(const char *, int); if (P3DS_CfgInt("reset_skip_intro", 0)) { /* ss3ds 0070 (platinum3ds run 95): tell the relaunched process this was a soft reset */
           FILE *f = fopen("sdmc:/3ds/soulsilver3ds/skipintro.tmp", "w"); if (f) { fprintf(f, "%lld\n", (long long)time(NULL)); fclose(f); }
           PSPNativeMemLog("[BOOT] reset_skip_intro=1: marker written, the next boot skips the logos and title"); } }
@@ -461,7 +459,6 @@ static void watchdog(void *p) {
 }
 static u8 excStack[0x8000] __attribute__((aligned(8)));
 static u64 bootMs;
-unsigned long long P3DS_BootMs(void) { return bootMs; }
 static void onCrash(ERRF_ExceptionInfo *e, CpuRegisters *r) {
     PSPNativeMemLog("[CRASH] type=%d pc=%08lx lr=%08lx sp=%08lx far=%08lx fsr=%08lx r0=%08lx r4=%08lx", e->type, r->pc, r->lr, r->sp, e->far, e->fsr, r->r[0], r->r[4]);
     { extern int P3DS_InField, P3DS_InBattle; extern int P3DS_CfgInt(const char *, int); extern void P3DS_UseSummary(const char *);

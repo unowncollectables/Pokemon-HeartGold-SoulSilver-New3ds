@@ -8,9 +8,7 @@
 #include <malloc.h>
 #include <time.h>
 #define MAXT 32
-#define P3DS_SOFTRESET_AUDIO 0xA0D10u /* P3DS_SoftReset param: audio recovery relaunch (not a player reset: hunt counters untouched) */
-extern unsigned long long P3DS_BootMs(void);
-void P3DS_AudioRecoverPoll(void);
+
 typedef struct { Thread th; SceKernelThreadEntry entry; void *arg; SceSize len; u8 argbuf[64]; LightSemaphore wake; int prio, stack, used, started, core; char name[24]; } PT;
 static PT pts[MAXT + 1]; /* slot 0 = main thread */
 static __thread int tlsId;
@@ -298,10 +296,7 @@ static void ndspApplyClip(const char *why) {
    succeeded; a failed init is simply retried (libctru's dspInit force-unloads any component a dead process left behind). */
 static volatile u64 ndspInitT0; static volatile int ndspInitBusy; static u32 ndspFrames0; static u64 ndspReadyTick; static int ndspAlive = -1;
 static volatile int audioInNdsp; /* 1 while the audio thread is inside sceAudioOutputPannedBlocking's ndsp calls (P3DS_AudioShutdown waits for 0) */
-volatile int P3DS_AudioRecoverReq; /* 1 = the game thread should soft reset once (boot-time DSP that never started, see P3DS_AudioRecover) */
 void P3DS_AudioDiag(const char *when);
-void P3DS_AudioRecover(const char *why);
-static void P3DS_AudioRecoverClear(void);
 static void ndspSetup(void) {
     static int tries; static u64 nextTry;
     if (ndspOk == 1 || ndspOk == 2) return;
@@ -313,8 +308,6 @@ static void ndspSetup(void) {
     const unsigned initMs = (unsigned)((svcGetSystemTick() - ndspInitT0) / CPU_TICKS_PER_MSEC);
     if (R_FAILED(r)) { ndspOk = 0; nextTry = svcGetSystemTick() + (tries <= 3 ? (u64)SYSCLOCK_ARM11 * tries / 4 : (u64)SYSCLOCK_ARM11 * 3 / 2);
         PSPNativeMemLog("[AUDIO] ndspInit failed %08lx after %u ms (try %d/20%s): copy your console's DSP firmware to sdmc:/3ds/dspfirm.cdc (run 'DSP1' homebrew once) if this never succeeds.", r, initMs, tries, tries < 20 ? ", retrying" : ", giving up, audio disabled");
-        /* no dspfirm.cdc (RD_NOT_FOUND, d880a7fa) is a setup problem, not a stuck DSP: a relaunch cannot fix it, so never relaunch for it */
-        if (tries == 4 && r != MAKERESULT(RL_PERMANENT, RS_NOTFOUND, RM_DSP, RD_NOT_FOUND)) P3DS_AudioRecover("ndspInit failed 4 times in a row");
         return; }
     PSPNativeMemLog("[AUDIO] ndspInit ok on try %d in %u ms%s", tries, initMs, tries > 1 ? " (the DSP was still busy right after the reset)" : "");
     ndspFrames0 = ndspGetFrameCount(); ndspReadyTick = svcGetSystemTick(); ndspAlive = -1;
@@ -329,13 +322,13 @@ int sceAudioChReserve(int ch, int s, int f) { (void)s; (void)f; return ch < 0 ? 
 int sceAudioChRelease(int ch) { (void)ch; return 0; }
 /* 2026-11-22: prove the DSP really runs after ndspInit. libctru's ndsp thread only counts a frame when the DSP raises its
    interrupt, so a frame count that has not moved 2 s after a successful init means the DSP never started (sound dead for this
-   boot). Logged either way; a dead DSP at boot asks for one relaunch (P3DS_AudioRecover). */
+   boot). Log only: nothing is restarted or reset. */
 static void ndspLiveCheck(void) {
     if (ndspAlive >= 0 || P3DS_AudioAptPaused) return;
     const u64 now = svcGetSystemTick(), age = now - ndspReadyTick; const u32 f = ndspGetFrameCount();
     if (age < (u64)SYSCLOCK_ARM11 / 2) return;
-    if (f != ndspFrames0) { ndspAlive = 1; PSPNativeMemLog("[AUDIO] dsp alive: %lu DSP frames in the first %u ms after ndspInit", (unsigned long)(f - ndspFrames0), (unsigned)(age / CPU_TICKS_PER_MSEC)); P3DS_AudioRecoverClear(); return; }
-    if (age > (u64)SYSCLOCK_ARM11 * 2) { ndspAlive = 0; PSPNativeMemLog("[AUDIO] DSP NOT RUNNING: 0 DSP frames %u ms after a successful ndspInit (no sound this boot)", (unsigned)(age / CPU_TICKS_PER_MSEC)); P3DS_AudioDiag("dsp dead"); P3DS_AudioRecover("DSP never started after ndspInit"); }
+    if (f != ndspFrames0) { ndspAlive = 1; PSPNativeMemLog("[AUDIO] dsp alive: %lu DSP frames in the first %u ms after ndspInit", (unsigned long)(f - ndspFrames0), (unsigned)(age / CPU_TICKS_PER_MSEC)); return; }
+    if (age > (u64)SYSCLOCK_ARM11 * 2) { ndspAlive = 0; PSPNativeMemLog("[AUDIO] DSP NOT RUNNING: 0 DSP frames %u ms after a successful ndspInit (no sound this boot)", (unsigned)(age / CPU_TICKS_PER_MSEC)); P3DS_AudioDiag("dsp dead"); }
 }
 static int audioOutImpl(void *b);
 int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
@@ -404,37 +397,14 @@ void P3DS_AudioDiag(const char *when) {
         FILE *f = fopen("sdmc:/3ds/soulsilver3ds/resetchain.tmp", "r"); if (f) { if (fscanf(f, "%lld %d", &prevOn, &prevN) != 2) prevN = 0; fclose(f); }
         if (prevN > 0 && llabs(on - prevOn) <= 5) bootN = prevN + 1;
         if ((f = fopen("sdmc:/3ds/soulsilver3ds/resetchain.tmp", "w"))) { fprintf(f, "%lld %d\n", bootN > 1 ? prevOn : on, bootN); fclose(f); } }
-    s64 hc = -1, hp = -1, tc = -1; svcGetProcessInfo(&hc, CUR_PROCESS_HANDLE, 4); svcGetProcessInfo(&hp, CUR_PROCESS_HANDLE, 5); svcGetProcessInfo(&tc, CUR_PROCESS_HANDLE, 7);
+    s64 hc = -1, hp = -1, tc = -1; if (R_FAILED(svcGetProcessInfo(&hc, CUR_PROCESS_HANDLE, 4))) hc = -1; if (R_FAILED(svcGetProcessInfo(&hp, CUR_PROCESS_HANDLE, 5))) hp = -1; if (R_FAILED(svcGetProcessInfo(&tc, CUR_PROCESS_HANDLE, 7))) tc = -1;
     PSPNativeMemLog("[AUDIO] diag %s: boot %d since console power-on, uptime %llu s | linear free %u KiB | free KiB app %u sys %u base %u | handles %lld (peak %lld) threads %lld | ndsp ok %d, DSP frames %lu, dropped %lu",
         when, bootN, (unsigned long long)upS, (unsigned)(linearSpaceFree() >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_APPLICATION) >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_SYSTEM) >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_BASE) >> 10),
         (long long)hc, (long long)hp, (long long)tc, ndspOk, (unsigned long)(ndspOk == 1 ? ndspGetFrameCount() : 0), (unsigned long)(ndspOk == 1 ? ndspGetDroppedFrames() : 0));
 }
-/* 2026-11-22 boot-time audio recovery (config audio_recover, default 1): when the DSP is proven dead in the first 30 s of a boot
-   (ndspInit failed 4 times, never returned, or returned but the DSP never raised a frame), relaunch once the same way the soft
-   reset does; on other homebrew a relaunch is what brings a stuck DSP back. At most 2 relaunches within 3 minutes
-   (audio_recover.tmp holds time + count; removed again once the DSP is seen running), never after the first 30 s (an unsaved
-   game must never be thrown away), never without a relauncher, and the hunt counters are not touched. Saves are closed exactly
-   like any soft reset. */
-static const char kRecPath[] = "sdmc:/3ds/soulsilver3ds/audio_recover.tmp";
-static void P3DS_AudioRecoverClear(void) { FILE *f = fopen(kRecPath, "r"); if (f) { fclose(f); remove(kRecPath); PSPNativeMemLog("[AUDIO] recover: DSP running again, relaunch counter cleared"); } }
-void P3DS_AudioRecover(const char *why) {
-    static int done; if (done) return; done = 1;
-    extern int P3DS_CanRelaunch(void);
-    if (!P3DS_CfgInt("audio_recover", 1)) { PSPNativeMemLog("[AUDIO] recover: %s; audio_recover=0, staying silent", why); return; }
-    if (!P3DS_BootMs() || osGetTime() - P3DS_BootMs() > 30000) { PSPNativeMemLog("[AUDIO] recover: %s, but the game has been running over 30 s: no relaunch (soft reset or restart by hand)", why); return; }
-    if (!P3DS_CanRelaunch()) { PSPNativeMemLog("[AUDIO] recover: %s, but no relauncher here: staying silent", why); return; }
-    long long t = 0; int n = 0; const long long now = (long long)time(NULL);
-    FILE *f = fopen(kRecPath, "r"); if (f) { if (fscanf(f, "%lld %d", &t, &n) != 2) n = 0; fclose(f); }
-    if (now - t > 180 || now < t) n = 0;
-    if (n >= 2) { PSPNativeMemLog("[AUDIO] recover: %s; already relaunched %d times in 3 min, giving up (power the console off and on to get sound back)", why, n); remove(kRecPath); return; }
-    if ((f = fopen(kRecPath, "w"))) { fprintf(f, "%lld %d\n", now, n + 1); fclose(f); }
-    PSPNativeMemLog("[AUDIO] recover: %s -> relaunching once to restart the DSP (relaunch %d/2)", why, n + 1);
-    P3DS_AudioRecoverReq = 1;
-}
-/* Game thread (input poll): watch for an ndspInit that never returns, and carry out a requested relaunch. */
-void P3DS_AudioRecoverPoll(void) {
-    if (ndspInitBusy && svcGetSystemTick() - ndspInitT0 > (u64)SYSCLOCK_ARM11 * 4) { static int said; if (!said) { said = 1; PSPNativeMemLog("[AUDIO] ndspInit has not returned after 4 s (the DSP is not answering)"); P3DS_AudioDiag("ndspInit hung"); P3DS_AudioRecover("ndspInit hung"); } }
-    if (P3DS_AudioRecoverReq == 1) { P3DS_AudioRecoverReq = 2; extern void P3DS_SoftReset(unsigned); P3DS_SoftReset(P3DS_SOFTRESET_AUDIO); }
+/* Game thread (input poll): log once if ndspInit has not returned after 4 s (DSP not answering). Log only: never resets. */
+void P3DS_AudioInitWatch(void) {
+    if (ndspInitBusy && svcGetSystemTick() - ndspInitT0 > (u64)SYSCLOCK_ARM11 * 4) { static int said; if (!said) { said = 1; PSPNativeMemLog("[AUDIO] ndspInit has not returned after 4 s (the DSP is not answering)"); P3DS_AudioDiag("ndspInit hung"); } }
 }
 /* Pad, RTC, MAC, power callbacks, sysmem, file I/O. */
 #include <pspctrl.h>
@@ -551,7 +521,7 @@ typedef struct { unsigned short species; unsigned char lo, hi, pct, sec; } P3DSM
 P3DSMapEnt P3DS_MapEnt[48]; volatile int P3DS_MapEntN, P3DS_MapTod; unsigned *P3DS_MapIcons;
 int P3DS_MapIconMem[48], P3DS_MapIconPal[48], P3DS_MapIconPalFile; volatile int P3DS_MapGen; /* run 64 Map tab snapshot (game thread) */ /* run 64 summary_ivs (written by the summary screen) */   /* run 53 ZL: read by PlayerAvatar_IsRunButtonHeld (run = B XOR toggle) */
 int sceCtrlPeekBufferPositive(SceCtrlData *d, int n) {
-    hidScanInput(); { extern void P3DS_FrameHook(void); P3DS_FrameHook(); } P3DS_AudioRecoverPoll(); u32 k = hidKeysHeld(); unsigned b = 0;
+    hidScanInput(); { extern void P3DS_FrameHook(void); P3DS_FrameHook(); } { extern void P3DS_AudioInitWatch(void); P3DS_AudioInitWatch(); } u32 k = hidKeysHeld(); unsigned b = 0;
     if (P3DS_PromptOpen == 1) { u32 dn = hidKeysDown(); if (dn & (KEY_DUP | KEY_DDOWN)) P3DS_PromptSel ^= 1;
         if (dn & KEY_A) { P3DS_PromptResult = P3DS_PromptSel == 0; P3DS_PromptOpen = 2; } else if (dn & KEY_B) { P3DS_PromptResult = 0; P3DS_PromptOpen = 2; }
         k = 0; }
