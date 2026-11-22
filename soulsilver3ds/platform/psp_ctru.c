@@ -313,7 +313,8 @@ static void ndspSetup(void) {
     const unsigned initMs = (unsigned)((svcGetSystemTick() - ndspInitT0) / CPU_TICKS_PER_MSEC);
     if (R_FAILED(r)) { ndspOk = 0; nextTry = svcGetSystemTick() + (tries <= 3 ? (u64)SYSCLOCK_ARM11 * tries / 4 : (u64)SYSCLOCK_ARM11 * 3 / 2);
         PSPNativeMemLog("[AUDIO] ndspInit failed %08lx after %u ms (try %d/20%s): copy your console's DSP firmware to sdmc:/3ds/dspfirm.cdc (run 'DSP1' homebrew once) if this never succeeds.", r, initMs, tries, tries < 20 ? ", retrying" : ", giving up, audio disabled");
-        if (tries == 4) P3DS_AudioRecover("ndspInit failed 4 times in a row");
+        /* no dspfirm.cdc (RD_NOT_FOUND, d880a7fa) is a setup problem, not a stuck DSP: a relaunch cannot fix it, so never relaunch for it */
+        if (tries == 4 && r != MAKERESULT(RL_PERMANENT, RS_NOTFOUND, RM_DSP, RD_NOT_FOUND)) P3DS_AudioRecover("ndspInit failed 4 times in a row");
         return; }
     PSPNativeMemLog("[AUDIO] ndspInit ok on try %d in %u ms%s", tries, initMs, tries > 1 ? " (the DSP was still busy right after the reset)" : "");
     ndspFrames0 = ndspGetFrameCount(); ndspReadyTick = svcGetSystemTick(); ndspAlive = -1;
