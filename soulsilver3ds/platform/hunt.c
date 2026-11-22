@@ -133,6 +133,41 @@ void P3DS_HuntEncounter(int sp, int shiny) {
     if (shiny) PSPNativeMemLog("[HUNT] SHINY species %d after %d encounters (%d soft resets, total met %d)", sp, r->lastShinyAt, r->resets, r->enc);
     else PSPNativeMemLog("[HUNT] species %d met %d times (streak %d)", sp, r->enc, r->streak);
 }
+#ifndef P3DS_HUNT_HOST
+extern volatile int P3DS_CatchInfo[20];
+extern void P3DS_Toast(const char *);
+#endif
+/* Same CatchInfo layout as the wild foe snapshot (0030): [0] valid, [1] species, [2] level, [18] shiny, [19] counter. */
+static void huntGiftSnap(int sp, int shiny, int level) {
+#ifndef P3DS_HUNT_HOST
+    if (sp <= 0 || sp >= P3DS_HUNT_SPECIES) return;
+    P3DS_CatchInfo[1] = sp;
+    P3DS_CatchInfo[2] = level > 0 ? level : 5;
+    P3DS_CatchInfo[18] = shiny ? 1 : 0;
+    P3DS_CatchInfo[19] = P3DS_CatchInfo[19] + 1;
+    P3DS_CatchInfo[0] = 1;
+#else
+    (void)sp; (void)shiny; (void)level;
+#endif
+}
+void P3DS_HuntGiftFocus(int sp, int shiny, int level) {
+    huntGiftSnap(sp, shiny, level);
+    PSPNativeMemLog("[HUNT] gift focus species %d shiny %d", sp, shiny ? 1 : 0);
+}
+void P3DS_HuntGift(int sp, int shiny, int level) {
+    huntGiftSnap(sp, shiny, level);
+    if (!P3DS_HuntCounting()) { PSPNativeMemLog("[HUNT] gift species %d shiny %d (counters off)", sp, shiny ? 1 : 0); return; }
+    P3DS_HuntEncounter(sp, shiny);
+#ifndef P3DS_HUNT_HOST
+    if (shiny && P3DS_HuntOn()) {
+        extern void P3DS_HuntChime(void);
+        P3DS_HuntChime();
+        if (!P3DS_CfgInt("catch_overlay", 0)) P3DS_Toast("SHINY POKEMON!");
+    }
+#else
+    (void)level;
+#endif
+}
 void P3DS_HuntSoftReset(void) {
     if (!P3DS_HuntOn()) return;
     HUNT_LOCK(); load(); if (target) { rec[target].resets++; save(); PSPNativeMemLog("[HUNT] soft reset %d for species %d", rec[target].resets, target); } HUNT_UNLOCK();
