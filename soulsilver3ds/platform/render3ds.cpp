@@ -28,7 +28,8 @@ static unsigned P3DS_Perf3Worst;extern "C" int P3DS_CurMap;extern "C" void P3DS_
 #include "achievements.h"
 #include "celebrate.h"
 static int P3DS_HuntCount(int sp){return P3DS_HuntGet(sp)->enc;}
-extern "C" volatile int P3DS_CatchInfo[20];extern "C" int P3DS_InField;extern "C" volatile int P3DS_MenuOpen;extern "C" void P3DS_Toast(const char*);
+extern "C" volatile int P3DS_CatchInfo[20];extern "C" int P3DS_InField,P3DS_InBattle;/* InBattle: defined ss3ds_glue.c; needed by huntTick (above the wide_battle extern below) */
+extern "C" volatile int P3DS_MenuOpen;extern "C" void P3DS_Toast(const char*);
 extern "C" volatile int P3DS_ResetSeen; /* run 53 (main3ds.c) */
 #define PSPNativeMemLogC PSPNativeMemLog
 #include <cstring>
