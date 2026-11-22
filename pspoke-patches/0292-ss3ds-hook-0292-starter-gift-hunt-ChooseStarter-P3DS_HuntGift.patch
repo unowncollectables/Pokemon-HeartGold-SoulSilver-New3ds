@@ -1,0 +1,126 @@
+From 9b60b1facfddcf9645c4c5a10507bca8618c7a74 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Sun, 22 Nov 2026 16:12:43 +0000
+Subject: [PATCH] ss3ds: hook 0292 starter gift hunt (ChooseStarter ->
+ P3DS_HuntGift)
+
+Elm's starter CreateMon publishes each rolled mon to the platform hunt
+path; ChooseStarter_Main refreshes CatchInfo on ball focus for the
+shiny check and select_reset. Read-only of the save.
+---
+ scripts/ss3ds_hooks.d/0292_starterhunt.py | 91 +++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0292_starterhunt.sh |  4 +
+ 2 files changed, 95 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0292_starterhunt.py
+ create mode 100644 scripts/ss3ds_hooks.d/0292_starterhunt.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0292_starterhunt.py b/scripts/ss3ds_hooks.d/0292_starterhunt.py
+new file mode 100644
+index 0000000..3f02463
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0292_starterhunt.py
+@@ -0,0 +1,91 @@
++#!/usr/bin/env python3
++"""ss3ds 0292: starter gift hunt (Elm's ChooseStarter). READ-ONLY of game state / save.
++
++After CreateMon for the three starters in choose_starter.c, publish each to the platform hunt
++path (P3DS_HuntGift -> CatchInfo + HuntEncounter) so shiny_suite / hunt_counter see gifts the
++same way wild CatchInfo snapshots do. choose_starter_app.c refreshes CatchInfo when the player
++cycles the focused ball (P3DS_HuntGiftFocus, no second encounter). Idempotent ('SS3DS 0292').
++"""
++import sys
++
++def patch_create(path):
++    s = open(path).read()
++    if 'SS3DS 0292' in s:
++        return False
++    old = (
++        '                {\n'
++        '                    int item = ITEM_NONE;\n'
++        '                    SetMonData(mon, MON_DATA_HELD_ITEM, &item);\n'
++        '                }\n'
++        '            }\n'
++        '        }\n'
++        '        ChooseStarter_LaunchApp(fieldSystem, env->args);\n'
++    )
++    if s.count(old) != 1:
++        sys.exit('0292_starterhunt: create anchor not found exactly once in %s' % path)
++    new = (
++        '                {\n'
++        '                    int item = ITEM_NONE;\n'
++        '                    SetMonData(mon, MON_DATA_HELD_ITEM, &item);\n'
++        '                }\n'
++        '            }\n'
++        '            { /* SS3DS 0292 starter gift hunt: count each rolled starter like a gift encounter */\n'
++        '                extern void P3DS_HuntGift(int sp, int shiny, int level);\n'
++        '                for (i = 0; i < (int)NELEMS(species); i++) {\n'
++        '                    Pokemon *gift = &env->args->starters[i];\n'
++        '                    P3DS_HuntGift((int)GetMonData(gift, MON_DATA_SPECIES, NULL),\n'
++        '                                  MonIsShiny(gift) ? 1 : 0,\n'
++        '                                  (int)GetMonData(gift, MON_DATA_LEVEL, NULL));\n'
++        '                }\n'
++        '            }\n'
++        '        }\n'
++        '        ChooseStarter_LaunchApp(fieldSystem, env->args);\n'
++    )
++    open(path, 'w').write(s.replace(old, new, 1))
++    return True
++
++def patch_app(path):
++    s = open(path).read()
++    if 'SS3DS 0292 focus' in s:
++        return False
++    old = (
++        'BOOL ChooseStarter_Main(OverlayManager *ovy, int *state) {\n'
++        '    struct ChooseStarterAppWork *work = OverlayManager_GetData(ovy);\n'
++        '    int cameraPathSel = CAMERA_PATH_NULL;\n'
++    )
++    if s.count(old) != 1:
++        sys.exit('0292_starterhunt: Main anchor not found exactly once in %s' % path)
++    new = (
++        'BOOL ChooseStarter_Main(OverlayManager *ovy, int *state) {\n'
++        '    struct ChooseStarterAppWork *work = OverlayManager_GetData(ovy);\n'
++        '    { /* SS3DS 0292 focus: keep CatchInfo on the ball under the cursor for shiny check / select_reset */\n'
++        '        extern void P3DS_HuntGiftFocus(int sp, int shiny, int level);\n'
++        '        static u32 ss3dsFocus = 0xFFFFFFFFu;\n'
++        '        if (work->curSelection != ss3dsFocus && work->curSelection < 3 && work->choices[work->curSelection]) {\n'
++        '            Pokemon *gift = work->choices[work->curSelection];\n'
++        '            ss3dsFocus = work->curSelection;\n'
++        '            P3DS_HuntGiftFocus((int)GetMonData(gift, MON_DATA_SPECIES, NULL),\n'
++        '                               MonIsShiny(gift) ? 1 : 0,\n'
++        '                               (int)GetMonData(gift, MON_DATA_LEVEL, NULL));\n'
++        '        }\n'
++        '    }\n'
++        '    int cameraPathSel = CAMERA_PATH_NULL;\n'
++    )
++    open(path, 'w').write(s.replace(old, new, 1))
++    return True
++
++ok = False
++if patch_create('src/choose_starter.c'):
++    print('0292_starterhunt: choose_starter.c hooked')
++    ok = True
++else:
++    print('0292_starterhunt: choose_starter.c already hooked')
++    ok = True
++if patch_app('src/choose_starter_app.c'):
++    print('0292_starterhunt: choose_starter_app.c hooked')
++    ok = True
++else:
++    print('0292_starterhunt: choose_starter_app.c already hooked')
++    ok = True
++if not ok:
++    sys.exit(1)
+diff --git a/scripts/ss3ds_hooks.d/0292_starterhunt.sh b/scripts/ss3ds_hooks.d/0292_starterhunt.sh
+new file mode 100644
+index 0000000..dc2d3d9
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0292_starterhunt.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0292: starter gift hunt (Elm ChooseStarter -> P3DS_HuntGift / CatchInfo). Optional: without it starters stay invisible to shiny_suite.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0292_starterhunt.py" && bash rebuild_game_object.sh src/choose_starter.c choose_starter.o none && bash rebuild_game_object.sh src/choose_starter_app.c choose_starter_app.o none); then
++  log "ss3ds 0292 starterhunt hook skipped (see message above); starters stay off the hunt counter"
++fi
+-- 
+2.43.0
+

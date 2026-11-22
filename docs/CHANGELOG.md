@@ -4,6 +4,8 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
+- Starter soft-reset (run 996): audio teardown frees ndsp wave buffers and exits the DSP once before relaunch; hook 0292 counts Elm starters on the hunt path; Select soft reset works on the ChooseStarter screen. Builds on #576. Unbuilt on hardware.
+
 - Complete project wiki: player guides, settings, saves, wireless, HeartGold, troubleshooting, all repository Markdown guides and tool READMEs, full settings reference, policies, and labeled historical archives. `scripts/build_wiki.py` exports pinned source pages and validates local page links; see [wiki maintenance](WIKI.md).
 
 - Finder readability (#566): count and time-filter rows, result separators and paging footer leave room for full glyphs. LIST hides map controls and markers that covered its first result. Built and checked in LOTUS/CITnLO; hardware validation remains open.

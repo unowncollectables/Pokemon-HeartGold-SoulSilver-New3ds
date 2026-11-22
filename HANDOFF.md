@@ -62,6 +62,10 @@ Fixes from upstream pspoke 7477648..95a99b0 that the 3DS stack was missing. Batt
 
 Select / L+R+START+SELECT soft reset in the field crashed (`pc` past `.text`, crumbs: engine-B `w-job` still running after main stopped). Root cause: platform workers (engine B / c1, g3thr, par) were never joined before heap/GPU teardown; SoftReset could also be re-entered via `sceKernelLoadExec` after `OS_ResetSystem`. Fix: SoftReset once-guard; `hardExit` joins render → g3thr → par before `ShutdownThreads` / `gfxExit`. Save sync/backup order unchanged. Device retest pending.
 
+## Starter soft-reset (run 996, Elm's lab)
+
+Hardware on `ec3fbe9` (#576): after ~10–15 Select soft resets on the starter screen, audio died until a console reboot; the hunt counter ignored starters; Select reset did nothing on ChooseStarter. Fixes (unbuilt on hardware): `P3DS_AudioShutdown` frees linear wave buffers, waits for the audio thread, `ndspExit` once (not also from `ShutdownThreads`), and reclaim+retry on first `ndspInit` failure; hook 0292 publishes each rolled starter via `P3DS_HuntGift` / CatchInfo (focus refresh in ChooseStarter_Main); `select_reset` also arms while `P3DS_WideScreenName` is `"starter"`. Log: `[AUDIO] shutdown`, `[HUNT] gift`, `[BOOT] select_reset: ... starter screen`.
+
 ## If X breaks, do Y (stability notes, 2026-11-18)
 
 Start with the device `log.txt` on the SD card (`sdmc:/3ds/soulsilver3ds/`); the owner pastes it. The run number at the top shows which build it came from. Never ask the owner to edit `config.txt`.
