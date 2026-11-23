@@ -89,11 +89,20 @@ static void writeFile(const char *t, int n) {
 }
 #ifndef P3DS_HUNT_HOST
 static char hpend[sizeof hbuf], hwr[sizeof hbuf]; static volatile int hpendN = -1, hwriting; static LightLock hpLk; static LightEvent hpEv; static Thread hThr;
-static void writer(void *u) { (void)u; for (;;) { LightEvent_Wait(&hpEv); LightLock_Lock(&hpLk); int n = hpendN; if (n >= 0) { memcpy(hwr, hpend, n); hwriting = 1; } hpendN = -1; LightLock_Unlock(&hpLk); if (n >= 0) { writeFile(hwr, n); hwriting = 0; } } }
+/* 2026-11-22: joinable and stoppable (P3DS_HuntStopWriter, from hardExit); it used to block in LightEvent_Wait forever and was
+   still alive when the process exited on every soft reset. */
+static volatile int hStop;
+static void writer(void *u) { (void)u; for (;;) { LightEvent_Wait(&hpEv); if (hStop) break; LightLock_Lock(&hpLk); int n = hpendN; if (n >= 0) { memcpy(hwr, hpend, n); hwriting = 1; } hpendN = -1; LightLock_Unlock(&hpLk); if (n >= 0) { writeFile(hwr, n); hwriting = 0; } } }
 /* hardExit: wait (bounded, 3 s) for a queued or in-flight async hunt write, so the last counters reach the SD card */
 void P3DS_HuntWait(void) { for (int i = 0; i < 300 && (hpendN >= 0 || hwriting); i++) svcSleepThread(10000000); }
+/* hardExit, after P3DS_HuntWait: end the writer thread and join it (up to 1 s). Any later save() writes synchronously. */
+int P3DS_HuntStopWriter(void) {
+    Thread t = hThr; if (!t) return 1;
+    hStop = 1; LightEvent_Signal(&hpEv); int ok = R_SUCCEEDED(threadJoin(t, 1000000000ULL)); if (ok) threadFree(t); hThr = NULL; return ok;
+}
 #else
 void P3DS_HuntWait(void) {}
+int P3DS_HuntStopWriter(void) { return 1; }
 #endif
 static void save(void) {
     int n = 0;
@@ -105,9 +114,9 @@ static void save(void) {
     dirty = 0; lastWrite = svcGetSystemTick();
 #ifndef P3DS_HUNT_HOST
     static int as = -1; if (as < 0) { as = P3DS_CfgInt("hunt_async_save", 1) != 0;
-        if (as) { LightLock_Init(&hpLk); LightEvent_Init(&hpEv, RESET_ONESHOT); hThr = threadCreate(writer, 0, 16 * 1024, 0x3F, 0, true); if (!hThr) as = 0; }
+        if (as) { LightLock_Init(&hpLk); LightEvent_Init(&hpEv, RESET_ONESHOT); hThr = threadCreate(writer, 0, 16 * 1024, 0x3F, 0, false); if (!hThr) as = 0; }
         PSPNativeMemLog("[HUNT] hunt_async_save=%d", as); }
-    if (as) { LightLock_Lock(&hpLk); memcpy(hpend, hbuf, n); hpendN = n; LightLock_Unlock(&hpLk); LightEvent_Signal(&hpEv); return; }
+    if (as && hThr) { LightLock_Lock(&hpLk); memcpy(hpend, hbuf, n); hpendN = n; LightLock_Unlock(&hpLk); LightEvent_Signal(&hpEv); return; }
 #endif
     writeFile(hbuf, n);
 }

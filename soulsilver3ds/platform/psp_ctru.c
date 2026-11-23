@@ -14,6 +14,26 @@ static PT pts[MAXT + 1]; /* slot 0 = main thread */
 static __thread int tlsId;
 volatile int p3ds_quit; /* set by P3DS_ShutdownThreads: every worker leaves at its next blocking point */
 static void quitCheck(void) { if (p3ds_quit && tlsId != 0) threadExit(0); }
+/* 2026-11-22 thread-limit diagnostics. Hardware boot 15/16 (sound dead after ~15 soft resets): no thread could be created at all,
+   not even on core 0 (speedcheck "-1 = no thread" on every core, g3thr "could not start"), so the sound thread (sas_out.c
+   native_sas_out) never started, sceAudioOutputPannedBlocking was never called and ndspInit never ran ("ndsp was unstarted").
+   Applications share one kernel resource limit (32 threads); a thread count that keeps climbing from boot to boot means threads
+   of earlier processes were never released. This prints the limit's current/max values so the log shows it directly. */
+void PSPNativeMemLog(const char *, ...);
+static void resLimitStr(char *b, int n) {
+    Handle rl = 0; static const ResourceLimitType ty[] = { RESLIMIT_THREAD, RESLIMIT_EVENT, RESLIMIT_MUTEX, RESLIMIT_SEMAPHORE, RESLIMIT_TIMER, RESLIMIT_SHAREDMEMORY, RESLIMIT_ADDRESSARBITER, RESLIMIT_CPUTIME };
+    static const char *nm[] = { "threads", "events", "mutexes", "semaphores", "timers", "sharedmem", "arbiters", "cputime" };
+    s64 cur[8], mx[8]; ResourceLimitType t[8]; for (int i = 0; i < 8; i++) { t[i] = ty[i]; cur[i] = mx[i] = -1; }
+    Result r = svcGetResourceLimit(&rl, CUR_PROCESS_HANDLE);
+    if (R_SUCCEEDED(r)) { if (R_FAILED(svcGetResourceLimitCurrentValues(cur, rl, t, 8))) for (int i = 0; i < 8; i++) cur[i] = -1; if (R_FAILED(svcGetResourceLimitLimitValues(mx, rl, t, 8))) for (int i = 0; i < 8; i++) mx[i] = -1; svcCloseHandle(rl); }
+    int w = snprintf(b, n, "reslimit%s", R_FAILED(r) ? " (unreadable)" : "");
+    for (int i = 0; i < 8 && w > 0 && w < n; i++) w += snprintf(b + w, n - w, " %s %lld/%lld", nm[i], (long long)cur[i], (long long)mx[i]);
+}
+static s64 procInfo(u32 type) { s64 v = -1; if (R_FAILED(svcGetProcessInfo(&v, CUR_PROCESS_HANDLE, type))) v = -1; return v; }
+void P3DS_ThreadDiag(const char *when) {
+    char b[300]; resLimitStr(b, sizeof b);
+    PSPNativeMemLog("[3DS] threads at %s: this process %lld threads, %lld handles | %s", when, (long long)procInfo(7), (long long)procInfo(4), b);
+}
 static RecursiveLock big; static int bigInit;
 static void initBig(void) { if (!bigInit) { RecursiveLock_Init(&big); bigInit = 1; LightSemaphore_Init(&pts[0].wake, 0, 0x7fff); pts[0].used = 1; } }
 /* ss3ds run 74: who holds the big "interrupts off" lock? Run 73 (GTS) deadlocked with main stuck in intrlock-wait and nothing said which
@@ -55,7 +75,11 @@ SceUID sceKernelCreateThread(const char *n, SceKernelThreadEntry e, int prio, in
 static void trampoline(void *p) { PT *t = p; P3DS_ThreadGuard(t->name); tlsId = (int)(t - pts); t->entry(t->len, t->len ? t->argbuf : NULL); }
 int sceKernelStartThread(SceUID id, SceSize len, void *argp) {
     PT *t = &pts[id - 1]; if (len > sizeof t->argbuf) return -1; t->len = len; if (len) memcpy(t->argbuf, argp, len);
-    t->th = threadCreate(trampoline, t, t->stack, toCtrPrio(t->prio), t->core, false); if (!t->th && t->core != -2) { t->th = threadCreate(trampoline, t, t->stack, toCtrPrio(t->prio), -2, false); } t->started = 1; return t->th ? 0 : -1;
+    t->th = threadCreate(trampoline, t, t->stack, toCtrPrio(t->prio), t->core, false); if (!t->th && t->core != -2) { t->th = threadCreate(trampoline, t, t->stack, toCtrPrio(t->prio), -2, false); } t->started = 1;
+    if (!t->th) { char b[300]; resLimitStr(b, sizeof b);
+        PSPNativeMemLog("[3DS] thread start FAILED: %s (core %d, prio 0x%x, stack %d) | this process %lld threads | %s", t->name, t->core, toCtrPrio(t->prio), t->stack, (long long)procInfo(7), b);
+        if (strstr(t->name, "sas") || strstr(t->name, "audio")) PSPNativeMemLog("[AUDIO] sound thread %s could not start: no sound this boot (ndspInit will never run)", t->name); }
+    return t->th ? 0 : -1;
 }
 int sceKernelExitThread(int s) { (void)s; threadExit(0); return 0; }
 int sceKernelWaitThreadEnd(SceUID id, SceUInt *to) { (void)to; PT *t = &pts[id - 1]; if (t->th) threadJoin(t->th, U64_MAX); return 0; }
@@ -295,6 +319,7 @@ static void ndspApplyClip(const char *why) {
    DSP: "ndsp ready" was logged, every buffer queued, nothing played, for the whole boot. Never call ndspExit unless OUR ndspInit
    succeeded; a failed init is simply retried (libctru's dspInit force-unloads any component a dead process left behind). */
 static volatile u64 ndspInitT0; static volatile int ndspInitBusy; static u32 ndspFrames0; static u64 ndspReadyTick; static int ndspAlive = -1;
+static volatile int audioOutCalls; /* sceAudioOutputPannedBlocking calls (the sound thread is alive and feeding grains) */
 static volatile int audioInNdsp; /* 1 while the audio thread is inside sceAudioOutputPannedBlocking's ndsp calls (P3DS_AudioShutdown waits for 0) */
 void P3DS_AudioDiag(const char *when);
 static void ndspSetup(void) {
@@ -333,6 +358,7 @@ static void ndspLiveCheck(void) {
 static int audioOutImpl(void *b);
 int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
     (void)ch; (void)l; (void)r; quitCheck();
+    if (!audioOutCalls) PSPNativeMemLog("[AUDIO] first sound grain from the sound thread: starting ndsp"); audioOutCalls++;
     audioInNdsp = 1; int rc = audioOutImpl(b); audioInNdsp = 0; return rc;
 }
 static int audioOutImpl(void *b) {
@@ -404,6 +430,9 @@ void P3DS_AudioDiag(const char *when) {
 }
 /* Game thread (input poll): log once if ndspInit has not returned after 4 s (DSP not answering). Log only: never resets. */
 void P3DS_AudioInitWatch(void) {
+    { static u64 t0; static int said; if (!t0) t0 = svcGetSystemTick();
+      if (!said && !audioOutCalls && svcGetSystemTick() - t0 > (u64)SYSCLOCK_ARM11 * 10) { said = 1;
+          PSPNativeMemLog("[AUDIO] no sound grain in 10 s: the sound thread never reached the audio output, so ndspInit was never tried"); P3DS_ThreadDiag("no sound grain"); P3DS_AudioDiag("no sound grain"); } }
     if (ndspInitBusy && svcGetSystemTick() - ndspInitT0 > (u64)SYSCLOCK_ARM11 * 4) { static int said; if (!said) { said = 1; PSPNativeMemLog("[AUDIO] ndspInit has not returned after 4 s (the DSP is not answering)"); P3DS_AudioDiag("ndspInit hung"); } }
 }
 /* Pad, RTC, MAC, power callbacks, sysmem, file I/O. */

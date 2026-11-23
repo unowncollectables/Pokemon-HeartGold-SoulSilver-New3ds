@@ -198,12 +198,13 @@ done:
     return ok;
 }
 static aptHookCookie hookCookie;
+static Thread wdTh;
 extern void P3DS_ShutdownThreads(void); extern void P3DS_ShutdownSDL(void);
 /* Clean exit: stop workers, join them, close files, gfxExit, then exit() normally (returns to HBL / HOME). */
 static void hardExit(int code) {
     static int once; if (once++) exit(code);
     quitting = 1; PSPNativeMemLog("[3DS] exit: stopping threads");
-    { extern void P3DS_HuntFlush(void); extern void P3DS_HuntWait(void); P3DS_HuntFlush(); P3DS_HuntWait(); } /* shiny_suite: hunt time since the last write */
+    { extern void P3DS_HuntFlush(void); extern void P3DS_HuntWait(void); extern int P3DS_HuntStopWriter(void); P3DS_HuntFlush(); P3DS_HuntWait(); if (!P3DS_HuntStopWriter()) PSPNativeMemLog("[3DS] exit: hunt writer thread did not stop in 1 s"); } /* shiny_suite: hunt time since the last write */
     /* save first: ShutdownThreads frees the game's partition blocks, which the backup close may still touch */
     extern BOOL PSPNative_CloseBackup(void); PSPNative_CloseBackup(); ssSaveBackup("exit");
     /* Run 934 soft-reset crash: join every platform worker BEFORE freeing game heap / GPU state.
@@ -216,6 +217,11 @@ static void hardExit(int code) {
     { extern void P3DS_UseSummary(const char *); P3DS_UseSummary("clean exit"); }
     { extern void P3DS_FpsGuardClean(void); P3DS_FpsGuardClean(); }
     { extern void P3DS_AudioShutdown(void); P3DS_AudioShutdown(); }
+    /* 2026-11-22 (sound dead after ~15 soft resets; hardware boot 15/16 logs: even core 0 refused a new thread at boot, and 4 threads
+       were still alive at every exit): end and join the last long-lived threads too, so only main and libctru's own APT thread
+       (joined by aptExit) are left when the process exits. [3DS] threads at exit says how many remain. */
+    if (wdTh && threadGetCurrent() != wdTh) { if (R_SUCCEEDED(threadJoin(wdTh, 1000000000ULL))) threadFree(wdTh); else PSPNativeMemLog("[3DS] exit: watchdog thread did not stop in 1 s"); wdTh = NULL; }
+    { extern int P3DS_LogStopWriter(void); const int lw = P3DS_LogStopWriter(); extern void P3DS_ThreadDiag(const char *); P3DS_ThreadDiag(lw ? "exit (log writer joined)" : "exit (log writer did NOT stop)"); }
     PSPNativeMemLog("[3DS] exit: clean");
     P3DS_LogFlushSync(); aptUnhook(&hookCookie); gfxExit(); exit(code);
 }
@@ -445,7 +451,7 @@ int P3DS_TouchRead(int *x, int *y) {
 /* Watchdog: if no game frame is presented for ~3 s after the game started, log the breadcrumb and show the
    red box from this (higher-priority) thread so a stuck game thread cannot hard-lock the console. */
 extern unsigned PSPNativeRenderFrameCount(void);
-static volatile int gameStarted; static Thread wdTh;
+static volatile int gameStarted;
 static void watchdog(void *p) {
     P3DS_ThreadGuard("watchdog");
     unsigned last = 0; int still = 0;
@@ -520,7 +526,7 @@ int main(void) {
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
     { extern void P3DS_SpeedCheck(void); P3DS_SpeedCheck(); } /* perf pass 2026-11-14: logs whether 804 MHz / L2 is really on and each core's speed (speedcheck=0 skips); built since run 81 but never called here */
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
-    PSPNativeMemLog("[3DS] booted"); 
+    PSPNativeMemLog("[3DS] booted"); { extern void P3DS_ThreadDiag(const char *); P3DS_ThreadDiag("boot"); } 
     { extern int P3DS_CfgInt(const char *, int); /* ss3ds 0070 reset_skip_intro: only right after a soft reset (marker < 30 s old) */
       FILE *f = fopen("sdmc:/3ds/soulsilver3ds/skipintro.tmp", "r");
       if (f) { long long t = 0; if (fscanf(f, "%lld", &t) != 1) t = 0; fclose(f); remove("sdmc:/3ds/soulsilver3ds/skipintro.tmp");
@@ -554,7 +560,7 @@ int main(void) {
     { extern int P3DS_CfgInt(const char *, int); /* online trading (0137): 3DS sockets for the game's own Wi-Fi code; the game may never call WM init on that path, so start them here */
       { extern int P3DS_NetInit(void); PSPNativeMemLog("[NET] auto wireless at boot: sockets %s", P3DS_NetInit() ? "up" : "unavailable"); } }
     STEP("Starting game", 1, ""); PSPNativeMemLog("[3DS] entering NitroMain");
-    threadOnException(onCrash, excStack + sizeof excStack, WRITE_DATA_TO_HANDLER_STACK); gameStarted = 1; wdTh = threadCreate(watchdog, NULL, 0x4000, 0x20, -2, true);
+    threadOnException(onCrash, excStack + sizeof excStack, WRITE_DATA_TO_HANDLER_STACK); gameStarted = 1; wdTh = threadCreate(watchdog, NULL, 0x4000, 0x20, -2, false); /* joinable: hardExit joins it (it leaves its loop on quitting) */
     NitroMain(); 
     hold("NitroMain returned");
     return 0;

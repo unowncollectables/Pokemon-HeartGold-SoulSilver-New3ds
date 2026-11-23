@@ -86,7 +86,10 @@ static void flushOnce(int lock) {
     if (lf) { fflush(lf); if (wrote) logPending = 1; if (logPending || logSyncNow) logSync(!lock); }
     P3DS_LogWriting = 0;
 }
-static void writer(void *p) { (void)p; P3DS_ThreadGuard("logwriter"); for (;;) { svcSleepThread(100000000LL); flushOnce(1); } }
+/* 2026-11-22 (sound dead after ~15 soft resets): the writer used to be a detached thread that never ended, so it was still alive
+   when the process exited on every soft reset. It now leaves its loop on logStop and hardExit joins it (P3DS_LogStopWriter). */
+static volatile int logStop;
+static void writer(void *p) { (void)p; P3DS_ThreadGuard("logwriter"); while (!logStop) { svcSleepThread(100000000LL); flushOnce(1); } }
 static void useCount(const char *line);
 static char tailBuf[8][112]; static unsigned tailN; /* last 8 written (non-detail) lines, shown on the crash screen */
 void P3DS_LogLine(const char *line) {
@@ -101,7 +104,12 @@ void P3DS_LogLine(const char *line) {
     else { for (u32 k = 0; k < len; k++) ring[(head + k) % RING] = line[k]; ring[(head + len) % RING] = '\n'; head += len + 1; }
     int start = !th; if (start) th = (Thread)1;
     LightLock_Unlock(&lk);
-    if (start) { th = threadCreate(writer, NULL, 0x4000, 0x3F, -2, true); if (!th) th = (Thread)1; }
+    if (start) { th = threadCreate(writer, NULL, 0x4000, 0x3F, -2, false); if (!th) th = (Thread)1; }
+}
+/* hardExit: stop and join the writer thread (up to 1 s). Later lines stay in the ring and P3DS_LogFlushSync writes them. */
+int P3DS_LogStopWriter(void) {
+    Thread t = th; if (!t || t == (Thread)1) { th = (Thread)1; return 1; }
+    logStop = 1; int ok = R_SUCCEEDED(threadJoin(t, 1000000000ULL)); if (ok) threadFree(t); th = (Thread)1; return ok;
 }
 /* Synchronous flush for crash/exit/hold paths (lock attempted; written even if it can't be taken). */
 void P3DS_LogFlushSync(void) { ensureInit(); int got = !LightLock_TryLock(&lk); if (got) LightLock_Unlock(&lk); flushOnce(got);
