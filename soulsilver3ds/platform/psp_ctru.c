@@ -6,7 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <malloc.h>
+#include <time.h>
 #define MAXT 32
+
 typedef struct { Thread th; SceKernelThreadEntry entry; void *arg; SceSize len; u8 argbuf[64]; LightSemaphore wake; int prio, stack, used, started, core; char name[24]; } PT;
 static PT pts[MAXT + 1]; /* slot 0 = main thread */
 static __thread int tlsId;
@@ -285,20 +287,30 @@ static void ndspApplyClip(const char *why) {
     ndspSetClippingMode(m); if ((int)m != last) { last = (int)m; PSPNativeMemLog("[AUDIO] dsp clipping %s (%s, audio style %d)", m == NDSP_CLIP_NORMAL ? "NORMAL: plain clamp like the DS, no DSP limiter" : "SOFT: DSP output limiter (rides the whole mix)", why, st); } }
 /* 2026-11-20 (Nathan: sound gone after a soft reset on his other 3DS): the relaunched process can start while the old one still
    holds the DSP (or exited without ndspExit), so one failed ndspInit used to disable audio for the whole session. Now a failure is
-   retried about every 1.5 s (up to 20 tries) and every try is logged. ndspOk: -1 not started, 0 failed (retry later), 1 ready, 2 shut down. */
+   retried (0.25 s, 0.5 s, 0.75 s, then about every 1.5 s, up to 20 tries) and every try is logged. ndspOk: -1 not started, 0 failed
+   (retry later), 1 ready, 2 shut down.
+   2026-11-22 (sound still died after 7 starter soft resets with #577): #577's "reclaim" called ndspExit() after a FAILED ndspInit().
+   libctru's ndspInit already undoes its own reference on failure (ndsp.c _fail0: AtomicDecrement(&ndspRefCount)), so that ndspExit
+   drove ndspRefCount to -1 and the retry's ndspInit saw a non-zero count (AtomicPostIncrement) and returned 0 WITHOUT starting the
+   DSP: "ndsp ready" was logged, every buffer queued, nothing played, for the whole boot. Never call ndspExit unless OUR ndspInit
+   succeeded; a failed init is simply retried (libctru's dspInit force-unloads any component a dead process left behind). */
+static volatile u64 ndspInitT0; static volatile int ndspInitBusy; static u32 ndspFrames0; static u64 ndspReadyTick; static int ndspAlive = -1;
+static volatile int audioInNdsp; /* 1 while the audio thread is inside sceAudioOutputPannedBlocking's ndsp calls (P3DS_AudioShutdown waits for 0) */
+void P3DS_AudioDiag(const char *when);
 static void ndspSetup(void) {
     static int tries; static u64 nextTry;
     if (ndspOk == 1 || ndspOk == 2) return;
     if (ndspOk == 0) { if (tries >= 20 || svcGetSystemTick() < nextTry) return; }
+    if (!tries) P3DS_AudioDiag("before ndspInit");
+    ndspInitT0 = svcGetSystemTick(); ndspInitBusy = 1;
     Result r = ndspInit(); tries++;
-    /* First failure after a soft reset: a prior process may have left the DSP held. Best-effort ndspExit then one immediate retry. */
-    if (R_FAILED(r) && tries == 1) {
-        PSPNativeMemLog("[AUDIO] ndspInit failed %08lx on first try; reclaiming DSP and retrying once", r);
-        ndspExit(); r = ndspInit(); tries++;
-    }
-    if (R_FAILED(r)) { ndspOk = 0; nextTry = svcGetSystemTick() + (u64)SYSCLOCK_ARM11 * 3 / 2;
-        PSPNativeMemLog("[AUDIO] ndspInit failed %08lx (try %d/20%s): copy your console's DSP firmware to sdmc:/3ds/dspfirm.cdc (run 'DSP1' homebrew once) if this never succeeds.", r, tries, tries < 20 ? ", retrying" : ", giving up, audio disabled"); return; }
-    if (tries > 1) PSPNativeMemLog("[AUDIO] ndspInit ok on try %d (the DSP was still busy right after the reset)", tries);
+    ndspInitBusy = 0;
+    const unsigned initMs = (unsigned)((svcGetSystemTick() - ndspInitT0) / CPU_TICKS_PER_MSEC);
+    if (R_FAILED(r)) { ndspOk = 0; nextTry = svcGetSystemTick() + (tries <= 3 ? (u64)SYSCLOCK_ARM11 * tries / 4 : (u64)SYSCLOCK_ARM11 * 3 / 2);
+        PSPNativeMemLog("[AUDIO] ndspInit failed %08lx after %u ms (try %d/20%s): copy your console's DSP firmware to sdmc:/3ds/dspfirm.cdc (run 'DSP1' homebrew once) if this never succeeds.", r, initMs, tries, tries < 20 ? ", retrying" : ", giving up, audio disabled");
+        return; }
+    PSPNativeMemLog("[AUDIO] ndspInit ok on try %d in %u ms%s", tries, initMs, tries > 1 ? " (the DSP was still busy right after the reset)" : "");
+    ndspFrames0 = ndspGetFrameCount(); ndspReadyTick = svcGetSystemTick(); ndspAlive = -1;
     ndspSetOutputMode(NDSP_OUTPUT_STEREO); sasRateInit(); ndspChnSetInterp(0, P3DS_SasRate == 32728 ? NDSP_INTERP_NONE : NDSP_INTERP_LINEAR); ndspChnSetRate(0, P3DS_SasRate == 32728 ? 32728.498f : (float)P3DS_SasRate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
     float mix[12] = {1.0f, 1.0f}; ndspChnSetMix(0, mix);
     if (wbData) { linearFree(wbData); wbData = NULL; } /* defensive: never leak a prior linearAlloc if init is re-entered */
@@ -308,9 +320,25 @@ static void ndspSetup(void) {
 }
 int sceAudioChReserve(int ch, int s, int f) { (void)s; (void)f; return ch < 0 ? 0 : ch; }
 int sceAudioChRelease(int ch) { (void)ch; return 0; }
+/* 2026-11-22: prove the DSP really runs after ndspInit. libctru's ndsp thread only counts a frame when the DSP raises its
+   interrupt, so a frame count that has not moved 2 s after a successful init means the DSP never started (sound dead for this
+   boot). Log only: nothing is restarted or reset. */
+static void ndspLiveCheck(void) {
+    if (ndspAlive >= 0 || P3DS_AudioAptPaused) return;
+    const u64 now = svcGetSystemTick(), age = now - ndspReadyTick; const u32 f = ndspGetFrameCount();
+    if (age < (u64)SYSCLOCK_ARM11 / 2) return;
+    if (f != ndspFrames0) { ndspAlive = 1; PSPNativeMemLog("[AUDIO] dsp alive: %lu DSP frames in the first %u ms after ndspInit", (unsigned long)(f - ndspFrames0), (unsigned)(age / CPU_TICKS_PER_MSEC)); return; }
+    if (age > (u64)SYSCLOCK_ARM11 * 2) { ndspAlive = 0; PSPNativeMemLog("[AUDIO] DSP NOT RUNNING: 0 DSP frames %u ms after a successful ndspInit (no sound this boot)", (unsigned)(age / CPU_TICKS_PER_MSEC)); P3DS_AudioDiag("dsp dead"); }
+}
+static int audioOutImpl(void *b);
 int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
-    (void)ch; (void)l; (void)r; quitCheck(); ndspSetup();
+    (void)ch; (void)l; (void)r; quitCheck();
+    audioInNdsp = 1; int rc = audioOutImpl(b); audioInNdsp = 0; return rc;
+}
+static int audioOutImpl(void *b) {
+    ndspSetup();
     if (ndspOk != 1) { svcSleepThread((s64)sasGrain * 1000000000LL / P3DS_SasRate); return 0; }
+    ndspLiveCheck();
     /* run 46 audio_lead=N (default 8 = 62 ms, was 16 = 125 ms of DSP lead): with the 83 ms snapshot latency the total
        sound delay drops from ~250 ms to ~145 ms (Poketch / menu taps felt late). 16 = old. */
     static int lead = -1; if (lead < 0) { lead = 8; FILE *f = fopen("sdmc:/3ds/soulsilver3ds/config.txt", "r"); if (f) { char l[64]; int x; while (fgets(l, sizeof l, f)) if (sscanf(l, "audio_lead=%d", &x) == 1 && x >= 4 && x <= NWB) lead = x; fclose(f); } PSPNativeMemLog("[AUDIO] audio_lead=%d buffers (%d ms)", lead, lead * sasGrain * 1000 / P3DS_SasRate); }
@@ -322,10 +350,12 @@ int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
        that stays queued for 1 s while no HOME/sleep is in progress clears the channel queue and restarts output
        (logged as a "dsp stall"; one short gap instead of permanent silence). */
     { u64 t0 = svcGetSystemTick(); u32 lastPos = ndspChnGetSamplePos(0); u64 tPos = t0;
-      while (w->status != NDSP_WBUF_DONE && w->status != NDSP_WBUF_FREE) { if (p3ds_quit) { quitCheck(); return 0; } svcSleepThread(1000000);
+      while (w->status != NDSP_WBUF_DONE && w->status != NDSP_WBUF_FREE) { if (p3ds_quit) { audioInNdsp = 0; quitCheck(); return 0; } svcSleepThread(1000000);
         u64 now = svcGetSystemTick(); u32 pos = ndspChnGetSamplePos(0); if (pos != lastPos || P3DS_AudioAptPaused) { lastPos = pos; tPos = now; }
         if (now - tPos > (u64)SYSCLOCK_ARM11) { P3DS_AudioDspStalls++;
-            PSPNativeMemLog("[AUDIO] dsp stall: buffer %d still queued after %u ms (sample pos %lu frozen), clearing the channel (stalls %u)", wbNext, (unsigned)((now - t0) / CPU_TICKS_PER_MSEC), (unsigned long)pos, P3DS_AudioDspStalls);
+            static u32 stallFrames; const u32 fc = ndspGetFrameCount();
+            PSPNativeMemLog("[AUDIO] dsp stall: buffer %d still queued after %u ms (sample pos %lu frozen), clearing the channel (stalls %u, DSP frames %lu, +%lu since the last stall)", wbNext, (unsigned)((now - t0) / CPU_TICKS_PER_MSEC), (unsigned long)pos, P3DS_AudioDspStalls, (unsigned long)fc, (unsigned long)(fc - stallFrames));
+            stallFrames = fc; ndspLiveCheck();
             ndspChnWaveBufClear(0); for (int i = 0; i < NWB; i++) wb[i].status = NDSP_WBUF_DONE; wbNext = 0; w = &wb[0]; break; } }
       unsigned ms = (unsigned)((svcGetSystemTick() - t0) / CPU_TICKS_PER_MSEC); if (ms > P3DS_AudioMaxWaitMs) P3DS_AudioMaxWaitMs = ms; }
     memcpy((void *)w->data_vaddr, b, sasGrain * 4); DSP_FlushDataCache(w->data_vaddr, sasGrain * 4);
@@ -333,23 +363,48 @@ int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
 }
 /* Called by hardExit (soft reset or quit) after the workers are stopped. Owns the only ndspExit on the exit path (#576
    released the DSP; run 996 still lost audio after ~10-15 soft resets until a console reboot). Stop the audio thread from
-   touching ndsp, wait for it to leave the DSP wait, free the linear wave buffers, ndspExit exactly once, then pause so the
-   kernel can drop the DSP handle before the relaunch. */
+   touching ndsp, wait (up to 500 ms) until it has really left its ndsp calls, free the linear wave buffers, ndspExit exactly once
+   (only when our ndspInit succeeded: an unbalanced ndspExit underflows libctru's refcount), then pause so the kernel can drop the
+   DSP handle before the relaunch. */
 void P3DS_AudioShutdown(void) {
     static int once; if (once++) return;
     const int was = ndspOk;
     ndspOk = 2; /* sceAudioOutputPannedBlocking now sleeps; ndspSetup will not start again this process */
-    svcSleepThread(50000000LL); /* 50 ms: let the audio SCE thread leave any ndsp wait before we tear the DSP down */
+    { u64 t0 = svcGetSystemTick(); svcSleepThread(5000000LL);
+      while (audioInNdsp && svcGetSystemTick() - t0 < (u64)SYSCLOCK_ARM11 / 2) svcSleepThread(2000000LL);
+      if (audioInNdsp) PSPNativeMemLog("[AUDIO] shutdown: audio thread still inside ndsp after 500 ms"); }
+    P3DS_AudioDiag("exit");
+    if (ndspInitBusy) PSPNativeMemLog("[AUDIO] shutdown: ndspInit never returned (DSP not answering); not calling ndspExit");
     if (was == 1) { ndspChnWaveBufClear(0); ndspChnReset(0); ndspChnReset(1); }
     if (wbData) { linearFree(wbData); wbData = NULL; }
     memset(wb, 0, sizeof wb); wbNext = 0;
-    if (was == 1) {
+    if (was == 1 && !ndspInitBusy) {
         ndspExit();
         PSPNativeMemLog("[AUDIO] shutdown: DSP released before exit (buffers freed)");
     } else {
         PSPNativeMemLog("[AUDIO] shutdown: ndsp was %s; buffers cleared", was == 2 ? "already released" : was == 0 ? "not ready" : "unstarted");
     }
     svcSleepThread(100000000LL); /* 100 ms: give the kernel time to reclaim the DSP before apt chainload */
+}
+/* 2026-11-22 audio diagnostics (one line per call, cheap): which boot this is since the console was powered on (counted in
+   resetchain.tmp: the console's power-on time = now - uptime, so a power cycle starts again at 1), uptime, memory left in each
+   region (BASE is where system modules such as dsp allocate, so a per-reset leak there shows up as a falling number), this
+   process's handle and thread counts, and the DSP frame / dropped-frame counters. */
+void P3DS_AudioDiag(const char *when) {
+    static int bootN = -1;
+    const u64 upS = svcGetSystemTick() / SYSCLOCK_ARM11;
+    if (bootN < 0) { bootN = 1; long long on = (long long)time(NULL) - (long long)upS, prevOn = 0; int prevN = 0;
+        FILE *f = fopen("sdmc:/3ds/soulsilver3ds/resetchain.tmp", "r"); if (f) { if (fscanf(f, "%lld %d", &prevOn, &prevN) != 2) prevN = 0; fclose(f); }
+        if (prevN > 0 && llabs(on - prevOn) <= 5) bootN = prevN + 1;
+        if ((f = fopen("sdmc:/3ds/soulsilver3ds/resetchain.tmp", "w"))) { fprintf(f, "%lld %d\n", bootN > 1 ? prevOn : on, bootN); fclose(f); } }
+    s64 hc = -1, hp = -1, tc = -1; if (R_FAILED(svcGetProcessInfo(&hc, CUR_PROCESS_HANDLE, 4))) hc = -1; if (R_FAILED(svcGetProcessInfo(&hp, CUR_PROCESS_HANDLE, 5))) hp = -1; if (R_FAILED(svcGetProcessInfo(&tc, CUR_PROCESS_HANDLE, 7))) tc = -1;
+    PSPNativeMemLog("[AUDIO] diag %s: boot %d since console power-on, uptime %llu s | linear free %u KiB | free KiB app %u sys %u base %u | handles %lld (peak %lld) threads %lld | ndsp ok %d, DSP frames %lu, dropped %lu",
+        when, bootN, (unsigned long long)upS, (unsigned)(linearSpaceFree() >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_APPLICATION) >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_SYSTEM) >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_BASE) >> 10),
+        (long long)hc, (long long)hp, (long long)tc, ndspOk, (unsigned long)(ndspOk == 1 ? ndspGetFrameCount() : 0), (unsigned long)(ndspOk == 1 ? ndspGetDroppedFrames() : 0));
+}
+/* Game thread (input poll): log once if ndspInit has not returned after 4 s (DSP not answering). Log only: never resets. */
+void P3DS_AudioInitWatch(void) {
+    if (ndspInitBusy && svcGetSystemTick() - ndspInitT0 > (u64)SYSCLOCK_ARM11 * 4) { static int said; if (!said) { said = 1; PSPNativeMemLog("[AUDIO] ndspInit has not returned after 4 s (the DSP is not answering)"); P3DS_AudioDiag("ndspInit hung"); } }
 }
 /* Pad, RTC, MAC, power callbacks, sysmem, file I/O. */
 #include <pspctrl.h>
@@ -541,7 +596,7 @@ typedef struct { unsigned short species; unsigned char lo, hi, pct, sec; } P3DSM
 P3DSMapEnt P3DS_MapEnt[48]; volatile int P3DS_MapEntN, P3DS_MapTod; unsigned *P3DS_MapIcons;
 int P3DS_MapIconMem[48], P3DS_MapIconPal[48], P3DS_MapIconPalFile; volatile int P3DS_MapGen; /* run 64 Map tab snapshot (game thread) */ /* run 64 summary_ivs (written by the summary screen) */   /* run 53 ZL: read by PlayerAvatar_IsRunButtonHeld (run = B XOR toggle) */
 int sceCtrlPeekBufferPositive(SceCtrlData *d, int n) {
-    hidScanInput(); { extern void P3DS_FrameHook(void); P3DS_FrameHook(); } u32 k = hidKeysHeld(); unsigned b = 0;
+    hidScanInput(); { extern void P3DS_FrameHook(void); P3DS_FrameHook(); } { extern void P3DS_AudioInitWatch(void); P3DS_AudioInitWatch(); } u32 k = hidKeysHeld(); unsigned b = 0;
     if (P3DS_PromptOpen == 1) { u32 dn = hidKeysDown(); if (dn & (KEY_DUP | KEY_DDOWN)) P3DS_PromptSel ^= 1;
         if (dn & KEY_A) { P3DS_PromptResult = P3DS_PromptSel == 0; P3DS_PromptOpen = 2; } else if (dn & KEY_B) { P3DS_PromptResult = 0; P3DS_PromptOpen = 2; }
         k = 0; }
