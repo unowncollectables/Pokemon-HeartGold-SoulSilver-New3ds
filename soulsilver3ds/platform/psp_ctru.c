@@ -457,6 +457,8 @@ static const struct { const char *key; int def; } kCfgDefaults[] = {
     { "sharp_text", 1 }, { "sharp_game_text", 1 },
     /* 2026-11-19 owner config (SD config.txt read 2026-11-19): ambient_weather ON (fixed in #544), union_guard OFF (Union Room works), battle 3D depth FOE DEEPER. */
     { "union_guard", 0 }, { "stereo_2d", 4 },
+    /* 2026-11-22 mobile PC: must stay OFF when the key is absent. */
+    { "mobile_pc", 0 }, { "mobile_pc_dev", 0 },
 };
 /* The default a missing key gets: this table if it lists the key, else the caller's `def`. logring.c reports with it, so the two cannot drift. */
 int P3DS_CfgDefault(const char *key, int def) { for (unsigned i = 0; i < sizeof kCfgDefaults / sizeof kCfgDefaults[0]; i++) if (!strcmp(key, kCfgDefaults[i].key)) return kCfgDefaults[i].def; return def; }
@@ -497,6 +499,155 @@ void P3DS_CfgWrite(const char *key, int val) {
     f = full ? NULL : fopen("sdmc:/3ds/soulsilver3ds/config.txt", "w"); int ok = f != NULL; if (f) { ok = fwrite(buf, 1, n, f) == n; if (fclose(f)) ok = 0; }
     P3DS_CfgInvalidate();
     if (ok) PSPNativeMemLog("[MENU] config.txt: %s=%d (saved)", key, val); else PSPNativeMemLog("[MENU] config.txt: %s=%d WRITE FAILED (setting lost on restart)", key, val); }
+/* SS3DS mobile PC: config (default OFF) and unlock sidecar. Never writes the .sav. */
+#include "ss3ds_mobilepc.h"
+volatile int P3DS_MobilePcReq, P3DS_MobilePcPreviewReq, P3DS_MobilePcUnlockPlay, P3DS_GameClear;
+static int sMpOn = -1, sMpDev = -1, sMpAnim = -1, sMpPending, sMpUnlockSeen, sMpZoom = -1;
+volatile int P3DS_InPartyMenu, P3DS_MobilePcCloseThenLaunch;
+int P3DS_MobilePcCfg(void) {
+    if (sMpOn < 0) { sMpOn = P3DS_CfgInt("mobile_pc", 0) != 0; PSPNativeMemLog("[MPC] mobile_pc=%d (party BOXES chip, hook 0293, default OFF)", sMpOn); }
+    return sMpOn;
+}
+int P3DS_MobilePcDevCfg(void) {
+    if (sMpDev < 0) { sMpDev = P3DS_CfgInt("mobile_pc_dev", 0) != 0; PSPNativeMemLog("[MPC] mobile_pc_dev=%d (DEBUG: skip HoF gate at runtime only, never writes flags)", sMpDev); }
+    return sMpDev;
+}
+void P3DS_MobilePcSetCfg(int on) { sMpOn = on != 0; P3DS_CfgWrite("mobile_pc", sMpOn); PSPNativeMemLog("[MPC] mobile_pc=%d from settings", sMpOn); }
+void P3DS_MobilePcSetDev(int on) { sMpDev = on != 0; P3DS_CfgWrite("mobile_pc_dev", sMpDev); PSPNativeMemLog("[MPC] mobile_pc_dev=%d from settings (runtime gate only)", sMpDev); }
+int P3DS_MobilePcOn(void) { return P3DS_MobilePcCfg() && (P3DS_GameClear || P3DS_MobilePcDevCfg()); }
+int P3DS_MobilePcChipOn(void) { return P3DS_MobilePcCfg() && (P3DS_MobilePcOn() || P3DS_MobilePcUnlockPlay || sMpAnim >= 0 || sMpPending); }
+#define MPC_SIDECAR "sdmc:/3ds/soulsilver3ds/mobile_pc.txt"
+#define MPC_SIDECAR_TMP "sdmc:/3ds/soulsilver3ds/mobile_pc.tmp"
+int P3DS_MobilePcUnlockShown(unsigned tid) {
+    FILE *f; char line[128]; unsigned v;
+    if (!tid) return 0;
+    f = fopen(MPC_SIDECAR, "r");
+    if (!f) return 0;
+    while (fgets(line, sizeof line, f)) {
+        if (sscanf(line, "shown_tid=%u", &v) == 1 && v == tid) { fclose(f); return 1; }
+    }
+    fclose(f);
+    return 0;
+}
+void P3DS_MobilePcUnlockMarkShown(unsigned tid) {
+    FILE *f; char buf[4096]; size_t n = 0; unsigned v; int have = 0; char line[128];
+    if (!tid) return;
+    f = fopen(MPC_SIDECAR, "r");
+    if (f) {
+        while (fgets(line, sizeof line, f)) {
+            if (sscanf(line, "shown_tid=%u", &v) == 1 && v == tid) have = 1;
+            size_t l = strlen(line);
+            if (n + l + 32 < sizeof buf) { memcpy(buf + n, line, l); n += l; if (l && line[l - 1] != '\n') buf[n++] = '\n'; }
+        }
+        fclose(f);
+    } else {
+        const char *hdr = "# soulsilver3ds mobile PC unlock (port file, never written to the .sav)\n";
+        size_t l = strlen(hdr); memcpy(buf, hdr, l); n = l;
+    }
+    if (!have) {
+        int w = snprintf(buf + n, sizeof buf - n, "shown_tid=%u\n", tid);
+        if (w > 0) n += (size_t)w;
+    }
+    f = fopen(MPC_SIDECAR_TMP, "w");
+    if (!f) { PSPNativeMemLog("[MPC] could not write %s", MPC_SIDECAR); return; }
+    if (fwrite(buf, 1, n, f) != n) { fclose(f); remove(MPC_SIDECAR_TMP); PSPNativeMemLog("[MPC] write failed for %s", MPC_SIDECAR); return; }
+    if (fclose(f)) { remove(MPC_SIDECAR_TMP); return; }
+    remove(MPC_SIDECAR);
+    if (rename(MPC_SIDECAR_TMP, MPC_SIDECAR) != 0) PSPNativeMemLog("[MPC] rename failed for %s", MPC_SIDECAR);
+    else PSPNativeMemLog("[MPC] marked unlock shown for tid %u (sidecar only)", tid);
+}
+void P3DS_MobilePcRequestOpen(void) {
+    if (!P3DS_MobilePcCfg()) return;
+    if (!P3DS_MobilePcOn()) { extern void P3DS_Toast(const char *); P3DS_Toast("NOT UNLOCKED YET"); return; }
+    if (P3DS_MobilePcReq) return;
+    P3DS_MobilePcReq = 1;
+    PSPNativeMemLog("[MPC] open requested");
+}
+void P3DS_MobilePcRequestPreview(void) {
+    P3DS_MobilePcPreviewReq = 1;
+    PSPNativeMemLog("[MPC] preview unlock requested (no sidecar write, no save flags)");
+}
+int P3DS_MobilePcAnimFrame(void) { return sMpAnim; }
+int P3DS_MobilePcZoomFrame(void) { return sMpZoom; }
+
+void P3DS_MobilePcNotePartyVisible(void) {
+    if (sMpPending && sMpAnim < 0) {
+        sMpPending = 0;
+        sMpAnim = 0;
+        PSPNativeMemLog("[MPC] BOXES chip pop-in (first party view after unlock)");
+    }
+}
+
+static void mpcMapChip(int *dx0, int *dy0, int *dx1, int *dy1, int *nx0, int *ny0, int *nx1, int *ny1) {
+    extern volatile int P3DS_PanelPartyOn, P3DS_PanelDest[4], P3DS_PanelSrcHeight;
+    const int sx0 = kMobilePcChipSX0, sy0 = kMobilePcChipSY0, sx1 = kMobilePcChipSX1, sy1 = kMobilePcChipSY1;
+    if (P3DS_PanelPartyOn && P3DS_PanelDest[2] > P3DS_PanelDest[0] && P3DS_PanelDest[3] > P3DS_PanelDest[1]) {
+        const int x0 = P3DS_PanelDest[0], y0 = P3DS_PanelDest[1], x1 = P3DS_PanelDest[2], y1 = P3DS_PanelDest[3];
+        const int sh = P3DS_PanelSrcHeight > 0 ? P3DS_PanelSrcHeight : 192;
+        *dx0 = x0 + sx0 * (x1 - x0) / 256;
+        *dx1 = x0 + sx1 * (x1 - x0) / 256;
+        *dy0 = y0 + sy0 * (y1 - y0) / sh;
+        *dy1 = y0 + sy1 * (y1 - y0) / sh;
+    } else {
+        *dx0 = sx0; *dy0 = sy0; *dx1 = sx1; *dy1 = sy1;
+    }
+    *nx0 = *dx0 * 5 / 4; *ny0 = *dy0 * 5 / 4;
+    *nx1 = (*dx1 * 5 + 3) / 4; *ny1 = (*dy1 * 5 + 3) / 4;
+}
+
+void P3DS_MobilePcChipRectDS(int *x0, int *y0, int *x1, int *y1) {
+    int nx0, ny0, nx1, ny1;
+    mpcMapChip(x0, y0, x1, y1, &nx0, &ny0, &nx1, &ny1);
+}
+
+void P3DS_MobilePcChipRectNative(int *x0, int *y0, int *x1, int *y1) {
+    int dx0, dy0, dx1, dy1;
+    mpcMapChip(&dx0, &dy0, &dx1, &dy1, x0, y0, x1, y1);
+}
+
+int P3DS_MobilePcChipFooterShown(void) {
+    extern int P3DS_InBattle;
+    return P3DS_MobilePcChipOn() && P3DS_InPartyMenu && !P3DS_InBattle;
+}
+
+int P3DS_MobilePcChipHitDS(int x, int y) {
+    int x0, y0, x1, y1;
+    if (!P3DS_MobilePcChipFooterShown()) return 0;
+    P3DS_MobilePcChipRectDS(&x0, &y0, &x1, &y1);
+    return x >= x0 && x < x1 && y >= y0 && y < y1;
+}
+
+void P3DS_MobilePcOnChipTap(void) {
+    if (sMpZoom >= 0 || P3DS_MobilePcCloseThenLaunch || P3DS_MobilePcReq) return;
+    if (!P3DS_MobilePcOn()) { extern void P3DS_Toast(const char *); P3DS_Toast("NOT UNLOCKED YET"); return; }
+    sMpZoom = 0;
+    PSPNativeMemLog("[MPC] BOXES chip tapped: open zoom");
+}
+
+void P3DS_MobilePcAnimTick(void) {
+    /* Fanfare + DialogBox still play in the overworld. The chip pop-in waits until the party is first viewed. */
+    if (P3DS_MobilePcUnlockPlay) {
+        if (!sMpUnlockSeen) { sMpUnlockSeen = 1; sMpPending = 1; PSPNativeMemLog("[MPC] unlock ceremony started; chip pop-in waits for the party screen"); }
+    } else sMpUnlockSeen = 0;
+    if (sMpAnim >= 0 && sMpAnim < kMobilePcAnimLast) sMpAnim++;
+    else if (sMpAnim >= kMobilePcAnimLast) sMpAnim = -1;
+    if (sMpZoom >= 0) {
+        if (sMpZoom < kMobilePcZoomLast) sMpZoom++;
+        else {
+            sMpZoom = -1;
+            extern int P3DS_InField;
+            extern volatile int P3DS_PanelPartyOn;
+            if (P3DS_InPartyMenu || P3DS_PanelPartyOn || !P3DS_InField) {
+                P3DS_MobilePcCloseThenLaunch = 1;
+                PSPNativeMemLog("[MPC] zoom done: closing the party, then launching boxes");
+            } else {
+                P3DS_MobilePcRequestOpen();
+                PSPNativeMemLog("[MPC] zoom done: already in the field, requesting launch");
+            }
+        }
+    }
+}
+
 int P3DS_CtlZr = -1, P3DS_CtlZl, P3DS_CtlCp;   /* run 55: file scope so the settings menu can change them live */
 int P3DS_CfgSoftReset(void) { static int v = -1; if (v < 0) v = P3DS_CfgInt("soft_reset", 1) != 0; return v; }
 volatile int P3DS_RunToggle;
