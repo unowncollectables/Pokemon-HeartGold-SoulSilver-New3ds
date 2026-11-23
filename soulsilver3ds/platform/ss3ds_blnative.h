@@ -100,7 +100,9 @@ static void bnButtonDetails(const SBnCanvas &c, int x0, int y0, int y1, int divi
 struct SBnTabDst { short dx, dy, w, h, sx, sy; };
 /* JOHTO top tabs at native resolution, same box and green pixel icons as the column (bnBox / bnIcon2x).
    ds* are the DS hit rects from pxChips. Drawn into atlas row y=180 (the frame windows stop at y=168). */
-static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const int *dsX1, int dsY0, int dsY1, const int *icons, const char *const *labels, const char *const *shortLabels, SBnTabDst *dst, int maxDst) {
+/* iconOnly: no labels, centred icons (used when the Mobile PC tab is present so 7 chips stay even and roomy).
+   Default false keeps the 5/6-tab labeled strip unchanged. */
+static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const int *dsX1, int dsY0, int dsY1, const int *icons, const char *const *labels, const char *const *shortLabels, SBnTabDst *dst, int maxDst, bool iconOnly = false) {
   if (!atlas || n < 1) return 0;
   const uint32_t NAVY = bnRGB(7, 33, 54), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255), BTN_SHD = bnRGB(189, 201, 222),
     SEL = bnRGB(46, 208, 155), SEL_SHD = bnRGB(24, 153, 115), BG = bnRGB(200, 208, 211),
@@ -116,7 +118,7 @@ static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const i
     const int divider = 13, textLeft = divider + 2, textRight = w - 4, room = textRight - textLeft;
     const char *label = bnTextW(labels[i]) <= room ? labels[i] : shortLabels[i];
     const int tw = bnTextW(label);
-    const bool showLabel = tw <= room;
+    const bool showLabel = !iconOnly && tw <= room;
     bnButtonDetails(c, 0, 0, h - 1, showLabel ? divider : w - 5, w - 3, on);
     bnIcon2x(c, showLabel ? 1 : (w - 5 - 12) / 2, (h - 12) / 2,
              icons[i], on ? SEL_INK : INK, on ? WHITE : ACC);

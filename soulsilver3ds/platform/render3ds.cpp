@@ -2939,7 +2939,7 @@ static int PresentFrame(bool){
       k=k*31u+bnAtlasGen;k=k*31u+(pxOn()?(unsigned)pxPane()+1u:0u)+(unsigned)pxNTab()*13u+(unsigned)(P3DS_MobilePcAnimFrame()+2)*17u;
       static SBnTabDst bnTabD[kPxMaxTab]; static int bnTabN;
       if(k!=bnKey){bnKey=k;bnFrame(P3DS_OvAtlasGet(),lb,al,on,pr,native?(icMask&0x7FF):0,bnX,bnY);bnTabN=0;
-       if(pxOn()){int cx0[kPxMaxTab],cx1[kPxMaxTab],cy0,cy1;pxChips(kSuiText,kBlPanX1,kBlPanY0,cx0,cx1,&cy0,&cy1);bnTabN=bnTabStrip(P3DS_OvAtlasGet(),pxPane(),pxNTab(),cx0,cx1,cy0,cy1,kPxTabIcon,kPxTabs,kPxTabShort,bnTabD,kPxMaxTab);
+       if(pxOn()){int cx0[kPxMaxTab],cx1[kPxMaxTab],cy0,cy1;pxChips(kSuiText,kBlPanX1,kBlPanY0,cx0,cx1,&cy0,&cy1);bnTabN=bnTabStrip(P3DS_OvAtlasGet(),pxPane(),pxNTab(),cx0,cx1,cy0,cy1,kPxTabIcon,kPxTabs,kPxTabShort,bnTabD,kPxMaxTab,P3DS_MobilePcTabOn());
         static bool lgT;if(!lgT){lgT=true;PSPNativeMemLog("[BMENU] native tab strip: %d buttons, column-style icon cells, labels and red accents",bnTabN);}}
        P3DS_OvDirty=1;static bool lg;if(!lg){lg=true;PSPNativeMemLog("[BMENU] native column drawn (atlas 512x256)");}}
       R(235,0,85,240,256,0);R(0,0,235,4,0,160);R(0,236,235,4,0,164);R(0,4,4,232,344,0);
