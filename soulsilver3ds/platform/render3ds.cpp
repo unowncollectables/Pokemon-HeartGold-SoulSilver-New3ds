@@ -1755,7 +1755,7 @@ static const SAppTab kTabs[kTotalTabs]={
      {114,"Auto run","Run by default; B walks instead. ZL or the RUN tile still flip it."},
      {109,"Export save","Press A, then close this menu: copies your save to the SD export folder."},
      {kMobilePcItem,"Mobile PC","BOXES chip on the party screen opens the Pokemon Storage System after the Hall of Fame. Default OFF."},
-     {kSlot2Item,"GBA SLOT","Continue menu: a GBA SLOT button picks a Game Pak from the SD (visual prototype). Default OFF."}}},
+     {kSlot2Item,"GBA SLOT","Continue menu: pick a GBA Game Pak from the SD. Official migrate uses a work copy of that .sav, never the original. Default OFF."}}},
  {5,{{0,"FPS counter","Shows the frame rate on screen."},
      {51,"Save backups","Keeps 8 rotating copies of your save: at launch, after each save, at exit."},
      {kGtsPickerItem,"GTS server picker","Adds Online Settings to the title menu."},

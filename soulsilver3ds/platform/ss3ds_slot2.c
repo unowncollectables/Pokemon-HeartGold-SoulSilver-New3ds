@@ -1,6 +1,8 @@
-/* Visual-only Slot 2 prototype: continue-menu GBA SLOT button + list + top view.
-   Never reads or writes a .sav. No CTRDG, no migrate. */
+/* Slot 2: continue-menu GBA SLOT button + list + top view, plus a virtual
+   CTRDG that serves a work COPY of the matching GBA .sav. Never writes the
+   source .sav. Official migrate / Pal Park stay in overlay 74. */
 #include "ss3ds_slot2.h"
+#include "ss3ds_ctrdg.h"
 
 #include <3ds.h>
 #include <dirent.h>
@@ -20,8 +22,11 @@ extern int P3DS_GameFontDraw34(unsigned int *img, int stride, int cw, int ch, in
 extern int P3DS_GameFontWidth34(int font, const char *t);
 extern int P3DS_ScaleMode(void);
 
-#define SLOT2_DIR "sdmc:/3ds/soulsilver3ds/slot2"
+#define SLOT2_DIR  "sdmc:/3ds/soulsilver3ds/slot2"
+#define SLOT2_WORK "sdmc:/3ds/soulsilver3ds/slot2-work"
+#define SLOT2_LAST "sdmc:/3ds/soulsilver3ds/slot2-last.txt"
 #define SLOT2_MAX 12
+#define FLASH_SIZE 0x20000u
 #define kFg 0x00505858u
 #define kSh 0x00B8B8A8u
 #define kEdge 0x00283C50u
@@ -41,6 +46,8 @@ static int sIgnoreHeld;    /* wait for the opening touch/A to be released */
 static int sSel;
 static int sN;
 static int sScanned;
+static int sNeedRedraw;
+static int sPrepared;
 
 typedef struct {
     char file[48];
@@ -78,6 +85,9 @@ void P3DS_Slot2SetCfg(int on)
     if (!sOn) {
         sListOpen = 0;
         sInContinue = 0;
+        sInserted = -1;
+        sPrepared = 0;
+        P3DS_CtrdgEject();
     }
     PSPNativeMemLog("[SLOT2] slot2=%d from settings", sOn);
 }
@@ -137,15 +147,108 @@ static int endsGba(const char *n)
            (n[L - 1] == 'a' || n[L - 1] == 'A');
 }
 
+static void slot2Dirs(void)
+{
+    slot2Dirs();
+    mkdir(SLOT2_WORK, 0755);
+}
+
+static void savName(char *dst, int n, const char *gbaFile)
+{
+    int L = (int)strlen(gbaFile);
+    snprintf(dst, n, "%s", gbaFile);
+    if (L >= 4) {
+        dst[L - 4] = '.';
+        dst[L - 3] = 's';
+        dst[L - 2] = 'a';
+        dst[L - 1] = 'v';
+        if (n > L) dst[L] = 0;
+    }
+}
+
+static void writeLast(const char *file)
+{
+    FILE *f;
+    slot2Dirs();
+    f = fopen(SLOT2_LAST, "w");
+    if (!f) return;
+    fprintf(f, "%s\n", file ? file : "EMPTY");
+    fclose(f);
+}
+
+static int readLast(char *dst, int n)
+{
+    FILE *f = fopen(SLOT2_LAST, "r");
+    int L;
+    if (!f) return 0;
+    if (!fgets(dst, n, f)) { fclose(f); return 0; }
+    fclose(f);
+    L = (int)strlen(dst);
+    while (L > 0 && (dst[L - 1] == '\n' || dst[L - 1] == '\r' || dst[L - 1] == ' '))
+        dst[--L] = 0;
+    return L > 0;
+}
+
+/* Copy the user's source .sav into the work file if the work file is missing.
+   32KB/64KB dumps are padded to 128KB with 0xFF. Never writes the source. */
+static int ensureWork(const char *src, const char *work)
+{
+    struct stat st;
+    FILE *in, *out;
+    unsigned char buf[0x1000];
+    size_t total = 0, n;
+    slot2Dirs();
+    if (stat(work, &st) == 0 && st.st_size >= 0x8000) return 1;
+    in = fopen(src, "rb");
+    if (!in) {
+        PSPNativeMemLog("[SLOT2] no source save %s", src);
+        return 0;
+    }
+    out = fopen(work, "wb");
+    if (!out) { fclose(in); return 0; }
+    while ((n = fread(buf, 1, sizeof buf, in)) > 0) {
+        if (total + n > FLASH_SIZE) n = FLASH_SIZE - total;
+        if (fwrite(buf, 1, n, out) != n) { fclose(in); fclose(out); return 0; }
+        total += n;
+        if (total >= FLASH_SIZE) break;
+    }
+    fclose(in);
+    memset(buf, 0xFF, sizeof buf);
+    while (total < FLASH_SIZE) {
+        n = FLASH_SIZE - total;
+        if (n > sizeof buf) n = sizeof buf;
+        if (fwrite(buf, 1, n, out) != n) { fclose(out); return 0; }
+        total += n;
+    }
+    fclose(out);
+    PSPNativeMemLog("[SLOT2] made work copy %s (%u bytes, source left untouched)", work, (unsigned)FLASH_SIZE);
+    return 1;
+}
+
+static int attachIndex(int idx)
+{
+    char gba[256], src[256], work[256], sav[64];
+    if (idx < 0 || idx >= sN) {
+        P3DS_CtrdgEject();
+        return 0;
+    }
+    savName(sav, sizeof sav, sCarts[idx].file);
+    snprintf(gba, sizeof gba, "%s/%s", SLOT2_DIR, sCarts[idx].file);
+    snprintf(src, sizeof src, "%s/%s", SLOT2_DIR, sav);
+    snprintf(work, sizeof work, "%s/%s", SLOT2_WORK, sav);
+    if (!ensureWork(src, work)) return 0;
+    if (!P3DS_CtrdgAttach(gba, work)) return 0;
+    return 1;
+}
+
+
 static void slot2Scan(void)
 {
     DIR *d;
     struct dirent *e;
     sN = 0;
     sScanned = 1;
-    mkdir("sdmc:/3ds", 0755);
-    mkdir("sdmc:/3ds/soulsilver3ds", 0755);
-    mkdir(SLOT2_DIR, 0755);
+    slot2Dirs();
     d = opendir(SLOT2_DIR);
     if (!d) {
         PSPNativeMemLog("[SLOT2] no folder " SLOT2_DIR " (list is Empty only)");
@@ -197,14 +300,25 @@ static void slot2Insert(int row)
 {
     if (row <= 0) {
         sInserted = -1;
-        PSPNativeMemLog("[SLOT2] inserted Empty (visual only)");
+        P3DS_CtrdgEject();
+        writeLast("EMPTY");
+        PSPNativeMemLog("[SLOT2] inserted Empty (virtual CTRDG ejected)");
     } else if (row <= sN) {
-        sInserted = row - 1;
-        PSPNativeMemLog("[SLOT2] inserted %s (%s) (visual only, no save write)",
-                        sCarts[sInserted].name, sCarts[sInserted].code);
+        if (!attachIndex(row - 1)) {
+            sInserted = -1;
+            P3DS_CtrdgEject();
+            PSPNativeMemLog("[SLOT2] insert failed for %s (need a matching .sav next to the .gba)",
+                            sCarts[row - 1].file);
+        } else {
+            sInserted = row - 1;
+            writeLast(sCarts[sInserted].file);
+            PSPNativeMemLog("[SLOT2] inserted %s (%s) via work copy (source .sav untouched)",
+                            sCarts[sInserted].name, sCarts[sInserted].code);
+        }
     }
     sListOpen = 0;
     sIgnoreHeld = 1; /* the same tap must not confirm Continue on the menu underneath */
+    sNeedRedraw = 1; /* official MIGRATE FROM row is built from DetectInsertedGBACart */
 }
 
 static void px(unsigned int *img, int x, int y, unsigned int c)
@@ -224,24 +338,29 @@ static void drawBtn(unsigned int *bot)
 {
     int x, y;
     const int x0 = kBtnX, y0 = kBtnY, s = kBtnS;
+    /* Compact beveled pad in the official arrow column (a GameBox is too thick).
+       Light cream fill + 1px highlight / shadow to match the official pads. */
     for (y = 0; y < s; y++) for (x = 0; x < s; x++) {
         int edge = (x == 0 || x == s - 1 || y == 0 || y == s - 1);
         int corner = (x == 0 || x == s - 1) && (y == 0 || y == s - 1);
         unsigned int c;
         if (corner) continue;
         if (edge) c = kEdge;
+        else if (y == 1 || x == 1) c = 0x00FFFFFFu;
         else if (y >= s - 3 || x >= s - 3) c = kFill2;
-        else c = kFill;
+        else c = 0x00F8F8F8u;
         px(bot, x0 + x, y0 + y, c);
     }
     if (P3DS_GameFontReady()) {
         const char *t = "GBA";
-        int tw = P3DS_GameFontWidth34(1, t);
+        int tw = P3DS_GameFontWidth(1, t);
         int ty = y0 + (s - 12) / 2;
         if (tw <= s - 4)
+            P3DS_GameFontDraw(bot, 256, 256, 192, x0 + (s - tw) / 2, ty, t, kEdge, kSh, 1, 1);
+        else {
+            tw = P3DS_GameFontWidth34(1, t);
             P3DS_GameFontDraw34(bot, 256, 256, 192, x0 + (s - tw) / 2, ty, t, kEdge, 1);
-        else
-            P3DS_GameFontDraw34(bot, 256, 256, 192, x0 + (s - P3DS_GameFontWidth34(1, "G")) / 2, ty, "G", kEdge, 1);
+        }
     }
 }
 
@@ -296,8 +415,8 @@ static void drawList(unsigned int *bot)
     if (!P3DS_GameFontReady()) return;
     tw = P3DS_GameFontWidth(1, "GBA SLOT");
     P3DS_GameFontDraw(bot, 256, 256, 192, x + (w - tw) / 2, y + 4, "GBA SLOT", kFg, kSh, 1, 1);
-    tw = P3DS_GameFontWidth34(1, "WHICH GAME PAK?");
-    P3DS_GameFontDraw34(bot, 256, 256, 192, x + (w - tw) / 2, y + 20, "WHICH GAME PAK?", kRed, 1);
+    tw = P3DS_GameFontWidth(1, "WHICH GAME PAK?");
+    P3DS_GameFontDraw(bot, 256, 256, 192, x + (w - tw) / 2, y + 20, "WHICH GAME PAK?", kFg, kSh, 1, 1);
     for (i = 0; i < rows && i < 8; i++) {
         const int ry = y + 40 + i * 16;
         const char *labp = rowLabel(i, lab, sizeof lab);
@@ -373,4 +492,56 @@ void P3DS_Slot2Present(unsigned *top, unsigned *bot)
         drawBtn(bot);
         drawTop(top);
     }
+}
+
+void P3DS_Slot2PrepareCart(void)
+{
+    char last[64];
+    int i;
+    PSPNativeMemLog("[SLOT2] PrepareCart cfg=%d present=%d scanned=%d inserted=%d",
+                    P3DS_Slot2Cfg(), P3DS_CtrdgPresent(), sScanned, sInserted);
+    if (!P3DS_Slot2Cfg()) {
+        P3DS_CtrdgEject();
+        sPrepared = 0;
+        return;
+    }
+    if (P3DS_CtrdgPresent()) { sPrepared = 1; return; }
+    if (!sScanned) slot2Scan();
+    if (sInserted >= 0 && sInserted < sN) {
+        if (!attachIndex(sInserted)) sInserted = -1;
+        sPrepared = 1;
+        return;
+    }
+    if (!readLast(last, sizeof last) || !last[0] || strcmp(last, "EMPTY") == 0) {
+        sPrepared = 1;
+        return;
+    }
+    for (i = 0; i < sN; i++) {
+        if (strcmp(sCarts[i].file, last) == 0) {
+            if (attachIndex(i)) {
+                sInserted = i;
+                PSPNativeMemLog("[SLOT2] last-pick %s reinserted", last);
+            }
+            break;
+        }
+    }
+    sPrepared = 1;
+}
+
+int P3DS_Slot2VirtualCartPresent(void)
+{
+    return P3DS_Slot2Cfg() && P3DS_CtrdgPresent();
+}
+
+int P3DS_Slot2ConsumeRedraw(void)
+{
+    int n = sNeedRedraw;
+    sNeedRedraw = 0;
+    return n;
+}
+
+void P3DS_Slot2UnlinkAgbSpec(void)
+{
+    extern void *ssdata_overlay_74_thumb_sPmAgbCartridgeSpec;
+    ssdata_overlay_74_thumb_sPmAgbCartridgeSpec = 0;
 }

@@ -1,0 +1,109 @@
+From 0b455b36a5008ae376dd1e719f2565df2f8a5b93 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Mon, 23 Nov 2026 00:50:22 -0500
+Subject: [PATCH] ss3ds: hook 0295 virtual Slot 2 does not grey MIGRATE FROM
+
+---
+ scripts/ss3ds_hooks.d/0295_slot2.py | 75 +++++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0295_slot2.sh |  7 +++
+ 2 files changed, 82 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0295_slot2.py
+ create mode 100755 scripts/ss3ds_hooks.d/0295_slot2.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0295_slot2.py b/scripts/ss3ds_hooks.d/0295_slot2.py
+new file mode 100644
+index 0000000..2ab3000
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0295_slot2.py
+@@ -0,0 +1,75 @@
++#!/usr/bin/env python3
++"""ss3ds 0295: do not grey MIGRATE FROM when a virtual Slot 2 cart is present.
++Also load the last-pick pak before DetectInsertedGBACart, and rebuild the
++official continue rows after a mid-menu insert/eject.
++Idempotent ('SS3DS 0295'). Does not edit hook 0197's patch. Pokewalker and
++Mystery Gift are untouched."""
++import sys
++
++p = 'src/application/main_menu/main_menu.c'
++s = open(p).read()
++if 'SS3DS 0295' in s:
++    sys.exit(0)
++
++def once(old, new, label):
++    global s
++    if s.count(old) != 1:
++        sys.exit('0295_slot2: %s anchor not found exactly once in %s' % (label, p))
++    s = s.replace(old, new)
++
++once(
++    '    case APPOPTION_RANGER:\n'
++    '    case APPOPTION_MIGRATE_AGB:\n'
++    '    case APPOPTION_CONNECT_TO_WII:\n'
++    '    case APPOPTION_WFC:\n'
++    '        return !P3DS_GtsPickerEnabled();\n',
++    '    case APPOPTION_MIGRATE_AGB:\n'
++    '        { /* SS3DS 0295: virtual Slot 2 must not grey official MIGRATE FROM. */\n'
++    '            extern int P3DS_Slot2VirtualCartPresent(void);\n'
++    '            if (P3DS_Slot2VirtualCartPresent()) return 0;\n'
++    '        }\n'
++    '        return !P3DS_GtsPickerEnabled();\n'
++    '    case APPOPTION_RANGER:\n'
++    '    case APPOPTION_CONNECT_TO_WII:\n'
++    '    case APPOPTION_WFC:\n'
++    '        return !P3DS_GtsPickerEnabled();\n',
++    'grey')
++
++once(
++    'BOOL MainMenuApp_Main(OverlayManager *manager, int *state) {\n'
++    '    MainMenuAppData *data = OverlayManager_GetData(manager);\n',
++    'BOOL MainMenuApp_Main(OverlayManager *manager, int *state) {\n'
++    '    MainMenuAppData *data = OverlayManager_GetData(manager);\n'
++    '    { extern void P3DS_Slot2PrepareCart(void); P3DS_Slot2PrepareCart(); } /* SS3DS 0295 */\n',
++    'prepare')
++
++once(
++    '    { /* SS3DS 0294 */\n'
++    '        extern void P3DS_Slot2ContinueTick(void);\n'
++    '        extern void P3DS_Slot2ContinueEnd(void);\n'
++    '        if (*state >= 4 && *state <= 8) P3DS_Slot2ContinueTick();\n'
++    '        else P3DS_Slot2ContinueEnd();\n'
++    '    }\n'
++    '    return FALSE;\n'
++    '}\n',
++    '    { /* SS3DS 0294 */\n'
++    '        extern void P3DS_Slot2ContinueTick(void);\n'
++    '        extern void P3DS_Slot2ContinueEnd(void);\n'
++    '        if (*state >= 4 && *state <= 8) P3DS_Slot2ContinueTick();\n'
++    '        else P3DS_Slot2ContinueEnd();\n'
++    '    }\n'
++    '    { /* SS3DS 0295: rebuild official rows after a mid-menu insert */\n'
++    '        extern int P3DS_Slot2ConsumeRedraw(void);\n'
++    '        extern void P3DS_Slot2UnlinkAgbSpec(void);\n'
++    '        if (P3DS_Slot2ConsumeRedraw()) {\n'
++    '            P3DS_Slot2UnlinkAgbSpec();\n'
++    '            DetectInsertedGBACart(data);\n'
++    '            data->unk48 = TRUE;\n'
++    '        }\n'
++    '    }\n'
++    '    return FALSE;\n'
++    '}\n',
++    'redraw')
++
++open(p, 'w').write(s)
++print('0295_slot2: main_menu.c patched')
+diff --git a/scripts/ss3ds_hooks.d/0295_slot2.sh b/scripts/ss3ds_hooks.d/0295_slot2.sh
+new file mode 100755
+index 0000000..deedcbb
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0295_slot2.sh
+@@ -0,0 +1,7 @@
++# ss3ds 0295: official MIGRATE FROM stays available with a virtual Slot 2 cart.
++# Also last-pick + mid-menu row rebuild. Does not edit hook 0197.
++# Not fatal: without it, gts_picker (default ON) already leaves Migrate un-greyed,
++# but DetectInsertedGBACart would still miss a last-pick pak.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0295_slot2.py" && bash rebuild_game_object.sh src/application/main_menu/main_menu.c application__main_menu__main_menu.o 74); then
++  log "ss3ds 0295 slot2 migrate hook NOT applied (see message above)"
++fi
+-- 
+2.47.3
+
