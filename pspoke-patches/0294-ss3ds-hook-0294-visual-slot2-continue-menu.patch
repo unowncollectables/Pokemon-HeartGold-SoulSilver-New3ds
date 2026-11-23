@@ -1,0 +1,93 @@
+From: ss3ds <ss3ds@localhost>
+Date: Sun, 22 Nov 2026 23:20:00 -0500
+Subject: [PATCH] ss3ds: hook 0294 visual Slot 2 continue-menu GBA SLOT (prototype)
+
+Visual-only. Settings toggle slot2 default OFF. No CTRDG, no migrate, no
+save writes. Continue / New Game / Mystery Gift / Pokewalker / scroll
+arrows are unchanged when the toggle is off.
+
+diff --git a/scripts/ss3ds_hooks.d/0294_slot2.py b/scripts/ss3ds_hooks.d/0294_slot2.py
+new file mode 100644
+index 0000000..8ab3a72
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0294_slot2.py
+@@ -0,0 +1,68 @@
++#!/usr/bin/env python3
++"""ss3ds 0294: visual Slot 2 (GBA SLOT) on the continue menu (prototype).
++Publishes when the official continue list is up, swallows touch on the GBA
++button, and blocks menu input while the platform list is open.
++Idempotent ('SS3DS 0294'); applied to staged src/application/main_menu/main_menu.c.
++Does not change migrate, Pokewalker, Mystery Gift, or the scroll arrows."""
++import sys
++
++p = 'src/application/main_menu/main_menu.c'
++s = open(p).read()
++if 'SS3DS 0294' in s:
++    sys.exit(0)
++
++def once(old, new, label):
++    global s
++    if s.count(old) != 1:
++        sys.exit('0294_slot2: %s anchor not found exactly once in %s' % (label, p))
++    s = s.replace(old, new)
++
++once(
++    'static BOOL MainMenu_HandleInput(MainMenuAppData *data, int *newState) {\n'
++    '    BOOL hadTouchInput = FALSE;\n',
++    'static BOOL MainMenu_HandleInput(MainMenuAppData *data, int *newState) {\n'
++    '    /* SS3DS 0294: visual GBA SLOT list/button on this screen (platform). */\n'
++    '    extern int P3DS_Slot2BlockMenuInput(void);\n'
++    '    extern int P3DS_Slot2ButtonHit(int x, int y);\n'
++    '    extern void P3DS_Slot2OpenList(void);\n'
++    '    extern int P3DS_Slot2Cfg(void);\n'
++    '    if (P3DS_Slot2BlockMenuInput()) {\n'
++    '        return FALSE;\n'
++    '    }\n'
++    '    if (P3DS_Slot2Cfg() && System_GetTouchNew() && P3DS_Slot2ButtonHit((int)gSystem.touchX, (int)gSystem.touchY)) {\n'
++    '        PlaySE(SEQ_SE_DP_SELECT);\n'
++    '        P3DS_Slot2OpenList();\n'
++    '        return FALSE;\n'
++    '    }\n'
++    '    BOOL hadTouchInput = FALSE;\n',
++    'input')
++
++once(
++    '    ov74_022276AC(data);\n'
++    '    HandleScreenScroll(data);\n'
++    '    ov74_022358BC();\n'
++    '    return FALSE;\n'
++    '}\n',
++    '    ov74_022276AC(data);\n'
++    '    HandleScreenScroll(data);\n'
++    '    ov74_022358BC();\n'
++    '    { /* SS3DS 0294 */\n'
++    '        extern void P3DS_Slot2ContinueTick(void);\n'
++    '        extern void P3DS_Slot2ContinueEnd(void);\n'
++    '        if (*state >= 4 && *state <= 8) P3DS_Slot2ContinueTick();\n'
++    '        else P3DS_Slot2ContinueEnd();\n'
++    '    }\n'
++    '    return FALSE;\n'
++    '}\n',
++    'tick')
++
++once(
++    'BOOL MainMenuApp_Exit(OverlayManager *manager, int *state) {\n'
++    '    MainMenuAppData *data = OverlayManager_GetData(manager);\n',
++    'BOOL MainMenuApp_Exit(OverlayManager *manager, int *state) {\n'
++    '    { extern void P3DS_Slot2ContinueEnd(void); P3DS_Slot2ContinueEnd(); } /* SS3DS 0294 */\n'
++    '    MainMenuAppData *data = OverlayManager_GetData(manager);\n',
++    'exit')
++
++open(p, 'w').write(s)
++print('0294_slot2: main_menu.c patched')
+diff --git a/scripts/ss3ds_hooks.d/0294_slot2.sh b/scripts/ss3ds_hooks.d/0294_slot2.sh
+new file mode 100755
+index 0000000..4734728
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0294_slot2.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0294: visual Slot 2 GBA SLOT button on the continue menu (main_menu.c / overlay 74).
++# Not fatal: without it the Settings toggle has no on-screen button.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0294_slot2.py" && bash rebuild_game_object.sh src/application/main_menu/main_menu.c application__main_menu__main_menu.o 74); then
++  log "ss3ds 0294 slot2 visual prototype NOT applied (see message above); continue menu stays unchanged"
++fi

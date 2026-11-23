@@ -2,6 +2,24 @@
 
 Short on purpose. The old running notes (920 lines of per-run test results, 2026-10 to 2026-11-18) are kept in [docs/archive/HANDOFF-2026-11-18.md](docs/archive/HANDOFF-2026-11-18.md). Rules and file map: [AGENTS.md](AGENTS.md). What changed: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
+
+## Slot 2 visual prototype (2026-11-22, hook 0294, unmerged)
+
+- Branch `cursor/slot2-visual-proto` off main `4d4d2cb`. Visual only: no CTRDG, no migrate logic, no `.sav` writes, no CIA, no PR, no merge.
+- Settings > SYSTEM "GBA SLOT" (`slot2`, default OFF). With it off the continue menu is unchanged (no button, no top view).
+- With it on: a 28x28 "GBA" pad sits in the official right-hand arrow column of the bottom-screen continue menu (between the up and down arrows, same 28x28 size, DS 222,40). `P3DS_GameBoxDraw` is too thick for that pad, so the button is a compact beveled square with the game font. Tapping it opens a bottom-screen list of Empty plus every `*.gba` in `sdmc:/3ds/soulsilver3ds/slot2/`. Names come from the 0xC0-byte header game code (BPEE = EMERALD, etc.). A selects; B closes. The official MIGRATE FROM ... row is not wired in this prototype.
+- The top screen shows a GBA SLOT card drawn with the game's own message-box frame and font (`P3DS_GameBoxDraw` / `P3DS_GameFontDraw`): EMPTY / NO GAME PAK, or the inserted pak's name, code, and INSERTED. Inserted state is RAM-only (no sidecar yet).
+- The list fills the official continue backdrop and a cream message-box interior (GameBox tiles skip palette 0, so without a fill the official menu showed through). Sharp game text on the bottom is hidden while the list is open. The tap that opens the list, and the tap that inserts a pak, are ignored until release so they cannot confirm Continue or auto-pick Empty.
+- Wide View, GTS, Mystery Gift, the scroll arrows and Pokéwalker are not touched. No auto-reset.
+- Platform: `soulsilver3ds/platform/ss3ds_slot2.c` / `ss3ds_slot2.h`. Hook: `pspoke-patches/0294-ss3ds-hook-0294-visual-slot2-continue-menu.patch` (applied to `main_menu.c`, then `main_menu_native.o` must be rebuilt — that is the object the 3dsx actually links). Log: `[SLOT2]`.
+- Azahar screenshots (throwaway trainer name redacted to RED) are under `/workspace/build-slot2-proto/`, not in the repo:
+  - `01_toggle_off_{top,bottom,full}.png` — official continue menu, no GBA button, blank top.
+  - `02_button_visible_{top,bottom,full}.png` — GBA pad in the arrow column; top shows EMPTY.
+  - `03_list_open_{top,bottom,full}.png` — Empty + EMERALD (from a 0xC0-byte fake BPEE header on the emu SD only).
+  - `04_cart_inserted_{top,bottom,full}.png` — top card reads GBA SLOT / EMERALD / BPEE / INSERTED; official continue list and arrows unchanged.
+- Still a little off: "WHICH GAME PAK?" uses the smaller font and looks thinner than the title; the GBA pad is typographic rather than a cart icon (the 28x28 hole is too small for a GameBox). Neither is ugly enough to block a look.
+- Part 2 (real migrate) would need: virtual CTRDG (header + 128KB flash from a working COPY of the GBA `.sav`, never the original), official IdentifyPmAgbCartridge / MIGRATE FROM ... row, write-back only to the copy, last-pick sidecar, official 24h / National Dex / language gates, and hook 0197 must not grey Migrate when virtual Slot 2 is active. Real CTRDG flash/ROM-space access must not hit invalid 3DS addresses.
+
 ## State (2026-11-19)
 
 - Core game, battles, saves, 3D, Wide view, touch-screen Pokégear panel, GTS, Mystery Gift, Union Room trades and the Pokéwalker work on a New 3DS.
