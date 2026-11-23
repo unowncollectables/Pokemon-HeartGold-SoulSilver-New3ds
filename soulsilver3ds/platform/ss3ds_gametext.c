@@ -407,9 +407,12 @@ static inline unsigned mapEntry(const u8 *V, unsigned vmask, const GtBg *g, unsi
     const unsigned a = (g->sbase + blk * 0x800 + ((ty & 31) * 32 + (tx & 31)) * 2) & vmask;
     return V[a] | (V[a + 1] << 8);
 }
-/* True when the live BG tile map still has a majority of this window's sequential tiles (unflipped).
-   Sharp text may only take glyphs out of VRAM when this holds; otherwise the native layer would hide
-   them as "map" and the box app (and any other screen whose map is not readable this frame) goes blank. */
+/* True when the live BG tile map still has enough of this window's sequential tiles (unflipped)
+   for the native layer to place them. Sharp text may only take glyphs out of VRAM when this holds;
+   otherwise the native layer would hide them as "map" and the screen goes blank (box app: PR on
+   cursor/mobile-pc-text). Start taking glyphs out only on a majority (same rule). Once they are
+   out, stay until fewer than a quarter of the tiles still match, so a tab or screen change that
+   briefly sits near the 50% line cannot flip sharpness on and off every frame. */
 static int gtWinMapShows(const GtWin *w) {
     const int e = engOf(w), b = w->bg & 3;
     const u8 *V = P3DS_GtVram(e); const unsigned vmask = e ? 0x1FFFFu : 0x7FFFFu; if (!V || w->wT < 1 || w->hT < 1) return 0;
@@ -419,7 +422,9 @@ static int gtWinMapShows(const GtWin *w) {
         const unsigned ent = mapEntry(V, vmask, &g, (unsigned)(w->left + c) * 8 & (g.W - 1), (unsigned)(w->top + r) * 8 & (g.H - 1));
         if ((ent & 0x3FFu) == (((unsigned)w->base + (unsigned)(r * w->wT + c)) & 0x3FFu) && !(ent & 0xC00u)) mine++;
     }
-    return n > 0 && mine * 2 >= n;
+    if (n < 1) return 0;
+    if (w->shown) return mine * 4 >= n; /* stay until the map clearly no longer owns the window */
+    return mine * 2 >= n;               /* start only on a majority */
 }
 /* is this BG's pixel at screen sx,sy opaque (colour index != 0)? */
 static int bgOpaque(const u8 *V, unsigned vmask, const GtBg *g, int sx, int sy) {

@@ -3142,10 +3142,15 @@ static int PresentFrame(bool){
   static bool gtBmPrev;const u32*liveTop=(power&0x8000)?display[0]:display[1],*liveBot=(power&0x8000)?display[1]:display[0];
   const bool topOk=mode&&gpuOk==1&&top==liveTop&&(!stereo||(eyeL!=(const u32*)sFieldHold&&eyeL!=nullptr));
   const bool botOk=mode&&gpuOk==1&&!P3DS_ConsoleOnBottom()&&bot==liveBot&&!bmShow&&!gtBmPrev&&!P3DS_MenuOpen&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant;
-  gtBmPrev=bmShow;P3DS_GtScreensNow=(topOk?1u:0u)|(botOk?2u:0u);if(!topOk)P3DS_GtWidePlan=nullptr;
-  if(P3DS_GtScreensNow!=gtOkPrev){static unsigned n;if(n++<60)PSPNativeMemLog("[GTEXT] screens: top %s, bottom %s",topOk?"live":top!=liveTop?"held/other picture":"not scaled",
+  gtBmPrev=bmShow;
+  const unsigned gtNow=(topOk?1u:0u)|(botOk?2u:0u);
+  /* P3DS_GtSync already ran this frame with gtOkPrev (VRAM in or out to match). Present the layer
+     with those same bits: using this frame's decision a frame early flashed missing text when a
+     tab or menu hid the layer, or doubled it when the layer came back. This decision is synced next frame. */
+  if(gtNow!=gtOkPrev){static unsigned n;if(n++<60)PSPNativeMemLog("[GTEXT] screens: top %s, bottom %s",topOk?"live":top!=liveTop?"held/other picture":"not scaled",
    botOk?"live":P3DS_ConsoleOnBottom()?"console":bot!=liveBot?"panel picture":bmShow||gtBmPrev?"Bottom menu":P3DS_MenuOpen?"menu open":(P3DS_PanelPartyOn||P3DS_PanelPartyWant)?"panel party":"not scaled");}
-  gtOkPrev=P3DS_GtScreensNow;}
+  P3DS_GtScreensNow=gtOkPrev;if(!(gtOkPrev&1u))P3DS_GtWidePlan=nullptr;
+  gtOkPrev=gtNow;}
  if(mode&&gpuOk==1){extern int P3DS_GpuBotSame;P3DS_GpuBotSame=(P3DS_PanelPartyOn||cyShow)?0:((power&0x8000)&&(P3DS_BottomReused||blSameFrame)&&!btnDirty);btnDirty=false;
   /* fps60: the in-between picture goes out first, top screen only; the present below then waits for the screen to take it, so the two
      land on two V-blanks in a row. Only while this tick's own picture is still on the GPU and is what gets shown. */
