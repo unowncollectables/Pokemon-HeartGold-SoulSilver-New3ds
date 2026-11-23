@@ -502,9 +502,10 @@ void P3DS_CfgWrite(const char *key, int val) {
 /* SS3DS mobile PC: config (default OFF) and unlock sidecar. Never writes the .sav. */
 #include "ss3ds_mobilepc.h"
 volatile int P3DS_MobilePcReq, P3DS_MobilePcPreviewReq, P3DS_MobilePcUnlockPlay, P3DS_GameClear;
-static int sMpOn = -1, sMpDev = -1, sMpAnim = -1;
+static int sMpOn = -1, sMpDev = -1, sMpAnim = -1, sMpPending, sMpUnlockSeen, sMpZoom = -1;
+volatile int P3DS_InPartyMenu, P3DS_MobilePcCloseThenLaunch;
 int P3DS_MobilePcCfg(void) {
-    if (sMpOn < 0) { sMpOn = P3DS_CfgInt("mobile_pc", 0) != 0; PSPNativeMemLog("[MPC] mobile_pc=%d (JOHTO PC tab, hook 0293, default OFF)", sMpOn); }
+    if (sMpOn < 0) { sMpOn = P3DS_CfgInt("mobile_pc", 0) != 0; PSPNativeMemLog("[MPC] mobile_pc=%d (party BOXES chip, hook 0293, default OFF)", sMpOn); }
     return sMpOn;
 }
 int P3DS_MobilePcDevCfg(void) {
@@ -513,7 +514,8 @@ int P3DS_MobilePcDevCfg(void) {
 }
 void P3DS_MobilePcSetCfg(int on) { sMpOn = on != 0; P3DS_CfgWrite("mobile_pc", sMpOn); PSPNativeMemLog("[MPC] mobile_pc=%d from settings", sMpOn); }
 void P3DS_MobilePcSetDev(int on) { sMpDev = on != 0; P3DS_CfgWrite("mobile_pc_dev", sMpDev); PSPNativeMemLog("[MPC] mobile_pc_dev=%d from settings (runtime gate only)", sMpDev); }
-int P3DS_MobilePcTabOn(void) { return P3DS_MobilePcCfg() && (P3DS_GameClear || P3DS_MobilePcDevCfg() || P3DS_MobilePcUnlockPlay || sMpAnim >= 0); }
+int P3DS_MobilePcOn(void) { return P3DS_MobilePcCfg() && (P3DS_GameClear || P3DS_MobilePcDevCfg()); }
+int P3DS_MobilePcChipOn(void) { return P3DS_MobilePcCfg() && (P3DS_MobilePcOn() || P3DS_MobilePcUnlockPlay || sMpAnim >= 0 || sMpPending); }
 #define MPC_SIDECAR "sdmc:/3ds/soulsilver3ds/mobile_pc.txt"
 #define MPC_SIDECAR_TMP "sdmc:/3ds/soulsilver3ds/mobile_pc.tmp"
 int P3DS_MobilePcUnlockShown(unsigned tid) {
@@ -556,7 +558,7 @@ void P3DS_MobilePcUnlockMarkShown(unsigned tid) {
 }
 void P3DS_MobilePcRequestOpen(void) {
     if (!P3DS_MobilePcCfg()) return;
-    if (!P3DS_MobilePcTabOn()) { extern void P3DS_Toast(const char *); P3DS_Toast("NOT UNLOCKED YET"); return; }
+    if (!P3DS_MobilePcOn()) { extern void P3DS_Toast(const char *); P3DS_Toast("NOT UNLOCKED YET"); return; }
     if (P3DS_MobilePcReq) return;
     P3DS_MobilePcReq = 1;
     PSPNativeMemLog("[MPC] open requested");
@@ -566,10 +568,84 @@ void P3DS_MobilePcRequestPreview(void) {
     PSPNativeMemLog("[MPC] preview unlock requested (no sidecar write, no save flags)");
 }
 int P3DS_MobilePcAnimFrame(void) { return sMpAnim; }
+int P3DS_MobilePcZoomFrame(void) { return sMpZoom; }
+
+void P3DS_MobilePcNotePartyVisible(void) {
+    if (sMpPending && sMpAnim < 0) {
+        sMpPending = 0;
+        sMpAnim = 0;
+        PSPNativeMemLog("[MPC] BOXES chip pop-in (first party view after unlock)");
+    }
+}
+
+static void mpcMapChip(int *dx0, int *dy0, int *dx1, int *dy1, int *nx0, int *ny0, int *nx1, int *ny1) {
+    extern volatile int P3DS_PanelPartyOn, P3DS_PanelDest[4], P3DS_PanelSrcHeight;
+    const int sx0 = kMobilePcChipSX0, sy0 = kMobilePcChipSY0, sx1 = kMobilePcChipSX1, sy1 = kMobilePcChipSY1;
+    if (P3DS_PanelPartyOn && P3DS_PanelDest[2] > P3DS_PanelDest[0] && P3DS_PanelDest[3] > P3DS_PanelDest[1]) {
+        const int x0 = P3DS_PanelDest[0], y0 = P3DS_PanelDest[1], x1 = P3DS_PanelDest[2], y1 = P3DS_PanelDest[3];
+        const int sh = P3DS_PanelSrcHeight > 0 ? P3DS_PanelSrcHeight : 192;
+        *dx0 = x0 + sx0 * (x1 - x0) / 256;
+        *dx1 = x0 + sx1 * (x1 - x0) / 256;
+        *dy0 = y0 + sy0 * (y1 - y0) / sh;
+        *dy1 = y0 + sy1 * (y1 - y0) / sh;
+    } else {
+        *dx0 = sx0; *dy0 = sy0; *dx1 = sx1; *dy1 = sy1;
+    }
+    *nx0 = *dx0 * 5 / 4; *ny0 = *dy0 * 5 / 4;
+    *nx1 = (*dx1 * 5 + 3) / 4; *ny1 = (*dy1 * 5 + 3) / 4;
+}
+
+void P3DS_MobilePcChipRectDS(int *x0, int *y0, int *x1, int *y1) {
+    int nx0, ny0, nx1, ny1;
+    mpcMapChip(x0, y0, x1, y1, &nx0, &ny0, &nx1, &ny1);
+}
+
+void P3DS_MobilePcChipRectNative(int *x0, int *y0, int *x1, int *y1) {
+    int dx0, dy0, dx1, dy1;
+    mpcMapChip(&dx0, &dy0, &dx1, &dy1, x0, y0, x1, y1);
+}
+
+int P3DS_MobilePcChipFooterShown(void) {
+    extern int P3DS_InBattle;
+    return P3DS_MobilePcChipOn() && P3DS_InPartyMenu && !P3DS_InBattle;
+}
+
+int P3DS_MobilePcChipHitDS(int x, int y) {
+    int x0, y0, x1, y1;
+    if (!P3DS_MobilePcChipFooterShown()) return 0;
+    P3DS_MobilePcChipRectDS(&x0, &y0, &x1, &y1);
+    return x >= x0 && x < x1 && y >= y0 && y < y1;
+}
+
+void P3DS_MobilePcOnChipTap(void) {
+    if (sMpZoom >= 0 || P3DS_MobilePcCloseThenLaunch || P3DS_MobilePcReq) return;
+    if (!P3DS_MobilePcOn()) { extern void P3DS_Toast(const char *); P3DS_Toast("NOT UNLOCKED YET"); return; }
+    sMpZoom = 0;
+    PSPNativeMemLog("[MPC] BOXES chip tapped: open zoom");
+}
+
 void P3DS_MobilePcAnimTick(void) {
-    if (P3DS_MobilePcUnlockPlay && sMpAnim < 0) sMpAnim = 0;
+    /* Fanfare + DialogBox still play in the overworld. The chip pop-in waits until the party is first viewed. */
+    if (P3DS_MobilePcUnlockPlay) {
+        if (!sMpUnlockSeen) { sMpUnlockSeen = 1; sMpPending = 1; PSPNativeMemLog("[MPC] unlock ceremony started; chip pop-in waits for the party screen"); }
+    } else sMpUnlockSeen = 0;
     if (sMpAnim >= 0 && sMpAnim < kMobilePcAnimLast) sMpAnim++;
-    else if (sMpAnim >= kMobilePcAnimLast && !P3DS_MobilePcUnlockPlay) sMpAnim = -1;
+    else if (sMpAnim >= kMobilePcAnimLast) sMpAnim = -1;
+    if (sMpZoom >= 0) {
+        if (sMpZoom < kMobilePcZoomLast) sMpZoom++;
+        else {
+            sMpZoom = -1;
+            extern int P3DS_InField;
+            extern volatile int P3DS_PanelPartyOn;
+            if (P3DS_InPartyMenu || P3DS_PanelPartyOn || !P3DS_InField) {
+                P3DS_MobilePcCloseThenLaunch = 1;
+                PSPNativeMemLog("[MPC] zoom done: closing the party, then launching boxes");
+            } else {
+                P3DS_MobilePcRequestOpen();
+                PSPNativeMemLog("[MPC] zoom done: already in the field, requesting launch");
+            }
+        }
+    }
 }
 
 int P3DS_CtlZr = -1, P3DS_CtlZl, P3DS_CtlCp;   /* run 55: file scope so the settings menu can change them live */

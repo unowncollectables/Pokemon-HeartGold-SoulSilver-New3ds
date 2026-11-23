@@ -1,5 +1,5 @@
 /* ss3ds 2026-10-28 (Nathan: "polish Pokegear map, phone list and radio"): the JOHTO bottom screen's left panel gets three
-   tabs on its top bar (MAP / PHONE / RADIO / PARTY / BAG, plus EGGS / PC when those toggles are on; run 122 restyles them as even rounded JOHTO chips). Setting `pg_extras` (Settings > Input,
+   tabs on its top bar (MAP / PHONE / RADIO / PARTY / BAG, plus EGGS when that toggle is on; run 122 restyles them as even rounded JOHTO chips). Setting `pg_extras` (Settings > Input,
    defaults to ORIGINAL). OFF hides the tabs. ORIGINAL embeds native Phone and Radio. The lists below describe PREVIEWS.
    MAP    unchanged map plus pins on places where a phone contact lives (blue = number registered, amber = wants a rematch)
           and a "Phone:" line on the info card (pgDraw calls pxMapPins / pxCardLine).
@@ -62,7 +62,7 @@ struct SPx {
   int lvSel, lvItem, lvPocket, lvSlot; /* run 145 panel_live: picked party slot + 1 (0 none); picked medicine id (0 none), its pocket and slot */
   int lvSheet, lvSheetSlot, lvBtn[3][4], lvBtnN; /* run 147: action card over the live pane (1 party Pokemon, 2 bag item), its target, button rects x0 y0 x1 y1 */
   int lvWait, lvKind, lvB, lvOpen, lvOpenSlot, lvMenuX0; unsigned lvSeen; /* frames waiting for the game, last request, open-the-real-menu request (1 party, 2 bag), header chip x */
-  int pcAnimT;                    /* reserved; unlock slide/pop/glow is P3DS_MobilePcAnimFrame */
+  int lvBoxesX0, lvBoxesX1;       /* live PARTY title-strip BOXES chip; 0 if hidden */
 };
 static SPx gPx;
 /* pxOn() / pxOnV (the pg_extras setting) live in render3ds.cpp next to the settings rows */
@@ -114,40 +114,24 @@ static inline bool pxScrolls() { return (pxPane() == 1 && !pxNativeGear(1)) || p
 static inline int pxMaxScroll() { const int h = gPx.listY1 - gPx.listY0; const int m = (gPx.pane == 4 ? gPx.bagN : gPx.n) * kPxRowH - h; return m > 0 ? m : 0; }
 
 /* ---- tab bar (run 122: even-width rounded JOHTO tabs; hit rects match draw) ---- */
-enum { kPxMaxTab = 7, kPxTabGap = 3, kPxTabPad = 3 };
+enum { kPxMaxTab = 6, kPxTabGap = 3, kPxTabPad = 3 };
 static bool brCfg();
-extern "C" int P3DS_MobilePcTabOn(void);
-extern "C" void P3DS_MobilePcRequestOpen(void);
+extern "C" int P3DS_MobilePcChipOn(void);
+extern "C" void P3DS_MobilePcOnChipTap(void);
+extern "C" void P3DS_MobilePcNotePartyVisible(void);
 extern "C" int P3DS_MobilePcAnimFrame(void);
 static inline int pxNTab() {
   int n = 5;
   if (brCfg()) n++;
-  if (P3DS_MobilePcTabOn()) n++; /* PC is last, only when unlocked (or dev bypass / unlock anim) */
   return n;
 }
-static inline int pxPcTab() { return P3DS_MobilePcTabOn() ? pxNTab() - 1 : -1; }
-static const char *const kPxTabs[kPxMaxTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG", "EGGS", "PC" };
-static const char *const kPxTabShort[kPxMaxTab] = { "MAP", "TEL", "FM", "PKM", "BAG", "EGG", "PC" };
+static const char *const kPxTabs[kPxMaxTab] = { "MAP", "PHONE", "RADIO", "PARTY", "BAG", "EGGS" };
+static const char *const kPxTabShort[kPxMaxTab] = { "MAP", "TEL", "FM", "PKM", "BAG", "EGG" };
 static void pxChips(const SUiText &T, int X1, int Y0, int *x0, int *x1, int *y0, int *y1) {
   /* run 142: the tabs span the whole bar in even buttons (the name has its own strip below, pxNameStrip), and use the side column's silver button look. X1 is the panel's right edge, the bar starts at kBlPanX0. */
   (void)T; const int L = kBlPanX0 + 2, R = X1 - 2, N = pxNTab();
   const int W = R - L - (N - 1) * kPxTabGap;
   for (int i = 0; i < N; i++) { x0[i] = L + i * kPxTabGap + W * i / N; x1[i] = L + i * kPxTabGap + W * (i + 1) / N; }
-  /* Unlock anim: existing chips ease from the previous count, the PC chip slides in from the right. */
-  const int af = P3DS_MobilePcAnimFrame();
-  const int pc = pxPcTab();
-  if (af >= 0 && af <= 16 && pc >= 0 && N > 1) {
-    const int N0 = N - 1, W0 = R - L - (N0 - 1) * kPxTabGap;
-    int t = af * 256 / 16; if (t > 256) t = 256;
-    for (int i = 0; i < N0; i++) {
-      const int a0 = L + i * kPxTabGap + W0 * i / N0, a1 = L + i * kPxTabGap + W0 * (i + 1) / N0;
-      x0[i] = a0 + (x0[i] - a0) * t / 256;
-      x1[i] = a1 + (x1[i] - a1) * t / 256;
-    }
-    const int dest0 = x0[pc], dest1 = x1[pc];
-    x0[pc] = R + (dest0 - R) * t / 256;
-    x1[pc] = R + (dest1 - R) * t / 256;
-  }
   *y0 = Y0 + 1; *y1 = Y0 + 15; }
 /* run 142: the area name on its own full-width line under the tab row (MAP pane only; the map panel starts below it, see blNameH).
    The selected tab's word sits in a green chip on the left; the place name keeps the rest of the line. */
@@ -166,35 +150,18 @@ static void pxNameStrip(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, c
   char nm[48]; pxFit(T, nm, sizeof nm, name, X1 - nx - 4);
   suiSDraw(T, b, nx, ty, nm, SUI_RGB(255, 255, 255), kBlSelO); }
 /* tab icons: same art as the column. When the bottom picture is scaled, render3ds draws these again at native size (bnTabStrip). */
-static const int kPxTabIcon[kPxMaxTab] = { 7, 3, 10, 1, 2, 11, 12 }; /* map, pokegear, radio, ball, bag, egg, pc box */
+static const int kPxTabIcon[kPxMaxTab] = { 7, 3, 10, 1, 2, 11 }; /* map, pokegear, radio, ball, bag, egg */
 /* The native strip adds labels where they fit. This DS-size fallback retains the same button details. */
 static void pxBar(uint32_t *b, const SUiText &T, int X0, int Y0, int X1, const char *name) {
   (void)X0; (void)name; int cx0[kPxMaxTab], cx1[kPxMaxTab], cy0, cy1; pxChips(T, X1, Y0, cx0, cx1, &cy0, &cy1);
-  const int af = P3DS_MobilePcAnimFrame(), pc = pxPcTab();
   for (int i = 0; i < pxNTab(); i++) {
     const bool on = gPx.pane == i;
-    int x0 = cx0[i], x1 = cx1[i], y0 = cy0, y1 = cy1;
-    /* frames 12-20: the new PC chip pops slightly larger */
-    if (i == pc && af >= 12 && af <= 20) {
-      int pop = af <= 16 ? (af - 12) : (20 - af);
-      x0 -= pop; x1 += pop; y0 -= pop / 2; y1 += pop / 2;
-    }
+    const int x0 = cx0[i], x1 = cx1[i], y0 = cy0, y1 = cy1;
     const int divider = x1 - 5;
     blBox(b, x0, y0, x1, y1, on);
     blButtonDetails(b, x0, y0, y1, divider, x1 - 3, on);
     blIcon(b, (x0 + 1 + divider - 12) / 2, (y0 + y1 - 12) / 2,
            kPxTabIcon[i], on ? kBlSelO : kBlIcInk, on ? SUI_RGB(255, 255, 255) : kBlIcAcc);
-    /* frames 16-40: gold/green glow around the new chip */
-    if (i == pc && af >= 16 && af <= 40) {
-      int glow = af <= 28 ? (af - 16) : (40 - af);
-      if (glow > 8) glow = 8;
-      const uint32_t gc = kBlSelO;
-      for (int t = 0; t < glow; t++) {
-        const int gx0 = x0 - 1 - t, gx1 = x1 + t, gy0 = y0 - 1 - t, gy1 = y1 + t;
-        for (int x = gx0; x < gx1; x++) { suiPx(b, x, gy0, gc); suiPx(b, x, gy1 - 1, gc); }
-        for (int y = gy0; y < gy1; y++) { suiPx(b, gx0, y, gc); suiPx(b, gx1 - 1, y, gc); }
-      }
-    }
   }
 }
 /* tab index under bar x, -1 none (same layout as pxBar) */
@@ -337,6 +304,29 @@ static bool pxLiveHeader(uint32_t *b, const SUiText &T, int X0, int Y0, int X1) 
   if (!panelLiveCfg() || P3DS_PanelPartyWant || P3DS_PanelPartyOn) return false;
   const uint32_t ink = SUI_RGB(7, 33, 54), sh = SUI_RGB(244, 247, 254), wh = SUI_RGB(255, 255, 255);
   const char *c = (gPx.lvSel || gPx.lvItem) ? "CANCEL" : "MENU"; const int w = T.width(c) + 8, x1 = X1 - 3, x0 = x1 - w; gPx.lvMenuX0 = x0;
+  gPx.lvBoxesX0 = gPx.lvBoxesX1 = 0;
+  if (P3DS_MobilePcChipOn() && !(gPx.lvSel || gPx.lvItem)) {
+    const char *bx = "BOXES"; const int bw = T.width(bx) + 20; const int bx1 = x0 - 3, bx0 = bx1 - bw;
+    if (bx0 > X0 + 40) {
+      gPx.lvBoxesX0 = bx0; gPx.lvBoxesX1 = bx1;
+      P3DS_MobilePcNotePartyVisible();
+      const int af = P3DS_MobilePcAnimFrame();
+      int y0 = Y0 + 1, y1 = Y0 + kPxSubH - 2, xa = bx0, xb = bx1;
+      if (af >= 12 && af <= 20) { int pop = af <= 16 ? (af - 12) : (20 - af); xa -= pop; xb += pop; y0 -= pop / 2; y1 += pop / 2; }
+      pxBtn(b, xa, y0, xb, y1, SUI_RGB(250, 252, 255), kBlSilverLo, kBlNavy);
+      blIcon(b, xa + 2, (y0 + y1 - 12) / 2, 12, kBlIcInk, kBlIcAcc);
+      T.draw(b, xa + 16, Y0 + 1, bx, ink, sh);
+      if (af >= 16 && af <= 40) {
+        int glow = af <= 28 ? (af - 16) : (40 - af); if (glow > 8) glow = 8;
+        const uint32_t gc = SUI_RGB(255, 220, 64);
+        for (int t = 0; t < glow; t++) {
+          const int gx0 = xa - 1 - t, gx1 = xb + t, gy0 = y0 - 1 - t, gy1 = y1 + t;
+          for (int x = gx0; x < gx1; x++) { suiPx(b, x, gy0, gc); suiPx(b, x, gy1 - 1, gc); }
+          for (int y = gy0; y < gy1; y++) { suiPx(b, gx0, y, gc); suiPx(b, gx1 - 1, y, gc); }
+        }
+      }
+    }
+  }
   pxBtn(b, x0, Y0 + 1, x1, Y0 + kPxSubH - 2, SUI_RGB(250, 252, 255), kBlSilverLo, kBlNavy); T.draw(b, x0 + 4, Y0 + 1, c, ink, sh);
   char t[40], fit[40];
   if (gPx.lvWait) snprintf(t, sizeof t, "...");
@@ -349,6 +339,9 @@ static int pxPartyAt(int y);
 static void pxLiveTapParty(int x, int y) {
   if (gPx.lvWait) { PSPNativeMemLog("[LIVE] tap ignored: waiting for the game"); return; }
   if (y >= gPx.listY0 - kPxSubH && y < gPx.listY0) {
+    if (gPx.lvBoxesX1 > gPx.lvBoxesX0 && x >= gPx.lvBoxesX0 - 1 && x < gPx.lvBoxesX1 + 1) {
+      P3DS_MobilePcOnChipTap(); PSPNativeMemLog("[MPC] live PARTY title BOXES chip tapped"); return;
+    }
     if (x < gPx.lvMenuX0 - 2) return;
     if (gPx.lvItem) { pxLiveClear(); pxSetPane(4, "live: cancel item"); PSPNativeMemLog("[LIVE] item cancelled"); }
     else if (gPx.lvSel) { pxLiveClear(); PSPNativeMemLog("[LIVE] swap cancelled"); }
@@ -597,7 +590,6 @@ static void pxDrag(int x, int y, bool first, bool scroll) {
 static void pxChipTap(const SUiText &T, int X1, int Y0, int x) {
   const int i = pxChipHit(T, X1, Y0, x);
   if (i < 0) return;
-  if (i == pxPcTab()) { P3DS_MobilePcRequestOpen(); return; }
   pxSetPane(i, "tab tapped");
 }
 /* game station id (0..7) of the RADIO row under (x,y), -1 none */

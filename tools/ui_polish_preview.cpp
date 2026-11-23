@@ -33,8 +33,9 @@ volatile int P3DS_PanelPartyWant;
 volatile int P3DS_PanelPartyOn;
 }
 extern "C" {
-int P3DS_MobilePcTabOn(void) { return 0; }
-void P3DS_MobilePcRequestOpen(void) {}
+int P3DS_MobilePcChipOn(void) { return 0; }
+void P3DS_MobilePcOnChipTap(void) {}
+void P3DS_MobilePcNotePartyVisible(void) {}
 int P3DS_MobilePcAnimFrame(void) { return -1; }
 }
 #include "ss3ds_minimap.h"

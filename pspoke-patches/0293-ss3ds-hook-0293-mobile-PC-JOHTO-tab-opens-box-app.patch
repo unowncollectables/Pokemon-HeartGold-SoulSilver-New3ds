@@ -1,12 +1,12 @@
 From 62df3be0a4a16bf2f880a60f4b5ba4390e8254b7 Mon Sep 17 00:00:00 2001
 From: ss3ds <ss3ds@localhost>
 Date: Sun, 22 Nov 2026 18:26:38 -0500
-Subject: [PATCH] ss3ds: hook 0293 mobile PC (JOHTO PC tab -> box app,
+Subject: [PATCH] ss3ds: hook 0293 mobile PC (party BOXES chip -> box app,
  HoF-gated)
 
 Settings toggle mobile_pc (default OFF) opens the game's own box
-storage (PCBox_LaunchApp mode 2) from a new JOHTO PC tab after the
-Hall of Fame. Unlock uses SEQ_ME_ITEM and a field DialogBox; shown
+storage (PCBox_LaunchApp mode 2) from a BOXES chip on the party
+screen after the Hall of Fame. Unlock uses SEQ_ME_ITEM and a field DialogBox; shown
 state is a port sidecar, never the .sav. Append-only hook.
 ---
  scripts/ss3ds_hooks.d/0293_mobilepc.py | 264 +++++++++++++++++++++++++
@@ -22,10 +22,11 @@ index 0000000..04e6f6b
 +++ b/scripts/ss3ds_hooks.d/0293_mobilepc.py
 @@ -0,0 +1,264 @@
 +#!/usr/bin/env python3
-+"""ss3ds 0293: mobile PC from the JOHTO panel (render3ds.cpp mobile_pc, default OFF).
++"""ss3ds 0293: mobile PC from the party BOXES chip (render3ds.cpp mobile_pc, default OFF).
 +
-+The platform posts P3DS_MobilePcReq (open boxes) or P3DS_MobilePcPreviewReq (unlock
-+ceremony only). This hook runs on the game thread from FieldSystem_Main:
++The platform posts P3DS_MobilePcReq (open boxes, after the party BOXES chip
++zoom/close) or P3DS_MobilePcPreviewReq (unlock ceremony only). This hook
++runs on the game thread from FieldSystem_Main:
 +
 +  * only in a safe idle overworld (FieldSystem_IsPlayerMovementAllowed, player
 +    standing still, MAP_LOAD_TYPE_OVERWORLD, not Mystery Zone / Safari / Bug
@@ -69,7 +70,7 @@ index 0000000..04e6f6b
 +         '#include "constants/sndseq.h" /* SS3DS 0293 */\n'
 +         '#include "constants/gx.h" /* SS3DS 0293 */\n')
 +
-+helper = r'''/* SS3DS 0293 mobile PC: JOHTO PC tab -> the game's box app (mode 2). Read-only of flags. */
++helper = r'''/* SS3DS 0293 mobile PC: party BOXES chip -> the game's box app (mode 2). Read-only of flags. */
 +extern int P3DS_MobilePcCfg(void);
 +extern int P3DS_MobilePcDevCfg(void);
 +extern int P3DS_MobilePcUnlockShown(unsigned tid);
@@ -291,10 +292,10 @@ index 0000000..bd3953a
 --- /dev/null
 +++ b/scripts/ss3ds_hooks.d/0293_mobilepc.sh
 @@ -0,0 +1,5 @@
-+# ss3ds 0293: mobile PC (JOHTO PC tab -> the game's box app, mode 2). Not fatal: without it the
-+# tab's requests time out and the toggle does nothing. Never writes the save.
++# ss3ds 0293: mobile PC (party BOXES chip -> the game's box app, mode 2). Not fatal: without it the
++# chip's requests time out and the toggle does nothing. Never writes the save.
 +if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0293_mobilepc.py" && bash rebuild_game_object.sh src/field/field_control.c field__field_control.o 1 && bash rebuild_game_object.sh src/field_system.c field_system.o none); then
-+  log "ss3ds 0293 mobile PC hook NOT applied (see message above); the PC tab will not open the boxes"
++  log "ss3ds 0293 mobile PC hook NOT applied (see message above); the party BOXES chip will not open the boxes"
 +fi
 -- 
 2.47.3

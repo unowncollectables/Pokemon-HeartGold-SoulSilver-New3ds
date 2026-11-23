@@ -100,8 +100,7 @@ static void bnButtonDetails(const SBnCanvas &c, int x0, int y0, int y1, int divi
 struct SBnTabDst { short dx, dy, w, h, sx, sy; };
 /* JOHTO top tabs at native resolution, same box and green pixel icons as the column (bnBox / bnIcon2x).
    ds* are the DS hit rects from pxChips. Drawn into atlas row y=180 (the frame windows stop at y=168). */
-/* iconOnly: no labels, centred icons (used when the Mobile PC tab is present so 7 chips stay even and roomy).
-   Default false keeps the 5/6-tab labeled strip unchanged. */
+/* iconOnly: no labels, centred icons. Default false keeps the labeled 5/6-tab strip. Unused by Mobile PC (the BOXES chip lives on the party screen, not the tab bar). */
 static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const int *dsX1, int dsY0, int dsY1, const int *icons, const char *const *labels, const char *const *shortLabels, SBnTabDst *dst, int maxDst, bool iconOnly = false) {
   if (!atlas || n < 1) return 0;
   const uint32_t NAVY = bnRGB(7, 33, 54), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255), BTN_SHD = bnRGB(189, 201, 222),
@@ -169,4 +168,40 @@ static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *a
       }
     } else { iconX[i] = x0 + 1; iconY[i] = y0 + 1; }
   }
+}
+
+/* Native BOXES chip for the official party footer (atlas slot 448,180). Returns dest size in *dw,*dh. */
+static void bnBoxesChip(uint32_t *atlas, int anim, int *dw, int *dh) {
+  const uint32_t NAVY = bnRGB(7, 33, 54), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255),
+    BTN_SHD = bnRGB(189, 201, 222), INK = bnRGB(18, 26, 38), IC = bnRGB(24, 120, 72), ACC = bnRGB(104, 200, 140),
+    WHITE = bnRGB(255, 255, 255), GOLD = bnRGB(255, 220, 64);
+  const int pad = 8, w = 56, h = 22;
+  const SBnCanvas c = { atlas, 448, 180, 0, 0, w + pad * 2, h + pad * 2 };
+  bnRect(c, 0, 0, w + pad * 2 - 1, h + pad * 2 - 1, 0); /* transparent / zero; GPU overlay typically treats 0 as skip? fill navy-safe: use a clear black 0 */
+  for (int y = 0; y < h + pad * 2; y++) for (int x = 0; x < w + pad * 2; x++) bnPut(c, x, y, 0);
+  int x0 = pad, y0 = pad, x1 = pad + w - 1, y1 = pad + h - 1;
+  if (anim >= 12 && anim <= 20) {
+    int pop = anim <= 16 ? (anim - 12) : (20 - anim);
+    x0 -= pop; x1 += pop; y0 -= pop / 2; y1 += pop / 2;
+  }
+  bnBox(c, x0, y0, x1, y1, NAVY, BTN, BTN_TOP, BTN_SHD, 2);
+  bnButtonDetails(c, x0, y0, y1, x0 + 15, x1 - 2, false);
+  bnIcon2x(c, x0 + 2, (y0 + y1 - 12) / 2, 12, IC, ACC);
+  bnText(c, x0 + 16, (y0 + y1 - 9) / 2, "BOXES", INK);
+  if (anim >= 16 && anim <= 40) {
+    int glow = anim <= 28 ? (anim - 16) : (40 - anim); if (glow > 8) glow = 8;
+    for (int t = 0; t < glow; t++) {
+      const int gx0 = x0 - 1 - t, gx1 = x1 + 1 + t, gy0 = y0 - 1 - t, gy1 = y1 + 1 + t;
+      for (int x = gx0; x <= gx1; x++) { bnPut(c, x, gy0, GOLD); bnPut(c, x, gy1, GOLD); }
+      for (int y = gy0; y <= gy1; y++) { bnPut(c, gx0, y, GOLD); bnPut(c, gx1, y, GOLD); }
+    }
+  }
+  if (anim >= 0 && anim <= 24) {
+    /* small NEW tag in the top-left pad */
+    const char *t = "NEW";
+    const int tw = bnTextW(t) + 4, tx = 1, ty = 1;
+    bnRect(c, tx, ty, tx + tw, ty + 10, GOLD);
+    bnText(c, tx + 2, ty + 1, t, NAVY);
+  }
+  *dw = w + pad * 2; *dh = h + pad * 2;
 }

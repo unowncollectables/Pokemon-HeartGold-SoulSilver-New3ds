@@ -425,6 +425,14 @@ int P3DS_TouchRead(int *x, int *y) {
     if (edge && (++downs <= 200 || downs % 50 == 0))
         PSPNativeMemLog("[3DS] touch #%u raw=(%d,%d) ds=(%d,%d) scale=%d%s", downs, t.px, t.py, dx, dy, P3DS_ScaleMode(), (dx < 0 || dx > 255 || dy < 0 || dy > 191) ? " OUTSIDE DS area, ignored" : "");
     if (dx < 0 || dx > 255 || dy < 0 || dy > 191) return 0;
+    { /* Mobile PC BOXES chip: consume the tap so it does not hit CANCEL or the party prompt. */
+      extern int P3DS_MobilePcChipHitDS(int, int);
+      extern void P3DS_MobilePcOnChipTap(void);
+      extern int P3DS_MobilePcZoomFrame(void);
+      extern volatile int P3DS_MobilePcCloseThenLaunch;
+      if (P3DS_MobilePcZoomFrame() >= 0 || P3DS_MobilePcCloseThenLaunch) { touchPrev = 1; return 0; }
+      if (P3DS_MobilePcChipHitDS(dx, dy)) { P3DS_MobilePcOnChipTap(); touchPrev = 1; return 0; }
+    }
     { extern volatile int P3DS_PanelPartyOn, P3DS_PanelDest[4], P3DS_PanelSrcHeight;   /* run 130: party-in-panel: a tap inside the party picture is mapped back to the party's own 256x192 touch space; taps elsewhere are ignored (panel chrome handles them) */
       if (P3DS_PanelPartyOn) { const int x0 = P3DS_PanelDest[0], y0 = P3DS_PanelDest[1], x1 = P3DS_PanelDest[2], y1 = P3DS_PanelDest[3];
         if (x1 > x0 && y1 > y0 && dx >= x0 && dx < x1 && dy >= y0 && dy < y1) { *x = (dx - x0) * 256 / (x1 - x0); *y = (dy - y0) * P3DS_PanelSrcHeight / (y1 - y0); touchPrev = 1; return 1; }
