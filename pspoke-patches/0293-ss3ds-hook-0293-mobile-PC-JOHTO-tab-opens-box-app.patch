@@ -1,7 +1,7 @@
 From 62df3be0a4a16bf2f880a60f4b5ba4390e8254b7 Mon Sep 17 00:00:00 2001
 From: ss3ds <ss3ds@localhost>
 Date: Sun, 22 Nov 2026 18:26:38 -0500
-Subject: [PATCH] ss3ds: hook 0293 mobile PC (party BOXES chip -> box app,
+Subject: [PATCH] ss3ds: hook 0293 mobile PC (JOHTO PC tab -> box app,
  HoF-gated)
 
 Settings toggle mobile_pc (default OFF) opens the game's own box
