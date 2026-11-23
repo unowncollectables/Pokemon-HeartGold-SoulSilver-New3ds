@@ -170,38 +170,80 @@ static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *a
   }
 }
 
-/* Native BOXES chip for the official party footer (atlas slot 448,180). Returns dest size in *dw,*dh. */
+/* Official-party BOXES button (atlas slot kBnBoxesAX,kBnBoxesAY). Same rounded shape,
+   height, 1 px dark outline and outlined white font as the game's CANCEL, with a purple
+   fill (so it reads as its own button on the teal party screen) and a small box icon.
+   Returns dest size including pad in *dw,*dh. Glow / NEW use the pad around the button. */
+enum { kBnBoxesAX = 432, kBnBoxesAY = 180, kBnBoxesPad = 8, kBnBoxesW = 56, kBnBoxesH = 21, kBnBoxesR = 3, kBnZoomAX = 432, kBnZoomAY = 230 };
+static int bnInRound(int x, int y, int x0, int y0, int x1, int y1, int r) {
+  if (x < x0 || x > x1 || y < y0 || y > y1) return 0;
+  int cx, cy;
+  if (x <= x0 + r && y <= y0 + r) { cx = x0 + r; cy = y0 + r; }
+  else if (x >= x1 - r && y <= y0 + r) { cx = x1 - r; cy = y0 + r; }
+  else if (x <= x0 + r && y >= y1 - r) { cx = x0 + r; cy = y1 - r; }
+  else if (x >= x1 - r && y >= y1 - r) { cx = x1 - r; cy = y1 - r; }
+  else return 1;
+  const int dx = x - cx, dy = y - cy;
+  return dx * dx + dy * dy <= r * r + 1;
+}
+/* A small 9x8 storage-box icon (lid + two cells), drawn in the button's ink. */
+static const char *const kBnBoxIcon[8] = {
+  ".#######.", "#.......#", "#########", "#.##.##.#", "#.##.##.#", "#.##.##.#", "#########", "........."
+};
+static void bnBoxIcon(const SBnCanvas &c, int x, int y, uint32_t ink) {
+  for (int r = 0; r < 8; r++) for (int k = 0; k < 9; k++) if (kBnBoxIcon[r][k] == '#') bnPut(c, x + k, y + r, ink);
+}
+static uint32_t bnPartyPurpleBand(int rel, int h) {
+  const int hi = (h * 42) / 100;
+  if (rel <= 1) return bnRGB(186, 124, 236);
+  if (rel <= hi) return bnRGB(156, 92, 224);
+  if (rel == hi + 1) return bnRGB(128, 64, 204);
+  if (rel == hi + 2) return bnRGB(108, 44, 184);
+  if (rel == hi + 3) return bnRGB(92, 32, 168);
+  if (rel >= h - 2) return bnRGB(60, 18, 120);
+  return bnRGB(80, 24, 152);
+}
 static void bnBoxesChip(uint32_t *atlas, int anim, int *dw, int *dh) {
-  const uint32_t NAVY = bnRGB(7, 33, 54), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255),
-    BTN_SHD = bnRGB(189, 201, 222), INK = bnRGB(18, 26, 38), IC = bnRGB(24, 120, 72), ACC = bnRGB(104, 200, 140),
-    WHITE = bnRGB(255, 255, 255), GOLD = bnRGB(255, 220, 64);
-  const int pad = 8, w = 56, h = 22;
-  const SBnCanvas c = { atlas, 448, 180, 0, 0, w + pad * 2, h + pad * 2 };
-  bnRect(c, 0, 0, w + pad * 2 - 1, h + pad * 2 - 1, 0); /* transparent / zero; GPU overlay typically treats 0 as skip? fill navy-safe: use a clear black 0 */
-  for (int y = 0; y < h + pad * 2; y++) for (int x = 0; x < w + pad * 2; x++) bnPut(c, x, y, 0);
+  const uint32_t OUT = bnRGB(40, 16, 56), WHITE = bnRGB(255, 255, 255), INK_O = bnRGB(32, 8, 48),
+    GOLD = bnRGB(255, 220, 64), TAG = bnRGB(24, 10, 40);
+  const int pad = kBnBoxesPad, w = kBnBoxesW, h = kBnBoxesH, r0 = kBnBoxesR;
+  const int cw = w + pad * 2, ch = h + pad * 2;
+  const SBnCanvas c = { atlas, kBnBoxesAX, kBnBoxesAY, 0, 0, cw, ch };
+  for (int y = 0; y < ch; y++) for (int x = 0; x < cw; x++) bnPut(c, x, y, 0);
   int x0 = pad, y0 = pad, x1 = pad + w - 1, y1 = pad + h - 1;
   if (anim >= 12 && anim <= 20) {
     int pop = anim <= 16 ? (anim - 12) : (20 - anim);
     x0 -= pop; x1 += pop; y0 -= pop / 2; y1 += pop / 2;
   }
-  bnBox(c, x0, y0, x1, y1, NAVY, BTN, BTN_TOP, BTN_SHD, 2);
-  bnButtonDetails(c, x0, y0, y1, x0 + 15, x1 - 2, false);
-  bnIcon2x(c, x0 + 2, (y0 + y1 - 12) / 2, 12, IC, ACC);
-  bnText(c, x0 + 16, (y0 + y1 - 9) / 2, "BOXES", INK);
+  const int rr = r0 + ((x1 - x0 + 1) > w ? 1 : 0);
   if (anim >= 16 && anim <= 40) {
-    int glow = anim <= 28 ? (anim - 16) : (40 - anim); if (glow > 8) glow = 8;
-    for (int t = 0; t < glow; t++) {
-      const int gx0 = x0 - 1 - t, gx1 = x1 + 1 + t, gy0 = y0 - 1 - t, gy1 = y1 + 1 + t;
-      for (int x = gx0; x <= gx1; x++) { bnPut(c, x, gy0, GOLD); bnPut(c, x, gy1, GOLD); }
-      for (int y = gy0; y <= gy1; y++) { bnPut(c, gx0, y, GOLD); bnPut(c, gx1, y, GOLD); }
+    int glow = anim <= 28 ? (anim - 16) : (40 - anim); if (glow > 3) glow = 3;
+    for (int t = glow; t >= 1; t--) {
+      const int gx0 = x0 - t, gy0 = y0 - t, gx1 = x1 + t, gy1 = y1 + t, gr = rr + t;
+      for (int y = gy0; y <= gy1; y++) for (int x = gx0; x <= gx1; x++)
+        if (bnInRound(x, y, gx0, gy0, gx1, gy1, gr) && !bnInRound(x, y, gx0 + 1, gy0 + 1, gx1 - 1, gy1 - 1, gr > 0 ? gr - 1 : 0))
+          bnPut(c, x, y, GOLD);
     }
   }
-  if (anim >= 0 && anim <= 24) {
-    /* small NEW tag in the top-left pad */
-    const char *t = "NEW";
-    const int tw = bnTextW(t) + 4, tx = 1, ty = 1;
-    bnRect(c, tx, ty, tx + tw, ty + 10, GOLD);
-    bnText(c, tx + 2, ty + 1, t, NAVY);
+  const int bh = y1 - y0 + 1;
+  for (int y = y0; y <= y1; y++) {
+    const uint32_t fill = bnPartyPurpleBand(y - y0, bh);
+    for (int x = x0; x <= x1; x++) {
+      if (!bnInRound(x, y, x0, y0, x1, y1, rr)) continue;
+      bnPut(c, x, y, bnInRound(x, y, x0 + 1, y0 + 1, x1 - 1, y1 - 1, rr > 0 ? rr - 1 : 0) ? fill : OUT);
+    }
   }
-  *dw = w + pad * 2; *dh = h + pad * 2;
+  const char *label = "BOXES";
+  const int tw = bnTextW(label), iw = 9, gap = 3, total = iw + gap + tw;
+  const int tx0 = x0 + (x1 - x0 + 1 - total) / 2, iy = y0 + (y1 - y0 + 1 - 8) / 2, ty = y0 + (y1 - y0 + 1 - 9) / 2;
+  bnBoxIcon(c, tx0, iy, WHITE);
+  bnTextO(c, tx0 + iw + gap, ty, label, WHITE, INK_O);
+  if (anim >= 0 && anim <= 24) {
+    const char *tag = "NEW";
+    const int tw2 = bnTextW(tag) + 4, tx = x0 - 2, ty2 = y0 - 8;
+    for (int y = ty2; y <= ty2 + 9; y++) for (int x = tx; x <= tx + tw2 - 1; x++)
+      if (bnInRound(x, y, tx, ty2, tx + tw2 - 1, ty2 + 9, 2)) bnPut(c, x, y, GOLD);
+    bnText(c, tx + 2, ty2 + 1, tag, TAG);
+  }
+  *dw = cw; *dh = ch;
 }

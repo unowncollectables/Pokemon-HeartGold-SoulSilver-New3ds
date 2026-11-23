@@ -2922,7 +2922,7 @@ static int PresentFrame(bool){
     else{
     {/* run 17: the overlay was repainted (gradient, map, 10 buttons, text) and re-uploaded 30x/s = +10.4 ms present (log 2026-10-26: 22 fps with tiles, 30 without). Paint into blCache only when an input changed, copy it otherwise, and tell the GPU path the bottom texture is unchanged. */
      static u32*blCache;static unsigned blSeenGen=~0u,blKey,blRedraw,blReuse,blAge;static u64 blUs;
-     unsigned key=(unsigned)(gBlHd?0:pressShow)+16u*(unsigned)(blink&&pxRinging())+64u*(unsigned)(blMode+1)+512u*P3DS_StartAvail+0x40000000u*(P3DS_PgShoes==1)+0x20000000u*(runNow!=0);for(int i=0;i<kBlButtonCount;i++)key=key*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;key=key*31u+icMask;key=key*31u+(unsigned)native;key=key*31u+(unsigned)pxPane();key=key*31u+(unsigned)pgMapZoomIdx()+4u*(unsigned)pgRoamSpr();key=key*31u+(P3DS_PanelPartyWant?1u:0u)+(P3DS_PanelPartyOn?2u:0u);key=key*31u+(unsigned)pxRingShown();key=key*31u+(unsigned)(P3DS_MobilePcAnimFrame()+2)*19u+(P3DS_MobilePcChipOn()?4u:0u); /* run 139: panel Want/On in the key (pxBag/pxParty draw a plain header while set); the blink cache pair flipped between a stale ITEMS (5) header and BAG */ /* run 118: pane + sticky ring so ANSWER banner is never stuck in the overlay cache */
+     unsigned key=(unsigned)(gBlHd?0:pressShow)+16u*(unsigned)(blink&&pxRinging())+64u*(unsigned)(blMode+1)+512u*P3DS_StartAvail+0x40000000u*(P3DS_PgShoes==1)+0x20000000u*(runNow!=0);for(int i=0;i<kBlButtonCount;i++)key=key*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u+(unsigned)(uintptr_t)al[i]*11u;key=key*31u+icMask;key=key*31u+(unsigned)native;key=key*31u+(unsigned)pxPane();key=key*31u+(unsigned)pgMapZoomIdx()+4u*(unsigned)pgRoamSpr();key=key*31u+(P3DS_PanelPartyWant?1u:0u)+(P3DS_PanelPartyOn?2u:0u)+(ppChrome?8u:0u);key=key*31u+(unsigned)pxRingShown();key=key*31u+(unsigned)(P3DS_MobilePcAnimFrame()+2)*19u+(P3DS_MobilePcChipOn()?4u:0u); /* run 139: panel Want/On in the key (pxBag/pxParty draw a plain header while set); the blink cache pair flipped between a stale ITEMS (5) header and BAG */ /* run 118: pane + sticky ring so ANSWER banner is never stuck in the overlay cache */
      /* sharp text: not while the panel shows the party/bag app (its picture covers the panel; the native layer must not show through) */
      const bool txRec=btxMode()&&!P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!ppChrome;key=key*31u+(txRec?1u:0u);
      if(!blCache)blCache=(u32*)malloc(256*192*4);
@@ -2954,8 +2954,8 @@ static int PresentFrame(bool){
     /* run 18 bottom_hd=1 (default): the button column at native 320x240 (ss3ds_blnative.h, after GabeSud0's port_lowermenu.c); 0 = the run 17 stretched column */
     static int bnX[kBlButtonCount],bnY[kBlButtonCount];static unsigned bnKey=~0u;const int bhd=bottomHdCfg()&&P3DS_ScaleMode()!=0;static int bhdPrev=-1;if(bhd!=bhdPrev){bhdPrev=bhd;bnKey=~0u;gBlHd=bhd;BLINV;}
     if(native||(bhd&&P3DS_ScaleMode()!=0)){int n=0;auto R=[&](int dx,int dy,int w,int h,int sx,int sy){if(n<96){P3DS_OvRects[n]={(short)dx,(short)dy,(short)w,(short)h,(short)sx,(short)sy};n++;}};
-     if(bhd){const int pr=buttonPress;unsigned k=(unsigned)(pr+1)*2654435761u^(native?icMask:0u)*40503u;for(int i=0;i<kBlButtonCount;i++)k=k*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u;
-      k=k*31u+bnAtlasGen;k=k*31u+(pxOn()?(unsigned)pxPane()+1u:0u)+(unsigned)pxNTab()*13u+(unsigned)(P3DS_MobilePcAnimFrame()+2)*17u+(unsigned)(P3DS_MobilePcZoomFrame()+2)*29u+(P3DS_MobilePcChipFooterShown()?3u:0u);
+     if(bhd){const int pr=buttonPress;unsigned k=(unsigned)(pr+1)*2654435761u^(native?icMask:0u)*40503u;for(int i=0;i<kBlButtonCount;i++)k=k*31u+(on[i]?1u:0u)+(unsigned)(uintptr_t)lb[i]*7u+(unsigned)(uintptr_t)al[i]*11u;
+      k=k*31u+bnAtlasGen;k=k*31u+(pxOn()?(unsigned)pxPane()+1u:0u)+(unsigned)pxNTab()*13u+(unsigned)(P3DS_MobilePcAnimFrame()+2)*17u+(unsigned)(P3DS_MobilePcZoomFrame()+2)*29u+(P3DS_MobilePcChipFooterShown()?3u:0u)+(ppChrome?8u:0u)+(P3DS_PanelPartyWant?1u:0u)+(P3DS_PanelPartyOn?2u:0u);
       static SBnTabDst bnTabD[kPxMaxTab]; static int bnTabN;
       if(k!=bnKey){bnKey=k;bnFrame(P3DS_OvAtlasGet(),lb,al,on,pr,native?(icMask&0x7FF):0,bnX,bnY);bnTabN=0;
        if(pxOn()){int cx0[kPxMaxTab],cx1[kPxMaxTab],cy0,cy1;pxChips(kSuiText,kBlPanX1,kBlPanY0,cx0,cx1,&cy0,&cy1);bnTabN=bnTabStrip(P3DS_OvAtlasGet(),pxPane(),pxNTab(),cx0,cx1,cy0,cy1,kPxTabIcon,kPxTabs,kPxTabShort,bnTabD,kPxMaxTab);
@@ -2989,17 +2989,17 @@ static int PresentFrame(bool){
     static int cw,ch; static unsigned chipGen=~0u; static int lastAf=-2; const int af=P3DS_MobilePcAnimFrame();
     if(chipGen!=bnAtlasGen||af!=lastAf){bnBoxesChip(mpcAt,af,&cw,&ch);chipGen=bnAtlasGen;lastAf=af;P3DS_OvDirty=1;}
     /* a 16x16 blue tile for the zoom wipe, just under the chip in the atlas */
-    {const uint32_t bl=bnRGB(20,80,160); for(int y=0;y<16;y++) for(int x=0;x<16;x++) mpcAt[(230+y)*512+(448+x)]=bl;}
+    {const uint32_t bl=bnRGB(20,80,160); for(int y=0;y<16;y++) for(int x=0;x<16;x++) mpcAt[(kBnZoomAY+y)*512+(kBnZoomAX+x)]=bl;}
     int n=P3DS_OvN; auto R=[&](int dx,int dy,int w,int h,int sx,int sy){if(n<96){P3DS_OvRects[n]={(short)dx,(short)dy,(short)w,(short)h,(short)sx,(short)sy};n++;}};
     if(zf>=0){
       const int t=zf>kMobilePcZoomLast?kMobilePcZoomLast:zf;
       const int x0=cx0+(0-cx0)*t/kMobilePcZoomLast, y0=cy0+(0-cy0)*t/kMobilePcZoomLast;
       const int x1=cx1+(320-cx1)*t/kMobilePcZoomLast, y1=cy1+(240-cy1)*t/kMobilePcZoomLast;
       int w=x1-x0, h=y1-y0; if(w<1)w=1; if(h<1)h=1;
-      R(x0,y0,w,h,448,230);
+      R(x0,y0,w,h,kBnZoomAX,kBnZoomAY);
     }
     if(chip){
-      const int pad=8; R(cx0-pad,cy0-pad,cw,ch,448,180);
+      const int pad=kBnBoxesPad; R(cx0-pad,cy0-pad,cw,ch,kBnBoxesAX,kBnBoxesAY);
     }
     P3DS_OvN=n;
   }
