@@ -149,7 +149,9 @@ static int endsGba(const char *n)
 
 static void slot2Dirs(void)
 {
-    slot2Dirs();
+    mkdir("sdmc:/3ds", 0755);
+    mkdir("sdmc:/3ds/soulsilver3ds", 0755);
+    mkdir(SLOT2_DIR, 0755);
     mkdir(SLOT2_WORK, 0755);
 }
 
@@ -498,6 +500,7 @@ void P3DS_Slot2PrepareCart(void)
 {
     char last[64];
     int i;
+    if (sPrepared) return;
     PSPNativeMemLog("[SLOT2] PrepareCart cfg=%d present=%d scanned=%d inserted=%d",
                     P3DS_Slot2Cfg(), P3DS_CtrdgPresent(), sScanned, sInserted);
     if (!P3DS_Slot2Cfg()) {

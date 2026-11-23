@@ -207,11 +207,12 @@ static int copyCart(u32 addr, void *dst, u32 size, int writing)
 
 /* ---- CTRDG wraps ---- */
 
-void __wrap_CTRDG_Init(void)
-{
-    /* Refresh every call: a pak may have been inserted after boot. */
-    PSPNativeMemLog("[SLOT2] CTRDG_Init present=%d", sPresent);
-}
+/* Do not replace nitromain-perf/ctrdg_absent.c's __wrap_CTRDG_Init.
+   That wrap publishes moduleID=0xffff / HW_IS_CTRDG_EXIST=0 so official
+   unwrapped CTRDG paths never start an ARM7/PXI wait. A log-only Init
+   here used to win via --allow-multiple-definition and skipped that
+   publish. The Azahar continue-menu crash itself was slot2Dirs()
+   recursing on first PrepareCart; keep the absent Init anyway. */
 
 BOOL __wrap_CTRDG_IsExisting(void) { return sPresent; }
 BOOL __wrap_CTRDG_IsAgbCartridge(void) { return sPresent; }
