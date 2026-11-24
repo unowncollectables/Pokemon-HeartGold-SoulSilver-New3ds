@@ -98,8 +98,7 @@ static int preserveRunLine(const char *line) {
     return !strncmp(line, "[STALL]", 7) || !strncmp(line, "[WATCHDOG]", 10)
         || strstr(line, "thread start FAILED") || strstr(line, "did not stop")
         || strstr(line, "worker could not start") || strstr(line, "no sound grain")
-        || strstr(line, "DSP NOT RUNNING") || strstr(line, "ndspInit has not returned")
-        || strstr(line, "LEFT RUNNING") || strstr(line, "NO SOUND");
+        || strstr(line, "DSP NOT RUNNING") || strstr(line, "ndspInit has not returned");
 }
 
 void P3DS_LogLine(const char *line) {

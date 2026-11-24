@@ -17,7 +17,6 @@ extern "C" int P3DS_CfgInt(const char*,int);
 extern "C" unsigned PSPNativeVramPageGen[];
 extern "C" { extern volatile int P3DS_MmMap,P3DS_MmX,P3DS_MmZ,P3DS_MmCx,P3DS_MmCy,P3DS_MmType,P3DS_MmMain,P3DS_MmSec;extern volatile unsigned P3DS_MmTick;extern char P3DS_MmName[24]; }
 extern "C" { extern volatile unsigned P3DS_TileKeys;extern volatile int P3DS_TileOn,P3DS_TileCur;int P3DS_StripOn; volatile int P3DS_BmOn,P3DS_BmBlock,P3DS_CatchMask; /* CatchMask: the battle Y screen (or the moment after it closes) owns the buttons and touch screen, the game gets none */ /* run 142: BmBlock = the game's own Start menu is alive in the field and not ours to use: no touch, no A/B/D-pad reach it */ extern volatile int P3DS_StartReq,P3DS_InjectFrames;extern volatile unsigned P3DS_InjectKeys,P3DS_StartMenuTick,P3DS_StartAvail;extern volatile int P3DS_StartClose,P3DS_StartPrompt,P3DS_StartIdle; extern volatile int P3DS_PanelPartyWant,P3DS_PanelPartyOn; extern volatile int P3DS_PanelDest[4], P3DS_PanelSrcHeight, P3DS_PanelGearTooltip; }
-extern "C" volatile unsigned P3DS_SlowestFrameMs,P3DS_LongFrames; /* reset-health.txt, defined in psp_ctru.c */
 static unsigned P3DS_Perf3Worst;extern "C" int P3DS_CurMap;extern "C" void P3DS_ZoneInfo(int*,int*,int*,unsigned*),P3DS_RomSpikeFiles(char*,unsigned),P3DS_RomSpikeReset(void);extern "C" const char*P3DS_AreaName(int);
 
 /* run 76 hunt_counter / shiny_suite (ported from Platinum run 88): wild encounters per species in sdmc:/3ds/soulsilver3ds/hunt.txt
@@ -3182,9 +3181,7 @@ static int PresentFrame(bool){
  u64 tEnd=svcGetSystemTick();last2DUs=(unsigned)((tEnd-t0)/CPU_TICKS_PER_USEC);frames++;
  {static unsigned bl,lastSkips,lastDraws;if(++bl%600==0){PSPNativeMemLog("[2D] bottom_skip: reused %u, recomposed %u of last 600 | steal_b: engine B on main %u, worker %u | early_b %u | split_top %u",bSkips-lastSkips,bDraws-lastDraws,stealMain,stealWorker,earlyN,splitN);lastSkips=bSkips;lastDraws=bDraws;earlyN=0;splitN=0;stealMain=stealWorker=0;}}
  {unsigned total=tPrevEnd?(unsigned)((tEnd-tPrevEnd)/CPU_TICKS_PER_USEC):0,comp=(unsigned)((tComp-t0)/CPU_TICKS_PER_USEC),gpu=(unsigned)((tEnd-tComp)/CPU_TICKS_PER_USEC);
-  if(total/1000>P3DS_SlowestFrameMs)P3DS_SlowestFrameMs=total/1000; /* reset-health.txt (psp_ctru.c) */
   if (total >= 1000000) {
-   P3DS_LongFrames++;
    PSPNativeMemLog("[STALL] f=%u frame %u ms | before present %u | text sync %u | ROM cache pump %u | 3D flush %u | composite %u | present %u",
        frames, total/1000, (unsigned)((presentStart-tPrevEnd)/CPU_TICKS_PER_MSEC),
        (unsigned)((prefetchStart-textStart)/CPU_TICKS_PER_MSEC), (unsigned)((prefetchEnd-prefetchStart)/CPU_TICKS_PER_MSEC),

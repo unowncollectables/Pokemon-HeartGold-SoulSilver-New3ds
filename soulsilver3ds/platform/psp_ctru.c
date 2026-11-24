@@ -29,39 +29,9 @@ static void resLimitStr(char *b, int n) {
     for (int i = 0; i < 8 && w > 0 && w < n; i++) w += snprintf(b + w, n - w, " %s %lld/%lld", nm[i], (long long)cur[i], (long long)mx[i]);
 }
 static s64 procInfo(u32 type) { s64 v = -1; if (R_FAILED(svcGetProcessInfo(&v, CUR_PROCESS_HANDLE, type))) v = -1; return v; }
-/* 2026-11-24 reset health: every named thread notes its kernel thread id (P3DS_ThreadGuard), so the exit line can say WHICH threads
-   are still alive instead of only how many. A port thread still running when the process exits is never handed back to the
-   console's 32-thread application limit (run 1002: reslimit 7 -> 10 -> 16 across resets = the threads alive at each exit), so
-   after enough resets nothing can start: no sound, no prefetch, slow 3D. */
-#define NTN 64
-static struct { volatile u32 tid; const char *volatile name; } tnames[NTN]; static volatile unsigned tnN;
-void P3DS_ThreadNameNote(const char *name) {
-    u32 tid = 0; if (R_FAILED(svcGetThreadId(&tid, CUR_THREAD_HANDLE))) return;
-    const unsigned i = __sync_fetch_and_add(&tnN, 1) % NTN; tnames[i].tid = 0; __sync_synchronize(); tnames[i].name = name; __sync_synchronize(); tnames[i].tid = tid;
-}
-static const char *tnameOf(u32 tid) { const unsigned n = tnN; for (unsigned k = 0; k < n && k < NTN; k++) { const unsigned i = (n - 1 - k) % NTN; if (tnames[i].tid == tid) return tnames[i].name; } return NULL; }
-/* Live threads of this process, by name ("main" = the caller). Unnamed ones are libctru's own (APT/GSP/DSP service threads) or
-   a port thread started without P3DS_ThreadGuard; their priority is printed to tell them apart. Returns the named port threads
-   other than the caller that are still running (each one is a thread slot lost until power-off), or -1 if the list is unreadable. */
-static int aliveList(char *b, int n) {
-    u32 ids[48]; s32 cnt = 0; int w = 0, named = 0, sys = 0; char sp[96]; int spw = 0; b[0] = 0; sp[0] = 0;
-    if (R_FAILED(svcGetThreadList(&cnt, ids, 48, CUR_PROCESS_HANDLE))) { snprintf(b, n, "(thread list unreadable)"); return -1; }
-    u32 me = 0; svcGetThreadId(&me, CUR_THREAD_HANDLE);
-    for (s32 i = 0; i < cnt && i < 48 && w >= 0 && w < n - 48; i++) {
-        const char *nm = tnameOf(ids[i]);
-        if (ids[i] == me) { w += snprintf(b + w, n - w, "%s%s (this thread)", w ? ", " : "", nm ? nm : "main"); continue; }
-        if (nm) { named++; w += snprintf(b + w, n - w, "%s%s", w ? ", " : "", nm); continue; }
-        s32 pr = -1; Handle h = 0; if (R_SUCCEEDED(svcOpenThread(&h, CUR_PROCESS_HANDLE, ids[i]))) { svcGetThreadPriority(&pr, h); svcCloseHandle(h); }
-        sys++; if (spw < (int)sizeof sp - 12) spw += snprintf(sp + spw, sizeof sp - spw, "%s0x%lx", spw ? " " : "", (unsigned long)pr);
-    }
-    if (sys && w >= 0 && w < n - 80) snprintf(b + w, n - w, "%s%d unnamed (libctru/system: APT, GSP, DSP...) at prio %s", w ? ", " : "", sys, sp);
-    return named;
-}
 void P3DS_ThreadDiag(const char *when) {
     char b[300]; resLimitStr(b, sizeof b);
     PSPNativeMemLog("[3DS] threads at %s: this process %lld threads, %lld handles | %s", when, (long long)procInfo(7), (long long)procInfo(4), b);
-    if (!strncmp(when, "exit", 4)) { char a[400]; const int left = aliveList(a, sizeof a);
-        PSPNativeMemLog("[3DS] threads alive at exit: %s%s", a, left > 0 ? " | port threads LEFT RUNNING: each one costs a thread slot until the console is powered off" : ""); }
 }
 static RecursiveLock big; static int bigInit;
 static void initBig(void) { if (!bigInit) { RecursiveLock_Init(&big); bigInit = 1; LightSemaphore_Init(&pts[0].wake, 0, 0x7fff); pts[0].used = 1; } }
@@ -143,7 +113,7 @@ int sceKernelDeleteSema(SceUID id) { sems[id - 1].used = 0; return 0; }
 int sceKernelWaitSema(SceUID id, int n, SceUInt *to) { CRUMB("waitsema");
     quitCheck(); if (!to) { LightSemaphore_Acquire(&sems[id - 1].s, n); quitCheck(); return 0; }
     u64 end = svcGetSystemTick() + (u64)*to * CPU_TICKS_PER_USEC;
-    while (LightSemaphore_TryAcquire(&sems[id - 1].s, n)) { if (svcGetSystemTick() >= end) return -1; quitCheck(); svcSleepThread(100000); }
+    while (LightSemaphore_TryAcquire(&sems[id - 1].s, n)) { if (svcGetSystemTick() >= end) return -1; svcSleepThread(100000); }
     return 0;
 }
 int sceKernelSignalSema(SceUID id, int n) { LightSemaphore_Release(&sems[id - 1].s, n); return 0; }
@@ -356,7 +326,7 @@ static void ndspApplyClip(const char *why) {
    drove ndspRefCount to -1 and the retry's ndspInit saw a non-zero count (AtomicPostIncrement) and returned 0 WITHOUT starting the
    DSP: "ndsp ready" was logged, every buffer queued, nothing played, for the whole boot. Never call ndspExit unless OUR ndspInit
    succeeded; a failed init is simply retried (libctru's dspInit force-unloads any component a dead process left behind). */
-static volatile u64 ndspInitT0; static volatile int ndspInitBusy; static u32 ndspFrames0; static u64 ndspReadyTick; static int ndspAlive = -1, ndspEverOk;
+static volatile u64 ndspInitT0; static volatile int ndspInitBusy; static u32 ndspFrames0; static u64 ndspReadyTick; static int ndspAlive = -1;
 static volatile int audioOutCalls; /* sceAudioOutputPannedBlocking calls (the sound thread is alive and feeding grains) */
 void P3DS_AudioDiag(const char *when);
 static void ndspSetup(void) {
@@ -371,7 +341,6 @@ static void ndspSetup(void) {
     if (R_FAILED(r)) { ndspOk = 0; nextTry = svcGetSystemTick() + (tries <= 3 ? (u64)SYSCLOCK_ARM11 * tries / 4 : (u64)SYSCLOCK_ARM11 * 3 / 2);
         PSPNativeMemLog("[AUDIO] ndspInit failed %08lx after %u ms (try %d/20%s): copy your console's DSP firmware to sdmc:/3ds/dspfirm.cdc (run 'DSP1' homebrew once) if this never succeeds.", r, initMs, tries, tries < 20 ? ", retrying" : ", giving up, audio disabled");
         return; }
-    ndspEverOk = 1;
     PSPNativeMemLog("[AUDIO] ndspInit ok on try %d in %u ms%s", tries, initMs, tries > 1 ? " (the DSP was still busy right after the reset)" : "");
     ndspFrames0 = ndspGetFrameCount(); ndspReadyTick = svcGetSystemTick(); ndspAlive = -1;
     ndspSetOutputMode(NDSP_OUTPUT_STEREO); sasRateInit(); ndspChnSetInterp(0, P3DS_SasRate == 32728 ? NDSP_INTERP_NONE : NDSP_INTERP_LINEAR); ndspChnSetRate(0, P3DS_SasRate == 32728 ? 32728.498f : (float)P3DS_SasRate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
@@ -452,18 +421,13 @@ void P3DS_AudioShutdown(int gameThreadsStopped) {
    resetchain.tmp: the console's power-on time = now - uptime, so a power cycle starts again at 1), uptime, memory left in each
    region (BASE is where system modules such as dsp allocate, so a per-reset leak there shows up as a falling number), this
    process's handle and thread counts, and the DSP frame / dropped-frame counters. */
-/* Boot number since the console was powered on (resetchain.tmp: power-on time = now - uptime, so a power cycle starts at 1 again). */
-static int bootNumber(void) {
+void P3DS_AudioDiag(const char *when) {
     static int bootN = -1;
-    if (bootN < 0) { const u64 upS = svcGetSystemTick() / SYSCLOCK_ARM11; bootN = 1; long long on = (long long)time(NULL) - (long long)upS, prevOn = 0; int prevN = 0;
+    const u64 upS = svcGetSystemTick() / SYSCLOCK_ARM11;
+    if (bootN < 0) { bootN = 1; long long on = (long long)time(NULL) - (long long)upS, prevOn = 0; int prevN = 0;
         FILE *f = fopen("sdmc:/3ds/soulsilver3ds/resetchain.tmp", "r"); if (f) { if (fscanf(f, "%lld %d", &prevOn, &prevN) != 2) prevN = 0; fclose(f); }
         if (prevN > 0 && llabs(on - prevOn) <= 5) bootN = prevN + 1;
         if ((f = fopen("sdmc:/3ds/soulsilver3ds/resetchain.tmp", "w"))) { fprintf(f, "%lld %d\n", bootN > 1 ? prevOn : on, bootN); fclose(f); } }
-    return bootN;
-}
-void P3DS_AudioDiag(const char *when) {
-    const int bootN = bootNumber();
-    const u64 upS = svcGetSystemTick() / SYSCLOCK_ARM11;
     s64 hc = -1, hp = -1, tc = -1; if (R_FAILED(svcGetProcessInfo(&hc, CUR_PROCESS_HANDLE, 4))) hc = -1; if (R_FAILED(svcGetProcessInfo(&hp, CUR_PROCESS_HANDLE, 5))) hp = -1; if (R_FAILED(svcGetProcessInfo(&tc, CUR_PROCESS_HANDLE, 7))) tc = -1;
     PSPNativeMemLog("[AUDIO] diag %s: boot %d since console power-on, uptime %llu s | linear free %u KiB | free KiB app %u sys %u base %u | handles %lld (peak %lld) threads %lld | ndsp ok %d, DSP frames %lu, dropped %lu",
         when, bootN, (unsigned long long)upS, (unsigned)(linearSpaceFree() >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_APPLICATION) >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_SYSTEM) >> 10), (unsigned)(osGetMemRegionFree(MEMREGION_BASE) >> 10),
@@ -849,7 +813,6 @@ int sceIoRead(SceUID fd, void *b, SceSize n) { return read(fd, b, n); }
 int sceIoClose(SceUID fd) { return close(fd); }
 
 /* Clean shutdown: wake every sleeper, let each worker exit at its next blocking point, join with timeout. */
-static u64 joinLeftNs(u64 endTick) { const u64 now = svcGetSystemTick(); return now >= endTick ? 0 : (endTick - now) * 1000ULL / (u64)(SYSCLOCK_ARM11 / 1000000); }
 int P3DS_ShutdownThreads(int workersStopped) {
     p3ds_quit = 1;
     for (int r = 0; r < 3; r++) {
@@ -862,14 +825,11 @@ int P3DS_ShutdownThreads(int workersStopped) {
        allocator then overwrote a callback pointer inside a freed block and the thread jumped through it. The process is about to
        exit and the kernel reclaims everything, so the blocks (and ndsp) are only released when EVERY thread has really ended. */
     int stopped = 1;
-    /* 2026-11-24: one shared 600 ms budget for all game threads (was 300 ms EACH): a reset with several stuck threads no longer
-       hangs for seconds. A thread that has already ended is still reaped after the budget (a zero timeout returns at once). */
-    const u64 joinEnd = svcGetSystemTick() + (u64)SYSCLOCK_ARM11 * 6 / 10;
     for (int i = 1; i <= MAXT; i++) {
         Thread thread = pts[i].th;
         if (!thread) continue;
         /* The kernel timeout result is positive, so only zero confirms a join. */
-        Result rc = thread == threadGetCurrent() ? -1 : threadJoin(thread, joinLeftNs(joinEnd));
+        Result rc = thread == threadGetCurrent() ? -1 : threadJoin(thread, 300000000ULL);
         if (rc != 0) {
             stopped = 0;
             PSPNativeMemLog("[3DS] exit: thread slot %d (%s) did not stop (join %08lx)", i, pts[i].name, (unsigned long)rc);
@@ -879,7 +839,7 @@ int P3DS_ShutdownThreads(int workersStopped) {
         pts[i].th = NULL;
     }
     if (alarmTh) {
-        if (threadJoin(alarmTh, joinLeftNs(joinEnd) > 100000000ULL ? joinLeftNs(joinEnd) : 100000000ULL) == 0) { threadFree(alarmTh); alarmTh = NULL; }
+        if (threadJoin(alarmTh, 300000000ULL) == 0) { threadFree(alarmTh); alarmTh = NULL; }
         else { stopped = 0; PSPNativeMemLog("[3DS] exit: alarm thread did not stop in 300 ms"); }
     }
     if (stopped && workersStopped) {
@@ -951,42 +911,4 @@ void __wrap_Heap_Destroy(u32 heapId)
         Main_SetVBlankIntrCB(NULL, NULL);
     }
     __real_Heap_Destroy(heapId);
-}
-
-/* 2026-11-24 reset-health.txt: one line when a boot starts and one when it exits, appended, never rewritten (moved to
-   reset-health_old.txt past 64 KiB). A whole soft-reset session is in one file: the thread-slot climb, sound, the slowest frame
-   and anything left running. A boot with a start line and no exit line crashed or was switched off. */
-volatile unsigned P3DS_SlowestFrameMs, P3DS_LongFrames; /* render3ds.cpp: slowest presented frame and frames of 1 s or more this boot */
-#define HEALTH_PATH "sdmc:/3ds/soulsilver3ds/reset-health.txt"
-static s64 healthRlBoot = -1;
-static u64 healthBootTick;
-static s64 rlThreadsNow(s64 *max) {
-    Handle rl = 0; s64 cur = -1, mx = -1; ResourceLimitType t = RESLIMIT_THREAD;
-    if (R_SUCCEEDED(svcGetResourceLimit(&rl, CUR_PROCESS_HANDLE))) { if (R_FAILED(svcGetResourceLimitCurrentValues(&cur, rl, &t, 1))) cur = -1; if (R_FAILED(svcGetResourceLimitLimitValues(&mx, rl, &t, 1))) mx = -1; svcCloseHandle(rl); }
-    if (max) *max = mx; return cur;
-}
-static void healthStamp(char *b, int n) { time_t now = time(NULL); struct tm *tm = gmtime(&now); if (tm) strftime(b, n, "%Y-%m-%d %H:%M:%S", tm); else snprintf(b, n, "?"); }
-static void healthWrite(const char *line) {
-    FILE *f = fopen(HEALTH_PATH, "a"); if (f) { fputs(line, f); fputc('\n', f); fclose(f); }
-    PSPNativeMemLog("[HEALTH] %s", line);
-}
-extern u32 P3DS_HeapWaitMs, P3DS_HeapFreeFirst, P3DS_HeapFreeFinal;
-void P3DS_HealthBoot(const char *version) {
-    healthBootTick = svcGetSystemTick();
-    { FILE *f = fopen(HEALTH_PATH, "rb"); long sz = 0; if (f) { if (!fseek(f, 0, SEEK_END)) sz = ftell(f); fclose(f); }
-      if (sz > 64 * 1024) { remove("sdmc:/3ds/soulsilver3ds/reset-health_old.txt"); rename(HEALTH_PATH, "sdmc:/3ds/soulsilver3ds/reset-health_old.txt"); } }
-    s64 mx = -1; healthRlBoot = rlThreadsNow(&mx); const int boot = bootNumber(); char ts[32], line[300]; healthStamp(ts, sizeof ts);
-    snprintf(line, sizeof line, "%s boot %d %s | %s | thread slots in use at start %lld of %lld | memory %u MiB (%u MiB when loaded, waited %u ms)%s",
-        ts, boot, boot == 1 ? "START (power-on)" : "START (after a reset)", version, (long long)healthRlBoot, (long long)mx, (unsigned)(P3DS_HeapFreeFinal >> 20), (unsigned)(P3DS_HeapFreeFirst >> 20), (unsigned)P3DS_HeapWaitMs,
-        P3DS_HeapFreeFinal < (64u << 20) ? " | LOW MEMORY" : "");
-    healthWrite(line);
-}
-void P3DS_HealthNote(const char *what) { char ts[32], line[300]; healthStamp(ts, sizeof ts); snprintf(line, sizeof line, "%s boot %d %s", ts, bootNumber(), what); healthWrite(line); }
-void P3DS_HealthExit(int clean, int allStopped) {
-    s64 mx = -1; const s64 rl = rlThreadsNow(&mx); char a[220], ts[32], line[600]; const int left = aliveList(a, sizeof a); healthStamp(ts, sizeof ts);
-    const char *snd = !audioOutCalls ? "NO SOUND (sound thread never ran)" : !ndspEverOk ? "NO SOUND (ndspInit failed)" : ndspAlive == 0 ? "NO SOUND (DSP not running)" : "ok";
-    snprintf(line, sizeof line, "%s boot %d EXIT %s after %u s | thread slots %lld of %lld (start %lld) | alive: %s%s | sound %s | slowest frame %u ms, frames over 1 s: %u | workers %s",
-        ts, bootNumber(), clean ? "clean" : "after an error", (unsigned)((svcGetSystemTick() - healthBootTick) / SYSCLOCK_ARM11), (long long)rl, (long long)mx, (long long)healthRlBoot,
-        a, left > 0 ? " (LEFT RUNNING)" : "", snd, P3DS_SlowestFrameMs, P3DS_LongFrames, allStopped ? "all stopped" : "some did NOT stop (see log)");
-    healthWrite(line);
 }
