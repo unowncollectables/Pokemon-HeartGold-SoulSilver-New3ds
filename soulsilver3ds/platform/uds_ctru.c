@@ -197,6 +197,21 @@ int P3U_Init(void)
 	return 1;
 }
 
+/* 2026-11-24 soft reset / exit: local wireless left on kept its worker thread alive at exit (a thread slot lost until power-off)
+   and never called udsExit. Bounded join; if the worker does not answer, UDS is left to the process exit. */
+int P3U_Shutdown(void)
+{
+	if (sState == P3U_OFF || !sThread) return 1;
+	sQuit = 1;
+	if (threadJoin(sThread, 1000000000ULL) != 0) { WLOG("[3DS] exit: local wireless worker did not stop in 1 s"); return 0; }
+	threadFree(sThread); sThread = NULL;
+	udsExit();
+	sState = P3U_OFF;
+	remove(PENDING_PATH);
+	WLOG("[WIRELESS] udsExit (soft reset / exit)");
+	return 1;
+}
+
 void P3U_Exit(void)
 {
 	if (sState == P3U_OFF) return;
