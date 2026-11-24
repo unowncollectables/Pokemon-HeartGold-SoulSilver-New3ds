@@ -18,6 +18,7 @@ static LightLock busLock;
 static LightEvent busWake;
 static bool busLockInitialized;
 static Thread busThread;
+static volatile bool busQuit; /* soft reset / exit: SS3DS_PwalkerShutdown */
 static bool active;
 static bool tracePackets;
 static bool restoreInput;
@@ -78,9 +79,11 @@ static bool validPacket(const Packet *packet)
     return sum == (packet->bytes[2] | (u32)packet->bytes[3] << 8);
 }
 
+extern void P3DS_ThreadGuard(const char *name);
 static void busWorker(void *unused)
 {
     (void)unused;
+    P3DS_ThreadGuard("pokewalker-ir");
     u32 session = 0;
     bool listening = false;
     unsigned txLogged = 0;
@@ -89,6 +92,11 @@ static void busWorker(void *unused)
     for (;;) {
         Packet packet;
         bool send = false;
+        if (busQuit) {
+            if (listening)
+                SS3DS_PwalkerIrClose();
+            break;
+        }
 
         LightLock_Lock(&busLock);
         u32 requested = generation;
@@ -187,6 +195,26 @@ static void busWorker(void *unused)
         else
             LightEvent_Wait(&busWake);
     }
+}
+
+// 2026-11-24 soft reset / exit: the IR worker lived for the whole process and was still running at exit, so every reset after a
+// Pokewalker session lost a thread slot until the console was powered off. Stop and join it (bounded).
+int SS3DS_PwalkerShutdown(void)
+{
+    if (!busThread)
+        return 1;
+    LightLock_Lock(&busLock);
+    busQuit = true;
+    active = false;
+    LightLock_Unlock(&busLock);
+    LightEvent_Signal(&busWake);
+    if (threadJoin(busThread, 1000000000ULL) != 0) {
+        PSPNativeMemLog("[3DS] exit: Pokewalker IR worker did not stop in 1 s");
+        return 0;
+    }
+    threadFree(busThread);
+    busThread = NULL;
+    return 1;
 }
 
 uint32_t SS3DS_Pwalker_SpiWaitInit(void)

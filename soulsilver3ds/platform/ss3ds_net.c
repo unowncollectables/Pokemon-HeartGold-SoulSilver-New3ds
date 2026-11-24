@@ -436,9 +436,11 @@ static void previewObserve(unsigned trainer, int server, const char *url,
 #define GH_MAX 16384 /* run 100: was 1024, which cut the GTS search listing short */
 static struct { volatile int state; /* 0 idle, 1 running, 2 done */ char url[2048]; char body[GH_MAX]; int len, result; void *cb, *ud; Thread th; unsigned previewTrainer; int previewServer, previewEnabled; } gh;
 
+extern void P3DS_ThreadGuard(const char *name);
 static void ghWork(void *arg)
 {
     (void)arg;
+    P3DS_ThreadGuard("ghttp");
     char host[128], path[1990]; const char *u = gh.url; int result = 5, len = 0;
     if (strncmp(u, "http://", 7) == 0) u += 7;
     const char *sl = strchr(u, '/');
