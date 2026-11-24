@@ -10,6 +10,8 @@
 #define RING (512 * 1024)
 static char ring[RING]; static u32 head, tail; static LightLock lk; static int init; static Thread th; static unsigned dropped;
 static FILE *lf; static char out[64 * 1024];
+static int keepRun;
+#define PRESERVE_RUN "[LOG] preserve reset diagnostics"
 /* run 45 log_level (config, default 1): 1 = boot info, errors/failures, [SPIKE], [WIDE]/[SAVE]/[MEM]/[OVERLAY] events,
    [PERF] every 10th (~10 s), [AUDIO-CLK] every 4th (~11 s); the per-frame/per-second detail lines are NOT written but
    kept in a 128 KiB in-RAM "detail" ring that is appended to log.txt on every synchronous flush (crash handler,
@@ -50,15 +52,15 @@ static void logSync(int force) {
     if (fsync(fileno(lf))) { if (!logSyncFails++) fprintf(lf, "[LOG] fsync of log.txt FAILED (further failures counted silently)\n"); }
     else if (!logSyncs++) fprintf(lf, "[LOG] log.txt fsync active (every 2 s, after [SAVE] lines, on crash/exit)\n");
 }
-/* 2026-10-27 (Union Room crash hunt): log.txt is rewritten each boot, so after a hard crash the next launch destroyed the evidence. If the previous
-   log.txt does not end with the clean-exit line, keep it (and its rotated log_old.txt) as log_crash.txt / log_crash_old.txt before starting a new one. */
+/* Preserve the last crash or flagged run across later clean boots. A clean footer and
+   preservation marker are written after the suppressed details, even if the log rotated. */
 static void keepCrashedLog(void) {
     FILE *f = fopen("sdmc:/3ds/soulsilver3ds/log.txt", "rb"); if (!f) return;
     char tail[4096]; size_t n = 0;
     if (!fseek(f, 0, SEEK_END)) { long sz = ftell(f); long from = sz > (long)sizeof tail - 1 ? sz - (long)sizeof tail + 1 : 0; if (sz > 0 && !fseek(f, from, SEEK_SET)) n = fread(tail, 1, sizeof tail - 1, f); }
     fclose(f); tail[n] = 0;
     /* 2026-10-29: a hang closed from HOME exits "clean", so also keep every previous run as log_prev.txt. */
-    if (n && strstr(tail, "[3DS] exit: clean")) { remove("sdmc:/3ds/soulsilver3ds/log_prev.txt"); rename("sdmc:/3ds/soulsilver3ds/log.txt", "sdmc:/3ds/soulsilver3ds/log_prev.txt"); return; }
+    if (n && strstr(tail, "[3DS] exit: clean") && !strstr(tail, PRESERVE_RUN)) { remove("sdmc:/3ds/soulsilver3ds/log_prev.txt"); rename("sdmc:/3ds/soulsilver3ds/log.txt", "sdmc:/3ds/soulsilver3ds/log_prev.txt"); return; }
     if (!n) return;
     remove("sdmc:/3ds/soulsilver3ds/log_crash.txt"); remove("sdmc:/3ds/soulsilver3ds/log_crash_old.txt");
     rename("sdmc:/3ds/soulsilver3ds/log.txt", "sdmc:/3ds/soulsilver3ds/log_crash.txt");
@@ -92,6 +94,13 @@ static volatile int logStop;
 static void writer(void *p) { (void)p; P3DS_ThreadGuard("logwriter"); while (!logStop) { svcSleepThread(100000000LL); flushOnce(1); } }
 static void useCount(const char *line);
 static char tailBuf[8][112]; static unsigned tailN; /* last 8 written (non-detail) lines, shown on the crash screen */
+static int preserveRunLine(const char *line) {
+    return !strncmp(line, "[STALL]", 7) || !strncmp(line, "[WATCHDOG]", 10)
+        || strstr(line, "thread start FAILED") || strstr(line, "did not stop")
+        || strstr(line, "worker could not start") || strstr(line, "no sound grain")
+        || strstr(line, "DSP NOT RUNNING") || strstr(line, "ndspInit has not returned");
+}
+
 void P3DS_LogLine(const char *line) {
     ensureInit(); u32 len = (u32)strlen(line);
     useCount(line);
@@ -99,27 +108,46 @@ void P3DS_LogLine(const char *line) {
     LightLock_Lock(&lk);
     if (!detail) { char *t = tailBuf[tailN++ & 7]; strncpy(t, line, sizeof tailBuf[0] - 1); t[sizeof tailBuf[0] - 1] = 0; }
     if (detail) { for (u32 k = 0; k < len; k++) dring[(dhead + k) % DRING] = line[k]; dring[(dhead + len) % DRING] = '\n'; dhead += len + 1; LightLock_Unlock(&lk); return; }
+    if (!__atomic_load_n(&keepRun, __ATOMIC_RELAXED) && preserveRunLine(line)) {
+        __atomic_store_n(&keepRun, 1, __ATOMIC_RELAXED);
+        logSyncNow = 1;
+    }
     if (!strncmp(line, "[SAVE]", 6)) logSyncNow = 1;
     if (head - tail + len + 1 > RING) dropped++;
     else { for (u32 k = 0; k < len; k++) ring[(head + k) % RING] = line[k]; ring[(head + len) % RING] = '\n'; head += len + 1; }
-    int start = !th; if (start) th = (Thread)1;
+    if (!th) {
+        th = threadCreate(writer, NULL, 0x4000, 0x3F, -2, false);
+        if (!th) { th = (Thread)1; __atomic_store_n(&keepRun, 1, __ATOMIC_RELAXED); }
+    }
     LightLock_Unlock(&lk);
-    if (start) { th = threadCreate(writer, NULL, 0x4000, 0x3F, -2, false); if (!th) th = (Thread)1; }
 }
 /* hardExit: stop and join the writer thread (up to 1 s). Later lines stay in the ring and P3DS_LogFlushSync writes them. */
 int P3DS_LogStopWriter(void) {
-    Thread t = th; if (!t || t == (Thread)1) { th = (Thread)1; return 1; }
-    logStop = 1; int ok = R_SUCCEEDED(threadJoin(t, 1000000000ULL)); if (ok) threadFree(t); th = (Thread)1; return ok;
+    LightLock_Lock(&lk);
+    Thread t = th;
+    th = (Thread)1;
+    logStop = 1;
+    LightLock_Unlock(&lk);
+    if (!t || t == (Thread)1) return 1;
+    if (threadJoin(t, 1000000000ULL) != 0) return 0;
+    threadFree(t);
+    return 1;
 }
 /* Synchronous flush for crash/exit/hold paths (lock attempted; written even if it can't be taken). */
-void P3DS_LogFlushSync(void) { ensureInit(); int got = !LightLock_TryLock(&lk); if (got) LightLock_Unlock(&lk); flushOnce(got);
+static void flushSync(int finish, int clean) { ensureInit(); int got = !LightLock_TryLock(&lk); if (got) LightLock_Unlock(&lk); flushOnce(got);
     if (lf && dhead) { /* log_level 1: append the recent suppressed detail lines (oldest first, from a line start) */
         u32 n = dhead < DRING ? dhead : DRING, start = dhead - n; u32 k = 0;
         if (dhead > DRING) while (k < n && dring[(start + k) % DRING] != '\n') k++;
         fprintf(lf, "[LOG] ---- last %u bytes of suppressed detail lines (log_level=%d) ----\n", n - k, logLevel);
         for (; k < n; k++) fputc(dring[(start + k) % DRING], lf);
         fprintf(lf, "[LOG] ---- end of detail ----\n"); fflush(lf); dhead = 0; }
+    if (lf && finish) {
+        if (__atomic_load_n(&keepRun, __ATOMIC_RELAXED)) fprintf(lf, PRESERVE_RUN "\n");
+        if (clean) fprintf(lf, "[3DS] exit: clean\n");
+    }
     if (lf) { fflush(lf); logSync(1); } }
+void P3DS_LogFlushSync(void) { flushSync(0, 0); }
+void P3DS_LogFinish(int clean) { flushSync(1, clean); }
 
 /* ---- [USE] feature-usage counters, [CFG] header, crash-screen tail --------------------------------------------------
    Every feature that should leave evidence in log.txt writes one tagged line per EVENT (not per frame). Those lines are

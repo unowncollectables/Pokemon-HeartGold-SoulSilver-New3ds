@@ -2289,9 +2289,13 @@ static int PresentFrame(bool);
 static int Present(bool w){const int r=PresentFrame(w);P3DS_GtObjRestore();return r;}
 static int PresentFrame(bool){
  if(!openFrame)return -1;
+ const u64 presentStart=svcGetSystemTick();
  allocBufs();
+ const u64 textStart=svcGetSystemTick();
  P3DS_GtSync(gtOkPrev);P3DS_GtWidePlan=nullptr; /* sharp game text: text whose screen could not show it last present goes back into VRAM before this compose */
+ const u64 prefetchStart=svcGetSystemTick();
  P3DS_RomCachePumpC(); /* run 51 zone_prefetch: adopt staged blocks on the game thread */
+ const u64 prefetchEnd=svcGetSystemTick();
  if(earlyCfg<0){earlyCfg=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"early_b=%d",&x)==1)earlyCfg=x!=0;fclose(f);}PSPNativeMemLog("[2D] early_b=%d",earlyCfg);}
  P3DS_TitleWideRequested=P3DS_InTitle&&titleCleanCfg()==2;P3DS_GcTitleWideValid=0;
  // Use the DS scanline compositor for the Pokewalker screens to avoid GPU tile seams.
@@ -2301,7 +2305,9 @@ static int PresentFrame(bool){
  if(!gpuBModeFrame&&earlyCfg&&engineBAsync()&&stealCfg!=1&&c1Mode!=1){unsigned pw=reg16(0x304);
   mapMemory();engineB.Enabled=(pw&512)!=0;bindRegisters(engineB,0x1000);FrameStart(engineB);bPower=pw;bRightSrc=nullptr;
   bEarly=true;earlyB=true;earlyN++;bPost();}
+ const u64 flushStart=svcGetSystemTick();
  G3SIM_FlushDeferred();openFrame=false;
+ const u64 flushEnd=svcGetSystemTick();
  unsigned power=reg16(0x304),a=reg32(0);
  u64 t0=svcGetSystemTick();unsigned g3us=P3DS_G3LastUs();
  {u32 kd=hidKeysUp(),kh=hidKeysHeld();if((kd&KEY_START)&&(kh&KEY_L)&&(kh&KEY_R)&&!P3DS_ResetSeen){fpsOn=!fpsOn;/* run 53: on release, not after the soft-reset combo */P3DS_Toast(fpsOn?"FPS ON":"FPS OFF");}}
@@ -3182,6 +3188,12 @@ static int PresentFrame(bool){
  u64 tEnd=svcGetSystemTick();last2DUs=(unsigned)((tEnd-t0)/CPU_TICKS_PER_USEC);frames++;
  {static unsigned bl,lastSkips,lastDraws;if(++bl%600==0){PSPNativeMemLog("[2D] bottom_skip: reused %u, recomposed %u of last 600 | steal_b: engine B on main %u, worker %u | early_b %u | split_top %u",bSkips-lastSkips,bDraws-lastDraws,stealMain,stealWorker,earlyN,splitN);lastSkips=bSkips;lastDraws=bDraws;earlyN=0;splitN=0;stealMain=stealWorker=0;}}
  {unsigned total=tPrevEnd?(unsigned)((tEnd-tPrevEnd)/CPU_TICKS_PER_USEC):0,comp=(unsigned)((tComp-t0)/CPU_TICKS_PER_USEC),gpu=(unsigned)((tEnd-tComp)/CPU_TICKS_PER_USEC);
+  if (total >= 1000000) {
+   PSPNativeMemLog("[STALL] f=%u frame %u ms | before present %u | text sync %u | ROM cache pump %u | 3D flush %u | composite %u | present %u",
+       frames, total/1000, (unsigned)((presentStart-tPrevEnd)/CPU_TICKS_PER_MSEC),
+       (unsigned)((prefetchStart-textStart)/CPU_TICKS_PER_MSEC), (unsigned)((prefetchEnd-prefetchStart)/CPU_TICKS_PER_MSEC),
+       (unsigned)((flushEnd-flushStart)/CPU_TICKS_PER_MSEC), comp/1000, gpu/1000);
+  }
   {/* run 43 [SPIKE] diag: any frame > spike_ms (default 70, 0 = off) logs where the time went (max 60 lines / session).
      g3soft time includes the game's own CPU work between frame start and the 3D flush (loads, decompression). */
    extern int P3DS_InField;static int spikeMs=-1,spikeCfg=0;static unsigned spikeN,spikeFieldN;bool spkPr=false;if(spikeMs<0){spikeMs=70;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"spike_ms=%d",&x)==1){spikeMs=x;spikeCfg=1;}fclose(f);}PSPNativeMemLog("[SPIKE] spike_ms=%d",spikeMs);}
@@ -3273,17 +3285,20 @@ static int PresentFrame(bool){
 }
 /* Soft-reset / clean exit: stop engine B + core-1 workers and join them before any GPU/heap free
    (run 934: crumbs showed w-job still running after main stopped → jump through freed state). */
-extern "C" void PSPNativeRenderShutdown(){
+extern "C" int P3DS_RenderShutdown(){
  initialized=false;
  if(!bQuit){
   bQuit=true;
   if(bMode==1){__atomic_add_fetch(&bPend,1,__ATOMIC_SEQ_CST);LightEvent_Signal(&bStart);LightEvent_Signal(&bDone);LightEvent_Signal(&bEarlyDone);}
   if(c1Mode==1)LightEvent_Signal(&c1Start);
  }
- if(bThread){if(R_SUCCEEDED(threadJoin(bThread,500000000ULL)))threadFree(bThread);else PSPNativeMemLog("[3DS] exit: engine B worker did not stop in 500 ms");bThread=nullptr;bMode=0;}
- if(c1Thread){if(R_SUCCEEDED(threadJoin(c1Thread,500000000ULL)))threadFree(c1Thread);else PSPNativeMemLog("[3DS] exit: c1 worker did not stop in 500 ms");c1Thread=nullptr;c1Mode=0;}
- PSPNativeMemLog("[3DS] exit: render workers stopped");
+ bool stopped=true;
+ if(bThread){if(threadJoin(bThread,500000000ULL)==0){threadFree(bThread);bThread=nullptr;bMode=0;}else{stopped=false;PSPNativeMemLog("[3DS] exit: engine B worker did not stop in 500 ms");}}
+ if(c1Thread){if(threadJoin(c1Thread,500000000ULL)==0){threadFree(c1Thread);c1Thread=nullptr;c1Mode=0;}else{stopped=false;PSPNativeMemLog("[3DS] exit: c1 worker did not stop in 500 ms");}}
+ if(stopped)PSPNativeMemLog("[3DS] exit: render workers stopped");
+ return stopped;
 }
+extern "C" void PSPNativeRenderShutdown(){P3DS_RenderShutdown();}
 extern "C" unsigned PSPNativeRenderTestPixel(unsigned e,unsigned x,unsigned y){allocBufs();return raw[e&1][(y%192)*256+(x%256)];}
 extern "C" void PSPNativeRenderGetTimings(unsigned*r,unsigned*s){if(r)*r=lastReadbackUs;if(s)*s=last2DUs;}
 extern "C" unsigned RenderStage(unsigned stage){return stage==0?bindUs:stage==1?drawUs:convertUs;}

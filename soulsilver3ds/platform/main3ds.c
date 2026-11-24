@@ -135,6 +135,7 @@ static volatile int quitting;
 /* perf pass 2026-11-14: the "after save" backup used to run its write on the game thread (a ~0.5 s hitch right after every save). The game thread now
    only reads and validates the live file (as before) and copies the snapshot; a low-priority worker rotates and writes it. It takes ssSaveLock, so
    export and clean exit wait for it, and it skips if the game is already exiting (the exit backup then covers it). save_backup_bg=0 = old behaviour. */
+static Thread ssBgWorker;
 static u8 ssBgSnap[SS_SAVE_BYTES]; static u32 ssBgCnt; static volatile int ssBgBusy; static LightLock ssSaveLock; static int ssSaveLockInit;
 void P3DS_ThreadGuard(const char *name);
 static void ssBgMain(void *arg) { (void)arg; P3DS_ThreadGuard("savebak");
@@ -165,6 +166,11 @@ static void ssSaveTick(void) {
     extern int P3DS_CfgInt(const char *, int);
     if (!P3DS_CfgInt("save_backup_bg", 1)) { ssDoneAt = 0; ssSaveBackup("after save"); return; }
     if (ssBgBusy || quitting) return;                       /* try again next frame; ssDoneAt stays set */
+    if (ssBgWorker) {
+        if (threadJoin(ssBgWorker, 0) != 0) return;
+        threadFree(ssBgWorker);
+        ssBgWorker = NULL;
+    }
     ssDoneAt = 0; ssLock();
     if (P3DS_CfgInt("save_backup", 1)) {
         u8 *live = ssBuf(0);
@@ -172,8 +178,8 @@ static void ssSaveTick(void) {
         else { u32 cnt = ssSaveValid(live);
             if (!cnt) PSPNativeMemLog("[SAVE] backup (after save): live save has no valid slot (blank or damaged), backups left untouched");
             else { memcpy(ssBgSnap, live, SS_SAVE_BYTES); ssBgCnt = cnt; ssBgBusy = 1;
-                Thread th = threadCreate(ssBgMain, NULL, 0x8000, 0x30, -2, true);
-                if (!th) { ssBgBusy = 0; ssSaveBackupLocked("after save"); } } } }
+                ssBgWorker = threadCreate(ssBgMain, NULL, 0x8000, 0x30, -2, false);
+                if (!ssBgWorker) { ssBgBusy = 0; ssSaveBackupLocked("after save"); } } } }
     LightLock_Unlock(&ssSaveLock);
 }
 /* Settings > Setup > Export save. Returns 1 on success. The export is the raw 512 KiB image the game itself wrote, so it is
@@ -199,31 +205,49 @@ done:
 }
 static aptHookCookie hookCookie;
 static Thread wdTh;
-extern void P3DS_ShutdownThreads(void); extern void P3DS_ShutdownSDL(void);
+extern int P3DS_ShutdownThreads(int workersStopped);
+extern int P3DS_ShutdownSDL(void);
+extern int P3DS_RomCacheShutdown(void);
+extern void P3DS_AudioShutdown(int gameThreadsStopped);
+extern void P3DS_ThreadDiag(const char *);
+extern void P3DS_LogFinish(int clean);
 /* Clean exit: stop workers, join them, close files, gfxExit, then exit() normally (returns to HBL / HOME). */
 static void hardExit(int code) {
     static int once; if (once++) exit(code);
     quitting = 1; PSPNativeMemLog("[3DS] exit: stopping threads");
     { extern void P3DS_HuntFlush(void); extern void P3DS_HuntWait(void); extern int P3DS_HuntStopWriter(void); P3DS_HuntFlush(); P3DS_HuntWait(); if (!P3DS_HuntStopWriter()) PSPNativeMemLog("[3DS] exit: hunt writer thread did not stop in 1 s"); } /* shiny_suite: hunt time since the last write */
     /* save first: ShutdownThreads frees the game's partition blocks, which the backup close may still touch */
-    extern BOOL PSPNative_CloseBackup(void); PSPNative_CloseBackup(); ssSaveBackup("exit");
+    extern BOOL PSPNative_CloseBackup(void);
+    PSPNative_CloseBackup();
+    if (!ssBgWorker || threadJoin(ssBgWorker, 1000000000ULL) == 0) {
+        if (ssBgWorker) { threadFree(ssBgWorker); ssBgWorker = NULL; }
+        ssSaveBackup("exit");
+    } else {
+        PSPNativeMemLog("[3DS] exit: save backup worker did not stop in 1 s");
+    }
     /* Run 934 soft-reset crash: join every platform worker BEFORE freeing game heap / GPU state.
        Order: render (engine B / c1) → g3thr → par helper → SCE/game threads → SDL timers → gfxExit. */
-    { extern void PSPNativeRenderShutdown(void); PSPNativeRenderShutdown(); }
-    { extern void P3DS_G3ThrShutdown(void); P3DS_G3ThrShutdown(); }
-    { extern void P3DS_ParShutdown(void); P3DS_ParShutdown(); }
-    P3DS_ShutdownThreads(); P3DS_ShutdownSDL();
+    extern int P3DS_RenderShutdown(void), P3DS_G3ThrShutdown(void), P3DS_ParShutdown(void);
+    int stopped = P3DS_RomCacheShutdown();
+    stopped &= P3DS_RenderShutdown();
+    stopped &= P3DS_G3ThrShutdown();
+    stopped &= P3DS_ParShutdown();
+    stopped &= P3DS_ShutdownSDL();
+    const int gameThreadsStopped = P3DS_ShutdownThreads(stopped);
     { extern void P3U_ClearPending(void); P3U_ClearPending(); }
     { extern void P3DS_UseSummary(const char *); P3DS_UseSummary("clean exit"); }
     { extern void P3DS_FpsGuardClean(void); P3DS_FpsGuardClean(); }
-    { extern void P3DS_AudioShutdown(void); P3DS_AudioShutdown(); }
-    /* 2026-11-22 (sound dead after ~15 soft resets; hardware boot 15/16 logs: even core 0 refused a new thread at boot, and 4 threads
-       were still alive at every exit): end and join the last long-lived threads too, so only main and libctru's own APT thread
-       (joined by aptExit) are left when the process exits. [3DS] threads at exit says how many remain. */
-    if (wdTh && threadGetCurrent() != wdTh) { if (R_SUCCEEDED(threadJoin(wdTh, 1000000000ULL))) threadFree(wdTh); else PSPNativeMemLog("[3DS] exit: watchdog thread did not stop in 1 s"); wdTh = NULL; }
-    { extern int P3DS_LogStopWriter(void); const int lw = P3DS_LogStopWriter(); extern void P3DS_ThreadDiag(const char *); P3DS_ThreadDiag(lw ? "exit (log writer joined)" : "exit (log writer did NOT stop)"); }
-    PSPNativeMemLog("[3DS] exit: clean");
-    P3DS_LogFlushSync(); aptUnhook(&hookCookie); gfxExit(); exit(code);
+    P3DS_AudioShutdown(gameThreadsStopped);
+    if (wdTh && threadGetCurrent() != wdTh) {
+        if (threadJoin(wdTh, 1000000000ULL) == 0) { threadFree(wdTh); wdTh = NULL; }
+        else PSPNativeMemLog("[3DS] exit: watchdog thread did not stop in 1 s");
+    }
+    extern int P3DS_LogStopWriter(void);
+    const int logStopped = P3DS_LogStopWriter();
+    aptUnhook(&hookCookie);
+    if (stopped && gameThreadsStopped) gfxExit();
+    if (logStopped) P3DS_LogFinish(code == 0);
+    exit(code);
 }
 static char lastMsg[200];
 static char missingName[96]; /* name from the last "[SS-MISSING] name" log line (a Missing() trap logs it, then abort()s) */
@@ -457,13 +481,21 @@ static void watchdog(void *p) {
     unsigned last = 0; int still = 0;
     while (!quitting) {
         svcSleepThread(500000000LL);
+        if (quitting) break;
         if (!gameStarted) continue;
         { extern volatile int P3DS_MenuOpen; if (P3DS_MenuOpen) { still = 0; continue; } }  /* run 55: settings menu pauses on purpose */
         { extern volatile int P3DS_FolBuilding; if (P3DS_FolBuilding) { still = 0; continue; } }  /* run 41: one-time followers.bin build */
         unsigned f = PSPNativeRenderFrameCount();
         if (f != last) { last = f; still = 0; continue; }
         { extern volatile int P3DS_NetBusy; if (P3DS_NetBusy && still < 179) { still++; continue; } }  /* GTS login blocks the game thread on purpose (up to ~90 s here); only a real hang gets the red box */
-        if (++still >= 20) { P3DS_CrumbDump();
+        ++still;
+        if (still == 3) {
+            const unsigned pos = crumbPos[0];
+            const Crumb *c = &crumbs[0][(pos - 1) & 63];
+            PSPNativeMemLog("[STALL] no frame since f=%u | main last %s from %p", f,
+                pos && c->tag ? c->tag : "?", pos ? c->caller : NULL);
+        }
+        if (still >= 20) { P3DS_CrumbDump();
             char b[300]; snprintf(b, sizeof b, "game stalled: no frame for 10 s at frame %u (crumbs in log.txt). main last: %s %p. msg: %s", f, crumbs[0][(crumbPos[0]-1)&63].tag ? crumbs[0][(crumbPos[0]-1)&63].tag : "(none)", crumbs[0][(crumbPos[0]-1)&63].caller, lastMsg[0] ? lastMsg : "(none)");
             PSPNativeMemLog("[WATCHDOG] %s", b);
             { extern void P3DS_BigLockInfo(char *b, int n); char lb[400]; P3DS_BigLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); { extern void P3DS_RomLockInfo(char *b, int n); P3DS_RomLockInfo(lb, sizeof lb); PSPNativeMemLog("[WATCHDOG] %s", lb); { extern void P3DS_RomCallerInfo(char *b, int n); char cb[800]; P3DS_RomCallerInfo(cb, sizeof cb); PSPNativeMemLog("[WATCHDOG] %s", cb); } } }
@@ -526,7 +558,7 @@ int main(void) {
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
     { extern void P3DS_SpeedCheck(void); P3DS_SpeedCheck(); } /* perf pass 2026-11-14: logs whether 804 MHz / L2 is really on and each core's speed (speedcheck=0 skips); built since run 81 but never called here */
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
-    PSPNativeMemLog("[3DS] booted"); { extern void P3DS_ThreadDiag(const char *); P3DS_ThreadDiag("boot"); } 
+    PSPNativeMemLog("[3DS] booted"); 
     { extern int P3DS_CfgInt(const char *, int); /* ss3ds 0070 reset_skip_intro: only right after a soft reset (marker < 30 s old) */
       FILE *f = fopen("sdmc:/3ds/soulsilver3ds/skipintro.tmp", "r");
       if (f) { long long t = 0; if (fscanf(f, "%lld", &t) != 1) t = 0; fclose(f); remove("sdmc:/3ds/soulsilver3ds/skipintro.tmp");
@@ -536,7 +568,11 @@ int main(void) {
     PSPNativeMemLog("SoulSilver 3DS " SS3DS_VERSION " (%s %s) New3DS=%d linear free=%lu app free=%lu", __DATE__, __TIME__, n3ds,
                     (unsigned long)linearSpaceFree(), (unsigned long)osGetMemRegionFree(MEMREGION_APPLICATION));
     { struct mallinfo mi = mallinfo(); extern char *fake_heap_start, *fake_heap_end; PSPNativeMemLog("[3DS] malloc heap %lu KiB (used %lu)", (unsigned long)((fake_heap_end - fake_heap_start) >> 10), (unsigned long)mi.uordblks); }
+    { extern u32 P3DS_HeapWaitMs, P3DS_HeapFreeFirst, P3DS_HeapFreeFinal; if (P3DS_HeapWaitMs) PSPNativeMemLog("[3DS] memory at start: %lu KiB free when loaded, %lu KiB after waiting %lu ms for the last run to give its memory back", (unsigned long)(P3DS_HeapFreeFirst >> 10), (unsigned long)(P3DS_HeapFreeFinal >> 10), (unsigned long)P3DS_HeapWaitMs); }
     bootMs = osGetTime(); { extern void P3DS_LogConfigHeader(const char *); P3DS_LogConfigHeader(SS3DS_VERSION); }
+    { extern u32 P3DS_HeapFreeFinal; if (P3DS_HeapFreeFinal < (64u << 20)) { /* heapwait3ds.c: the last run never gave its memory back within 30 s */
+        PSPNativeMemLog("[3DS] NOT ENOUGH MEMORY after the reset (%lu KiB, the game needs about 64 MiB): the previous run had not finished closing", (unsigned long)(P3DS_HeapFreeFinal >> 10));
+        hold("Not enough memory after the reset:\nthe last run had not finished closing.\nPress START, then open the game again\nfrom the HOME Menu. Your save is safe."); } }
     uiStep("System", 1);
     STEP("Overlays", PSPNativeOverlay_Init(), "overlay init failed");
     { FILE *rf = fopen("sdmc:/3ds/soulsilver3ds/soulsilver.nds", "rb"); char hd[16] = {0}; int ok = rf && fread(hd, 1, 12, rf) == 12; if (rf) fclose(rf); /* run 64: plain error when the ROM is missing */
