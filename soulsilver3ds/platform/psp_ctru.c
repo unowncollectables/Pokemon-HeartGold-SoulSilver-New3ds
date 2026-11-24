@@ -44,7 +44,7 @@ static const char *tnameOf(u32 tid) { const unsigned n = tnN; for (unsigned k = 
    a port thread started without P3DS_ThreadGuard; their priority is printed to tell them apart. Returns the named port threads
    other than the caller that are still running (each one is a thread slot lost until power-off), or -1 if the list is unreadable. */
 static int aliveList(char *b, int n) {
-    u32 ids[48]; s32 cnt = 0; int w = 0, named = 0; b[0] = 0;
+    u32 ids[48]; s32 cnt = 0; int w = 0, named = 0, sys = 0; char sp[96]; int spw = 0; b[0] = 0; sp[0] = 0;
     if (R_FAILED(svcGetThreadList(&cnt, ids, 48, CUR_PROCESS_HANDLE))) { snprintf(b, n, "(thread list unreadable)"); return -1; }
     u32 me = 0; svcGetThreadId(&me, CUR_THREAD_HANDLE);
     for (s32 i = 0; i < cnt && i < 48 && w >= 0 && w < n - 48; i++) {
@@ -52,8 +52,9 @@ static int aliveList(char *b, int n) {
         if (ids[i] == me) { w += snprintf(b + w, n - w, "%s%s (this thread)", w ? ", " : "", nm ? nm : "main"); continue; }
         if (nm) { named++; w += snprintf(b + w, n - w, "%s%s", w ? ", " : "", nm); continue; }
         s32 pr = -1; Handle h = 0; if (R_SUCCEEDED(svcOpenThread(&h, CUR_PROCESS_HANDLE, ids[i]))) { svcGetThreadPriority(&pr, h); svcCloseHandle(h); }
-        w += snprintf(b + w, n - w, "%ssystem thread prio 0x%lx", w ? ", " : "", (unsigned long)pr);
+        sys++; if (spw < (int)sizeof sp - 12) spw += snprintf(sp + spw, sizeof sp - spw, "%s0x%lx", spw ? " " : "", (unsigned long)pr);
     }
+    if (sys && w >= 0 && w < n - 80) snprintf(b + w, n - w, "%s%d unnamed (libctru/system: APT, GSP, DSP...) at prio %s", w ? ", " : "", sys, sp);
     return named;
 }
 void P3DS_ThreadDiag(const char *when) {
