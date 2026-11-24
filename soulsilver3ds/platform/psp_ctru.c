@@ -333,7 +333,6 @@ static void ndspSetup(void) {
     static int tries; static u64 nextTry;
     if (ndspOk == 1 || ndspOk == 2) return;
     if (ndspOk == 0) { if (tries >= 20 || svcGetSystemTick() < nextTry) return; }
-    if (!tries) P3DS_AudioDiag("before ndspInit");
     ndspInitT0 = svcGetSystemTick(); ndspInitBusy = 1;
     Result r = ndspInit(); tries++;
     ndspInitBusy = 0;
@@ -341,7 +340,7 @@ static void ndspSetup(void) {
     if (R_FAILED(r)) { ndspOk = 0; nextTry = svcGetSystemTick() + (tries <= 3 ? (u64)SYSCLOCK_ARM11 * tries / 4 : (u64)SYSCLOCK_ARM11 * 3 / 2);
         PSPNativeMemLog("[AUDIO] ndspInit failed %08lx after %u ms (try %d/20%s): copy your console's DSP firmware to sdmc:/3ds/dspfirm.cdc (run 'DSP1' homebrew once) if this never succeeds.", r, initMs, tries, tries < 20 ? ", retrying" : ", giving up, audio disabled");
         return; }
-    PSPNativeMemLog("[AUDIO] ndspInit ok on try %d in %u ms%s", tries, initMs, tries > 1 ? " (the DSP was still busy right after the reset)" : "");
+    if (tries > 1) PSPNativeMemLog("[AUDIO] ndspInit ok on try %d in %u ms (the DSP was still busy right after the reset)", tries, initMs);
     ndspFrames0 = ndspGetFrameCount(); ndspReadyTick = svcGetSystemTick(); ndspAlive = -1;
     ndspSetOutputMode(NDSP_OUTPUT_STEREO); sasRateInit(); ndspChnSetInterp(0, P3DS_SasRate == 32728 ? NDSP_INTERP_NONE : NDSP_INTERP_LINEAR); ndspChnSetRate(0, P3DS_SasRate == 32728 ? 32728.498f : (float)P3DS_SasRate); ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
     float mix[12] = {1.0f, 1.0f}; ndspChnSetMix(0, mix);
@@ -359,13 +358,13 @@ static void ndspLiveCheck(void) {
     if (ndspAlive >= 0 || P3DS_AudioAptPaused) return;
     const u64 now = svcGetSystemTick(), age = now - ndspReadyTick; const u32 f = ndspGetFrameCount();
     if (age < (u64)SYSCLOCK_ARM11 / 2) return;
-    if (f != ndspFrames0) { ndspAlive = 1; PSPNativeMemLog("[AUDIO] dsp alive: %lu DSP frames in the first %u ms after ndspInit", (unsigned long)(f - ndspFrames0), (unsigned)(age / CPU_TICKS_PER_MSEC)); return; }
+    if (f != ndspFrames0) { ndspAlive = 1; return; }
     if (age > (u64)SYSCLOCK_ARM11 * 2) { ndspAlive = 0; PSPNativeMemLog("[AUDIO] DSP NOT RUNNING: 0 DSP frames %u ms after a successful ndspInit (no sound this boot)", (unsigned)(age / CPU_TICKS_PER_MSEC)); P3DS_AudioDiag("dsp dead"); }
 }
 static int audioOutImpl(void *b);
 int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
     (void)ch; (void)l; (void)r; quitCheck();
-    if (!audioOutCalls) PSPNativeMemLog("[AUDIO] first sound grain from the sound thread: starting ndsp"); audioOutCalls++;
+    audioOutCalls++;
     return audioOutImpl(b);
 }
 static int audioOutImpl(void *b) {
@@ -402,7 +401,6 @@ void P3DS_AudioShutdown(int gameThreadsStopped) {
         return;
     }
     const int was = ndspOk;
-    P3DS_AudioDiag("exit");
     ndspOk = 2;
     if (was == 1) {
         ndspChnWaveBufClear(0);

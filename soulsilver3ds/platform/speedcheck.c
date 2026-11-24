@@ -90,5 +90,4 @@ void P3DS_SpeedCheck(void) {
        our live threads right after this check. It is only a diagnostic; the speed-up request above is unchanged.
        TimeCore() is kept for a manual test build. */
     (void)TimeCore;
-    PSPNativeMemLog("[perf] core timing skipped (thread-slot leak on soft reset); speed-up request above still applies");
 }
