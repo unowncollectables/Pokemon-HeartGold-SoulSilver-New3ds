@@ -469,6 +469,23 @@ u32 __wrap_PmAgbCartridgeGetOffsets(u32 arg)
     return 0;
 }
 
+/* Overlay 74 PmAgbCartridge_GetVersionInternal / PmAgbCartridge_GetLanguage (asm 0x022339BC / 0x022339C8):
+   read the linked spec (8 bytes: game code, kind, version, u16 language). The port had Missing() traps for both,
+   which aborted DetectInsertedGBACart the moment a pak was identified. */
+u32 __wrap_PmAgbCartridge_GetVersionInternal(void)
+{
+    const u8 *spec = (const u8 *)ssdata_overlay_74_thumb_sPmAgbCartridgeSpec;
+    return spec ? spec[5] : 0;
+}
+
+u32 __wrap_PmAgbCartridge_GetLanguage(void)
+{
+    const u8 *spec = (const u8 *)ssdata_overlay_74_thumb_sPmAgbCartridgeSpec;
+    u16 lang = 0;
+    if (spec) memcpy(&lang, spec + 6, 2);
+    return lang;
+}
+
 u32 __wrap_ov74_02235230(void)
 {
     PSPNativeMemLog("[SLOT2] ov74_02235230 present=%d", sPresent);
@@ -484,4 +501,11 @@ u32 __wrap_ov74_02235230(void)
 void __wrap_ov74_02236034(int enable)
 {
     PSPNativeMemLog("[SLOT2] ov74_02236034 enable=%d ignored (virtual CTRDG)", enable);
+}
+
+/* DetectInsertedGBACart arms the cart-removed IRQ (overlay 74 0x02236074). There is no cart IRQ here; pull-out is
+   always "not pulled out", so this is a no-op like ov74_02236034. */
+void __wrap_ov74_02236074(void)
+{
+    PSPNativeMemLog("[SLOT2] ov74_02236074 (arm cart IRQ) ignored (virtual CTRDG)");
 }
