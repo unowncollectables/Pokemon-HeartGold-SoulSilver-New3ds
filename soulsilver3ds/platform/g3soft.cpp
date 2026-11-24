@@ -1049,16 +1049,19 @@ static void gtWaitPinned(void*gt){
   /* Timed out without abandoning the whole thread: force-unpin this gt so LRU can proceed. */
   while(gtPinGet(gt))gtPinRel(gt);
   PSPNativeMemLog("[G3THR] pin wait timeout gt=%p: force-unpinned",gt);}}
-extern "C" int P3DS_InTitle;
+extern "C" int P3DS_InTitle;extern "C" int P3DS_BattleRowExtra(int,int);
 /* issue #484: one depth per draw from where its vertices sit across the screen (x 80 = yours, 176 = the foe's; smooth in
    between, so a lunge or an intro slide-in glides between depths). raw = v still in object space (J.M = clip matrix). */
 static int parSideOf(const GJob&J,const GuVertex*v,unsigned n,bool raw){
- if(!parSideE||!n)return kParLock;const float*M=J.M;const unsigned step=n>48u?n/48u:1u;float sx=0;unsigned k=0;
- for(unsigned i=0;i<n;i+=step){const GuVertex&p=v[i];float x=p.x;
-  if(raw){const float w=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];if(w<1e-3f)continue;x=128.0f+(p.x*M[0]+p.y*M[4]+p.z*M[8]+M[12])/w*128.0f;}
-  sx+=x;k++;}
- if(!k)return kParLock;float s=(sx/k-128.0f)*(1.0f/48.0f);if(s<-1)s=-1;if(s>1)s=1;
- const int e=(int)lrintf(s*parSideE);if(e>0)parFoeN++;else if(e<0)parMineN++;return kParLock+e;}
+ /* #589 FOE DEEPER ground plane: the draw takes the extra depth of the screen row its feet are on (lowest vertex), the same
+    per-row value render3ds gives the terrain background, so each Pokemon stands on the ground and sits in front of the backdrop.
+    Quads taller than 112 px (backdrop-sized effects) use their middle row instead. */
+ if(!parSideE||!n)return kParLock;const float*M=J.M;const unsigned step=n>48u?n/48u:1u;float ymax=-1e9f,ymin=1e9f,ys=0;unsigned k=0;
+ for(unsigned i=0;i<n;i+=step){const GuVertex&p=v[i];float y=p.y;
+  if(raw){const float w=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];if(w<1e-3f)continue;y=96.0f-(p.x*M[1]+p.y*M[5]+p.z*M[9]+M[13])/w*96.0f;}
+  if(y>ymax)ymax=y;if(y<ymin)ymin=y;ys+=y;k++;}
+ if(!k)return kParLock;const float yy=(ymax-ymin>112.0f)?ys/k:ymax;
+ const int e=P3DS_BattleRowExtra((int)lrintf(yy),J.sd);if(e>0)parFoeN++;else if(e<0)parMineN++;return kParLock+e;}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n,bool raw){
  extern int P3DS_InField,P3DS_InBattle;
  J.v=v;J.n=n;J.replay=(v==replayV);J.xfKey=J.replay?v:nullptr;J.sd=stereoSd;J.parL=parLock;J.mid=G3G_MidRec!=0;J.wide=G3G_Wide!=0;
@@ -1394,7 +1397,7 @@ void PSPNativeRawMode(int v){if(rawMode!=(v!=0)){G3SIM_FlushArray();rawMode=v!=0
 extern "C" int P3DS_StereoShiftNow(void);
 void P3DS_G3BeginFrame(void){CRUMB("g3-begin");g3FrameNo++;usedN=0;frameTicks=svcGetSystemTick();idleAtBegin=P3DS_VblIdleTicks;(void)P3DS_G3ProfCfg();stereoSd=P3DS_StereoShiftNow();{extern int P3DS_InBattle;extern int P3DS_BattleDepthLock(void);static unsigned bf;static int wasB;
  parLock=(stereoSd&&P3DS_BattleDepthLock())?kParLock:0;{extern int P3DS_BattleSideExtra(int);parSideE=parLock?P3DS_BattleSideExtra(stereoSd):0;}parTrack=stereoSd&&P3DS_InBattle&&!parLock;
- if(P3DS_InBattle&&stereoSd){if(!wasB){wasB=1;bf=0;PSPNativeMemLog("[BATTLE] stereo 3D: shift %d px, battle depth lock %d (stereo_2d=3: all 3D at one depth; else per-vertex z), lock offsets L 0 / R +%d px (same integer as the BG), foe deeper %s (foe R +%d px, yours R +%d px)",stereoSd,parLock,(stereoSd+1)/2,parSideE?"ON":"off",(stereoSd+1)/2+parSideE,(stereoSd+1)/2-parSideE);if(parSideE){extern void P3DS_Use(const char*);P3DS_Use("battle_foe_deeper");}}
+ if(P3DS_InBattle&&stereoSd){if(!wasB){wasB=1;bf=0;PSPNativeMemLog("[BATTLE] stereo 3D: shift %d px, battle depth lock %d (stereo_2d=3: all 3D at one depth; else per-vertex z), lock offsets L 0 / R +%d px (same integer as the BG), foe deeper ground ramp %s (a Pokemon takes the depth of the terrain row its feet are on: backdrop y40 R +%d, foe feet y96 R +%d, your feet y160 R +%d px)",stereoSd,parLock,(stereoSd+1)/2,parSideE?"ON":"off",(stereoSd+1)/2+(parSideE?P3DS_BattleRowExtra(40,stereoSd):0),(stereoSd+1)/2+(parSideE?P3DS_BattleRowExtra(96,stereoSd):0),(stereoSd+1)/2+(parSideE?P3DS_BattleRowExtra(160,stereoSd):0));if(parSideE){extern void P3DS_Use(const char*);P3DS_Use("battle_foe_deeper");}}
   if(++bf%150==1&&bf>1){PSPNativeMemLog("[BATTLE] stereo 3D f%u: %u vertices, z range %.3f..%.3f, clamped tris so far %u, lock %d, foe deeper draws foe %u / yours %u",bf,parN,parZMin,parZMax,stereoClamped,parLock,parFoeN,parMineN);parN=0;parFoeN=parMineN=0;parZMin=1;parZMax=0;}}
  else wasB=0;}
  u32 cc=*(u32*)(PSPNative_GfxRegisters+0x350);u16 cd=*(u16*)(PSPNative_GfxRegisters+0x354);
