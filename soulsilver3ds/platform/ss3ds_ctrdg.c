@@ -235,7 +235,8 @@ static int copyCart(u32 addr, void *dst, u32 size, int writing)
 
 BOOL __wrap_CTRDG_IsExisting(void) { return sPresent; }
 BOOL __wrap_CTRDG_IsAgbCartridge(void) { return sPresent; }
-BOOL __wrap_CTRDG_IsPulledOut(void) { return 0; }
+/* With the pak ejected (EMPTY picked while the migrate row is still listed) the official "cartridge removed" error shows. */
+BOOL __wrap_CTRDG_IsPulledOut(void) { return !sPresent; }
 BOOL __wrap_CTRDG_IsAgbCartridgePulledOut(void) { return 0; }
 u32  __wrap_CTRDG_GetAgbGameCode(void) { return sPresent ? sGameCode : 0; }
 u16  __wrap_CTRDG_GetAgbMakerCode(void) { return sPresent ? sMakerCode : 0; }
@@ -258,19 +259,16 @@ BOOL __wrap_CTRDG_Read32(const u32 *address, u32 *rdata)
     return 1;
 }
 
+/* CTRDG_CpuCopy*: the game only ever READS the cart through these (ROM header, signature, save layout table);
+   flash writes go through the dedicated flash wraps below. The cart's address range overlaps the 3DS app heap,
+   so a destination in that range is just RAM and must never be treated as a cart write (that broke the header
+   copies into RAM: blank trainer name and "no six Pokemon" on the migrate screen). */
 static BOOL cpuCopy(const void *src, void *dest, u32 size)
 {
     u32 s = (u32)(uintptr_t)src;
-    u32 d = (u32)(uintptr_t)dest;
-    if ((s >= GBA_ROM_BASE && s < GBA_FLASH_BASE + FLASH_SIZE) ||
-        (d >= GBA_ROM_BASE && d < GBA_FLASH_BASE + FLASH_SIZE))
-        PSPNativeMemLog("[SLOT2] CpuCopy src=%08x dst=%08x size=%u present=%d", s, d, size, sPresent);
-    /* Official CpuCopy8: if dest is on the cart, the transfer is a write. */
-    if (d >= GBA_ROM_BASE && d < GBA_FLASH_BASE + FLASH_SIZE)
-        return copyCart(d, (void *)src, size, 1);
-    if (s >= GBA_ROM_BASE && s < GBA_FLASH_BASE + FLASH_SIZE)
-        return copyCart(s, dest, size, 0);
     if (!src || !dest) return 0;
+    if (sPresent && s >= GBA_ROM_BASE && s < GBA_FLASH_BASE + FLASH_SIZE)
+        return copyCart(s, dest, size, 0);
     memcpy(dest, src, size);
     return 1;
 }
