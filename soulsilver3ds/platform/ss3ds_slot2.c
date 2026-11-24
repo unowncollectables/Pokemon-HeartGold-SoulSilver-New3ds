@@ -508,6 +508,12 @@ void P3DS_Slot2Present(unsigned *top, unsigned *bot)
     if (!P3DS_Slot2Cfg()) return;
     if (!sInContinue && !sListOpen) return;
     if (!top || !bot) return;
+    if (!sListOpen && sIgnoreHeld) {
+        /* The list is closed (insert / Empty / B): release the menu once the tap or A that closed it is up.
+           listInput() only runs while the list is open, so without this the menu stayed blocked for good. */
+        hidScanInput();
+        if (!(hidKeysHeld() & (KEY_TOUCH | KEY_A | KEY_B))) sIgnoreHeld = 0;
+    }
     if (sListOpen) {
         listInput();
         if (sListOpen) {
