@@ -981,6 +981,7 @@ void P3DS_HealthBoot(const char *version) {
         P3DS_HeapFreeFinal < (64u << 20) ? " | LOW MEMORY" : "");
     healthWrite(line);
 }
+void P3DS_HealthNote(const char *what) { char ts[32], line[300]; healthStamp(ts, sizeof ts); snprintf(line, sizeof line, "%s boot %d %s", ts, bootNumber(), what); healthWrite(line); }
 void P3DS_HealthExit(int clean, int allStopped) {
     s64 mx = -1; const s64 rl = rlThreadsNow(&mx); char a[220], ts[32], line[600]; const int left = aliveList(a, sizeof a); healthStamp(ts, sizeof ts);
     const char *snd = !audioOutCalls ? "NO SOUND (sound thread never ran)" : !ndspEverOk ? "NO SOUND (ndspInit failed)" : ndspAlive == 0 ? "NO SOUND (DSP not running)" : "ok";

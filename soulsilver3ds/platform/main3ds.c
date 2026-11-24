@@ -588,6 +588,10 @@ int main(void) {
     { struct mallinfo mi = mallinfo(); extern char *fake_heap_start, *fake_heap_end; PSPNativeMemLog("[3DS] malloc heap %lu KiB (used %lu)", (unsigned long)((fake_heap_end - fake_heap_start) >> 10), (unsigned long)mi.uordblks); }
     { extern u32 P3DS_HeapWaitMs, P3DS_HeapFreeFirst, P3DS_HeapFreeFinal; PSPNativeMemLog("[3DS] memory at start: %lu KiB free when loaded, %lu KiB after waiting %lu ms for the last run to give its memory back", (unsigned long)(P3DS_HeapFreeFirst >> 10), (unsigned long)(P3DS_HeapFreeFinal >> 10), (unsigned long)P3DS_HeapWaitMs); }
     bootMs = osGetTime(); { extern void P3DS_LogConfigHeader(const char *); P3DS_LogConfigHeader(SS3DS_VERSION); }
+    { extern u32 P3DS_HeapFreeFinal; if (P3DS_HeapFreeFinal < (64u << 20)) { /* heapwait3ds.c: the last run never gave its memory back within 30 s */
+        PSPNativeMemLog("[3DS] NOT ENOUGH MEMORY after the reset (%lu KiB, the game needs about 64 MiB): the previous run had not finished closing", (unsigned long)(P3DS_HeapFreeFinal >> 10));
+        { extern void P3DS_HealthNote(const char *); P3DS_HealthNote("refused to start: not enough memory (the previous run had not finished closing)"); }
+        hold("Not enough memory after the reset:\nthe last run had not finished closing.\nPress START, then open the game again\nfrom the HOME Menu. Your save is safe."); } }
     uiStep("System", 1);
     STEP("Overlays", PSPNativeOverlay_Init(), "overlay init failed");
     { FILE *rf = fopen("sdmc:/3ds/soulsilver3ds/soulsilver.nds", "rb"); char hd[16] = {0}; int ok = rf && fread(hd, 1, 12, rf) == 12; if (rf) fclose(rf); /* run 64: plain error when the ROM is missing */
