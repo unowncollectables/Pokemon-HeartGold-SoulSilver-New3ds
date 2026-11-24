@@ -48,6 +48,7 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - Hook 0296 (display only) reports DetectInsertedGBACart's result. The top card's last line says `MIGRATE READY`, or why the official row is missing: `BAD DUMP`, `NEED NATIONAL DEX`, `OTHER LANGUAGE`, `NO FLASH SAVE`. Log: `[SLOT2] detect offsets=.. natdex=.. lang_ok=..`.
 - Flash writes now go to the work copy one sector at a time (`r+b` + seek) instead of rewriting all 128KB per sector. Eject logs how many sectors were written.
 - Gen 3 saves are 128KB. A 64KB `.sav` is half a dump: the work copy is padded to 128KB, and after a migrate the game may have written the second half, so put the whole 128KB work copy back on a cart, never a 64KB cut.
+- FOUND 2026-11-24 (headless Azahar in WSL): the first test 3dsx had NO GBA pad. Hooks 0294-0296 rebuilt only the overlay 74 object; the 3dsx links `nitromain-perf/main_menu_native.o` (build_main_menu.py, as 0269/0270 do), so the Slot 2 calls were in the source but not in the build. New hook 0297 runs `build_main_menu.py` after them. (Earlier Azahar "pad visible" shots were from a hand-rebuilt object.)
 - Still not done on hardware: the migrate itself (6 boxed mons erased in the work copy only, 24h refusal), FireRed, toggle-off re-check.
 
 ## State (2026-11-19)
@@ -150,5 +151,5 @@ Start with the device `log.txt` on the SD card (`sdmc:/3ds/soulsilver3ds/`); the
 ## Where the real information is
 
 - Device `log.txt` `[SS-MISSING]` lines show which game screens still trap. `docs/archive/MISSING_AUDIT.md` is archaeology only.
-- Next free patch number: check `ls pspoke-patches | tail` before numbering (0296 is used for the Slot 2 detect report; 0297 is next at this writing).
+- Next free patch number: check `ls pspoke-patches | tail` before numbering (0297 is used for the Slot 2 native menu rebuild; 0298 is next at this writing).
 - Builds are made by the owner with the patch-builder tool, which pulls the latest `main`.
