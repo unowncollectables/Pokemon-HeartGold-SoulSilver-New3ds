@@ -4,6 +4,8 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
+- Soft reset joins ROM prefetch and the background save worker, checks for actual completion before releasing shared state, and preserves logs from a stall or startup failure across later clean boots. Sharp game text stops scanning tiles once the existing box-text visibility threshold is known.
+
 - Sharp game text tab-switch flicker: presenting the native layer used this frame's screen flags, but VRAM restore (`P3DS_GtSync`) still used the previous frame's, so a tab or menu change could flash missing text (glyphs already taken out, layer already off) or doubled text (the reverse). The present now uses the same bits already synced this frame. The BG map check that keeps glyphs in the DS picture when the map does not show the window (box app blank-text fix) also stays on until fewer than a quarter of the tiles still match, so a majority sitting near 50% during a tab change cannot flip sharpness every frame. Sharp text / sharp game text OFF is unchanged. No save-format change.
 
 - Mobile PC box text: sharp game text no longer takes a window's glyphs out of VRAM when the BG tile map does not show those tiles (the native layer would hide them as "map" and leave the box app blank: no box name or button labels). The same path is used by a Pokemon Center PC (`PCBox_LaunchApp` / OVY_14). Text stays in the DS picture in that case.

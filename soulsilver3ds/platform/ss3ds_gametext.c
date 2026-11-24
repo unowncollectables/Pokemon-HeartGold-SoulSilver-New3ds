@@ -348,7 +348,8 @@ void P3DS_GtSync(unsigned okBits) {
     lk();
     for (int k = 0; k < kWins; k++) { GtWin *w = &gWin[k];
         if (!w->used || !w->vValid || !w->vram || !w->buf || w->vSize != w->wT * w->hT * tileBytes(w)) continue;
-        const int want = on && !w->gave && w->und && w->nInk && screenOk(scrOf(engOf(w))) && bgDrawable(w) && gtWinMapShows(w);
+        const int drawable = on && !w->gave && w->und && w->nInk && screenOk(scrOf(engOf(w))) && bgDrawable(w);
+        const int want = drawable && gtWinMapShows(w);
         if (want == w->shown) continue;
         if (hashMem(w->vram, w->vSize) != w->vHash) { w->vValid = 0; w->shown = 0; gStale++; gGen++; continue; }   /* not ours any more */
         const int wpx = w->wT * 8, hpx = w->hT * 8, W = w->wT; const u8 *b = (const u8 *)w->buf; unsigned n = 0;
@@ -360,7 +361,7 @@ void P3DS_GtSync(unsigned okBits) {
         w->vHash = hashMem(w->vram, w->vSize); w->shown = want && n; gGen++;
         if (want) gSyncOn++; else gSyncOff++;
         static unsigned lg; if (lg < 40) { lg++; PSPNativeMemLog("[GTEXT] window bg%d %dx%d: text %s (%s)", w->bg, w->wT, w->hT, w->shown ? "taken out again, native layer draws it" : "put back into the DS picture",
-            !on ? "setting OFF" : !screenOk(scrOf(engOf(w))) ? "its screen cannot show the layer now" : !bgDrawable(w) ? "its BG is scaled, rotated or uses extended palettes" : !gtWinMapShows(w) ? "its tiles are not in the BG map (text stays in the DS picture)" : "screen can show the layer"); }
+            !on ? "setting OFF" : !screenOk(scrOf(engOf(w))) ? "its screen cannot show the layer now" : !drawable ? "its BG cannot show native text" : !want ? "its tiles are not in the BG map (text stays in the DS picture)" : "screen can show the layer"); }
     }
     objStep(on);
     ulk();
@@ -417,14 +418,24 @@ static int gtWinMapShows(const GtWin *w) {
     const int e = engOf(w), b = w->bg & 3;
     const u8 *V = P3DS_GtVram(e); const unsigned vmask = e ? 0x1FFFFu : 0x7FFFFu; if (!V || w->wT < 1 || w->hT < 1) return 0;
     GtBg g; readBg(e, b, &g); if (!g.on || !g.text) return 0;
-    int n = 0, mine = 0;
-    for (int r = 0; r < w->hT; r++) for (int c = 0; c < w->wT; c++, n++) {
-        const unsigned ent = mapEntry(V, vmask, &g, (unsigned)(w->left + c) * 8 & (g.W - 1), (unsigned)(w->top + r) * 8 & (g.H - 1));
-        if ((ent & 0x3FFu) == (((unsigned)w->base + (unsigned)(r * w->wT + c)) & 0x3FFu) && !(ent & 0xC00u)) mine++;
+    const unsigned total = (unsigned)w->wT * w->hT;
+    const unsigned divisor = w->shown ? 4 : 2;
+    const unsigned needed = (total + divisor - 1) / divisor;
+    unsigned matches = 0, misses = 0;
+    for (int r = 0; r < w->hT; r++) {
+        const unsigned y = (unsigned)(w->top + r) * 8 & (g.H - 1);
+        for (int c = 0; c < w->wT; c++) {
+            const unsigned x = (unsigned)(w->left + c) * 8 & (g.W - 1);
+            const unsigned ent = mapEntry(V, vmask, &g, x, y);
+            const unsigned tile = (w->base + r * w->wT + c) & 0x3FFu;
+            if ((ent & 0xFFFu) == tile) {
+                if (++matches == needed) return 1;
+            } else if (++misses > total - needed) {
+                return 0;
+            }
+        }
     }
-    if (n < 1) return 0;
-    if (w->shown) return mine * 4 >= n; /* stay until the map clearly no longer owns the window */
-    return mine * 2 >= n;               /* start only on a majority */
+    return 0;
 }
 /* is this BG's pixel at screen sx,sy opaque (colour index != 0)? */
 static int bgOpaque(const u8 *V, unsigned vmask, const GtBg *g, int sx, int sy) {
