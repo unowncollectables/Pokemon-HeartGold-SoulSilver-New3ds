@@ -586,6 +586,7 @@ int main(void) {
     PSPNativeMemLog("SoulSilver 3DS " SS3DS_VERSION " (%s %s) New3DS=%d linear free=%lu app free=%lu", __DATE__, __TIME__, n3ds,
                     (unsigned long)linearSpaceFree(), (unsigned long)osGetMemRegionFree(MEMREGION_APPLICATION));
     { struct mallinfo mi = mallinfo(); extern char *fake_heap_start, *fake_heap_end; PSPNativeMemLog("[3DS] malloc heap %lu KiB (used %lu)", (unsigned long)((fake_heap_end - fake_heap_start) >> 10), (unsigned long)mi.uordblks); }
+    { extern u32 P3DS_HeapWaitMs, P3DS_HeapFreeFirst, P3DS_HeapFreeFinal; PSPNativeMemLog("[3DS] memory at start: %lu KiB free when loaded, %lu KiB after waiting %lu ms for the last run to give its memory back", (unsigned long)(P3DS_HeapFreeFirst >> 10), (unsigned long)(P3DS_HeapFreeFinal >> 10), (unsigned long)P3DS_HeapWaitMs); }
     bootMs = osGetTime(); { extern void P3DS_LogConfigHeader(const char *); P3DS_LogConfigHeader(SS3DS_VERSION); }
     uiStep("System", 1);
     STEP("Overlays", PSPNativeOverlay_Init(), "overlay init failed");

@@ -970,13 +970,15 @@ static void healthWrite(const char *line) {
     FILE *f = fopen(HEALTH_PATH, "a"); if (f) { fputs(line, f); fputc('\n', f); fclose(f); }
     PSPNativeMemLog("[HEALTH] %s", line);
 }
+extern u32 P3DS_HeapWaitMs, P3DS_HeapFreeFirst, P3DS_HeapFreeFinal;
 void P3DS_HealthBoot(const char *version) {
     healthBootTick = svcGetSystemTick();
     { FILE *f = fopen(HEALTH_PATH, "rb"); long sz = 0; if (f) { if (!fseek(f, 0, SEEK_END)) sz = ftell(f); fclose(f); }
       if (sz > 64 * 1024) { remove("sdmc:/3ds/soulsilver3ds/reset-health_old.txt"); rename(HEALTH_PATH, "sdmc:/3ds/soulsilver3ds/reset-health_old.txt"); } }
     s64 mx = -1; healthRlBoot = rlThreadsNow(&mx); const int boot = bootNumber(); char ts[32], line[300]; healthStamp(ts, sizeof ts);
-    snprintf(line, sizeof line, "%s boot %d %s | %s | thread slots in use at start %lld of %lld | app memory free %u KiB",
-        ts, boot, boot == 1 ? "START (power-on)" : "START (after a reset)", version, (long long)healthRlBoot, (long long)mx, (unsigned)(osGetMemRegionFree(MEMREGION_APPLICATION) >> 10));
+    snprintf(line, sizeof line, "%s boot %d %s | %s | thread slots in use at start %lld of %lld | memory %u MiB (%u MiB when loaded, waited %u ms)%s",
+        ts, boot, boot == 1 ? "START (power-on)" : "START (after a reset)", version, (long long)healthRlBoot, (long long)mx, (unsigned)(P3DS_HeapFreeFinal >> 20), (unsigned)(P3DS_HeapFreeFirst >> 20), (unsigned)P3DS_HeapWaitMs,
+        P3DS_HeapFreeFinal < (64u << 20) ? " | LOW MEMORY" : "");
     healthWrite(line);
 }
 void P3DS_HealthExit(int clean, int allStopped) {
