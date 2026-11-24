@@ -246,6 +246,20 @@ static int attachIndex(int idx)
 }
 
 
+/* A Gen 3 save has a 0x08012025 signature in the footer of its sectors (slot A at 0xFF8, slot B at 0xE000+0xFF8).
+   A blank (all 0xFF) or missing dump has none, so the pak can never migrate anything. */
+static int savHasData(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    unsigned sig[2] = { 0, 0 };
+    int ok = 0;
+    if (!f) return 0;
+    if (fseek(f, 0xFF8, SEEK_SET) == 0 && fread(&sig[0], 4, 1, f) == 1 && sig[0] == 0x08012025u) ok = 1;
+    if (!ok && fseek(f, 0xE000 + 0xFF8, SEEK_SET) == 0 && fread(&sig[1], 4, 1, f) == 1 && sig[1] == 0x08012025u) ok = 1;
+    fclose(f);
+    return ok;
+}
+
 static void slot2Scan(void)
 {
     DIR *d;
@@ -292,6 +306,8 @@ static void slot2Scan(void)
                 snprintf(sCarts[sN].note, sizeof sCarts[sN].note, "BAD DUMP");
             else if (stat(src, &st) != 0 && stat(work, &st) != 0)
                 snprintf(sCarts[sN].note, sizeof sCarts[sN].note, "NO .SAV");
+            else if (!savHasData(stat(work, &st) == 0 ? work : src))
+                snprintf(sCarts[sN].note, sizeof sCarts[sN].note, "EMPTY SAV");
             else if (!nm)
                 snprintf(sCarts[sN].note, sizeof sCarts[sN].note, "NO MIGRATE");
         }
