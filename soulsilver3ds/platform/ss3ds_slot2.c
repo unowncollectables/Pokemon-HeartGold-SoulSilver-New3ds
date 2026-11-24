@@ -33,7 +33,7 @@ extern int P3DS_ScaleMode(void);
 #define kFill 0x00F4F4F4u
 #define kFill2 0x00D8D8D8u
 #define kSel 0x00F0D890u
-#define kRed 0x00F52828u
+#define kRed 0x003030E0u /* 0x00BBGGRR, like the backdrop below */
 
 /* Official continue-menu arrow pads are 28x28 at (222,6) and (222,158). */
 enum { kBtnX = 222, kBtnY = 40, kBtnS = 28 };
@@ -48,11 +48,13 @@ static int sN;
 static int sScanned;
 static int sNeedRedraw;
 static int sPrepared;
+static char sStatus[20]; /* top card, last line: INSERTED or why MIGRATE FROM is not shown */
 
 typedef struct {
     char file[48];
     char name[16];
     char code[8];
+    char note[12]; /* "" = can insert; else why not (shown in the list) */
 } Slot2Cart;
 static Slot2Cart sCarts[SLOT2_MAX];
 
@@ -279,7 +281,22 @@ static void slot2Scan(void)
             if (!sCarts[sN].name[0])
                 snprintf(sCarts[sN].name, sizeof sCarts[sN].name, "%s", sCarts[sN].code[0] ? sCarts[sN].code : "PAK");
         }
-        PSPNativeMemLog("[SLOT2] found %s (%s / %s)", e->d_name, sCarts[sN].code, sCarts[sN].name);
+        {
+            /* Say up front why a pak cannot migrate, instead of a silent missing row. */
+            char sav[64], src[256], work[256];
+            struct stat st;
+            savName(sav, sizeof sav, e->d_name);
+            snprintf(src, sizeof src, "%s/%s", SLOT2_DIR, sav);
+            snprintf(work, sizeof work, "%s/%s", SLOT2_WORK, sav);
+            if (P3DS_CtrdgCheckHeader(hdr) != 0)
+                snprintf(sCarts[sN].note, sizeof sCarts[sN].note, "BAD DUMP");
+            else if (stat(src, &st) != 0 && stat(work, &st) != 0)
+                snprintf(sCarts[sN].note, sizeof sCarts[sN].note, "NO .SAV");
+            else if (!nm)
+                snprintf(sCarts[sN].note, sizeof sCarts[sN].note, "NO MIGRATE");
+        }
+        PSPNativeMemLog("[SLOT2] found %s (%s / %s)%s%s", e->d_name, sCarts[sN].code, sCarts[sN].name,
+                        sCarts[sN].note[0] ? " note " : "", sCarts[sN].note);
         sN++;
     }
     closedir(d);
@@ -305,6 +322,11 @@ static void slot2Insert(int row)
         P3DS_CtrdgEject();
         writeLast("EMPTY");
         PSPNativeMemLog("[SLOT2] inserted Empty (virtual CTRDG ejected)");
+    } else if (row <= sN && sCarts[row - 1].note[0] && strcmp(sCarts[row - 1].note, "NO MIGRATE") != 0) {
+        /* BAD DUMP / NO .SAV: nothing to attach. Keep the list up so the note stays visible. */
+        PSPNativeMemLog("[SLOT2] %s not inserted: %s", sCarts[row - 1].file, sCarts[row - 1].note);
+        sIgnoreHeld = 1;
+        return;
     } else if (row <= sN) {
         if (!attachIndex(row - 1)) {
             sInserted = -1;
@@ -318,6 +340,7 @@ static void slot2Insert(int row)
                             sCarts[sInserted].name, sCarts[sInserted].code);
         }
     }
+    sStatus[0] = 0;
     sListOpen = 0;
     sIgnoreHeld = 1; /* the same tap must not confirm Continue on the menu underneath */
     sNeedRedraw = 1; /* official MIGRATE FROM row is built from DetectInsertedGBACart */
@@ -381,8 +404,11 @@ static void drawTop(unsigned int *top)
         P3DS_GameFontDraw(top, 256, 256, 192, x + (w - tw) / 2, y + 32, sCarts[sInserted].name, kFg, kSh, 1, 1);
         tw = P3DS_GameFontWidth(1, sCarts[sInserted].code);
         P3DS_GameFontDraw(top, 256, 256, 192, x + (w - tw) / 2, y + 48, sCarts[sInserted].code, kFg, kSh, 1, 1);
-        tw = P3DS_GameFontWidth(1, "INSERTED");
-        P3DS_GameFontDraw(top, 256, 256, 192, x + (w - tw) / 2, y + 64, "INSERTED", kFg, kSh, 1, 1);
+        {
+            const char *st = sStatus[0] ? sStatus : "INSERTED";
+            tw = P3DS_GameFontWidth(1, st);
+            P3DS_GameFontDraw(top, 256, 256, 192, x + (w - tw) / 2, y + 64, st, sStatus[0] && strcmp(st, "MIGRATE READY") ? kRed : kFg, kSh, 1, 1);
+        }
     } else {
         tw = P3DS_GameFontWidth(1, "EMPTY");
         P3DS_GameFontDraw(top, 256, 256, 192, x + (w - tw) / 2, y + 32, "EMPTY", kFg, kSh, 1, 1);
@@ -427,6 +453,9 @@ static void drawList(unsigned int *bot)
         if (sInserted + 1 == i) {
             int iw = P3DS_GameFontWidth34(1, "IN");
             P3DS_GameFontDraw34(bot, 256, 256, 192, x + w - 16 - iw, ry + 2, "IN", kFg, 1);
+        } else if (i > 0 && i - 1 < sN && sCarts[i - 1].note[0]) {
+            int iw = P3DS_GameFontWidth34(1, sCarts[i - 1].note);
+            P3DS_GameFontDraw34(bot, 256, 256, 192, x + w - 16 - iw, ry + 2, sCarts[i - 1].note, kRed, 1);
         }
     }
     tw = P3DS_GameFontWidth34(1, "A: INSERT   B: CLOSE");
@@ -547,4 +576,19 @@ void P3DS_Slot2UnlinkAgbSpec(void)
 {
     extern void *ssdata_overlay_74_thumb_sPmAgbCartridgeSpec;
     ssdata_overlay_74_thumb_sPmAgbCartridgeSpec = 0;
+}
+
+/* SS3DS 0296: DetectInsertedGBACart's result, so the top card can say why the
+   official MIGRATE FROM row is missing (it is only built when all three pass). */
+void P3DS_Slot2Detected(int offsets, int natdex, int langOk)
+{
+    if (!P3DS_Slot2Cfg() || !P3DS_CtrdgPresent()) { sStatus[0] = 0; return; }
+    if (offsets == 4) snprintf(sStatus, sizeof sStatus, "BAD DUMP");
+    else if (offsets == 2) snprintf(sStatus, sizeof sStatus, "NO MIGRATE");
+    else if (offsets == 3) snprintf(sStatus, sizeof sStatus, "NO FLASH SAVE");
+    else if (offsets != 0) snprintf(sStatus, sizeof sStatus, "NOT DETECTED");
+    else if (!natdex) snprintf(sStatus, sizeof sStatus, "NEED NATIONAL DEX");
+    else if (!langOk) snprintf(sStatus, sizeof sStatus, "OTHER LANGUAGE");
+    else snprintf(sStatus, sizeof sStatus, "MIGRATE READY");
+    PSPNativeMemLog("[SLOT2] detect offsets=%d natdex=%d lang_ok=%d -> %s", offsets, natdex, langOk, sStatus);
 }

@@ -40,6 +40,16 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - Draft PR https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/pull/583 (no merge).
 - Hardware (user Builder CIA, no merge): copy each GBA game's `.gba` and `.sav` into `sdmc:/3ds/soulsilver3ds/slot2/` (keep a separate backup of the originals; the port only writes `slot2-work/`). Turn GBA SLOT ON. On the continue menu pick the pak (last pick is remembered). The continue menu itself should no longer freeze after the title. With National Dex on and an English cart, the official MIGRATE FROM row is the next thing to confirm on hardware — it did not show in Azahar because GetOffsets returned 4. After a successful migrate, only the work copy should have the 6 boxed mons erased (section checksums valid); `slot2/*.sav` should be unchanged. Retry should show the official 24-hour refusal. Confirm Mystery Gift and Pokéwalker still appear and open. If Detect still fails, send `log.txt` (`[SLOT2] GetOffsets` / `native ->` lines after `native load id=74`).
 
+## Slot 2 round 3 (2026-11-24, hook 0296, PR #583)
+
+- Main (#594) merged into the branch; Makefile conflict resolved (keeps `heapwait3ds.o` and the two Slot 2 objects).
+- `GetOffsets -> 4` means IdentifyPmAgbCartridge rejected the ROM header (Nintendo logo or header checksum). The Azahar SD most likely still had the 0xC0-byte fake BPEE header from the visual round. To stop guessing, `__wrap_PmAgbCartridgeGetOffsets` is now a C port of the original (asm 0x02233938 / 0x022339D4) using the game's own tables (`sPmAgbRomCodeMappings`, `sAgbCartNintendoLogo`, `sPmAgbRomHeader`, `ov74_0223D33C`). It no longer goes through the translated copy, and each failure is logged: `[SLOT2] identify: ... -> 2/3/4` or `[SLOT2] identify BPEE ok -> 0 (kind/version/language)`.
+- The list checks each `.gba` when it scans: `BAD DUMP` (logo/checksum wrong), `NO .SAV` (no matching save), `NO MIGRATE` (not R/S/E/FR/LG; can still be inserted). BAD DUMP and NO .SAV cannot be inserted; the list stays open with the note in red.
+- Hook 0296 (display only) reports DetectInsertedGBACart's result. The top card's last line says `MIGRATE READY`, or why the official row is missing: `BAD DUMP`, `NEED NATIONAL DEX`, `OTHER LANGUAGE`, `NO FLASH SAVE`. Log: `[SLOT2] detect offsets=.. natdex=.. lang_ok=..`.
+- Flash writes now go to the work copy one sector at a time (`r+b` + seek) instead of rewriting all 128KB per sector. Eject logs how many sectors were written.
+- Gen 3 saves are 128KB. A 64KB `.sav` is half a dump: the work copy is padded to 128KB, and after a migrate the game may have written the second half, so put the whole 128KB work copy back on a cart, never a 64KB cut.
+- Still not done on hardware: the migrate itself (6 boxed mons erased in the work copy only, 24h refusal), FireRed, toggle-off re-check.
+
 ## State (2026-11-19)
 
 - Core game, battles, saves, 3D, Wide view, touch-screen Pokégear panel, GTS, Mystery Gift, Union Room trades and the Pokéwalker work on a New 3DS.
@@ -140,5 +150,5 @@ Start with the device `log.txt` on the SD card (`sdmc:/3ds/soulsilver3ds/`); the
 ## Where the real information is
 
 - Device `log.txt` `[SS-MISSING]` lines show which game screens still trap. `docs/archive/MISSING_AUDIT.md` is archaeology only.
-- Next free patch number: check `ls pspoke-patches | tail` before numbering (0295 is used for virtual Slot 2 migrate; 0296 is next at this writing).
+- Next free patch number: check `ls pspoke-patches | tail` before numbering (0296 is used for the Slot 2 detect report; 0297 is next at this writing).
 - Builds are made by the owner with the patch-builder tool, which pulls the latest `main`.

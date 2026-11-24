@@ -13,6 +13,9 @@ extern "C" {
 int P3DS_CtrdgAttach(const char *rom_path, const char *work_sav_path);
 void P3DS_CtrdgEject(void);
 int P3DS_CtrdgPresent(void); /* a pak is inserted and flash+header are ready */
+/* Official GBA header check on a 0xC0-byte header: 0 ok, 4 = Nintendo logo or
+   header checksum wrong (not a full, clean ROM dump). */
+int P3DS_CtrdgCheckHeader(const unsigned char *hdr);
 
 #ifdef __cplusplus
 }

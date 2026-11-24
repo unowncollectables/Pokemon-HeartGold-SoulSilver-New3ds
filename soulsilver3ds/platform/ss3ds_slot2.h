@@ -24,6 +24,8 @@ int P3DS_Slot2VirtualCartPresent(void);
 /* After a mid-menu insert/eject: caller should Unlink + re-Detect + rebuild. */
 int P3DS_Slot2ConsumeRedraw(void);
 void P3DS_Slot2UnlinkAgbSpec(void);
+/* hook 0296: DetectInsertedGBACart result (offsets 0 = identified). */
+void P3DS_Slot2Detected(int offsets, int natdex, int langOk);
 
 #ifdef __cplusplus
 }

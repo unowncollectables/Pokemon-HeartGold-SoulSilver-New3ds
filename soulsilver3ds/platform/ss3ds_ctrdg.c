@@ -56,7 +56,6 @@ typedef struct {
 /* Official SDK symbol; Identify must set this so sector size is known. */
 extern const CTRDGFlashType *AgbFlash;
 
-extern u32 native_PmAgbCartridgeGetOffsets(u32, u32, u32, u32);
 extern u32 native_ov74_02235230(u32, u32, u32, u32);
 extern u32 OS_DisableIrqMask(u32);
 
@@ -79,6 +78,23 @@ static long sRomSize;
 static u32 sGameCode;
 static u16 sMakerCode;
 static u8 sHeader[0xC0];
+static unsigned sWrites; /* flash sectors written since attach (log only) */
+
+/* Write only the changed bytes of the work copy (a migrate writes ~28 sectors;
+   rewriting all 128KB each time was slow and widened the window for a torn file). */
+static void persistRange(u32 off, u32 size)
+{
+    FILE *f;
+    if (!sPresent || !sWorkPath[0] || !size || off + size > FLASH_SIZE) return;
+    f = fopen(sWorkPath, "r+b");
+    if (!f) { sFlashDirty = 1; return; }
+    if (fseek(f, (long)off, SEEK_SET) != 0 || fwrite(sFlash + off, 1, size, f) != size) {
+        PSPNativeMemLog("[SLOT2] work copy write FAILED off=%05x size=%u", (unsigned)off, (unsigned)size);
+        sFlashDirty = 1;
+    }
+    fflush(f);
+    fclose(f);
+}
 
 static void persistWork(void)
 {
@@ -149,12 +165,16 @@ int P3DS_CtrdgAttach(const char *rom_path, const char *work_sav_path)
     snprintf(sWorkPath, sizeof sWorkPath, "%s", work_sav_path);
     sPresent = 1;
     sEnabled = 1;
-    PSPNativeMemLog("[SLOT2] virtual CTRDG attached (work copy only)");
+    sWrites = 0;
+    PSPNativeMemLog("[SLOT2] virtual CTRDG attached (work copy only), header %s",
+                    P3DS_CtrdgCheckHeader(sHeader) == 0 ? "ok" : "BAD (migrate row will not show)");
     return 1;
 }
 
 void P3DS_CtrdgEject(void)
 {
+    if (sPresent && sWrites)
+        PSPNativeMemLog("[SLOT2] eject: %u flash sector(s) were written to the work copy", sWrites);
     persistWork();
     if (sRom) { fclose(sRom); sRom = 0; }
     sPresent = 0;
@@ -195,8 +215,7 @@ static int copyCart(u32 addr, void *dst, u32 size, int writing)
         if (off + size > FLASH_SIZE) return 0;
         if (writing) {
             memcpy(sFlash + off, dst, size);
-            sFlashDirty = 1;
-            persistWork();
+            persistRange(off, size);
         } else {
             memcpy(dst, sFlash + off, size);
         }
@@ -303,8 +322,8 @@ static u32 writeSector(u16 sec, u8 *src, u32 verifysize)
     memcpy(sFlash + off, src, FLASH_SECTOR);
     if (verifysize && verifysize <= FLASH_SECTOR && memcmp(sFlash + off, src, verifysize) != 0)
         return 0x8000;
-    sFlashDirty = 1;
-    persistWork();
+    persistRange(off, FLASH_SECTOR);
+    sWrites++;
     return 0;
 }
 
@@ -343,8 +362,7 @@ u16 __wrap_CTRDG_EraseAgbFlashSector(u16 sec)
     if (!sPresent || sec >= FLASH_COUNT) return 0x8000;
     off = (u32)sec << FLASH_SHIFT;
     memset(sFlash + off, 0xFF, FLASH_SECTOR);
-    sFlashDirty = 1;
-    persistWork();
+    persistRange(off, FLASH_SECTOR);
     return 0;
 }
 
@@ -360,19 +378,95 @@ void __wrap_CTRDG_EraseAgbFlashSectorAsync(u16 sec, CTRDG_TASK_FUNC cb)
     }
 }
 
-/* Forward official identification / ROM signature lookup; never abort().
-   When no virtual pak is inserted, keep the port stub's no-cart results so
-   overlay-74 init cannot hang in the native signature/ROM-read path. */
+/* ---- Official cartridge identification, ported from overlay 74 ----
+   PmAgbCartridgeGetOffsets / IdentifyPmAgbCartridge (asm/overlay_74_thumb.s,
+   0x02233938 / 0x022339D4) in C, so the result does not depend on the
+   translated copy's stack buffer and every failure says why in the log.
+   Same tables and globals as the game: sPmAgbRomCodeMappings (30 x 8 bytes:
+   game code, kind, version, language), sAgbCartNintendoLogo (0x9C bytes),
+   sPmAgbCartridgeSpec, sPmAgbRomHeader, ov74_0223D33C. */
+extern u8 ssdata_overlay_74_thumb_sPmAgbRomCodeMappings[];
+extern u8 ssdata_overlay_74_thumb_sAgbCartNintendoLogo[];
+extern u8 ssdata_overlay_74_thumb_sPmAgbRomHeader[];
+extern u8 ssdata_overlay_74_thumb_ov74_0223D33C[];
+extern void *ssdata_overlay_74_thumb_sPmAgbCartridgeSpec;
+
+#define AGB_MAPPINGS 30
+
+static void put32(u8 *p, u32 v) { memcpy(p, &v, 4); }
+
+/* 0 ok, 4 logo or header checksum wrong (official codes). */
+int P3DS_CtrdgCheckHeader(const unsigned char *hdr)
+{
+    unsigned i;
+    u8 sum = 0;
+    if (memcmp(hdr + 4, ssdata_overlay_74_thumb_sAgbCartNintendoLogo, 0x9C) != 0) return 4;
+    for (i = 0xA0; i <= 0xBC; i++) sum = (u8)(sum + hdr[i]);
+    if (hdr[0xBD] != (u8)-(sum + 0x19)) return 4;
+    return 0;
+}
+
+static u32 identifyCart(void)
+{
+    u8 *map = ssdata_overlay_74_thumb_sPmAgbRomCodeMappings;
+    int i;
+    ssdata_overlay_74_thumb_sPmAgbCartridgeSpec = NULL;
+    if (!sPresent) return 1;
+    for (i = 0; i < AGB_MAPPINGS; i++) {
+        u32 code;
+        memcpy(&code, map + i * 8, 4);
+        if (code == sGameCode) {
+            ssdata_overlay_74_thumb_sPmAgbCartridgeSpec = map + i * 8;
+            break;
+        }
+    }
+    if (!ssdata_overlay_74_thumb_sPmAgbCartridgeSpec) {
+        PSPNativeMemLog("[SLOT2] identify: game code %.4s is not a migrate game -> 2", (char *)(sHeader + 0xAC));
+        return 2;
+    }
+    __wrap_CTRDG_Enable(1);
+    if (P3DS_CtrdgCheckHeader(sHeader) != 0) {
+        PSPNativeMemLog("[SLOT2] identify: Nintendo logo / header checksum wrong -> 4 (is %s a full ROM dump?)", sRomPath);
+        return 4;
+    }
+    return 0;
+}
+
 u32 __wrap_PmAgbCartridgeGetOffsets(u32 arg)
 {
-    PSPNativeMemLog("[SLOT2] GetOffsets arg=%u present=%d", arg, sPresent);
-    if (!sPresent)
-        return 1; /* official "no cartridge" result used by DetectInsertedGBACart */
-    {
-        u32 r = native_PmAgbCartridgeGetOffsets(arg, 0, 0, 0);
-        PSPNativeMemLog("[SLOT2] GetOffsets native -> %u", r);
-        return r;
+    u8 *spec;
+    u32 r;
+    put32(ssdata_overlay_74_thumb_ov74_0223D33C + 8, arg);
+    if (ssdata_overlay_74_thumb_sPmAgbCartridgeSpec) return 12; /* already linked */
+    if (!sPresent) {
+        ssdata_overlay_74_thumb_sPmAgbCartridgeSpec = NULL;
+        return 1; /* official "no cartridge" */
     }
+    r = identifyCart();
+    if (r) return r;
+    spec = (u8 *)ssdata_overlay_74_thumb_sPmAgbCartridgeSpec;
+    if (spec[4] == 0) {
+        /* Ruby / Sapphire: fixed save offsets, as the original writes them. */
+        u8 *h = ssdata_overlay_74_thumb_sPmAgbRomHeader + 0x68;
+        put32(h + 0x20, 0x890);
+        put32(h + 0x24, 0x3AC0);
+        put32(ssdata_overlay_74_thumb_ov74_0223D33C + 0x68, 0x1220);
+        put32(h + 0x30, 9);
+    } else {
+        /* FRLG / Emerald: the save layout table at ROM 0x100. */
+        readRom(0x100, ssdata_overlay_74_thumb_sPmAgbRomHeader, 0xFC);
+    }
+    if (__wrap_CTRDG_IdentifyAgbBackup(1) != 0) {
+        PSPNativeMemLog("[SLOT2] identify: no flash -> 3");
+        return 3;
+    }
+    {
+        u16 lang;
+        memcpy(&lang, spec + 6, 2);
+        PSPNativeMemLog("[SLOT2] identify %.4s ok -> 0 (kind %u version %u language %u)",
+                        (char *)(sHeader + 0xAC), spec[4], spec[5], lang);
+    }
+    return 0;
 }
 
 u32 __wrap_ov74_02235230(void)
