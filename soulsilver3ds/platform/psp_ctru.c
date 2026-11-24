@@ -39,23 +39,17 @@ void P3DS_ThreadNameNote(const char *name) {
     u32 tid = 0; if (R_FAILED(svcGetThreadId(&tid, CUR_THREAD_HANDLE))) return;
     const unsigned i = __sync_fetch_and_add(&tnN, 1) % NTN; tnames[i].tid = 0; __sync_synchronize(); tnames[i].name = name; __sync_synchronize(); tnames[i].tid = tid;
 }
-static const char *tnameOf(u32 tid) { const unsigned n = tnN; for (unsigned k = 0; k < n && k < NTN; k++) { const unsigned i = (n - 1 - k) % NTN; if (tnames[i].tid == tid) return tnames[i].name; } return NULL; }
-/* Live threads of this process, by name ("main" = the caller). Unnamed ones are libctru's own (APT/GSP/DSP service threads) or
-   a port thread started without P3DS_ThreadGuard; their priority is printed to tell them apart. Returns the named port threads
-   other than the caller that are still running (each one is a thread slot lost until power-off), or -1 if the list is unreadable. */
+/* Threads still alive at exit, from the process's own thread count (svcGetProcessInfo, used since run 1002). 2026-11-24 run 1006:
+   the #586 version listed them with svcGetThreadList + svcOpenThread on each unnamed thread at exit, and from that build on the
+   closed run never finished closing after a soft reset (its 39 MiB code+data image and 3 thread slots stayed taken, 30 s and
+   more: the next boot had half its memory and crashed or refused to start). Run 1003, without those calls, closed fine. No
+   kernel thread-object calls here any more. Baseline at exit: this thread + libctru's APT thread = 2. Returns the threads above
+   that (each one a port thread that did not stop), or -1 if the count is unreadable. */
 static int aliveList(char *b, int n) {
-    u32 ids[48]; s32 cnt = 0; int w = 0, named = 0, sys = 0; char sp[96]; int spw = 0; b[0] = 0; sp[0] = 0;
-    if (R_FAILED(svcGetThreadList(&cnt, ids, 48, CUR_PROCESS_HANDLE))) { snprintf(b, n, "(thread list unreadable)"); return -1; }
-    u32 me = 0; svcGetThreadId(&me, CUR_THREAD_HANDLE);
-    for (s32 i = 0; i < cnt && i < 48 && w >= 0 && w < n - 48; i++) {
-        const char *nm = tnameOf(ids[i]);
-        if (ids[i] == me) { w += snprintf(b + w, n - w, "%s%s (this thread)", w ? ", " : "", nm ? nm : "main"); continue; }
-        if (nm) { named++; w += snprintf(b + w, n - w, "%s%s", w ? ", " : "", nm); continue; }
-        s32 pr = -1; Handle h = 0; if (R_SUCCEEDED(svcOpenThread(&h, CUR_PROCESS_HANDLE, ids[i]))) { svcGetThreadPriority(&pr, h); svcCloseHandle(h); }
-        sys++; if (spw < (int)sizeof sp - 12) spw += snprintf(sp + spw, sizeof sp - spw, "%s0x%lx", spw ? " " : "", (unsigned long)pr);
-    }
-    if (sys && w >= 0 && w < n - 80) snprintf(b + w, n - w, "%s%d unnamed (libctru/system: APT, GSP, DSP...) at prio %s", w ? ", " : "", sys, sp);
-    return named;
+    const s64 t = procInfo(7); if (t < 0 || t > 64) { snprintf(b, n, "(thread count unreadable)"); return -1; }
+    const int extra = t > 2 ? (int)(t - 2) : 0;
+    if (extra) snprintf(b, n, "main + libctru APT + %d more", extra); else snprintf(b, n, "main + libctru APT only");
+    return extra;
 }
 void P3DS_ThreadDiag(const char *when) {
     char b[300]; resLimitStr(b, sizeof b);
