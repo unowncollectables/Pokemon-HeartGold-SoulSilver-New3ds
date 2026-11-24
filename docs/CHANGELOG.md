@@ -4,7 +4,7 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
-- Soft reset, round 3 (run 1006: the closed run still held its memory after 30 s): the only exit code that differs from run 1003 (whose resets came back with full memory) once all threads have stopped is the #586 "threads alive at exit" list, which asked the kernel for every thread of the closing process (svcGetThreadList) and opened the unnamed ones (svcOpenThread). Those calls are gone; the exit line now uses the plain thread count run 1003 already logged. No save change, no new setting.
+- Soft reset fix: the round 2 thread changes (#586) are undone. From run 1004 on, the game closed by a reset never finished closing, so the next start had half its memory and crashed (or, with #588, refused to start). Runs up to 1003 reset with full memory, so the reset code is back to exactly run 1003's. Kept: the start-up memory wait and the clear "Not enough memory" screen, which do nothing on a normal start. reset-health.txt is no longer written.
 
 - Soft reset crash, round 2 (run 1005: "same spot same thing"): the 39 MiB still missing after a reset is the whole code and data image of the run that was closing, and it did not come back within the 1.5 s the first fix waited. After a reset with under 64 MiB free the start now waits up to 30 s for it (black screen), and if it never comes back the game shows "Not enough memory after the reset" instead of crashing 2 s in (START, then open it again from HOME). The log and `reset-health.txt` show how long the wait took. Why the closing run lingers is still unknown.
 

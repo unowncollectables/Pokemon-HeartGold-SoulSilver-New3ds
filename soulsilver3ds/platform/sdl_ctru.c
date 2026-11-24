@@ -39,9 +39,7 @@ Uint64 SDL_GetTicks64(void) { return svcGetSystemTick() / (SYSCLOCK_ARM11 / 1000
 Uint32 SDL_GetTicks(void) { return (Uint32)SDL_GetTicks64(); }
 /* Timers: one thread per timer (libntr uses at most a couple). */
 typedef struct { Thread t; volatile int live; Uint32 iv; SDL_TimerCallback cb; void *p; } Tm; static Tm timers[8];
-/* 2026-11-24: sleep the interval in 10 ms slices so a soft reset never waits out a long interval (P3DS_ShutdownSDL joins in 300 ms;
-   a timer still sleeping then stayed alive at exit and its thread slot was lost until power-off). */
-static void tloop(void *a) { Tm *t = a; P3DS_ThreadGuard("sdl-timer"); while (t->live && !p3ds_quit) { for (s64 left = (s64)t->iv * 1000000; left > 0 && t->live && !p3ds_quit; left -= 10000000) svcSleepThread(left < 10000000 ? left : 10000000); if (!t->live || p3ds_quit) break; Uint32 n = t->cb(t->iv, t->p); if (!n) { t->live = 0; break; } t->iv = n; } }
+static void tloop(void *a) { Tm *t = a; P3DS_ThreadGuard("sdl-timer"); while (t->live && !p3ds_quit) { svcSleepThread((s64)t->iv * 1000000); if (!t->live) break; Uint32 n = t->cb(t->iv, t->p); if (!n) { t->live = 0; break; } t->iv = n; } }
 SDL_TimerID SDL_AddTimer(Uint32 iv, SDL_TimerCallback cb, void *p) {
     for (int i = 0; i < 8; i++) {
         Tm *timer = &timers[i];

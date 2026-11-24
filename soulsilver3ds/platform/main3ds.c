@@ -215,11 +215,6 @@ extern void P3DS_LogFinish(int clean);
 static void hardExit(int code) {
     static int once; if (once++) exit(code);
     quitting = 1; PSPNativeMemLog("[3DS] exit: stopping threads");
-    /* 2026-11-24: a reset can come from inside the game's "interrupts off" section (its OS_ResetSystem path), with this thread
-       holding the big lock. Every game thread that then asked for it waited forever: each one cost its full join timeout (the
-       reset hang) and stayed alive at exit (a thread slot lost until power-off). This thread never returns to the game, so let go. */
-    { extern int P3DS_BigLockDropForWait(void); const int held = P3DS_BigLockDropForWait();
-      if (held) PSPNativeMemLog("[3DS] exit: released the game's interrupt lock (held %d deep by this thread) so the game threads can stop", held); }
     { extern void P3DS_HuntFlush(void); extern void P3DS_HuntWait(void); extern int P3DS_HuntStopWriter(void); P3DS_HuntFlush(); P3DS_HuntWait(); if (!P3DS_HuntStopWriter()) PSPNativeMemLog("[3DS] exit: hunt writer thread did not stop in 1 s"); } /* shiny_suite: hunt time since the last write */
     /* save first: ShutdownThreads frees the game's partition blocks, which the backup close may still touch */
     extern BOOL PSPNative_CloseBackup(void);
@@ -233,8 +228,6 @@ static void hardExit(int code) {
     /* Run 934 soft-reset crash: join every platform worker BEFORE freeing game heap / GPU state.
        Order: render (engine B / c1) → g3thr → par helper → SCE/game threads → SDL timers → gfxExit. */
     extern int P3DS_RenderShutdown(void), P3DS_G3ThrShutdown(void), P3DS_ParShutdown(void);
-    /* 2026-11-24: Pokewalker IR and local wireless workers lived until the process died (a lost thread slot per reset). */
-    { extern int SS3DS_PwalkerShutdown(void); extern int P3U_Shutdown(void); SS3DS_PwalkerShutdown(); P3U_Shutdown(); }
     int stopped = P3DS_RomCacheShutdown();
     stopped &= P3DS_RenderShutdown();
     stopped &= P3DS_G3ThrShutdown();
@@ -254,7 +247,6 @@ static void hardExit(int code) {
     aptUnhook(&hookCookie);
     if (stopped && gameThreadsStopped) gfxExit();
     P3DS_ThreadDiag(logStopped ? "exit (log writer joined)" : "exit (log writer did not stop)");
-    { extern void P3DS_HealthExit(int clean, int allStopped); P3DS_HealthExit(code == 0, stopped && gameThreadsStopped && logStopped); } /* reset-health.txt */
     if (logStopped) P3DS_LogFinish(code == 0);
     exit(code);
 }
@@ -503,10 +495,6 @@ static void watchdog(void *p) {
             const Crumb *c = &crumbs[0][(pos - 1) & 63];
             PSPNativeMemLog("[STALL] no frame since f=%u | main last %s from %p", f,
                 pos && c->tag ? c->tag : "?", pos ? c->caller : NULL);
-            /* 2026-11-24: the multi-second stalls left only this one line. Say at once (first 3 stalls) who holds the game's
-               interrupt lock and which ROM calls are running, instead of only at the 10 s watchdog. */
-            static int stallInfo; if (stallInfo < 3) { stallInfo++; char lb[400]; extern void P3DS_BigLockInfo(char *b, int n), P3DS_RomCallerInfo(char *b, int n);
-                P3DS_BigLockInfo(lb, sizeof lb); PSPNativeMemLog("[STALL] %s", lb); P3DS_RomCallerInfo(lb, sizeof lb); PSPNativeMemLog("[STALL] %s", lb); if (stallInfo == 1) P3DS_CrumbDump(); }
         }
         if (still >= 20) { P3DS_CrumbDump();
             char b[300]; snprintf(b, sizeof b, "game stalled: no frame for 10 s at frame %u (crumbs in log.txt). main last: %s %p. msg: %s", f, crumbs[0][(crumbPos[0]-1)&63].tag ? crumbs[0][(crumbPos[0]-1)&63].tag : "(none)", crumbs[0][(crumbPos[0]-1)&63].caller, lastMsg[0] ? lastMsg : "(none)");
@@ -560,11 +548,7 @@ static void onBootFault(ERRF_ExceptionInfo *e, CpuRegisters *r) {
     svcExitProcess();
 }
 void P3DS_ThreadGuard(const char *name) {
-    { extern void P3DS_ThreadNameNote(const char *); P3DS_ThreadNameNote(name); } /* exit diag: which threads are still alive */
-    /* 2026-11-24: a one-shot worker started again (save backup after every save, GTS http) reuses its own slot; it used to take a
-       new one each time, and after 16 starts every later thread had no fault handler. */
-    int g = -1; for (int i = 0; i < NGUARD && i < guardN; i++) if (guardName[i] == name && strncmp(name, "psp:", 4) && strcmp(name, "main")) { g = i; break; }
-    if (g < 0) { g = __sync_fetch_and_add(&guardN, 1); if (g >= NGUARD) return; guardName[g] = name; }
+    int g = __sync_fetch_and_add(&guardN, 1); if (g >= NGUARD) return; guardName[g] = name;
     threadOnException(onBootFault, guardStk[g] + GUARD_STK, WRITE_DATA_TO_HANDLER_STACK);
 }
 static void __attribute__((constructor(101))) bcCtor(void) { mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777); remove("sdmc:/3ds/soulsilver3ds/boot.txt"); }
@@ -575,8 +559,7 @@ int main(void) {
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
     { extern void P3DS_SpeedCheck(void); P3DS_SpeedCheck(); } /* perf pass 2026-11-14: logs whether 804 MHz / L2 is really on and each core's speed (speedcheck=0 skips); built since run 81 but never called here */
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
-    PSPNativeMemLog("[3DS] booted"); { extern void P3DS_ThreadDiag(const char *); P3DS_ThreadDiag("boot"); }
-    { extern void P3DS_HealthBoot(const char *); P3DS_HealthBoot(SS3DS_VERSION); } /* reset-health.txt: one line per boot start and exit */
+    PSPNativeMemLog("[3DS] booted"); { extern void P3DS_ThreadDiag(const char *); P3DS_ThreadDiag("boot"); } 
     { extern int P3DS_CfgInt(const char *, int); /* ss3ds 0070 reset_skip_intro: only right after a soft reset (marker < 30 s old) */
       FILE *f = fopen("sdmc:/3ds/soulsilver3ds/skipintro.tmp", "r");
       if (f) { long long t = 0; if (fscanf(f, "%lld", &t) != 1) t = 0; fclose(f); remove("sdmc:/3ds/soulsilver3ds/skipintro.tmp");
@@ -590,7 +573,6 @@ int main(void) {
     bootMs = osGetTime(); { extern void P3DS_LogConfigHeader(const char *); P3DS_LogConfigHeader(SS3DS_VERSION); }
     { extern u32 P3DS_HeapFreeFinal; if (P3DS_HeapFreeFinal < (64u << 20)) { /* heapwait3ds.c: the last run never gave its memory back within 30 s */
         PSPNativeMemLog("[3DS] NOT ENOUGH MEMORY after the reset (%lu KiB, the game needs about 64 MiB): the previous run had not finished closing", (unsigned long)(P3DS_HeapFreeFinal >> 10));
-        { extern void P3DS_HealthNote(const char *); P3DS_HealthNote("refused to start: not enough memory (the previous run had not finished closing)"); }
         hold("Not enough memory after the reset:\nthe last run had not finished closing.\nPress START, then open the game again\nfrom the HOME Menu. Your save is safe."); } }
     uiStep("System", 1);
     STEP("Overlays", PSPNativeOverlay_Init(), "overlay init failed");
