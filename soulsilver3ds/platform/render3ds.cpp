@@ -2354,8 +2354,8 @@ static int PresentFrame(bool){
  if(rightPar&&!P3DS_InField){const int cfg=stereo2dCfg();
   if(cfg){const int sd=stereoShiftF(P3DS_ScaleMode());const unsigned bgm=engineA2.DispCnt&7;const int bdE=P3DS_BattleSideExtra(sd);
    for(int i=1;i<4;i++){if(!(engineA2.DispCnt&(0x100<<i)))continue;const bool text=i<2||bgm==0||(i==2&&bgm==1);if(!text)continue;
-    const int pr=engineA2.BGCnt[i]&3,d=cfg==1?(pr==3?2*sd:pr==2?(3*sd)/2:0):(pr==3?(sd+1)/2:pr==2?(sd+2)/4:0);if(d)engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-d)&0x1FF);
-    if(d&&bdE&&pr==3){bdLow[i]=(u16)((engineA2.BGXPos[i]+bdE)&0x1FF);engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-bdE)&0x1FF);bdMask|=1<<i;}}}}
+    const int pr=engineA2.BGCnt[i]&3,d=cfg==1?(pr==3?2*sd:pr==2?(3*sd)/2:0):cfg==4?(pr>=2?(sd+1)/2:0):(pr==3?(sd+1)/2:pr==2?(sd+2)/4:0);if(d)engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-d)&0x1FF);
+    if(d&&bdE&&pr>=2){bdLow[i]=(u16)((engineA2.BGXPos[i]+bdE)&0x1FF);engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-bdE)&0x1FF);bdMask|=1<<i;}}}}
  bRightSrc=rightPar?rightEye:nullptr;
  bPower=power;if(!async)P3DS_BottomReused=0;
  const bool onC1=rightPar&&!earlyB&&c1Ready();bSkipB=onC1||earlyB;
@@ -2381,10 +2381,10 @@ static int PresentFrame(bool){
    static u8 regsCopy[0x100] __attribute__((aligned(4)));if(!P3DS_InField&&stereo2dCfg()){memcpy(regsCopy,regsR,sizeof regsCopy);regsR=regsCopy;
     const int cfg=stereo2dCfg(),sd2=stereoShiftF(P3DS_ScaleMode());const unsigned dc2=reg32(0),bgm=dc2&7;
     for(int i=1;i<4;i++){if(!(dc2&(0x100u<<i)))continue;const bool text=i<2||bgm==0||(i==2&&bgm==1);if(!text)continue;
-     const int pr=reg16(8+i*2)&3,d=cfg==1?(pr==3?2*sd2:pr==2?(3*sd2)/2:0):(pr==3?(sd2+1)/2:pr==2?(sd2+2)/4:0);
-     const int bdE=(d&&pr==3)?P3DS_BattleSideExtra(sd2):0;
+     const int pr=reg16(8+i*2)&3,d=cfg==1?(pr==3?2*sd2:pr==2?(3*sd2)/2:0):cfg==4?(pr>=2?(sd2+1)/2:0):(pr==3?(sd2+1)/2:pr==2?(sd2+2)/4:0);
+     const int bdE=(d&&pr>=2)?P3DS_BattleSideExtra(sd2):0;
      if(d)*(u16*)(regsCopy+0x10+i*4)=(u16)((reg16(0x10+i*4)-d-bdE)&0x1FF);
-     if(bdE){P3DS_GcRowSplit=kBattleSplitY;P3DS_GcRowDx[i]=2*bdE;}}}
+     if(bdE){P3DS_GcRowSplit=kBattleSplitY;P3DS_GcRowDx[i]=2*bdE;{static unsigned bdLg;if(bdLg++%300==0)PSPNativeMemLog("[BATTLE] foe deeper BG layer %d prio %d: shift %d, rows above y %d +%d / below -%d",i,pr,d,kBattleSplitY,bdE,bdE);}}}}
    {static unsigned nfN;if(!P3DS_InField&&++nfN%300==1)PSPNativeMemLog("[GPUC] stereo outside the overworld: both eyes GPU-composed (%u frames so far, battle %d)",nfN,P3DS_InBattle);}
    {const u64 tq=svcGetSystemTick();P3DS_GcEye(1,0);P3DS_GcDeferOut=gDfDec;gcStR=P3DS_GcComposeA(regsR,GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,rightEye,rawR,f60L?G3G_MidTex(1):nullptr,&f60R,&f60CompUs)!=0;P3DS_GcDeferOut=0;
     P3DS_GcRowSplit=-1;memset(P3DS_GcRowDx,0,sizeof P3DS_GcRowDx);

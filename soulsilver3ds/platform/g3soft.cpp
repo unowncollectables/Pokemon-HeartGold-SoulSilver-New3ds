@@ -1057,7 +1057,8 @@ static int parSideOf(const GJob&J,const GuVertex*v,unsigned n,bool raw){
  for(unsigned i=0;i<n;i+=step){const GuVertex&p=v[i];float x=p.x;
   if(raw){const float w=p.x*M[3]+p.y*M[7]+p.z*M[11]+M[15];if(w<1e-3f)continue;x=128.0f+(p.x*M[0]+p.y*M[4]+p.z*M[8]+M[12])/w*128.0f;}
   sx+=x;k++;}
- if(!k)return kParLock;float s=(sx/k-128.0f)*(1.0f/48.0f);if(s<-1)s=-1;if(s>1)s=1;
+ if(!k)return kParLock;float s=(sx/k-128.0f)*(1.0f/24.0f);  /* saturates at x 104/152 so hit shakes and lunges of the foe/yours never change its depth (#589); only draws near the middle glide */
+ if(s<-1)s=-1;if(s>1)s=1;
  const int e=(int)lrintf(s*parSideE);if(e>0)parFoeN++;else if(e<0)parMineN++;return kParLock+e;}
 static void gtSnapshot(GJob&J,const GuVertex*v,unsigned n,bool raw){
  extern int P3DS_InField,P3DS_InBattle;
