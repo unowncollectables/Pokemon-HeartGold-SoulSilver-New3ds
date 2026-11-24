@@ -246,7 +246,6 @@ static void hardExit(int code) {
     const int logStopped = P3DS_LogStopWriter();
     aptUnhook(&hookCookie);
     if (stopped && gameThreadsStopped) gfxExit();
-    P3DS_ThreadDiag(logStopped ? "exit (log writer joined)" : "exit (log writer did not stop)");
     if (logStopped) P3DS_LogFinish(code == 0);
     exit(code);
 }
@@ -559,7 +558,7 @@ int main(void) {
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
     { extern void P3DS_SpeedCheck(void); P3DS_SpeedCheck(); } /* perf pass 2026-11-14: logs whether 804 MHz / L2 is really on and each core's speed (speedcheck=0 skips); built since run 81 but never called here */
     mkdir("sdmc:/3ds", 0777); mkdir("sdmc:/3ds/soulsilver3ds", 0777);
-    PSPNativeMemLog("[3DS] booted"); { extern void P3DS_ThreadDiag(const char *); P3DS_ThreadDiag("boot"); } 
+    PSPNativeMemLog("[3DS] booted"); 
     { extern int P3DS_CfgInt(const char *, int); /* ss3ds 0070 reset_skip_intro: only right after a soft reset (marker < 30 s old) */
       FILE *f = fopen("sdmc:/3ds/soulsilver3ds/skipintro.tmp", "r");
       if (f) { long long t = 0; if (fscanf(f, "%lld", &t) != 1) t = 0; fclose(f); remove("sdmc:/3ds/soulsilver3ds/skipintro.tmp");
@@ -569,7 +568,7 @@ int main(void) {
     PSPNativeMemLog("SoulSilver 3DS " SS3DS_VERSION " (%s %s) New3DS=%d linear free=%lu app free=%lu", __DATE__, __TIME__, n3ds,
                     (unsigned long)linearSpaceFree(), (unsigned long)osGetMemRegionFree(MEMREGION_APPLICATION));
     { struct mallinfo mi = mallinfo(); extern char *fake_heap_start, *fake_heap_end; PSPNativeMemLog("[3DS] malloc heap %lu KiB (used %lu)", (unsigned long)((fake_heap_end - fake_heap_start) >> 10), (unsigned long)mi.uordblks); }
-    { extern u32 P3DS_HeapWaitMs, P3DS_HeapFreeFirst, P3DS_HeapFreeFinal; PSPNativeMemLog("[3DS] memory at start: %lu KiB free when loaded, %lu KiB after waiting %lu ms for the last run to give its memory back", (unsigned long)(P3DS_HeapFreeFirst >> 10), (unsigned long)(P3DS_HeapFreeFinal >> 10), (unsigned long)P3DS_HeapWaitMs); }
+    { extern u32 P3DS_HeapWaitMs, P3DS_HeapFreeFirst, P3DS_HeapFreeFinal; if (P3DS_HeapWaitMs) PSPNativeMemLog("[3DS] memory at start: %lu KiB free when loaded, %lu KiB after waiting %lu ms for the last run to give its memory back", (unsigned long)(P3DS_HeapFreeFirst >> 10), (unsigned long)(P3DS_HeapFreeFinal >> 10), (unsigned long)P3DS_HeapWaitMs); }
     bootMs = osGetTime(); { extern void P3DS_LogConfigHeader(const char *); P3DS_LogConfigHeader(SS3DS_VERSION); }
     { extern u32 P3DS_HeapFreeFinal; if (P3DS_HeapFreeFinal < (64u << 20)) { /* heapwait3ds.c: the last run never gave its memory back within 30 s */
         PSPNativeMemLog("[3DS] NOT ENOUGH MEMORY after the reset (%lu KiB, the game needs about 64 MiB): the previous run had not finished closing", (unsigned long)(P3DS_HeapFreeFinal >> 10));
