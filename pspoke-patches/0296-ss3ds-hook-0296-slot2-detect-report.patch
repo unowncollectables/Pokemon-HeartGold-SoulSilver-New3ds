@@ -1,0 +1,81 @@
+From 4918c39f1a9c9d29508c07db19ac565ef5556721 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 24 Nov 2026 18:02:46 +0000
+Subject: [PATCH] ss3ds: hook 0296 GBA SLOT top card says why MIGRATE FROM is
+ missing
+
+---
+ scripts/ss3ds_hooks.d/0296_slot2.py | 48 +++++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0296_slot2.sh |  5 +++
+ 2 files changed, 53 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0296_slot2.py
+ create mode 100755 scripts/ss3ds_hooks.d/0296_slot2.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0296_slot2.py b/scripts/ss3ds_hooks.d/0296_slot2.py
+new file mode 100644
+index 0000000..a445fde
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0296_slot2.py
+@@ -0,0 +1,48 @@
++#!/usr/bin/env python3
++"""ss3ds 0296: report DetectInsertedGBACart's result to the platform so the
++GBA SLOT top card can say why MIGRATE FROM is missing (bad dump, no National
++Dex, other language). Log/display only: the official checks are unchanged.
++Idempotent ('SS3DS 0296'); applied to staged src/application/main_menu/main_menu.c."""
++import sys
++
++p = 'src/application/main_menu/main_menu.c'
++s = open(p).read()
++if 'SS3DS 0296' in s:
++    sys.exit(0)
++
++def once(old, new, label):
++    global s
++    if s.count(old) != 1:
++        sys.exit('0296_slot2: %s anchor not found exactly once in %s' % (label, p))
++    s = s.replace(old, new)
++
++once(
++    '    data->connectedAgbGame = 0;\n'
++    '\n'
++    '    if (offsets != 0) {\n'
++    '        return;\n'
++    '    }\n',
++    '    data->connectedAgbGame = 0;\n'
++    '\n'
++    '    if (offsets != 0) {\n'
++    '        { extern void P3DS_Slot2Detected(int, int, int); P3DS_Slot2Detected((int)offsets, 0, 0); } /* SS3DS 0296 */\n'
++    '        return;\n'
++    '    }\n',
++    'offsets')
++
++once(
++    '        ov74_02236074();\n'
++    '    }\n'
++    '}\n',
++    '        ov74_02236074();\n'
++    '    }\n'
++    '    { /* SS3DS 0296 */\n'
++    '        extern void P3DS_Slot2Detected(int, int, int);\n'
++    '        P3DS_Slot2Detected(0, Pokedex_GetNatDexFlag(data->pokedex) ? 1 : 0,\n'
++    '                           gGameLanguage == PmAgbCartridge_GetLanguage() ? 1 : 0);\n'
++    '    }\n'
++    '}\n',
++    'result')
++
++open(p, 'w').write(s)
++print('0296_slot2: main_menu.c patched')
+diff --git a/scripts/ss3ds_hooks.d/0296_slot2.sh b/scripts/ss3ds_hooks.d/0296_slot2.sh
+new file mode 100755
+index 0000000..c43623f
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0296_slot2.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0296: GBA SLOT top card shows why MIGRATE FROM is missing (display only).
++# Not fatal: without it the top card just says INSERTED.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0296_slot2.py" && bash rebuild_game_object.sh src/application/main_menu/main_menu.c application__main_menu__main_menu.o 74); then
++  log "ss3ds 0296 slot2 detect report NOT applied (see message above); top card shows INSERTED only"
++fi
+-- 
+2.43.0
+

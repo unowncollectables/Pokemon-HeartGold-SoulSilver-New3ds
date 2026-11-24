@@ -1,0 +1,26 @@
+From abdd620df12b954f2f9839e7fbaee1062649a286 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Tue, 24 Nov 2026 20:08:03 +0000
+Subject: [PATCH] ss3ds: hook 0297 rebuild main_menu_native.o after the Slot 2
+ hooks
+
+---
+ scripts/ss3ds_hooks.d/0297_slot2_native.sh | 6 ++++++
+ 1 file changed, 6 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0297_slot2_native.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0297_slot2_native.sh b/scripts/ss3ds_hooks.d/0297_slot2_native.sh
+new file mode 100755
+index 0000000..a169638
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0297_slot2_native.sh
+@@ -0,0 +1,6 @@
++# ss3ds 0297: rebuild the object the 3dsx actually links. Hooks 0294-0296 edit main_menu.c and rebuild the overlay 74
++# game object, but the linked menu is nitromain-perf/main_menu_native.o (built by build_main_menu.py, as hooks 0269/0270 do).
++# Without this the Slot 2 pad and migrate hooks are in the source but not in the build.
++if ! (cd "$C" && cd nitromain-perf && python3 build_main_menu.py); then
++  log "ss3ds 0297 main_menu_native.o rebuild FAILED; Slot 2 hooks are not in the build"
++fi
+-- 
+2.43.0
+
