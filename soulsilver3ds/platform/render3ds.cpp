@@ -58,7 +58,8 @@ extern __thread u32*P3DS_3DSrc;
 static GPU2D::Unit engineA2(0);static GPU2D::SoftRenderer rendererR;
 /* issue #484 FOE DEEPER (stereo_2d=4, see P3DS_BattleSideExtra): the CPU right eye switches the back BG to bdLow from line bdSplit down */
 static const int kBattleSplitY=128; /* foe platform ends ~y120, yours starts ~y140 (HGSS singles and doubles) */
-static int bdMask,bdSplit;static u16 bdLow[4];
+extern "C" int P3DS_BattleRowExtra(int y,int sd);
+static int bdMask,bdSplit,bdSd;static u16 bdG[4],bdMine[4],bdD[4];
 /* run 50 split_top=1 (config, default 1 since run 57): MONO only. Engine A (top screen) lines 96..191 are composited on the core-2
    worker (own Unit copy + own renderer) while the main thread does lines 0..95. The copy is fast-forwarded through
    lines 0..95 without drawing (windows, affine BG reference points, BG/OBJ mosaic counters: same steps melonDS's
@@ -141,7 +142,7 @@ static void engineBFrameJob(){
   if(!bSkipB&&!steal)drawEngineB();
   if(bRightSrc){/* stereo: right-eye top screen = engine A again (snapshot copy) with the right-eye 3D layer */
    P3DS_3DSrc=bRightSrc;rendererR.SetFramebuffer(rawR,rawR);
-   for(unsigned line=0;line<192;line++){hbLine(engineA2,line);if(bdMask&&line==(unsigned)bdSplit)for(int i=1;i<4;i++)if(bdMask&(1<<i))engineA2.BGXPos[i]=bdLow[i];
+   for(unsigned line=0;line<192;line++){hbLine(engineA2,line);if(bdMask)for(int i=1;i<4;i++)if(bdMask&(1<<i)){const u16 cur=engineA2.BGXPos[i];if(cur!=bdMine[i])bdG[i]=cur;/* the game wrote a new scroll (HBlank effects): keep it, add our depth */ const u16 m=(u16)((bdG[i]-bdD[i]-P3DS_BattleRowExtra((int)line,bdSd))&0x1FF);engineA2.BGXPos[i]=m;bdMine[i]=m;}
     engineA2.CheckWindows(line);rendererR.DrawSprites(line,&engineA2);rendererR.DrawScanline(line,&engineA2);}
    P3DS_3DSrc=nullptr;}
   if(!bSkipB&&steal&&claimB()){stealWorker++;drawEngineB();}
@@ -1126,7 +1127,21 @@ extern "C" int P3DS_BattleDepthLock(void){return P3DS_InBattle&&stereo2dCfg()>=3
    back BG (priority 3) rows above kBattleSplitY (sky + foe's platform) get +e and the rows below (your platform) -e, so each Pokemon stays
    on its platform. e = (sd+1)/3: 2 px at full slider (foe 5 px, yours 1 px; GENTLE+LOCK has both at 3). */
 extern "C" int P3DS_BattleSideExtra(int sd){return (P3DS_InBattle&&stereo2dCfg()==4&&sd>0)?(sd+1)/3:0;}
-extern "C" {extern int P3DS_GcRowSplit;extern int P3DS_GcRowDx[4];}
+/* #589: FOE DEEPER as a ground plane, anchored on the HGSS battle layout (pret/pokeheartgold): after the intro the game bakes both
+   platforms into BG3 (BattleSystem_SetBackground), so backdrop + platforms are ONE layer and only a per-row depth can separate them.
+   Pokepic centres (ov07_022377F4 minus the 256 px slide-in): foe (176,50) -> feet ~y90-100, yours (80,112) -> feet ~y150-160;
+   platform OBJ centres (ov12_0226E100): foe (176,88), yours (80,136).
+   Total right-eye depth at the default strength (sd 6, full slider; scales with sd), + = into the screen:
+     backdrop y<=48: 8 | foe's feet y~96: 5 | your feet y~160: 1 | bottom: 0.  HUD/text BGs and OBJ (HP boxes) stay at 0.
+   So the backdrop sits 3 px behind the foe, the foe is 4 px deeper than yours (the #484 ask), and each Pokemon takes the depth of
+   the row its feet are on (g3soft parSideOf): it stands ON its platform while the ground behind its body is deeper (#589 1-3).
+   Returned as the extra over the GENTLE+LOCK base (sd+1)/2, per 8 px row block so CPU per-line and GPU per-tile-row BGs match. */
+extern "C" int P3DS_BattleRowExtra(int y,int sd){if(!(P3DS_InBattle&&stereo2dCfg()==4&&sd>0))return 0;
+ static const float ky[5]={0,48,96,160,192},kp[5]={8,8,5,1,0};
+ float yc=(float)((y&~7)+4);if(yc<0)yc=0;if(yc>192)yc=192;int k=0;while(k<3&&yc>ky[k+1])k++;
+ const float p=kp[k]+(kp[k+1]-kp[k])*(yc-ky[k])/(ky[k+1]-ky[k]);
+ return (int)lrintf(p*(float)sd*(1.0f/6.0f))-(sd+1)/2;}
+extern "C" {extern int P3DS_GcRowSd;extern int P3DS_GcRowOn[4];}
 static int gcStNfV=-1;static int gcStNfCfg(){if(gcStNfV<0){gcStNfV=P3DS_CfgInt("gpu_compose_stereo_nf",1)!=0;PSPNativeMemLog("[GPUC] gpu_compose_stereo_nf=%d (battles/menus with the 3D slider on: GPU-compose both eyes; 0 = CPU, ~14-22 ms)",gcStNfV);}return gcStNfV;}
 static int gcStereoV=-1;static int gcStereoCfg(){if(gcStereoV<0){gcStereoV=P3DS_CfgInt("gpu_compose_stereo",1)!=0;PSPNativeMemLog("[GPUC] gpu_compose_stereo=%d",gcStereoV);}return gcStereoV;}
 /* run 76 dw_depth (Video tab, default 2 = moderate): in the Distortion World the 3D separation ramps up over ~1.5 s
@@ -2354,8 +2369,8 @@ static int PresentFrame(bool){
  if(rightPar&&!P3DS_InField){const int cfg=stereo2dCfg();
   if(cfg){const int sd=stereoShiftF(P3DS_ScaleMode());const unsigned bgm=engineA2.DispCnt&7;const int bdE=P3DS_BattleSideExtra(sd);
    for(int i=1;i<4;i++){if(!(engineA2.DispCnt&(0x100<<i)))continue;const bool text=i<2||bgm==0||(i==2&&bgm==1);if(!text)continue;
-    const int pr=engineA2.BGCnt[i]&3,d=cfg==1?(pr==3?2*sd:pr==2?(3*sd)/2:0):(pr==3?(sd+1)/2:pr==2?(sd+2)/4:0);if(d)engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-d)&0x1FF);
-    if(d&&bdE&&pr==3){bdLow[i]=(u16)((engineA2.BGXPos[i]+bdE)&0x1FF);engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-bdE)&0x1FF);bdMask|=1<<i;}}}}
+    const int pr=engineA2.BGCnt[i]&3,d=cfg==1?(pr==3?2*sd:pr==2?(3*sd)/2:0):cfg==4?(pr>=2?(sd+1)/2:0):(pr==3?(sd+1)/2:pr==2?(sd+2)/4:0);
+    if(d&&bdE&&pr>=2){bdG[i]=engineA2.BGXPos[i];bdMine[i]=0xFFFF;bdD[i]=(u16)d;bdSd=sd;bdMask|=1<<i;}else if(d)engineA2.BGXPos[i]=(u16)((engineA2.BGXPos[i]-d)&0x1FF);}}}
  bRightSrc=rightPar?rightEye:nullptr;
  bPower=power;if(!async)P3DS_BottomReused=0;
  const bool onC1=rightPar&&!earlyB&&c1Ready();bSkipB=onC1||earlyB;
@@ -2381,13 +2396,13 @@ static int PresentFrame(bool){
    static u8 regsCopy[0x100] __attribute__((aligned(4)));if(!P3DS_InField&&stereo2dCfg()){memcpy(regsCopy,regsR,sizeof regsCopy);regsR=regsCopy;
     const int cfg=stereo2dCfg(),sd2=stereoShiftF(P3DS_ScaleMode());const unsigned dc2=reg32(0),bgm=dc2&7;
     for(int i=1;i<4;i++){if(!(dc2&(0x100u<<i)))continue;const bool text=i<2||bgm==0||(i==2&&bgm==1);if(!text)continue;
-     const int pr=reg16(8+i*2)&3,d=cfg==1?(pr==3?2*sd2:pr==2?(3*sd2)/2:0):(pr==3?(sd2+1)/2:pr==2?(sd2+2)/4:0);
-     const int bdE=(d&&pr==3)?P3DS_BattleSideExtra(sd2):0;
-     if(d)*(u16*)(regsCopy+0x10+i*4)=(u16)((reg16(0x10+i*4)-d-bdE)&0x1FF);
-     if(bdE){P3DS_GcRowSplit=kBattleSplitY;P3DS_GcRowDx[i]=2*bdE;}}}
+     const int pr=reg16(8+i*2)&3,d=cfg==1?(pr==3?2*sd2:pr==2?(3*sd2)/2:0):cfg==4?(pr>=2?(sd2+1)/2:0):(pr==3?(sd2+1)/2:pr==2?(sd2+2)/4:0);
+     const int bdE=(d&&pr>=2)?P3DS_BattleSideExtra(sd2):0;
+     if(d)*(u16*)(regsCopy+0x10+i*4)=(u16)((reg16(0x10+i*4)-d)&0x1FF);
+     if(bdE){P3DS_GcRowSd=sd2;P3DS_GcRowOn[i]=1;{static unsigned bdLg;if(bdLg++%300==0)PSPNativeMemLog("[BATTLE] foe deeper ground plane, BG layer %d prio %d: total right-eye px backdrop y20 %d / foe feet y96 %d / your feet y160 %d / bottom y188 %d",i,pr,d+P3DS_BattleRowExtra(20,sd2),d+P3DS_BattleRowExtra(96,sd2),d+P3DS_BattleRowExtra(160,sd2),d+P3DS_BattleRowExtra(188,sd2));}}}}
    {static unsigned nfN;if(!P3DS_InField&&++nfN%300==1)PSPNativeMemLog("[GPUC] stereo outside the overworld: both eyes GPU-composed (%u frames so far, battle %d)",nfN,P3DS_InBattle);}
    {const u64 tq=svcGetSystemTick();P3DS_GcEye(1,0);P3DS_GcDeferOut=gDfDec;gcStR=P3DS_GcComposeA(regsR,GPU::VRAMFlat_ABG,GPU::VRAMFlat_AOBJ,(const u16*)GPU::Palette,(const u16*)(GPU::Palette+512),(const u16*)GPU::OAM,rightEye,rawR,f60L?G3G_MidTex(1):nullptr,&f60R,&f60CompUs)!=0;P3DS_GcDeferOut=0;
-    P3DS_GcRowSplit=-1;memset(P3DS_GcRowDx,0,sizeof P3DS_GcRowDx);
+    P3DS_GcRowSd=-1;memset(P3DS_GcRowOn,0,sizeof P3DS_GcRowOn);
     pfT[PF_GCR]+=svcGetSystemTick()-tq;pfU[PU_RB]+=P3DS_GcBeginUs;pfU[PU_RE]+=P3DS_GcEndUs;pfU[PU_RS]+=P3DS_GcSyncUs;pfR++;
    }if(gcStR)gcStN++;}}
  P3DS_GcFinish();  /* fps_tweaks 6 overlap: a left eye still pending is converted before anything reads display[0] */
