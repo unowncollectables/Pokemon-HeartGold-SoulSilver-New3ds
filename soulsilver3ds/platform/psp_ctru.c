@@ -17,8 +17,7 @@ static void quitCheck(void) { if (p3ds_quit && tlsId != 0) threadExit(0); }
 /* 2026-11-22 thread-limit diagnostics. Hardware boot 15/16 (sound dead after ~15 soft resets): no thread could be created at all,
    not even on core 0 (speedcheck "-1 = no thread" on every core, g3thr "could not start"), so the sound thread (sas_out.c
    native_sas_out) never started, sceAudioOutputPannedBlocking was never called and ndspInit never ran ("ndsp was unstarted").
-   Applications share one kernel resource limit (32 threads); a thread count that keeps climbing from boot to boot means threads
-   of earlier processes were never released. This prints the limit's current/max values so the log shows it directly. */
+   The application resource-limit tally and the current process's live thread count are separate measurements. */
 void PSPNativeMemLog(const char *, ...);
 static void resLimitStr(char *b, int n) {
     Handle rl = 0; static const ResourceLimitType ty[] = { RESLIMIT_THREAD, RESLIMIT_EVENT, RESLIMIT_MUTEX, RESLIMIT_SEMAPHORE, RESLIMIT_TIMER, RESLIMIT_SHAREDMEMORY, RESLIMIT_ADDRESSARBITER, RESLIMIT_CPUTIME };
@@ -83,7 +82,16 @@ int sceKernelStartThread(SceUID id, SceSize len, void *argp) {
 }
 int sceKernelExitThread(int s) { (void)s; threadExit(0); return 0; }
 int sceKernelWaitThreadEnd(SceUID id, SceUInt *to) { (void)to; PT *t = &pts[id - 1]; if (t->th) threadJoin(t->th, U64_MAX); return 0; }
-int sceKernelDeleteThread(SceUID id) { PT *t = &pts[id - 1]; if (t->th) threadFree(t->th); t->used = 0; return 0; }
+int sceKernelDeleteThread(SceUID id) {
+    PT *t = &pts[id - 1];
+    if (t->th) {
+        if (threadJoin(t->th, 0) != 0) return -1;
+        threadFree(t->th);
+        t->th = NULL;
+    }
+    t->used = 0;
+    return 0;
+}
 SceUID sceKernelGetThreadId(void) { return tlsId + 1; }
 int sceKernelSleepThread(void) { CRUMB("sleep"); initBig(); quitCheck(); LightSemaphore_Acquire(&pts[tlsId].wake, 1); quitCheck(); return 0; }
 int sceKernelWakeupThread(SceUID id) { LightSemaphore_Release(&pts[id - 1].wake, 1); return 0; }
@@ -320,7 +328,6 @@ static void ndspApplyClip(const char *why) {
    succeeded; a failed init is simply retried (libctru's dspInit force-unloads any component a dead process left behind). */
 static volatile u64 ndspInitT0; static volatile int ndspInitBusy; static u32 ndspFrames0; static u64 ndspReadyTick; static int ndspAlive = -1;
 static volatile int audioOutCalls; /* sceAudioOutputPannedBlocking calls (the sound thread is alive and feeding grains) */
-static volatile int audioInNdsp; /* 1 while the audio thread is inside sceAudioOutputPannedBlocking's ndsp calls (P3DS_AudioShutdown waits for 0) */
 void P3DS_AudioDiag(const char *when);
 static void ndspSetup(void) {
     static int tries; static u64 nextTry;
@@ -359,7 +366,7 @@ static int audioOutImpl(void *b);
 int sceAudioOutputPannedBlocking(int ch, int l, int r, void *b) {
     (void)ch; (void)l; (void)r; quitCheck();
     if (!audioOutCalls) PSPNativeMemLog("[AUDIO] first sound grain from the sound thread: starting ndsp"); audioOutCalls++;
-    audioInNdsp = 1; int rc = audioOutImpl(b); audioInNdsp = 0; return rc;
+    return audioOutImpl(b);
 }
 static int audioOutImpl(void *b) {
     ndspSetup();
@@ -376,7 +383,7 @@ static int audioOutImpl(void *b) {
        that stays queued for 1 s while no HOME/sleep is in progress clears the channel queue and restarts output
        (logged as a "dsp stall"; one short gap instead of permanent silence). */
     { u64 t0 = svcGetSystemTick(); u32 lastPos = ndspChnGetSamplePos(0); u64 tPos = t0;
-      while (w->status != NDSP_WBUF_DONE && w->status != NDSP_WBUF_FREE) { if (p3ds_quit) { audioInNdsp = 0; quitCheck(); return 0; } svcSleepThread(1000000);
+      while (w->status != NDSP_WBUF_DONE && w->status != NDSP_WBUF_FREE) { if (p3ds_quit) { quitCheck(); return 0; } svcSleepThread(1000000);
         u64 now = svcGetSystemTick(); u32 pos = ndspChnGetSamplePos(0); if (pos != lastPos || P3DS_AudioAptPaused) { lastPos = pos; tPos = now; }
         if (now - tPos > (u64)SYSCLOCK_ARM11) { P3DS_AudioDspStalls++;
             static u32 stallFrames; const u32 fc = ndspGetFrameCount();
@@ -387,30 +394,28 @@ static int audioOutImpl(void *b) {
     memcpy((void *)w->data_vaddr, b, sasGrain * 4); DSP_FlushDataCache(w->data_vaddr, sasGrain * 4);
     ndspChnWaveBufAdd(0, w); wbNext = (wbNext + 1) % lead; return 0;
 }
-/* Called by hardExit (soft reset or quit) after the workers are stopped. Owns the only ndspExit on the exit path (#576
-   released the DSP; run 996 still lost audio after ~10-15 soft resets until a console reboot). Stop the audio thread from
-   touching ndsp, wait (up to 500 ms) until it has really left its ndsp calls, free the linear wave buffers, ndspExit exactly once
-   (only when our ndspInit succeeded: an unbalanced ndspExit underflows libctru's refcount), then pause so the kernel can drop the
-   DSP handle before the relaunch. */
-void P3DS_AudioShutdown(void) {
-    static int once; if (once++) return;
+/* Release DSP state only after the game workers have left their audio calls.
+   A failed ndspInit balances its own refcount in libctru. */
+void P3DS_AudioShutdown(int gameThreadsStopped) {
+    if (!gameThreadsStopped || ndspInitBusy) {
+        PSPNativeMemLog("[AUDIO] shutdown: game worker did not stop; keeping DSP state for process exit");
+        return;
+    }
     const int was = ndspOk;
-    ndspOk = 2; /* sceAudioOutputPannedBlocking now sleeps; ndspSetup will not start again this process */
-    { u64 t0 = svcGetSystemTick(); svcSleepThread(5000000LL);
-      while (audioInNdsp && svcGetSystemTick() - t0 < (u64)SYSCLOCK_ARM11 / 2) svcSleepThread(2000000LL);
-      if (audioInNdsp) PSPNativeMemLog("[AUDIO] shutdown: audio thread still inside ndsp after 500 ms"); }
     P3DS_AudioDiag("exit");
-    if (ndspInitBusy) PSPNativeMemLog("[AUDIO] shutdown: ndspInit never returned (DSP not answering); not calling ndspExit");
-    if (was == 1) { ndspChnWaveBufClear(0); ndspChnReset(0); ndspChnReset(1); }
+    ndspOk = 2;
+    if (was == 1) {
+        ndspChnWaveBufClear(0);
+        ndspChnReset(0);
+        ndspChnReset(1);
+        ndspExit();
+    }
     if (wbData) { linearFree(wbData); wbData = NULL; }
     memset(wb, 0, sizeof wb); wbNext = 0;
-    if (was == 1 && !ndspInitBusy) {
-        ndspExit();
+    if (was == 1) {
         PSPNativeMemLog("[AUDIO] shutdown: DSP released before exit (buffers freed)");
-    } else {
-        PSPNativeMemLog("[AUDIO] shutdown: ndsp was %s; buffers cleared", was == 2 ? "already released" : was == 0 ? "not ready" : "unstarted");
+        svcSleepThread(100000000LL); /* allow DSP release before APT chainload */
     }
-    svcSleepThread(100000000LL); /* 100 ms: give the kernel time to reclaim the DSP before apt chainload */
 }
 /* 2026-11-22 audio diagnostics (one line per call, cheap): which boot this is since the console was powered on (counted in
    resetchain.tmp: the console's power-on time = now - uptime, so a power cycle starts again at 1), uptime, memory left in each
@@ -808,7 +813,7 @@ int sceIoRead(SceUID fd, void *b, SceSize n) { return read(fd, b, n); }
 int sceIoClose(SceUID fd) { return close(fd); }
 
 /* Clean shutdown: wake every sleeper, let each worker exit at its next blocking point, join with timeout. */
-void P3DS_ShutdownThreads(void) {
+int P3DS_ShutdownThreads(int workersStopped) {
     p3ds_quit = 1;
     for (int r = 0; r < 3; r++) {
         for (int i = 1; i <= MAXT; i++) if (pts[i].used && pts[i].started) LightSemaphore_Release(&pts[i].wake, 1);
@@ -819,12 +824,28 @@ void P3DS_ShutdownThreads(void) {
        reached a quit point within the join timeout kept running while the loop below freed the game's partition blocks. The
        allocator then overwrote a callback pointer inside a freed block and the thread jumped through it. The process is about to
        exit and the kernel reclaims everything, so the blocks (and ndsp) are only released when EVERY thread has really ended. */
-    int alive = 0;
-    for (int i = 1; i <= MAXT; i++) if (pts[i].th) { if (R_SUCCEEDED(threadJoin(pts[i].th, 300000000ULL))) threadFree(pts[i].th); else { alive++; PSPNativeMemLog("[3DS] exit: thread slot %d (%s) did not stop in 300 ms", i, pts[i].name); } pts[i].th = NULL; }
-    if (alarmTh) { if (R_SUCCEEDED(threadJoin(alarmTh, 300000000ULL))) threadFree(alarmTh); else { alive++; PSPNativeMemLog("[3DS] exit: alarm thread did not stop in 300 ms"); } alarmTh = NULL; }
-    if (alive) { PSPNativeMemLog("[3DS] exit: %d thread(s) still running; keeping game memory for the process exit (DSP via P3DS_AudioShutdown)", alive); return; }
-    for (int i = 0; i < P3DS_BLOCKS; i++) if (blocks[i]) { free(blocks[i]); blocks[i] = NULL; }
-    /* ndspExit is owned by P3DS_AudioShutdown (hardExit calls it after this): do not exit twice. */
+    int stopped = 1;
+    for (int i = 1; i <= MAXT; i++) {
+        Thread thread = pts[i].th;
+        if (!thread) continue;
+        /* The kernel timeout result is positive, so only zero confirms a join. */
+        Result rc = thread == threadGetCurrent() ? -1 : threadJoin(thread, 300000000ULL);
+        if (rc != 0) {
+            stopped = 0;
+            PSPNativeMemLog("[3DS] exit: thread slot %d (%s) did not stop (join %08lx)", i, pts[i].name, (unsigned long)rc);
+            continue;
+        }
+        threadFree(thread);
+        pts[i].th = NULL;
+    }
+    if (alarmTh) {
+        if (threadJoin(alarmTh, 300000000ULL) == 0) { threadFree(alarmTh); alarmTh = NULL; }
+        else { stopped = 0; PSPNativeMemLog("[3DS] exit: alarm thread did not stop in 300 ms"); }
+    }
+    if (stopped && workersStopped) {
+        for (int i = 0; i < P3DS_BLOCKS; i++) if (blocks[i]) { free(blocks[i]); blocks[i] = NULL; }
+    }
+    return stopped;
 }
 volatile int P3DS_FoeInfo[40]; /* hook 0031 trainer foe snapshot (battle -> foe info screen), read-only */
 volatile int P3DS_DmgInfo[32]; /* hook 0208 damage/speed check snapshot (battle -> foe info screen), read-only */

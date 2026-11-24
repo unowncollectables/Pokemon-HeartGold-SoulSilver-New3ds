@@ -98,7 +98,7 @@ void P3DS_HuntWait(void) { for (int i = 0; i < 300 && (hpendN >= 0 || hwriting);
 /* hardExit, after P3DS_HuntWait: end the writer thread and join it (up to 1 s). Any later save() writes synchronously. */
 int P3DS_HuntStopWriter(void) {
     Thread t = hThr; if (!t) return 1;
-    hStop = 1; LightEvent_Signal(&hpEv); int ok = R_SUCCEEDED(threadJoin(t, 1000000000ULL)); if (ok) threadFree(t); hThr = NULL; return ok;
+    hStop = 1; LightEvent_Signal(&hpEv); int ok = threadJoin(t, 1000000000ULL) == 0; if (ok) threadFree(t); hThr = NULL; return ok;
 }
 #else
 void P3DS_HuntWait(void) {}
