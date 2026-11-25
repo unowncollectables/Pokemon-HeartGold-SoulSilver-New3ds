@@ -180,6 +180,7 @@ static UseEnt useTab[] = {
     { "seasonal_particles", "[WEATHER] seasonal particles ", 0 },
     { "visible_wild_spawns", "[WILD] spawn ", 0 }, { "visible_wild_battles", "[WILD] contact ", 0 },
     { "fps60_pipe", "[FPS60] pipe ", 0 }, { "fps60_hold", "[FPS60] hold ", 0 }, { "fps60_strips", "[FPS60] fps60_strips=", 0 }, { "fps60_vram", "[FPS60] vram reserve ", 0 }, { "fps60_area", "[FPS60] area ", 0 },
+    { "b2_sprites", 0, 0 }, /* ss3ds 0298: battles drawn with Black 2 sprites (b2sprites.c) */
     { "g3_xfcache", "[G3XF] ", 0 }, { "g3_prof", "[G3PROF] 60f ", 0 }, { "g3_wake", "[G3THR] g3_wake=", 0 }, { "g3_thr_check", "[G3THR] snap mismatch", 0 }, { "g3_fastxform", "[G3XF] g3_fastxform=", 0 }, { "g3_thr_texfence", "[G3THR] texfence:", 0 }, { "g3_thr_texsafe", "[G3THR] tex flash", 0 }, { "g3_stereo_share", "[G3STER] ", 0 }, { "present_pace", "[PACE] ", 0 }, { "g3_front_ov", "[FRONT] ", 0 }, { "g3_stereo_gpu", "[G3STER] g3_stereo_gpu=", 0 }, { "g3_front_bg", "[FRONT] g3_front_bg=", 0 },
 };
 #define NUSE ((int)(sizeof useTab / sizeof useTab[0]))
@@ -220,6 +221,7 @@ static const CfgEnt cfgTab[] = {
     { "stereo_2d", 3, 0 }, { "stereo_blobdiag", 1, 0 }, { "stereo_edgefix", 1, 0 }, { "stereo_fake", 0, 0 }, { "stereo_strength", 0, 0 },
     { "summary_ivs", 1, 0 }, { "tod_tint", 0, 0 }, { "ui_frame", 0, 0 }, { "ui_gamefont", 1, 0 }, { "vram_frame_gen", 1, 0 }, { "map_zoom", 0, 0 }, { "roamer_sprites", 1, 0 },
     { "wide_battle", 1, 0 }, { "wide_boxes", 1, 0 }, { "wide_edgefill", 1, 0 }, { "wide_fill", 0, 0 }, { "wide_layouts", 1, 0 }, { "wide_menu_screens", 1, 0 },
+    { "b2_sprites", 0, 0 },
     { "wide_menus", 1, 0 }, { "wide_weather", 1, 0 }, { "ambient_weather", 0, 0 }, { "seasonal_trees", 1, 0 }, { "zl_run", 1, 0 }, { "auto_run", 0, 0 }, { "sprite_depth", 1, 0 }, { "bottom_bump", 1, 0 }, { "pm_shortcuts", 1, 0 }, { "panel_party", 1, 0 }, { "tracker", 1, 0 }, { "pg_flytap", 1, 0 }, { "pg_find", 1, 0 }, { "breed_tab", 1, 0 }, { "mobile_pc", 0, 0 }, { "mobile_pc_dev", 0, 0 }, { "pokewalker", 1, 0 }, { "gts_picker", 1, 0 }, { "gts_server", 0, 0 }, { "wifi_dns", NODEF, 0 }, { "wireless", 2, 0 }, { "wild_vis", 1, 0 }, { "wild_vis_count", 6, 0 }, { "wild_vis_shiny", 1, 0 }, { "wild_vis_replace", 0, 0 }, { "wild_vis_cries", 1, 0 }, { "wild_vis_alive", 2, 0 }, { "event_any_mon", 1, 0 }, { "contest_helper", 1, 0 }, { "steady_music", 1, 0 }, { "audio_even", 1, 0 }, { "audio_even_level", NODEF, 0 }, { "zr_item", 0, 0 }, { "log_level", 1, 0 }, { "pg_kanto", 0, 0 }, { "fast_tabs", 1, 0 },
     /* read with their own parsers: listed so they are not flagged, no single default shown */
     { "async2d", NODEF, 0 }, { "audio_gain", NODEF, 0 }, { "audio_interp", NODEF, 0 }, { "audio_lead", NODEF, 0 }, { "audio_limiter", NODEF, 0 },

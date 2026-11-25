@@ -1,0 +1,28 @@
+diff --git a/source/gif_pipeline.c b/source/gif_pipeline.c
+index a7493f0..11c2175 100644
+--- a/source/gif_pipeline.c
++++ b/source/gif_pipeline.c
+@@ -1,3 +1,4 @@
++#include <stdlib.h>
+ /**
+  * @file gif_pipeline.c
+  * @brief Implementations of animation GIF processing pipelines.
+@@ -443,6 +444,18 @@ int GifPipeline_ExportIdle(
+         }
+     }
+ 
++    if (getenv("ANIMA_RAW_DUMP")) {
++        char rp[GIF_PATH_BUFFER_SIZE];
++        FILE *rf;
++        snprintf(rp, sizeof(rp), "%s/%s_%s_%s.raw", out_dir, side_name, animation_name, palette_name);
++        rf = fopen(rp, "wb");
++        if (rf) {
++            int hdr[8] = { width, height, min_x, min_y, margin, frame_count, options->delay_cs, 0 };
++            fwrite(hdr, sizeof(int), 8, rf);
++            fwrite(frames, 1, (size_t)frame_count * (size_t)width * (size_t)height, rf);
++            fclose(rf);
++        }
++    }
+     cropped_frames = NULL;
+     cropped_width = 0;
+     cropped_height = 0;

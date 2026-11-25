@@ -1434,18 +1434,22 @@ static const MItem mItems[]={
  {"PREVIEW MOBILE PC","mobile_pc_preview",2,{"A: PREVIEW","WILL PLAY IN THE OVERWORLD"}},
  /* 2026-11-22 visual Slot 2 prototype: GBA SLOT button on the continue menu. Default OFF. Never writes a save. */
  {"GBA SLOT","slot2",2,{"OFF","ON"}},
+ /* 2026-11-25 Black 2 battle sprites (hook 0298, b2sprites.c): animated Black 2 / White 2 sprites for every battler, from
+    sdmc b2sprites.bin made by the builder from the user's own ROM. Default OFF; read at the start of each battle. */
+ {"B2 SPRITES","b2_sprites",2,{"OFF","ON"}},
 };
 #define MENU_N ((int)(sizeof mItems/sizeof mItems[0]))
+extern "C" {int P3DS_B2Cfg(void);void P3DS_B2SetCfg(int);}
 extern "C" {void P3DS_PresentDeferSettle(void);int G3G_GpuTimeCfg(void);void G3G_SetGpuTime(int);void G3G_AbComposeWait(unsigned);}
 extern "C" {int P3DS_GpuBlendCfg(void);void P3DS_SetGpuBlendCfg(int);}
-enum{kGtsPickerItem=MENU_N-27,kWideLayItem=MENU_N-26,kG3ThrItem=MENU_N-25,kFps60Item=MENU_N-24,kFps60PipeItem=MENU_N-23,kFps60HoldItem=MENU_N-22,kFps60StripsItem=MENU_N-21,kFps60VramItem=MENU_N-20,kFps60AreaItem=MENU_N-19,kG3XfItem=MENU_N-18,kG3ProfItem=MENU_N-17,kG3WakeItem=MENU_N-16,kG3FastXfItem=MENU_N-15,kG3TexFenceItem=MENU_N-14,kG3TexSafeItem=MENU_N-13,kG3StereoShareItem=MENU_N-12,kPresentPaceItem=MENU_N-11,kG3FrontOvItem=MENU_N-10,kG3StereoGpuItem=MENU_N-9,kG3FrontBgItem=MENU_N-8,kGpuTimeItem=MENU_N-7,kFastTabsItem=MENU_N-6,kSharpGameItem=MENU_N-5,kMobilePcItem=MENU_N-4,kMobilePcDevItem=MENU_N-3,kMobilePcPreviewItem=MENU_N-2,kSlot2Item=MENU_N-1};
+enum{kGtsPickerItem=MENU_N-28,kWideLayItem=MENU_N-27,kG3ThrItem=MENU_N-26,kFps60Item=MENU_N-25,kFps60PipeItem=MENU_N-24,kFps60HoldItem=MENU_N-23,kFps60StripsItem=MENU_N-22,kFps60VramItem=MENU_N-21,kFps60AreaItem=MENU_N-20,kG3XfItem=MENU_N-19,kG3ProfItem=MENU_N-18,kG3WakeItem=MENU_N-17,kG3FastXfItem=MENU_N-16,kG3TexFenceItem=MENU_N-15,kG3TexSafeItem=MENU_N-14,kG3StereoShareItem=MENU_N-13,kPresentPaceItem=MENU_N-12,kG3FrontOvItem=MENU_N-11,kG3StereoGpuItem=MENU_N-10,kG3FrontBgItem=MENU_N-9,kGpuTimeItem=MENU_N-8,kFastTabsItem=MENU_N-7,kSharpGameItem=MENU_N-6,kMobilePcItem=MENU_N-5,kMobilePcDevItem=MENU_N-4,kMobilePcPreviewItem=MENU_N-3,kSlot2Item=MENU_N-2,kB2Item=MENU_N-1};
 extern "C" {int P3DS_G3ThreadCfg(void);void P3DS_SetG3Thread(int);int P3DS_G3XfCacheCfg(void);void P3DS_SetG3XfCache(int);int P3DS_G3ProfCfg(void);void P3DS_SetG3Prof(int);int P3DS_G3WakeCfg(void);void P3DS_SetG3Wake(int);int P3DS_G3ThrCheckCfg(void);void P3DS_SetG3ThrCheck(int);int P3DS_G3FastXformCfg(void);void P3DS_SetG3FastXform(int);int P3DS_G3TexFenceCfg(void);void P3DS_SetG3TexFence(int);int P3DS_G3TexSafeCfg(void);void P3DS_SetG3TexSafe(int);int P3DS_G3StereoShareCfg(void);void P3DS_SetG3StereoShare(int);int P3DS_PresentPaceCfg(void);void P3DS_SetPresentPace(int);int P3DS_G3FrontOvCfg(void);void P3DS_SetG3FrontOv(int);int P3DS_G3StereoGpuCfg(void);void P3DS_SetG3StereoGpu(int);int P3DS_G3FrontBgCfg(void);void P3DS_SetG3FrontBg(int);}
 /* fps60 (g3gpu.c, gpucomp.c, gpuscale.c): in-between pictures for the overworld */
 extern "C"{int P3DS_Fps60Cfg(void);void P3DS_SetFps60(int);int P3DS_Fps60Active(void);void P3DS_Fps60Tick(unsigned,unsigned,unsigned,int,int,unsigned,unsigned);int G3G_MidReady(void);void*G3G_MidTex(int);int G3G_MidStrip(int,u32*);void G3G_SetFps60Pipe(int);void G3G_SetFps60Hold(int);void G3G_SetFps60Strips(int);void P3DS_SetFps60Vram(int);void P3DS_SetFps60Area(int);void P3DS_Fps60Area(unsigned,int);int G3G_FpsHold(void);
  u32*P3DS_GpuMidStripBuffer(int);int P3DS_GpuPresentMid(void*,void*,const u32*,const u32*,int,int);}
 static int gWlDone; /* this frame's top picture and strips came from the wide layout compose (fades already in them) */
 extern "C" {extern const char*P3DS_WideScreenName;extern int P3DS_WideShow[2];int P3DS_WideLayoutsOn(void);void P3DS_SetWideLayouts(int);int P3DS_WideGetParts(int,short*);}
-enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-49&&kPgFindItem==MENU_N-48&&kBreedItem==MENU_N-47&&kBatchCullItem==MENU_N-46&&kGcDirectItem==MENU_N-45&&kWildAliveItem==MENU_N-44&&kEventAnyItem==MENU_N-43&&kSteadyItem==MENU_N-42&&kEvenItem==MENU_N-41&&kFlyTapItem==MENU_N-40&&kContestItem==MENU_N-39,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
+enum{kGpuBlendItem=72};enum{kSharpItem=117};enum{kAchToastItem=118};enum{kMenuGreyItem=119};enum{kPanelPartyItem=120};enum{kPanelLiveItem=121};enum{kBreedItem=125};enum{kEventAnyItem=129};enum{kContestItem=133};enum{kSteadyItem=130};enum{kEvenItem=131};enum{kBatchCullItem=126};enum{kGcDirectItem=127};enum{kMenuBtnItem=73,kWideBattleItem=74,kWDepthItem=75,kBottomMenuItem=76,kWCpuItem=77,kSelectResetItem=78,kSkipIntroItem=79,kWideScreensItem=80,kSmoothItem=81,kBottomMapItem=82,kBottomLayoutItem=83,kPgKantoItem=84,kVolumeItem=85,kLimiterItem=86,kStallFadeItem=87,kGcNfItem=88,kDirectItem=89,kBottomHdItem=90,kWideDexItem=91,kWidePcItem=92,kWirelessItem=93,kFpsTweakItem=94,kWideBoxItem=95,kDcSkipItem=96,kWildVisItem=97,kWildLastItem=101,kFogHoleItem=102,kHuntItem=103,kRateItem=104,kBattItem=105,kRibbonItem=106,kCelebItem=107,kUnionGuardItem=108,kSaveExportItem=109,kTrackerItem=110,kHintItem=111,kPgExtrasItem=112,kPmItem=113,kAutoRunItem=114,kSprDepthItem=115,kBumpItem=116};enum{kHuntStatsItem=123};enum{kWildAliveItem=128};enum{kPgFindItem=124};enum{kFlyTapItem=132};enum{kMapZoomItem=140};enum{kRoamSprItem=141};static_assert(kBumpItem==116&&kSharpItem==117&&kAchToastItem==118&&kMenuGreyItem==119&&kPanelPartyItem==120&&kPanelLiveItem==121&&kMapZoomItem==140&&kRoamSprItem==141&&kHuntStatsItem==MENU_N-50&&kPgFindItem==MENU_N-49&&kBreedItem==MENU_N-48&&kBatchCullItem==MENU_N-47&&kGcDirectItem==MENU_N-46&&kWildAliveItem==MENU_N-45&&kEventAnyItem==MENU_N-44&&kSteadyItem==MENU_N-43&&kEvenItem==MENU_N-42&&kFlyTapItem==MENU_N-41&&kContestItem==MENU_N-40,"rows moved");static int pmV=-1;extern "C" int P3DS_PmShortcutsCfg(void){if(pmV<0){pmV=P3DS_CfgInt("pm_shortcuts",0)!=0;PSPNativeMemLog("[PMENU] pm_shortcuts=%d",pmV);}return pmV;}extern "C" {int P3DS_FogHoleCfg(void);void P3DS_SetFogHole(int);}
 extern "C" {extern volatile int P3DS_AudioGainV,P3DS_AudioLimiterV,P3DS_AudioStallFadeV;void P3DS_SetAudioGain(int);void P3DS_SetAudioLimiter(int);void P3DS_SetAudioStallFade(int);}
 static const int kVolGain[7]={4,5,6,7,8,9,10};
 static int volIdx(){int g=P3DS_AudioGainV;if(g<0)g=P3DS_CfgInt("audio_gain",7);int b=0;for(int k=1;k<7;k++)if(abs(kVolGain[k]-g)<abs(kVolGain[b]-g))b=k;return b;}
@@ -1538,6 +1542,7 @@ extern "C" int P3DS_AmbientWeatherCfg(void) {
     return ambientWeatherV;
 }
 static int menuGet(int i){
+ if(i==kB2Item)return P3DS_B2Cfg();
  if(i==kSlot2Item)return P3DS_Slot2Cfg();
  if(i==kMobilePcItem)return P3DS_MobilePcCfg();
  if(i==kMobilePcDevItem)return P3DS_MobilePcDevCfg();
@@ -1573,6 +1578,7 @@ static int menuGet(int i){
  case 16:return P3DS_FollowerSlotCfg();case 17:return P3DS_FollowerTalkCfg();case 18:return menuAudioCfg();case 19:return gcStereoCfg();case 20:return stereo2dCfg();case 21:return P3DS_WideHazeCfg();case 22:return fastTextIdx(P3DS_FastTextCfg());case 23:return P3DS_ReusableTMsCfg();case 24:return P3DS_CheatNoEncCfg();case 25:return repelPrompt();case 26:return sumIvCfg();}return 0;}
 extern "C" int P3DS_SaveExport(void);
 static void menuSet(int i,int v){
+ if(i==kB2Item){P3DS_B2SetCfg(v);BLINV;return;}
  if(i==kSlot2Item){P3DS_Slot2SetCfg(v);BLINV;return;}
  if(i==kMobilePcItem){P3DS_MobilePcSetCfg(v);BLINV;return;}
  if(i==kMobilePcDevItem){P3DS_MobilePcSetDev(v);BLINV;return;}
@@ -1749,12 +1755,13 @@ static const SAppTab kTabs[kTotalTabs]={
      {kSeasonalTreesItem,"Seasonal trees","Changes common outdoor tree colors. Applies when the area reloads."},
      {10,"3D strength","How deep the 3D slider looks: 1X is normal, 2X is stronger."},
      {20,"Battle 3D depth","How far battle backgrounds sit behind the screen with the 3D slider up. FOE DEEPER: the foe and its platform sit further back, yours nearer."}}},
- {6,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
+ {7,{{58,"Faster battles","1: skips plain move animations. 2: HP bars also drain 3 times faster."},
      {78,"SELECT = reset","SELECT soft-resets the game. Handy for shiny hunting."},
      {79,"Skip intro on reset","After a soft reset, skips the logos and title straight to the menu."},
      {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
      {123,"Hunt stats (ZR)","ZR (back trigger) in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
-     {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."}}},
+     {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."},
+     {kB2Item,"Black 2 sprites","Every Pokemon in battle uses its animated Black 2 / White 2 sprite. Needs b2sprites.bin from the builder. Starts with the next battle. Default OFF."}}},
  {11,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
      {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},
      {25,"Repel prompt","When a Repel runs out, asks if you want to use another."},

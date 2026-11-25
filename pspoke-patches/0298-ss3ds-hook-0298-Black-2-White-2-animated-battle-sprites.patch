@@ -1,0 +1,206 @@
+From bf0cc255f277eaef6d29c2728f475af3495a515d Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 25 Nov 2026 01:58:49 +0000
+Subject: [PATCH] ss3ds: hook 0298 Black 2 / White 2 animated battle sprites
+
+pokemon.c GetMonSpriteCharAndPlttNarcIdsEx notes what each battle sprite
+template shows (species, gender, facing, shiny, form, height) for the
+platform; pokepic.c swaps in the Black 2 palette when a battler's palette
+loads and draws each battler from its own platform texture (b2sprites.c),
+at the game's position, scale, window and flip. Default OFF, optional hook.
+---
+ scripts/ss3ds_hooks.d/0298_b2sprites.py | 169 ++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0298_b2sprites.sh |   5 +
+ 2 files changed, 174 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0298_b2sprites.py
+ create mode 100644 scripts/ss3ds_hooks.d/0298_b2sprites.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0298_b2sprites.py b/scripts/ss3ds_hooks.d/0298_b2sprites.py
+new file mode 100755
+index 0000000..6f38845
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0298_b2sprites.py
+@@ -0,0 +1,169 @@
++#!/usr/bin/env python3
++"""ss3ds 0298: Black 2 / White 2 animated battle sprites (Settings > BATTLE "B2 sprites", b2_sprites, default OFF).
++
++pokemon.c GetMonSpriteCharAndPlttNarcIdsEx: in battle, tells the platform which species / gender / facing / shiny /
++form a sprite template stands for (SS3DS_B2Note, keyed by the template's narc/char/palette ids) plus the game's own
++sprite height, so the platform can map any battle Pokepic back to a Black 2 sprite.
++pokepic.c PokepicManager_BufferPlttData: after a battler's palette loads, SS3DS_B2Palette may swap in the Black 2
++palette (normal or shiny), so the game's own fades / flashes keep working on it.
++pokepic.c PokepicManager_DrawAll: SS3DS_B2Pic gives the current animation frame as a platform texture; the quad is
++drawn at the game's own position, scale, rotation, alpha, window and flip, feet on the game's ground line. Shadow
++and everything else stay the game's. When the platform says no (toggle off, not in battle, no pack, Spinda...), the
++original drawing runs unchanged. Read-only of game state; never touches the save. Idempotent ('SS3DS 0298').
++"""
++import sys
++
++def sub(s, old, new, what, path):
++    if s.count(old) != 1:
++        sys.exit('0298_b2sprites: %s anchor not found exactly once in %s' % (what, path))
++    return s.replace(old, new, 1)
++
++def patch_pokemon(path):
++    s = open(path).read()
++    if 'SS3DS 0298' in s:
++        return False
++    old = (
++        '        if (species == SPECIES_SPINDA && whichFacing == MON_PIC_FACING_FRONT) {\n'
++        '            pokepicTemplate->species = SPECIES_SPINDA;\n'
++        '            pokepicTemplate->isAnimated = FALSE;\n'
++        '            pokepicTemplate->personality = personality;\n'
++        '        }\n'
++        '        break;\n'
++        '    }\n'
++        '}\n'
++    )
++    new = (
++        '        if (species == SPECIES_SPINDA && whichFacing == MON_PIC_FACING_FRONT) {\n'
++        '            pokepicTemplate->species = SPECIES_SPINDA;\n'
++        '            pokepicTemplate->isAnimated = FALSE;\n'
++        '            pokepicTemplate->personality = personality;\n'
++        '        }\n'
++        '        break;\n'
++        '    }\n'
++        '    { /* SS3DS 0298 B2 sprites: remember what this template shows (battle only, read-only) */\n'
++        '        extern int P3DS_InBattle;\n'
++        '        extern int SS3DS_B2Want(void);\n'
++        '        extern void SS3DS_B2Note(int narc, int chr, int pal, int species, int gender, int facing, int shiny, int form, int height);\n'
++        '        if (P3DS_InBattle && SS3DS_B2Want()) {\n'
++        '            SS3DS_B2Note(pokepicTemplate->narcID, pokepicTemplate->charDataID, pokepicTemplate->palDataID, species, gender, whichFacing, shiny, form,\n'
++        '                         GetMonPicHeightBySpeciesGenderForm(species, gender, whichFacing, form, personality));\n'
++        '        }\n'
++        '    }\n'
++        '}\n'
++    )
++    head = '\nvoid GetMonSpriteCharAndPlttNarcIdsEx(PokepicTemplate *pokepicTemplate, u16 species, u8 gender, u8 whichFacing, u8 shiny, u8 form, u32 personality) {\n'
++    if s.count(head) != 1:
++        sys.exit('0298_b2sprites: GetMonSpriteCharAndPlttNarcIdsEx definition not found exactly once in %s' % path)
++    at = s.index(head)
++    end = s.find(old, at)
++    if end < 0 or s.rfind(head, 0, end) != at or s.find('\nvoid ', at + 1) < end:
++        sys.exit('0298_b2sprites: GetMonSpriteCharAndPlttNarcIdsEx end anchor not found in %s' % path)
++    s = s[:end] + new + s[end + len(old):]
++    open(path, 'w').write(s)
++    return True
++
++HELPER = r'''
++/* SS3DS 0298 B2 sprites: draw pic i from the platform's Black 2 frame instead of the 80x80 slot (see the hook's notes) */
++typedef struct SS3DSB2Pic { int texOff, sizeS, sizeT, w, h, ox, oy, height, scale256, pltt; } SS3DSB2Pic;
++extern int SS3DS_B2Pic(int slot, int narc, int chr, int pal, const u16 *livePltt, SS3DSB2Pic *out);
++static BOOL ss3dsB2Draw(PokepicManager *m, int i) {
++    Pokepic *p = &m->pics[i];
++    PokepicDrawParam *d = &p->drawParam;
++    SS3DSB2Pic b;
++    int sx, sy, ax, ay, x0, y0, x1, y1, u0, v0, u1, v1, gl;
++    if (!SS3DS_B2Pic(i, p->template.narcID, p->template.charDataID, p->template.palDataID, m->plttRawData + 16 * i, &b)) {
++        return FALSE;
++    }
++    if (d->visible) {
++        sx = sy = 256;
++    } else {
++        sx = d->affineWidth;
++        sy = d->affineHeight;
++    }
++    /* the game's ground line: an 80x80 box centred on (xCenter, yCenter), moved down by the sprite height */
++    gl = ((40 - b.height) * sy) >> 8;
++    sx = (sx * b.scale256) >> 8;
++    sy = (sy * b.scale256) >> 8;
++    if (sx <= 0 || sy <= 0) {
++        return TRUE;
++    }
++    ax = d->xCenter + d->xOffset;
++    ay = d->yCenter + d->yOffset - p->shadow.height + gl;
++    x0 = ax - ((d->hflip ? b.w - b.ox : b.ox) * sx >> 8);
++    y0 = ay - (b.oy * sy >> 8);
++    x1 = x0 + (b.w * sx >> 8);
++    y1 = y0 + (b.h * sy >> 8);
++    u0 = d->hflip ? b.w : 0;
++    u1 = d->hflip ? 0 : b.w;
++    v0 = 0;
++    v1 = b.h;
++    if (d->visible) { /* the game's window over its own 80x80 box (Pokepic_SetVisible): clip our quad to it */
++        int wx0 = d->xCenter - 40 + d->xOffset2 + d->xOffset, wy0 = d->yCenter - 40 + d->yOffset2 + d->yOffset - p->shadow.height;
++        int wx1 = wx0 + d->width, wy1 = wy0 + d->height;
++        if (wx0 > x0) { u0 += d->hflip ? -(wx0 - x0) : (wx0 - x0); x0 = wx0; }
++        if (wx1 < x1) { u1 -= d->hflip ? -(x1 - wx1) : (x1 - wx1); x1 = wx1; }
++        if (wy0 > y0) { v0 += wy0 - y0; y0 = wy0; }
++        if (wy1 < y1) { v1 -= y1 - wy1; y1 = wy1; }
++        if (x1 <= x0 || y1 <= y0) {
++            return TRUE;
++        }
++    }
++    if (d->vflip) {
++        int t = v0;
++        v0 = v1;
++        v1 = t;
++    }
++    G3_TexImageParam(GX_TEXFMT_PLTT16, GX_TEXGEN_TEXCOORD, (GXTexSizeS)b.sizeS, (GXTexSizeT)b.sizeT, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_TRNS, b.texOff);
++    G3_TexPlttBase(b.pltt, GX_TEXFMT_PLTT16);
++    NNS_G2dDrawSpriteFast(x0, y0, d->zCenter + d->zOffset, x1 - x0, y1 - y0, u0, v0, u1, v1);
++    /* back to the game's shared battler texture for the shadow and the next pics */
++    G3_TexImageParam(m->imageProxy.attr.fmt, GX_TEXGEN_TEXCOORD, m->imageProxy.attr.sizeS, m->imageProxy.attr.sizeT, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, m->imageProxy.attr.plttUse, m->charBaseAddr);
++    G3_TexPlttBase(m->plttBaseAddr + 0x20 * i, m->imageProxy.attr.fmt);
++    return TRUE;
++}
++
++void PokepicManager_DrawAll(PokepicManager *pokepicManager) {
++'''
++
++def patch_pokepic(path):
++    s = open(path).read()
++    if 'SS3DS 0298' in s:
++        return False
++    s = sub(s, '\nvoid PokepicManager_DrawAll(PokepicManager *pokepicManager) {\n', HELPER, 'DrawAll head', path)
++    s = sub(s,
++        '            if (pokepicManager->pics[i].drawParam.visible) {\n'
++        '                u0 = sPokepicUVParams[i][pokepicManager->pics[i].whichAnimStep][0] + pokepicManager->pics[i].drawParam.xOffset2;\n',
++        '            if (ss3dsB2Draw(pokepicManager, i)) {\n'
++        '                /* SS3DS 0298: drawn from the Black 2 frame */\n'
++        '            } else if (pokepicManager->pics[i].drawParam.visible) {\n'
++        '                u0 = sPokepicUVParams[i][pokepicManager->pics[i].whichAnimStep][0] + pokepicManager->pics[i].drawParam.xOffset2;\n',
++        'DrawAll visible branch', path)
++    old = (
++        '            for (j = 0; j < 16; ++j) {\n'
++        '                pokepicManager->plttRawData[j + 16 * i] = src[j];\n'
++        '                pokepicManager->plttRawDataUnfaded[j + 16 * i] = src[j];\n'
++        '            }\n'
++        '            Heap_Free(nclrFile);\n'
++    )
++    new = (
++        '            for (j = 0; j < 16; ++j) {\n'
++        '                pokepicManager->plttRawData[j + 16 * i] = src[j];\n'
++        '                pokepicManager->plttRawDataUnfaded[j + 16 * i] = src[j];\n'
++        '            }\n'
++        '            { /* SS3DS 0298 B2 sprites: the Black 2 palette in this slot, so fades and flashes act on it */\n'
++        '                extern int SS3DS_B2Palette(int slot, int narc, int chr, int pal, u16 *dst16);\n'
++        '                if (SS3DS_B2Palette(i, pokepicManager->pics[i].template.narcID, pokepicManager->pics[i].template.charDataID, pokepicManager->pics[i].template.palDataID, pokepicManager->plttRawData + 16 * i)) {\n'
++        '                    for (j = 0; j < 16; ++j) {\n'
++        '                        pokepicManager->plttRawDataUnfaded[j + 16 * i] = pokepicManager->plttRawData[j + 16 * i];\n'
++        '                    }\n'
++        '                }\n'
++        '            }\n'
++        '            Heap_Free(nclrFile);\n'
++    )
++    s = sub(s, old, new, 'BufferPlttData palette load', path)
++    open(path, 'w').write(s)
++    return True
++
++a = patch_pokemon('src/pokemon.c')
++b = patch_pokepic('src/pokepic.c')
++print('0298_b2sprites: pokemon.c %s, pokepic.c %s' % ('patched' if a else 'already done', 'patched' if b else 'already done'))
+diff --git a/scripts/ss3ds_hooks.d/0298_b2sprites.sh b/scripts/ss3ds_hooks.d/0298_b2sprites.sh
+new file mode 100644
+index 0000000..7197252
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0298_b2sprites.sh
+@@ -0,0 +1,5 @@
++# ss3ds 0298: Black 2 / White 2 animated battle sprites (Settings > BATTLE "Black 2 sprites", b2_sprites, default OFF).
++# Not fatal: without it the toggle does nothing and battles keep the game's own sprites. Never writes the save.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0298_b2sprites.py" && bash rebuild_game_object.sh src/pokemon.c pokemon.o none && bash rebuild_game_object.sh src/pokepic.c pokepic.o none); then
++  log "ss3ds 0298 B2 sprites hook skipped (see message above); battles keep the game's own sprites"
++fi
+-- 
+2.43.0
+
