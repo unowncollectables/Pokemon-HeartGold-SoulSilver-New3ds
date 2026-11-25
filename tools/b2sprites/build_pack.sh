@@ -10,11 +10,18 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 AE_URL=https://github.com/KillDaWill/AnimaEngine.git
 AE_COMMIT=34c559873af3a604bc431377a897e22d8c28d535
 mkdir -p "$WORK"
-if [ ! -x "$WORK/ae/AnimaEngine" ]; then
+# Rebuild AnimaEngine whenever the pinned commit or our patch changes (a kept old build ignored the seam fix / female art).
+AE_STAMP="$AE_COMMIT $(sha1sum < "$HERE/animaengine-rawdump.patch" | cut -c1-40)"
+if [ ! -x "$WORK/ae/AnimaEngine" ] || [ "$(cat "$WORK/ae/.ss3ds-stamp" 2>/dev/null)" != "$AE_STAMP" ]; then
+  echo "b2pack: building AnimaEngine with the current patch"
   rm -rf "$WORK/ae"; git clone -q "$AE_URL" "$WORK/ae"; git -C "$WORK/ae" checkout -q "$AE_COMMIT"
   git -C "$WORK/ae" apply "$HERE/animaengine-rawdump.patch"
   make -s -C "$WORK/ae" AnimaEngine >/dev/null 2>&1 || make -C "$WORK/ae" AnimaEngine
+  echo "$AE_STAMP" > "$WORK/ae/.ss3ds-stamp"
 fi
+# AnimaEngine reads the whole ROM for every sprite (about 1300 runs): read it from a local copy, not a Windows drive.
+if [ "$ROM" != "$WORK/rom.nds" ] && ! cmp -s "$ROM" "$WORK/rom.nds" 2>/dev/null; then cp "$ROM" "$WORK/rom.nds"; fi
+ROM="$WORK/rom.nds"
 AE="$WORK/ae/AnimaEngine"; EXP="$WORK/export"; rm -rf "$EXP"; mkdir -p "$EXP"
 # Female art: the patched AnimaEngine (ANIMA_FEMALE=1) swaps in the female sheets and skips species/forms that have none;
 # b2pack.py also drops a female entry identical to the male one, and the game falls back to the male sprite.
@@ -35,3 +42,4 @@ for sp in $(seq 1 493); do
   [ $((sp % 50)) = 0 ] && echo "b2pack: $sp / 493"
 done
 python3 "$HERE/b2pack.py" "$EXP" "$OUT"
+rm -f "$WORK/rom.nds"
