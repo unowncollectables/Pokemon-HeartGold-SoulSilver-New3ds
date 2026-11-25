@@ -18,6 +18,8 @@
   <a href="#heartgold-experimental"><img alt="HeartGold: experimental" src="https://img.shields.io/badge/HeartGold-experimental-8a6232?style=flat-square"></a>
   &nbsp;
   <a href="#see-it-in-play"><img alt="Wide View + stereo 3D" src="https://img.shields.io/badge/Wide_View_%2B_stereo_3D-3d5a80?style=flat-square"></a>
+  &nbsp;
+  <a href="https://discord.gg/wMVpZcK7X"><img alt="Join the Discord" src="https://img.shields.io/badge/Discord-Unown_Collectables-5865f2?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -28,6 +30,8 @@
   <a href="#02--build-your-copy"><strong>Build instructions</strong></a>
   &nbsp;·&nbsp;
   <a href="https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/wiki"><strong>Complete wiki</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://discord.gg/wMVpZcK7X"><strong>Join the Discord</strong></a>
 </p>
 
 <p align="center">
@@ -400,6 +404,7 @@ A missing `config.txt` line uses `kCfgDefaults` in `soulsilver3ds/platform/psp_c
 | Map zoom | 1X (2X is the closer map; `-` / `+` on the map match it) |
 | GTS server picker | ON |
 | Wireless | Automatic (no setting) |
+| GBA Slot 2 | OFF (`slot2`) |
 | FPS counter | ON |
 | Log detail | SHORT (config only, `log_level=2` for FULL) |
 | 60 fps field | ON, with the tested speed setup (3D worker thread and the rest of the old Render tab) |
@@ -446,6 +451,8 @@ The old Debug and Render tabs are gone from the menu: their keys use this same t
 
 When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/issues), include your console model and `log.txt` or `log_crash.txt` from `sdmc:/3ds/soulsilver3ds/` (or `sdmc:/3ds/heartgold3ds/` for that build).
 
+**Come say hi.** There is a Discord for the project, [Unown Collectables](https://discord.gg/wMVpZcK7X): ask for help, post bug reports as pasted text, show off shinies, and arrange GTS and Union Room trades. Please do not share ROMs, dumps, BIOS files, keys or saves there.
+
 <details>
 <summary><strong>Recent highlights · November 2026</strong></summary>
 
@@ -454,8 +461,9 @@ When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold
 - **Sharp Pokégear and Settings:** native bottom-screen text and count icons, consistent cards and buttons, smoother map panning with inertia, and faster tab swaps.
 - **Encounter finder and exploration:** true-colour species icons, a paged where-to-catch list with slot chances and time filters, plus an **AREAS** page for recognized sub-areas. The finder currently covers normal grass, surf, Rock Smash and fishing tables; special encounters such as swarms, Headbutt and Safari tables are outside that list. Slot chances describe an encounter once it starts, rather than the chance per step.
 - **Battle info:** <kbd>Y</kbd> opens a sharp, tabbed overlay without pausing the battle. Available pages include info, catching, hunting, damage and trainer party; tap or swipe to browse. The FIGHT effectiveness hints have been refreshed too.
+- **Hunt stats overlay:** <kbd>ZR</kbd> in the field opens the hunt stats as an overlay that no longer pauses the game. It has five pages (HUNT, TOTALS, TOP, RECENT, SHINY), lets you pin a hunt, and keeps its numbers in `hunt.txt`, never in the save.
 - **Visible wild Pokémon:** herds and families, dawn/dusk and rain behaviour, NPC avoidance, scattering after battles, and Safari Zone support. A shore encounter uses the land-battle path; the water-battle intro has also been repaired.
-- **Stability and saves:** render workers are joined before soft-reset teardown. Save backup writes preserve the existing backup if the new write fails. The save stays a plain 512 KiB cartridge-compatible file.
+- **Stability and saves:** render workers are joined before soft-reset teardown, and repeated soft resets are steady again (sound and speed held through 20+ resets in testing). Save backup writes preserve the existing backup if the new write fails. The save stays a plain 512 KiB cartridge-compatible file.
 
 The [changelog](docs/CHANGELOG.md) and [handoff](HANDOFF.md) record implementation and test coverage. New text, finder, sub-area, battle-overlay and wild-behaviour changes still need broader hardware coverage.
 
@@ -465,6 +473,8 @@ The [changelog](docs/CHANGELOG.md) and [handoff](HANDOFF.md) record implementati
 <summary><strong>Experimental features and known issues</strong></summary>
 
 - **HeartGold.** Compiles and packages. A console or emulator playtest has not been done.
+- **GBA Slot 2 (off by default).** An optional virtual GBA cart for the game's own Pal Park migrate. Put your own GBA dump and its matching save in `sdmc:/3ds/soulsilver3ds/slot2/` and turn on the Slot 2 setting (`slot2`). The port works on a copy of the GBA save, so the original is never written. Checked in a headless Azahar with a test save; not yet tried on a real New 3DS.
+- **Foe Deeper battle depth.** The battle 3D option now places the backdrop, the foe and your side at different depths by ground position. Checked in Azahar; a hardware check is still pending.
 - **Starter Poké Balls.** Elm's lab balls and turntable draw in Azahar. A New 3DS look is still open. A Poké Ball *opening in battle* can still show a double image with the 3D slider up.
 - **Seasons.** Seasonal trees start ON. Ambient Weather starts OFF while its remaining issues are worked on; it can be enabled in Display. Ambient scenery and the Johto WX radar still need broader on-device checks.
 - **Frontier, Safari, Plaza.** Seeded in the tree. The Plaza shows a closed toast. None of these screens have been opened on a 3DS. The Club minigames still stop.
