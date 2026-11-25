@@ -15,6 +15,7 @@
 
 extern int P3DS_InBattle;
 extern int P3DS_CfgInt(const char *, int);
+extern unsigned P3DS_G3Frame(void);
 extern void P3DS_CfgWrite(const char *, int);
 extern void PSPNativeMemLog(const char *, ...);
 extern u32 *P3DS_B2TexPixels(int slot, unsigned w, unsigned h);
@@ -68,6 +69,8 @@ static void slotsFree(void);
 /* per battler speed for the Black 2 feel (hook 0300, below); speed4: 4 normal, 6 yellow, 8 red, 0 stopped */
 typedef struct { u16 narc, chr, pal; u8 speed4, used; } BState;
 static BState bstate[4];
+typedef struct { void *ms, *spr; int slot; u8 want, used; } B2Copy; /* move-effect copies, see the end of the file */
+static B2Copy b2Copies[8];
 
 /* ---- per battle latch ---- */
 static int latched, wasBattle;
@@ -75,6 +78,7 @@ static int battleOn(void) {
     if (P3DS_InBattle && !wasBattle) {
         slotsFree(); /* last battle's sprites */
         memset(bstate, 0, sizeof bstate);
+        memset(b2Copies, 0, sizeof b2Copies);
         latched = P3DS_B2Cfg() && packOpen() == 1;
         if (latched) { P3DS_Use("b2_sprites"); PSPNativeMemLog("[B2] battle: Black 2 sprites ON"); }
     }
@@ -122,6 +126,7 @@ struct Slot {
     const u16 *palN, *palS, *seq;
     const u8 *frames;
     u64 t0, lastT, acc; /* acc: animation time so far, scaled by the battle speed (hook 0300) */
+    int palId; unsigned drawnF; /* the template palette file and 3D frame of its last Black 2 draw (move-effect copies) */
     int lastFrame;
     int palOk; /* the last palette load of this pic took the Black 2 colours */
     u16 lastPal[16];
@@ -201,8 +206,10 @@ static void fitBox(unsigned w, unsigned h, int ox, int oy, int height, int *s256
 
 /* ---- Black 2 battle feel (hook 0300): Battle_Run reports each battler's picture, HP and status every frame. Like Black 2
    the loop slows in the yellow (x1.5) and red (x2) HP range and stops while the Pokemon is asleep or frozen. ---- */
+static void b2CopiesTick(void);
 void SS3DS_B2BattleMon(int battler, int narc, int chr, int pal, int hp, int maxHp, unsigned status) {
     if ((unsigned)battler >= 4) return;
+    if (battler == 0) b2CopiesTick();
     BState *b = &bstate[battler];
     if (!b->used) { b->speed4 = 4; PSPNativeMemLog("[B2] battler %d: speed follows HP and status (hook 0300)", battler); }
     b->narc = (u16)narc; b->chr = (u16)chr; b->pal = (u16)pal; b->used = 1;
@@ -254,6 +261,7 @@ int SS3DS_B2Pic(int slot, int narc, int chr, int pal, const u16 *livePltt, SS3DS
     unsigned ls = 0, lt = 0;
     while ((8u << ls) < s->tw) ls++;
     while ((8u << lt) < s->th) lt++;
+    s->palId = pal; s->drawnF = P3DS_G3Frame() + 1;
     o->texOff = B2_TEX_OFF + slot * 8; o->sizeS = (int)ls; o->sizeT = (int)lt; o->w = (int)s->w; o->h = (int)s->h; o->ox = s->ox; o->oy = s->oy;
     o->height = n->height; o->scale256 = 256; o->pltt = B2_PLTT;
     if (!P3DS_InBattle) { /* summary, Hall of Fame...: keep it inside the game's own 80x80 picture box */
@@ -380,4 +388,67 @@ void __wrap_NARC_ReadWholeMember(void *narc, u32 fileId, void *dest) {
     __real_NARC_ReadWholeMember(narc, fileId, dest);
     const int id = narcIdOf(narc);
     if (id >= 0) fileSubst(id, (int)fileId, dest, 1u << 20);
+}
+
+/* ---- move-effect copies (2026-11-25, Nathan: "my sprite flashes when I use Dragon Rage, like Rock Throw") ----
+   Many move animations start with the battle animation command that makes a 2D OBJ copy of a battler (ov07_0221D874, Platinum's
+   BattleAnimScriptCmd_AddPokemonSprite): the battler's 80x80 picture plus its palette, following the battler, shown while the
+   battler is shown. On the DS it sits exactly on the 3D sprite. With Black 2 sprites that copy holds one shrunken still frame,
+   so it flashed next to the moving sprite (and doubled it in afterimage moves). While the battler's Black 2 sprite is being
+   drawn, its copies stay hidden; when the move hides the battler itself, the copy shows as the game asked, so the Pokemon
+   never vanishes. A copy is recognised by its palette load: the game loads a pokegra palette into OBJ right after creating it. */
+static void *lastNewSprite;
+static int slotDrawnRecently(int slot) {
+    const unsigned f = P3DS_G3Frame() + 1;
+    return slot >= 0 && slot < 4 && slots[slot].blob && slots[slot].drawnF && f - slots[slot].drawnF <= 2;
+}
+extern void *__real_SpriteSystem_NewSprite(void *spriteSystem, void *spriteManager, const void *template);
+void *__wrap_SpriteSystem_NewSprite(void *spriteSystem, void *spriteManager, const void *template) {
+    void *ms = __real_SpriteSystem_NewSprite(spriteSystem, spriteManager, template);
+    lastNewSprite = P3DS_InBattle ? ms : NULL;
+    return ms;
+}
+extern void __real_Sprite_SetDrawFlag(void *sprite, int flag);
+extern int Sprite_GetDrawFlag(void *sprite);
+extern void __real_PaletteData_LoadNarc(void *data, int narcId, int memberNo, int heapID, int bufferID, u32 size, u16 pos);
+void __wrap_PaletteData_LoadNarc(void *data, int narcId, int memberNo, int heapID, int bufferID, u32 size, u16 pos) {
+    __real_PaletteData_LoadNarc(data, narcId, memberNo, heapID, bufferID, size, pos);
+    void *ms = lastNewSprite;
+    lastNewSprite = NULL;
+    if (!ms || narcId != 4 || !P3DS_InBattle || !latched) return;
+    int slot = -1;
+    for (int i = 0; i < 4; i++) if (slots[i].blob && slots[i].palId == memberNo && slotDrawnRecently(i)) { slot = i; break; }
+    if (slot < 0) return;
+    void *spr = *(void **)ms; /* ManagedSprite.sprite */
+    if (!spr) return;
+    B2Copy *c = NULL;
+    for (int i = 0; i < 8; i++) if (!b2Copies[i].used) { c = &b2Copies[i]; break; }
+    if (!c) return;
+    *c = (B2Copy){ ms, spr, slot, (u8)(Sprite_GetDrawFlag(spr) != 0), 1 };
+    __real_Sprite_SetDrawFlag(spr, 0);
+    static unsigned n; if (n++ < 6) PSPNativeMemLog("[B2] move effect copy of slot %d hidden while its Black 2 sprite shows", slot);
+}
+void __wrap_Sprite_SetDrawFlag(void *sprite, int flag) {
+    for (int i = 0; i < 8; i++) {
+        B2Copy *c = &b2Copies[i];
+        if (!c->used || c->spr != sprite) continue;
+        c->want = (u8)(flag != 0);
+        if (flag && slotDrawnRecently(c->slot)) flag = 0;
+        break;
+    }
+    __real_Sprite_SetDrawFlag(sprite, flag);
+}
+extern void __real_Sprite_Delete(void *sprite);
+void __wrap_Sprite_Delete(void *sprite) {
+    for (int i = 0; i < 8; i++) if (b2Copies[i].used && b2Copies[i].spr == sprite) b2Copies[i].used = 0;
+    __real_Sprite_Delete(sprite);
+}
+/* every battle frame (hook 0300, battler 0): a copy the game wants shown appears only while its battler's sprite is not drawn */
+static void b2CopiesTick(void) {
+    for (int i = 0; i < 8; i++) {
+        B2Copy *c = &b2Copies[i];
+        if (!c->used) continue;
+        if (!P3DS_InBattle) { c->used = 0; continue; }
+        __real_Sprite_SetDrawFlag(c->spr, c->want && !slotDrawnRecently(c->slot));
+    }
 }
