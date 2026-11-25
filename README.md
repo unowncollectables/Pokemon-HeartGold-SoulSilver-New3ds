@@ -451,7 +451,7 @@ The old Debug and Render tabs are gone from the menu: their keys use this same t
 
 When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold-SoulSilver-New3ds/issues), include your console model and `log.txt` or `log_crash.txt` from `sdmc:/3ds/soulsilver3ds/` (or `sdmc:/3ds/heartgold3ds/` for that build).
 
-**Come say hi.** There is a Discord for the project, [Unown Collectables](https://discord.gg/wMVpZcK7X): ask for help, post bug reports as pasted text, show off shinies, and arrange GTS and Union Room trades. Please do not share ROMs, dumps, BIOS files, keys or saves there.
+**Discord.** The project has a Discord, [Unown Collectables](https://discord.gg/wMVpZcK7X). Ask for help, post bug reports as pasted text, and arrange GTS and Union Room trades. No ROMs, dumps, BIOS files, keys or saves.
 
 <details>
 <summary><strong>Recent highlights · November 2026</strong></summary>
