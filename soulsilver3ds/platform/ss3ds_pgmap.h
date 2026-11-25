@@ -98,7 +98,7 @@ static int pgMapLimit(const SPg &p, int visW) { return !p.kantoOpen && p.kantoX 
 static int pgClampLeft(const SPg &p, int left, int visW) { const int lim = pgMapLimit(p, visW); if (left > lim - visW) left = lim - visW; if (left < 0) left = 0; return left; }
 /* panel interior pgDraw actually paints (the old tap math was 1 or 2 px off this, and the sign flipped with the name strip) */
 static void pgInner(int *X0, int *Y0, int *X1, int *Y1) {
-  const int nh = blNameH(); *X0 = kBlPanX0 + 2; *Y0 = kBlPanY0 + 15 + nh + 2; *X1 = kBlPanX1 - 2; *Y1 = kBlPanY1 - 2; }
+  const int nh = blNameH(); *X0 = kBlPanX0 + 2; *Y0 = kBlPanY0 + 15 + nh + 2 - blTopCut(); *X1 = kBlPanX1 - 2; *Y1 = kBlPanY1 - 2; }
 /* 2026-11-18: smooth pen pan. dx/dy are map px (fractions carry over); zoom 1 only moves sideways. Edges clamp and kill the fling. */
 static void pgPanBy(SPg &p, float dx, float dy) {
   int X0, Y0, X1, Y1; pgInner(&X0, &Y0, &X1, &Y1); const int z = p.zoom < 2 ? 1 : 2; int visW = (X1 - X0) / z, visH = (Y1 - Y0) / z; if (visW < 1) visW = 1; if (visH < 1) visH = 1;

@@ -106,11 +106,12 @@ static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const i
   const uint32_t NAVY = bnRGB(7, 33, 54), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255), BTN_SHD = bnRGB(189, 201, 222),
     SEL = bnRGB(46, 208, 155), SEL_SHD = bnRGB(24, 153, 115), BG = bnRGB(200, 208, 211),
     INK = bnRGB(24, 120, 72), ACC = bnRGB(104, 200, 140), SEL_INK = bnRGB(0, 84, 64), WHITE = bnRGB(255, 255, 255);
-  int nd = 0, ax = 0;
+  int nd = 0, ax = 0, ay = 180; /* 2026-11-25: with the column slid away the tabs are wider; the ones that pass atlas x 250 go on a second row at y 200 */
   for (int i = 0; i < n && nd < maxDst; i++) {
     int x0, x1, y0, y1; bnDsSpan(dsX0[i], dsX1[i], &x0, &x1); bnDsSpan(dsY0, dsY1, &y0, &y1);
-    const int w = x1 - x0, h = y1 - y0; if (w < 8 || h < 8 || ax + w > 250) continue;
-    const SBnCanvas c = { atlas, ax, 180, 0, 0, w, h };
+    const int w = x1 - x0, h = y1 - y0; if (w < 8 || h < 8 || h > 20) continue;
+    if (ax + w > 250) { if (ay != 180) continue; ax = 0; ay = 200; }
+    const SBnCanvas c = { atlas, ax, ay, 0, 0, w, h };
     bnRect(c, 0, 0, w - 1, h - 1, BG); /* opaque corners: bnBox leaves them out, same cut as the column */
     const bool on = i == pane;
     bnBox(c, 0, 0, w - 1, h - 1, NAVY, on ? SEL : BTN, on ? SEL : BTN_TOP, on ? SEL_SHD : BTN_SHD, 2);
@@ -126,7 +127,7 @@ static int bnTabStrip(uint32_t *atlas, int pane, int n, const int *dsX0, const i
       if (on) bnTextO(c, x, y, label, WHITE, SEL_INK);
       else bnText(c, x, y, label, bnRGB(18, 26, 38));
     }
-    dst[nd++] = { (short)x0, (short)y0, (short)w, (short)h, (short)ax, 180 }; ax += w; }
+    dst[nd++] = { (short)x0, (short)y0, (short)w, (short)h, (short)ax, (short)ay }; ax += w; }
   return nd; }
 /* Atlas areas (512x256): column = native (235,0) 85x240 at atlas (256,0); top = native (0,0) 235x4 at (0,160);
    bottom = native (0,236) 235x4 at (0,164); left = native (0,4) 4x232 at (344,0). The DS-drawn map panel shows between. */
@@ -167,6 +168,25 @@ static void bnFrame(uint32_t *atlas, const char *const *lb, const char *const *a
         bnText(c, (x0 + x1 + 1 - bnTextW(n)) / 2, (y0 + y1 + 1 - 9) / 2, n, TEXT_OFF);
       }
     } else { iconX[i] = x0 + 1; iconY[i] = y0 + 1; }
+  }
+}
+
+/* 2026-11-25 collapsible panels: the four handle pills (9x20 native, column button look, green chevron), side by side in the atlas
+   at (kBnGrabAX + k * 12, kBnGrabAY): 0 = hide column (points right), 1 = show column (left), 2 = roll tabs up, 3 = drop tabs down.
+   The free atlas area right of the left frame strip (344..347) and left of the BOXES chip (432..). */
+enum { kBnGrabAX = 352, kBnGrabAY = 0, kBnGrabW = 9, kBnGrabH = 20 };
+static void bnGrabPills(uint32_t *atlas) {
+  if (!atlas) return;
+  const uint32_t NAVY = bnRGB(7, 33, 54), BTN = bnRGB(244, 247, 254), BTN_TOP = bnRGB(252, 253, 255), BTN_SHD = bnRGB(189, 201, 222),
+    BG = bnRGB(200, 208, 211), INK = bnRGB(24, 120, 72);
+  for (int k = 0; k < 4; k++) {
+    const SBnCanvas c = { atlas, kBnGrabAX + k * 12, kBnGrabAY, 0, 0, kBnGrabW, kBnGrabH };
+    bnRect(c, 0, 0, kBnGrabW - 1, kBnGrabH - 1, BG); /* the corners bnBox leaves out show the strip's grey */
+    bnBox(c, 0, 0, kBnGrabW - 1, kBnGrabH - 1, NAVY, BTN, BTN_TOP, BTN_SHD, 2);
+    for (int r = 0; r < 7 && k < 2; r++) { const int w = (r < 6 - r ? r : 6 - r) + 1; /* 4 wide, 7 tall */
+      for (int i = 0; i < w; i++) bnPut(c, k == 0 ? 3 + i : 5 - i, 6 + r, INK); }
+    for (int r = 0; r < 4 && k >= 2; r++) /* 7 wide, 4 tall */
+      for (int x = 4 - r; x <= 4 + r; x++) bnPut(c, x, k == 2 ? 7 + r : 11 - r, INK);
   }
 }
 
