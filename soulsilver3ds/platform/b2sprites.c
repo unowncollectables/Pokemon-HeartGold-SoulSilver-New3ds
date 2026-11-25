@@ -15,7 +15,6 @@
 
 extern int P3DS_InBattle;
 extern int P3DS_CfgInt(const char *, int);
-extern unsigned P3DS_G3Frame(void);
 extern void P3DS_CfgWrite(const char *, int);
 extern void PSPNativeMemLog(const char *, ...);
 extern u32 *P3DS_B2TexPixels(int slot, unsigned w, unsigned h);
@@ -69,7 +68,7 @@ static void slotsFree(void);
 /* per battler speed for the Black 2 feel (hook 0300, below); speed4: 4 normal, 6 yellow, 8 red, 0 stopped */
 typedef struct { u16 narc, chr, pal; u8 speed4, used; } BState;
 static BState bstate[4];
-typedef struct { void *ms, *spr; int slot; u8 want, used, fx; } B2Copy; /* move-effect copies, see the end of the file */
+typedef struct { void *ms, *spr; int slot, dir, lastFr; u32 dst; u8 want, used; } B2Copy; /* move-effect copies, see the end of the file */
 static B2Copy b2Copies[8];
 
 /* ---- per battle latch ---- */
@@ -126,7 +125,7 @@ struct Slot {
     const u16 *palN, *palS, *seq;
     const u8 *frames;
     u64 t0, lastT, acc; /* acc: animation time so far, scaled by the battle speed (hook 0300) */
-    int palId; unsigned drawnF; /* the template palette file and 3D frame of its last Black 2 draw (move-effect copies) */
+    int palId, noteH; /* the template palette file and the note's height (move-effect copies) */
     int lastFrame;
     int palOk; /* the last palette load of this pic took the Black 2 colours */
     u16 lastPal[16];
@@ -207,7 +206,6 @@ static void fitBox(unsigned w, unsigned h, int ox, int oy, int height, int *s256
 /* ---- Black 2 battle feel (hook 0300): Battle_Run reports each battler's picture, HP and status every frame. Like Black 2
    the loop slows in the yellow (x1.5) and red (x2) HP range and stops while the Pokemon is asleep or frozen. ---- */
 static void b2CopiesTick(void);
-static int slotFx(int slot);
 void SS3DS_B2BattleMon(int battler, int narc, int chr, int pal, int hp, int maxHp, unsigned status) {
     if ((unsigned)battler >= 4) return;
     if (battler == 0) b2CopiesTick();
@@ -231,19 +229,21 @@ static unsigned battleSpeed4(int narc, int chr, int pal) {
 }
 
 typedef struct { int texOff, sizeS, sizeT, w, h, ox, oy, height, scale256, pltt; } SS3DSB2Pic;
-int SS3DS_B2Pic(int slot, int narc, int chr, int pal, const u16 *livePltt, SS3DSB2Pic *o) {
-    const Note *n;
-    if (!slotFor(slot, narc, chr, pal, &n) || !slots[slot].palOk) return 0;
-    if (P3DS_InBattle && slotFx(slot)) return 0; /* stat change / level up: the game's own still picture, matching its effect copies */
-    Slot *s = &slots[slot];
+/* advance a sprite's animation clock (sp4: 4 normal, 6 / 8 slower, 0 stopped) and return the frame to show */
+static int slotStep(Slot *s, unsigned sp4) {
     const u64 now = svcGetSystemTick();
     u64 dt = now - s->lastT;
     s->lastT = now;
     if (dt > CPU_TICKS_PER_MSEC * 500ull) dt = CPU_TICKS_PER_MSEC * 500ull; /* a long pause (menu, load) is not a jump */
-    const unsigned sp4 = battleSpeed4(narc, chr, pal);
     if (sp4) s->acc += dt * 4u / sp4;
     const unsigned step = (unsigned)(s->acc / (CPU_TICKS_PER_MSEC * 10ull * s->delayCs));
-    const int fr = s->seq[step % s->nSeq] < s->nUniq ? s->seq[step % s->nSeq] : 0;
+    return s->seq[step % s->nSeq] < s->nUniq ? s->seq[step % s->nSeq] : 0;
+}
+int SS3DS_B2Pic(int slot, int narc, int chr, int pal, const u16 *livePltt, SS3DSB2Pic *o) {
+    const Note *n;
+    if (!slotFor(slot, narc, chr, pal, &n) || !slots[slot].palOk) return 0;
+    Slot *s = &slots[slot];
+    const int fr = slotStep(s, battleSpeed4(narc, chr, pal));
     if (fr != s->lastFrame || memcmp(livePltt, s->lastPal, 32)) {
         u32 *px = P3DS_B2TexPixels(slot, s->tw, s->th);
         if (!px) return 0;
@@ -263,7 +263,7 @@ int SS3DS_B2Pic(int slot, int narc, int chr, int pal, const u16 *livePltt, SS3DS
     unsigned ls = 0, lt = 0;
     while ((8u << ls) < s->tw) ls++;
     while ((8u << lt) < s->th) lt++;
-    s->palId = pal; s->drawnF = P3DS_G3Frame() + 1;
+    s->palId = pal; s->noteH = n->height;
     o->texOff = B2_TEX_OFF + slot * 8; o->sizeS = (int)ls; o->sizeT = (int)lt; o->w = (int)s->w; o->h = (int)s->h; o->ox = s->ox; o->oy = s->oy;
     o->height = n->height; o->scale256 = 256; o->pltt = B2_PLTT;
     if (!P3DS_InBattle) { /* summary, Hall of Fame...: keep it inside the game's own 80x80 picture box */
@@ -392,88 +392,99 @@ void __wrap_NARC_ReadWholeMember(void *narc, u32 fileId, void *dest) {
     if (id >= 0) fileSubst(id, (int)fileId, dest, 1u << 20);
 }
 
-/* ---- move-effect copies (2026-11-25, Nathan: "my sprite flashes when I use Dragon Rage, like Rock Throw") ----
-   Many move animations start with the battle animation command that makes a 2D OBJ copy of a battler (ov07_0221D874, Platinum's
-   BattleAnimScriptCmd_AddPokemonSprite): the battler's 80x80 picture plus its palette, following the battler, shown while the
-   battler is shown. On the DS it sits exactly on the 3D sprite. With Black 2 sprites that copy holds one shrunken still frame,
-   so it flashed next to the moving sprite (and doubled it in afterimage moves). While the battler's Black 2 sprite is being
-   drawn, its copies stay hidden; when the move hides the battler itself, the copy shows as the game asked, so the Pokemon
-   never vanishes. A copy is recognised by its palette load: the game loads a pokegra palette into OBJ right after creating it. */
+/* ---- move-effect copies (2026-11-25, Nathan: Dragon Rage / Rock Throw flash, then "all effects, properly") ----
+   Many move animations use the battle animation command that makes a 2D OBJ copy of a battler (ov07_0221D874, Platinum's
+   BattleAnimScriptCmd_AddPokemonSprite): the battler's 80x80 picture, its palette, following the battler. The effect then
+   moves, tints, fades, turns translucent or uses the copy as an OBJ window (stat change arrows, Intimidate, level up). On the
+   DS the copy is the very same picture as the battler, so it never shows as a second Pokemon. Here every copy gets the
+   battler's current Black 2 frame at full size (1:1, placed exactly where the 3D sprite draws it, cropped to the copy's
+   80x80 box) and keeps animating with it, so the game's effects all play as on the DS on top of the moving sprite.
+   A copy is recognised by its char transfer (80x80, 3200 bytes into OBJ) and palette load right after its creation. */
+extern void GX_LoadOBJ(const void *src, u32 offset, u32 size);
+static u8 b2CopyBuf[8][3200];
 static void *lastNewSprite;
-static int slotDrawnRecently(int slot) {
-    const unsigned f = P3DS_G3Frame() + 1;
-    return slot >= 0 && slot < 4 && slots[slot].blob && slots[slot].drawnF && f - slots[slot].drawnF <= 2;
+static int pendingCopy = -1;
+/* the 80x80 picture as the game's OBJ cells want it: 8x8 tiles, 4bpp, regions 64x64, 16x32, 16x32, 32x16, 32x16, 16x16 */
+static void copyRender(B2Copy *c, int fr) {
+    static const u8 reg[6][4] = { { 0, 0, 8, 8 }, { 8, 0, 2, 4 }, { 8, 4, 2, 4 }, { 0, 8, 4, 2 }, { 4, 8, 4, 2 }, { 8, 8, 2, 2 } };
+    const Slot *s = &slots[c->slot];
+    const u8 *src = s->frames + (size_t)fr * s->bw * s->h;
+    const int bx0 = 40 - s->ox, by0 = 80 - s->noteH - s->oy; /* Black 2 pixel (0,0) inside the 80x80 box, as ss3dsB2Draw puts it */
+    u8 *d = b2CopyBuf[c - b2Copies];
+    for (int r = 0; r < 6; r++)
+        for (int ty = reg[r][1]; ty < reg[r][1] + reg[r][3]; ty++)
+            for (int tx = reg[r][0]; tx < reg[r][0] + reg[r][2]; tx++)
+                for (int py = 0; py < 8; py++) {
+                    const int sy = ty * 8 + py - by0;
+                    for (int px = 0; px < 8; px += 2, d++) {
+                        u8 v = 0;
+                        for (int k = 0; k < 2; k++) {
+                            const int sx = tx * 8 + px + k - bx0;
+                            if (sy >= 0 && sy < (int)s->h && sx >= 0 && sx < (int)s->w) v |= (u8)(((src[sy * s->bw + (sx >> 1)] >> ((sx & 1) * 4)) & 15) << (k * 4));
+                        }
+                        *d = v;
+                    }
+                }
+    c->lastFr = fr;
 }
 extern void *__real_SpriteSystem_NewSprite(void *spriteSystem, void *spriteManager, const void *template);
 void *__wrap_SpriteSystem_NewSprite(void *spriteSystem, void *spriteManager, const void *template) {
     void *ms = __real_SpriteSystem_NewSprite(spriteSystem, spriteManager, template);
     lastNewSprite = P3DS_InBattle ? ms : NULL;
+    pendingCopy = -1;
     return ms;
 }
-extern void __real_Sprite_SetDrawFlag(void *sprite, int flag);
+/* the copy's picture goes to OBJ VRAM through a transfer at the next vblank: send it from our own buffer */
+extern int __real_GF_CreateNewVramTransferTask(int type, u32 dst, void *src, u32 size);
+int __wrap_GF_CreateNewVramTransferTask(int type, u32 dst, void *src, u32 size) {
+    if (type == 0x13 /* NNS_GFD_DST_2D_OBJ_CHAR_MAIN */ && size == 3200 && lastNewSprite && P3DS_InBattle && latched && src) {
+        for (int i = 0; i < 8; i++)
+            if (!b2Copies[i].used) {
+                b2Copies[i] = (B2Copy){ lastNewSprite, *(void **)lastNewSprite, -1, -1, -1, dst, 0, 1 };
+                memcpy(b2CopyBuf[i], src, 3200);
+                src = b2CopyBuf[i];
+                pendingCopy = i;
+                break;
+            }
+    }
+    return __real_GF_CreateNewVramTransferTask(type, dst, src, size);
+}
 extern int Sprite_GetDrawFlag(void *sprite);
 extern void __real_PaletteData_LoadNarc(void *data, int narcId, int memberNo, int heapID, int bufferID, u32 size, u16 pos);
 void __wrap_PaletteData_LoadNarc(void *data, int narcId, int memberNo, int heapID, int bufferID, u32 size, u16 pos) {
     __real_PaletteData_LoadNarc(data, narcId, memberNo, heapID, bufferID, size, pos);
-    void *ms = lastNewSprite;
+    const int k = pendingCopy;
+    pendingCopy = -1;
     lastNewSprite = NULL;
-    if (!ms || narcId != 4 || !P3DS_InBattle || !latched) return;
-    int slot = -1;
-    for (int i = 0; i < 4; i++) if (slots[i].blob && slots[i].palId == memberNo && slotDrawnRecently(i)) { slot = i; break; }
-    if (slot < 0) return;
-    void *spr = *(void **)ms; /* ManagedSprite.sprite */
-    if (!spr) return;
-    B2Copy *c = NULL;
-    for (int i = 0; i < 8; i++) if (!b2Copies[i].used) { c = &b2Copies[i]; break; }
-    if (!c) return;
-    *c = (B2Copy){ ms, spr, slot, (u8)(Sprite_GetDrawFlag(spr) != 0), 1, 0 };
-    __real_Sprite_SetDrawFlag(spr, 0);
-    static unsigned n; if (n++ < 6) PSPNativeMemLog("[B2] move effect copy of slot %d hidden while its Black 2 sprite shows", slot);
-}
-void __wrap_Sprite_SetDrawFlag(void *sprite, int flag) {
-    for (int i = 0; i < 8; i++) {
-        B2Copy *c = &b2Copies[i];
-        if (!c->used || c->spr != sprite) continue;
-        c->want = (u8)(flag != 0);
-        if (flag && slotDrawnRecently(c->slot)) flag = 0;
-        break;
-    }
-    __real_Sprite_SetDrawFlag(sprite, flag);
+    if (k < 0 || narcId != 4 || !P3DS_InBattle) return;
+    B2Copy *c = &b2Copies[k];
+    for (int i = 0; i < 4; i++)
+        if (slots[i].blob && slots[i].palId == memberNo) {
+            c->slot = i; c->dir = slots[i].dir;
+            c->want = (u8)(Sprite_GetDrawFlag(c->spr) != 0);
+            copyRender(c, slots[i].lastFrame >= 0 ? slots[i].lastFrame : 0); /* before the vblank transfer reads it */
+            static unsigned n; if (n++ < 6) PSPNativeMemLog("[B2] move effect copy of slot %d drawn with its Black 2 frames", i);
+            return;
+        }
 }
 extern void __real_Sprite_Delete(void *sprite);
 void __wrap_Sprite_Delete(void *sprite) {
     for (int i = 0; i < 8; i++) if (b2Copies[i].used && b2Copies[i].spr == sprite) b2Copies[i].used = 0;
     __real_Sprite_Delete(sprite);
 }
-/* Stat changes, Intimidate, level up... (2026-11-25, Nathan: "level up and getting intimidated no longer show the effect"):
-   those effects turn one copy into an OBJ window (the arrow pattern shows only inside the Pokemon's shape) and show the other
-   copy in place of the 3D Pokemon. While a copy of a battler has such a special OAM mode, that battler is drawn as the game's
-   own still picture (exactly the copies' picture) and its copies follow the game, so the effect looks as on the DS. */
-static int slotFx(int slot) {
-    for (int i = 0; i < 8; i++) if (b2Copies[i].used && b2Copies[i].slot == slot && b2Copies[i].fx && b2Copies[i].want) return 1;
-    return 0;
-}
-extern void __real_Sprite_SetOamMode(void *sprite, int mode);
-void __wrap_Sprite_SetOamMode(void *sprite, int mode) {
-    __real_Sprite_SetOamMode(sprite, mode);
-    for (int i = 0; i < 8; i++) {
-        B2Copy *c = &b2Copies[i];
-        if (!c->used || c->spr != sprite) continue;
-        c->fx = mode == 2; /* GX_OAM_MODE_OBJWND: the copy is the shape the effect shows through */
-        if (c->fx) {
-            slots[c->slot].drawnF = 0; /* from now on the 3D shows the still picture; show this battler's copies as the game wants */
-            for (int j = 0; j < 8; j++) if (b2Copies[j].used && b2Copies[j].slot == c->slot) __real_Sprite_SetDrawFlag(b2Copies[j].spr, b2Copies[j].want);
-            static unsigned n; if (n++ < 6) PSPNativeMemLog("[B2] slot %d: stat/level effect, still picture while it plays", c->slot);
-        }
-        break;
-    }
-}
-/* every battle frame (hook 0300, battler 0): a copy the game wants shown appears only while its battler's sprite is not drawn */
+/* every battle frame (hook 0300, battler 0): copies follow their battler's animation, also while the move hides it */
 static void b2CopiesTick(void) {
+    if (!P3DS_InBattle) { memset(b2Copies, 0, sizeof b2Copies); pendingCopy = -1; return; }
+    const u64 now = svcGetSystemTick();
     for (int i = 0; i < 8; i++) {
         B2Copy *c = &b2Copies[i];
-        if (!c->used) continue;
-        if (!P3DS_InBattle) { c->used = 0; continue; }
-        __real_Sprite_SetDrawFlag(c->spr, c->want && !slotDrawnRecently(c->slot));
+        if (!c->used || c->slot < 0) continue;
+        Slot *s = &slots[c->slot];
+        if (!s->blob || s->dir != c->dir) { c->slot = -1; continue; }
+        int fr = s->lastFrame;
+        if (now - s->lastT > CPU_TICKS_PER_MSEC * 40ull) fr = slotStep(s, 4); /* the 3D sprite is hidden: keep the clock going */
+        if (fr < 0 || fr == c->lastFr) continue;
+        copyRender(c, fr);
+        GX_LoadOBJ(b2CopyBuf[i], c->dst, 3200);
     }
 }

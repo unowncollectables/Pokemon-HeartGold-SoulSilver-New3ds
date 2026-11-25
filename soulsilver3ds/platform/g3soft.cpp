@@ -303,7 +303,6 @@ extern "C" u32*P3DS_B2TexPixels(int slot,unsigned w,unsigned h){
  gtDrainIfBusy(3); /* the worker may still read last frame's pixels */
  Tex&t=b2Tex[slot];if(!t.px||t.w!=w||t.h!=h){free(t.px);t.px=(u32*)malloc(w*h*4);if(!t.px)return nullptr;}
  texFree(t.gt);t.gt=nullptr;t.off=0x7FF80+slot*8;t.pal=0x1FE80;t.fmt=3;t.w=w;t.h=h;t.c0=1;t.gen=0;t.raw=nullptr;t.rawN=0;return t.px;}
-extern "C" unsigned P3DS_G3Frame(void){return g3FrameNo;} /* b2sprites.c: was a battler drawn in the last 3D frames */
 extern "C" void P3DS_B2TexFree(int slot){if(slot<0||slot>3)return;gtDrainIfBusy(3);Tex&t=b2Tex[slot];texFree(t.gt);t.gt=nullptr;free(t.px);t.px=nullptr;}
 static Tex*GetTextureImpl(){
  const auto&p=s_texImageParam;unsigned fmt=p.textureFormat;if(!fmt)return nullptr;
