@@ -3,6 +3,12 @@
 Short on purpose. The old running notes (920 lines of per-run test results, 2026-10 to 2026-11-18) are kept in [docs/archive/HANDOFF-2026-11-18.md](docs/archive/HANDOFF-2026-11-18.md). Rules and file map: [AGENTS.md](AGENTS.md). What changed: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 
+## Collapsible bottom panels (2026-11-25, platform only, unbuilt)
+- Thin handle strip between the map panel and the button column (native pills from `bnGrabPills`, ss3ds_blnative.h). Middle pill: the column slides off to the right (0.18 s) and the panel widens by 56 DS px (`kBlPanX1` is now a macro on `gBlSideHid`). Top pill: the tab row rolls up and the panel moves up (`blTopCut`). Layout snaps once (one overlay repaint); only the native rects move during the slide, so no per-frame cost.
+- State in config.txt `bl_side_hide` / `bl_top_hide`, written on the next battle/door, never on the tap frame. Forced open while the panel hosts a fixed-size game screen (PARTY/BAG panes, native Phone/Radio, panel party). X tile cursor is off while the column is away (X opens the game's menu).
+- Settings > (Bottom menu tab) > Panel handles, default ON (`panel_handles`). OFF = classic layout. Logs `[PANEL] handle: ...`.
+- Host check: `tools/panel_handles_preview.cpp` (states + hit targets). If the bottom screen looks wrong, turn Panel handles OFF.
+
 ## Slot 2 visual prototype (2026-11-22, hook 0294, unmerged)
 
 - Branch `cursor/slot2-visual-proto` off main `4d4d2cb`. Visual only: no CTRDG, no migrate logic, no `.sav` writes, no CIA, no PR, no merge.
