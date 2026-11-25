@@ -1127,6 +1127,12 @@ static int fps60Pipe(void) {
         PSPNativeMemLog("[FPS60] fps60_pipe=%d (1 = batch wide copies after each 3D pass)", pipeCfg); }
     return pipeCfg;
 }
+static int fogPipeV = -1;
+static int fogPipeCfg(void) {
+    if (fogPipeV < 0) { extern int P3DS_CfgInt(const char *, int); fogPipeV = P3DS_CfgInt("fog_pipe", 1) != 0;
+        PSPNativeMemLog("[GPU3D] fog_pipe=%d (1 = rain/snow fog frames use the same batched wide copies as clear frames)", fogPipeV); }
+    return fogPipeV;
+}
 void G3G_SetFps60Pipe(int v) { pipeCfg = v != 0; PSPNativeMemLog("[FPS60] fps60_pipe=%d from settings", pipeCfg); }
 static int holdCfg = -1;
 static int fps60Hold(void) {
@@ -1312,7 +1318,16 @@ void G3G_End(u32 *outL, u32 *outR) {
         fogClr = clearRGBA & 255; for (int c = 0; c < 3; c++) { int v = (clearRGBA >> (24 - 8 * c)) & 255; v = (fc3[c] * f + v * (128 - f)) >> 7; fogClr |= (u32)v << (24 - 8 * c); } }
     int decalOn = 0;
     /* Separate wide targets can queue the copies together after either pass. */
-    const int pipe = wideFrame && direct && curHi == 0 && !depthLin && !fogFrame && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
+    /* 2026-11-25 (Nathan: rain at Lake of Rage, ambient snow on a route): fog frames (rain, snow, ambient weather) used to stay off the
+       pipe and took the legacy per-copy wide path (sync centre + strip copies, one list break each). Since the screen hand-off
+       (present_defer) and the pipe became the default, clear frames never use that path, and on hardware the weather frames
+       flickered: trees missing, a dark centre with normal sides, i.e. copies of a half-drawn target. Azahar shows nothing (its GPU is
+       instant). The GPU fog unit (fogFrame 1) only changes per-batch fog state inside each eye's pass, not the copies, so fog frames
+       now take the same batched copies as clear frames. The CPU stencil fog (fogFrame 2) is never direct, so it never reaches here.
+       Escape hatch without a menu row: fog_pipe=0 in config.txt restores the old path. */
+    const int fogPipeOk = !fogFrame || (fogFrame == 1 && fogPipeCfg());
+    const int pipe = wideFrame && direct && curHi == 0 && !depthLin && fogPipeOk && !sharedTgt && !r1xFrame && !G3G_Async && fps60Pipe();
+    if (fogFrame == 1 && wideFrame && direct) { static unsigned fpN; if (fpN++ % 1800 == 0) PSPNativeMemLog("[GPU3D] fog frame copies: %s (fog_pipe=%d, %u fog frames)", pipe ? "batched like clear frames" : "legacy per-copy path", fogPipeCfg(), fpN); }
     static unsigned pipeN, pipeKickSum, legacyKickSum;
     /* real wide strips: copy only the side strips (see stripConvert) */
     slimFrame = direct && wideFrame && curHi == 0 && !r1xFrame && !sharedTgt && slimAlloc();   /* falls back to the full readback without memory */

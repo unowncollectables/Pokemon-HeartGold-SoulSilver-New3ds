@@ -3,6 +3,14 @@
 Short on purpose. The old running notes (920 lines of per-run test results, 2026-10 to 2026-11-18) are kept in [docs/archive/HANDOFF-2026-11-18.md](docs/archive/HANDOFF-2026-11-18.md). Rules and file map: [AGENTS.md](AGENTS.md). What changed: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 
+
+## Weather flicker fix (2026-11-25, fog_pipe, unbuilt)
+
+- Symptom (Nathan, hardware only): in rain or snow (Lake of Rage rain, ambient snow on a route) the top screen flashed for a few frames: trees missing, or a dark centre with normal sides. Azahar with the same build and real ambient snow + fog showed nothing.
+- Cause (from the code; not yet seen fixed on hardware): fog frames were the only wide 60 fps frames kept off the batched copy path (`fps60_pipe`), so they used the old per-copy sync path that clear frames no longer use since present_defer. The flicker frames look like copies of a half-drawn target.
+- Fix: `g3gpu.c` lets GPU-fog frames (fogFrame 1) use the same batched copies as clear frames. Config-only escape hatch `fog_pipe=0`. Log: `[GPU3D] fog frame copies: batched like clear frames`.
+- If it still flickers in weather: the next suspect is the fog-start target rebuild (eye/scale targets re-made with ~1.1 MB VRAM left, `[3DRES]` lines).
+
 ## Slot 2 visual prototype (2026-11-22, hook 0294, unmerged)
 
 - Branch `cursor/slot2-visual-proto` off main `4d4d2cb`. Visual only: no CTRDG, no migrate logic, no `.sav` writes, no CIA, no PR, no merge.
