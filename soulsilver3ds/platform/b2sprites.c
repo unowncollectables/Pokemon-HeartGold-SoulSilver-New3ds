@@ -69,7 +69,7 @@ static void slotsFree(void);
 /* per battler speed for the Black 2 feel (hook 0300, below); speed4: 4 normal, 6 yellow, 8 red, 0 stopped */
 typedef struct { u16 narc, chr, pal; u8 speed4, used; } BState;
 static BState bstate[4];
-typedef struct { void *ms, *spr; int slot; u8 want, used; } B2Copy; /* move-effect copies, see the end of the file */
+typedef struct { void *ms, *spr; int slot; u8 want, used, fx; } B2Copy; /* move-effect copies, see the end of the file */
 static B2Copy b2Copies[8];
 
 /* ---- per battle latch ---- */
@@ -207,6 +207,7 @@ static void fitBox(unsigned w, unsigned h, int ox, int oy, int height, int *s256
 /* ---- Black 2 battle feel (hook 0300): Battle_Run reports each battler's picture, HP and status every frame. Like Black 2
    the loop slows in the yellow (x1.5) and red (x2) HP range and stops while the Pokemon is asleep or frozen. ---- */
 static void b2CopiesTick(void);
+static int slotFx(int slot);
 void SS3DS_B2BattleMon(int battler, int narc, int chr, int pal, int hp, int maxHp, unsigned status) {
     if ((unsigned)battler >= 4) return;
     if (battler == 0) b2CopiesTick();
@@ -233,6 +234,7 @@ typedef struct { int texOff, sizeS, sizeT, w, h, ox, oy, height, scale256, pltt;
 int SS3DS_B2Pic(int slot, int narc, int chr, int pal, const u16 *livePltt, SS3DSB2Pic *o) {
     const Note *n;
     if (!slotFor(slot, narc, chr, pal, &n) || !slots[slot].palOk) return 0;
+    if (P3DS_InBattle && slotFx(slot)) return 0; /* stat change / level up: the game's own still picture, matching its effect copies */
     Slot *s = &slots[slot];
     const u64 now = svcGetSystemTick();
     u64 dt = now - s->lastT;
@@ -424,7 +426,7 @@ void __wrap_PaletteData_LoadNarc(void *data, int narcId, int memberNo, int heapI
     B2Copy *c = NULL;
     for (int i = 0; i < 8; i++) if (!b2Copies[i].used) { c = &b2Copies[i]; break; }
     if (!c) return;
-    *c = (B2Copy){ ms, spr, slot, (u8)(Sprite_GetDrawFlag(spr) != 0), 1 };
+    *c = (B2Copy){ ms, spr, slot, (u8)(Sprite_GetDrawFlag(spr) != 0), 1, 0 };
     __real_Sprite_SetDrawFlag(spr, 0);
     static unsigned n; if (n++ < 6) PSPNativeMemLog("[B2] move effect copy of slot %d hidden while its Black 2 sprite shows", slot);
 }
@@ -442,6 +444,29 @@ extern void __real_Sprite_Delete(void *sprite);
 void __wrap_Sprite_Delete(void *sprite) {
     for (int i = 0; i < 8; i++) if (b2Copies[i].used && b2Copies[i].spr == sprite) b2Copies[i].used = 0;
     __real_Sprite_Delete(sprite);
+}
+/* Stat changes, Intimidate, level up... (2026-11-25, Nathan: "level up and getting intimidated no longer show the effect"):
+   those effects turn one copy into an OBJ window (the arrow pattern shows only inside the Pokemon's shape) and show the other
+   copy in place of the 3D Pokemon. While a copy of a battler has such a special OAM mode, that battler is drawn as the game's
+   own still picture (exactly the copies' picture) and its copies follow the game, so the effect looks as on the DS. */
+static int slotFx(int slot) {
+    for (int i = 0; i < 8; i++) if (b2Copies[i].used && b2Copies[i].slot == slot && b2Copies[i].fx && b2Copies[i].want) return 1;
+    return 0;
+}
+extern void __real_Sprite_SetOamMode(void *sprite, int mode);
+void __wrap_Sprite_SetOamMode(void *sprite, int mode) {
+    __real_Sprite_SetOamMode(sprite, mode);
+    for (int i = 0; i < 8; i++) {
+        B2Copy *c = &b2Copies[i];
+        if (!c->used || c->spr != sprite) continue;
+        c->fx = mode == 2; /* GX_OAM_MODE_OBJWND: the copy is the shape the effect shows through */
+        if (c->fx) {
+            slots[c->slot].drawnF = 0; /* from now on the 3D shows the still picture; show this battler's copies as the game wants */
+            for (int j = 0; j < 8; j++) if (b2Copies[j].used && b2Copies[j].slot == c->slot) __real_Sprite_SetDrawFlag(b2Copies[j].spr, b2Copies[j].want);
+            static unsigned n; if (n++ < 6) PSPNativeMemLog("[B2] slot %d: stat/level effect, still picture while it plays", c->slot);
+        }
+        break;
+    }
 }
 /* every battle frame (hook 0300, battler 0): a copy the game wants shown appears only while its battler's sprite is not drawn */
 static void b2CopiesTick(void) {
