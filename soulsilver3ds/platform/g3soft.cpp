@@ -215,8 +215,9 @@ extern "C" { unsigned long long P3DS_SpkGetTexTicks; }
 static unsigned g3FrameNo;static Tex*usedTex[96];static unsigned usedN,postFixes;
 static int postVblCfg(){static int v=-1;if(v<0){v=1;FILE*f=fopen("sdmc:/3ds/soulsilver3ds/config.txt","r");char l[64];int x;if(f){while(fgets(l,sizeof l,f))if(sscanf(l,"tex_postvblank=%d",&x)==1)v=x!=0;fclose(f);}PSPNativeMemLog("[G3] tex_postvblank=%d",v);}return v;}
 extern "C" int P3DS_CfgInt(const char*,int);
+static Tex b2Tex[4]; /* ss3ds 0298 Black 2 battle sprites, see b2Lookup */
 static Tex folTex[8*8]; /* run 73: slot 0 follower, slots 1..6 visible wild Pokemon (ss3ds 0110: 6 at once; 8 frames each), 7 = ambient flyer (0217) */
-static Tex*GetTexture(){u64 t=svcGetSystemTick();Tex*r=GetTextureImpl();if(r&&(r<folTex||r>=folTex+8*8)&&r->useF!=g3FrameNo+1){r->useF=g3FrameNo+1;if(usedN<96)usedTex[usedN++]=r;}u64 d=svcGetSystemTick()-t;prTex+=d;P3DS_SpkGetTexTicks+=d;return r;}
+static Tex*GetTexture(){u64 t=svcGetSystemTick();Tex*r=GetTextureImpl();if(r&&(r<folTex||r>=folTex+8*8)&&(r<b2Tex||r>=b2Tex+4)&&r->useF!=g3FrameNo+1){r->useF=g3FrameNo+1;if(usedN<96)usedTex[usedN++]=r;}u64 d=svcGetSystemTick()-t;prTex+=d;P3DS_SpkGetTexTicks+=d;return r;}
 /* Decode into an explicit pixel buffer. front_ov prep uses a side buffer so t->px is never rewritten while the
    worker may still CRC/sample the submit-time image (a61df82: 71 texCrc mismatches with in-place DecodeTex). */
 static bool DecodeTexTo(Tex*e,u32*o){if(!e||!o)return false;const unsigned fmt=e->fmt,w=e->w,h=e->h;
@@ -294,8 +295,18 @@ extern "C" void P3DS_WildFree(int sl){
  folCurS[sl]=-1;
 }
 static inline Tex*folLookup(const G3SIM_TexImageParam_t&p){if(p.textureOffset>0x7FFF8||p.textureOffset<0x7FFC0||p.textureFormat!=3||(s_texPlttBase&~0x70u)!=0x1FF00)return nullptr;Tex*t=&folTex[((0x7FFF8-p.textureOffset)/8)*8+((s_texPlttBase>>4)&7)];return t->px?t:nullptr;}
+/* ss3ds 0298 Black 2 battle sprites (b2sprites.c): one port-side texture per battler slot. The game hook draws them with
+   format 3, offset 0x7FF80 + 8 * slot and palette base 0x1FE80, a pair no real texture uses. */
+static inline Tex*b2Lookup(const G3SIM_TexImageParam_t&p){if(p.textureFormat!=3||s_texPlttBase!=0x1FE80u||p.textureOffset<0x7FF80||p.textureOffset>0x7FF98||(p.textureOffset&7))return nullptr;Tex*t=&b2Tex[(p.textureOffset-0x7FF80)/8];return t->px?t:nullptr;}
+extern "C" u32*P3DS_B2TexPixels(int slot,unsigned w,unsigned h){
+ if(slot<0||slot>3||w<8||h<8||w>256||h>256)return nullptr;
+ gtDrainIfBusy(3); /* the worker may still read last frame's pixels */
+ Tex&t=b2Tex[slot];if(!t.px||t.w!=w||t.h!=h){free(t.px);t.px=(u32*)malloc(w*h*4);if(!t.px)return nullptr;}
+ texFree(t.gt);t.gt=nullptr;t.off=0x7FF80+slot*8;t.pal=0x1FE80;t.fmt=3;t.w=w;t.h=h;t.c0=1;t.gen=0;t.raw=nullptr;t.rawN=0;return t.px;}
+extern "C" void P3DS_B2TexFree(int slot){if(slot<0||slot>3)return;gtDrainIfBusy(3);Tex&t=b2Tex[slot];texFree(t.gt);t.gt=nullptr;free(t.px);t.px=nullptr;}
 static Tex*GetTextureImpl(){
  const auto&p=s_texImageParam;unsigned fmt=p.textureFormat;if(!fmt)return nullptr;
+ if(p.textureOffset>=0x7FF80&&p.textureOffset<=0x7FF98){Tex*bt=b2Lookup(p);if(bt)return bt;}
  /* 2026-11-07: only a live follower/wild/flyer slot (format 3, its palette base, pixels loaded) takes this branch. #357 widened it to 0x7FFC0 and
     returned folLookup's nullptr for any other texture there: a real texture at the very top of texture VRAM (the battle grass / shiny sparkle
     8x8 at 0x7FFC0) then drew untextured, a big flat box in the wild battle intro and no shiny effect. Everything else uses the normal cache. */

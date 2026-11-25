@@ -493,6 +493,8 @@ static const struct { const char *key; int def; } kCfgDefaults[] = {
     { "mobile_pc", 0 }, { "mobile_pc_dev", 0 },
     /* 2026-11-22 visual Slot 2 prototype: must stay OFF when the key is absent. */
     { "slot2", 0 },
+    /* 2026-11-25 Black 2 battle sprites (hook 0298, b2sprites.c): must stay OFF when the key is absent. */
+    { "b2_sprites", 0 },
 };
 /* The default a missing key gets: this table if it lists the key, else the caller's `def`. logring.c reports with it, so the two cannot drift. */
 int P3DS_CfgDefault(const char *key, int def) { for (unsigned i = 0; i < sizeof kCfgDefaults / sizeof kCfgDefaults[0]; i++) if (!strcmp(key, kCfgDefaults[i].key)) return kCfgDefaults[i].def; return def; }
