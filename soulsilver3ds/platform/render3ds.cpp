@@ -1761,7 +1761,7 @@ static const SAppTab kTabs[kTotalTabs]={
      {104,"Shiny odds","Wild shiny chance: 1/8192 is the real game, lower numbers are easier."},
      {123,"Hunt stats (ZR)","ZR (back trigger) in the overworld opens a read-only hunt page: totals per species, timeline, best streaks. Needs the shiny suite or hunt counter."},
      {100,"Only visible battle","No random encounters while visible Pokemon are on: only walked-into ones."},
-     {kB2Item,"Black 2 sprites","Every Pokemon in battle uses its animated Black 2 / White 2 sprite. Needs b2sprites.bin from the builder. Starts with the next battle. Default OFF."}}},
+     {kB2Item,"Black 2 sprites","Every Pokemon uses its animated Black 2 / White 2 sprite, in battle and on the summary and other big pictures. Needs b2sprites.bin (builder: tick Black 2 sprites). Battles switch at the next battle. Default OFF."}}},
  {11,{{23,"Reusable TMs","TMs are not used up when you teach a move."},
      {50,"Field moves w/o HM","Field moves like Cut and Surf work without a Pokemon that knows them."},
      {25,"Repel prompt","When a Repel runs out, asks if you want to use another."},
