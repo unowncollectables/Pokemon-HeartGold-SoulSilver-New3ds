@@ -1,3 +1,60 @@
+diff --git a/source/anima_backend.c b/source/anima_backend.c
+index 822a7b6..f5f4cf2 100644
+--- a/source/anima_backend.c
++++ b/source/anima_backend.c
+@@ -1,3 +1,4 @@
++#include <stdlib.h>
+ #include "anima_backend.h"
+ #include "common.h"
+ #include "file_util.h"
+@@ -378,6 +379,19 @@ static int ExtractDecodedPokemonRole(
+     size_t *out_size
+ )
+ {
++    if (getenv("ANIMA_FEMALE")) {
++        PokemonMemberRole fr = role;
++        if (role == ROLE_FRONT_SHEET) fr = ROLE_FRONT_SHEET_EMPTY;
++        else if (role == ROLE_BACK_SHEET) fr = ROLE_BACK_SHEET_EMPTY;
++        else if (role == ROLE_FRONT_STATIC) fr = ROLE_FRONT_STATIC_EMPTY;
++        else if (role == ROLE_BACK_STATIC) fr = ROLE_BACK_STATIC_EMPTY;
++        if (fr != role) {
++            NarcMemberRange rg;
++            int blk = AnimaBackend_GetFormBlockIndex(species, 0);
++            if (Narc_GetMemberRange(narc, blk * 20 + (int)fr, &rg) == 0 && rg.size > 0)
++                return ExtractDecodedPokemonRoleExt(narc, species, fr, NULL, out_data, out_size);
++        }
++    }
+     return ExtractDecodedPokemonRoleExt(narc, species, role, NULL, out_data, out_size);
+ }
+ 
+@@ -473,6 +487,14 @@ static int WritePokemonBlockMembers(
+         return -1;
+     }
+ 
++    if (getenv("ANIMA_FEMALE")) { /* b2sprites: only species/forms with their own female art */
++        NarcMemberRange fr_front, fr_back;
++        if ((Narc_GetMemberRange(narc, base + 3, &fr_front) != 0 || fr_front.size == 0) &&
++            (Narc_GetMemberRange(narc, base + 12, &fr_back) != 0 || fr_back.size == 0)) {
++            return -1;
++        }
++    }
++
+     memset(exports, 0, sizeof(exports));
+ 
+     printf("Extracting Pokemon block:\n");
+@@ -560,6 +582,12 @@ static int WritePokemonBlockMembers(
+             return -1;
+         }
+ 
++        if (getenv("ANIMA_FEMALE") && (i == 3 || i == 12) && decoded_size > 0) {
++            char male_path[PATH_BUFFER_SIZE];
++            snprintf(male_path, sizeof(male_path), "%s/%s.ncgr", nds_dir, i == 3 ? "front_sheet" : "back_sheet");
++            File_WriteAll(male_path, decoded_data, decoded_size);
++        }
++
+         Nitro_GetPrintableMagic(decoded_data, decoded_size, decoded_magic);
+ 
+         printf(
 diff --git a/source/gif_pipeline.c b/source/gif_pipeline.c
 index a7493f0..11c2175 100644
 --- a/source/gif_pipeline.c

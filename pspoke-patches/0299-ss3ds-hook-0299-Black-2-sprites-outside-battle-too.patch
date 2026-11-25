@@ -1,0 +1,50 @@
+From c5c9ad4db5fc03a17f0471c398da95918e60a1a8 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 25 Nov 2026 04:45:40 +0000
+Subject: [PATCH] ss3ds: hook 0299 Black 2 sprites outside battle too
+
+---
+ scripts/ss3ds_hooks.d/0299_b2everywhere.py | 19 +++++++++++++++++++
+ scripts/ss3ds_hooks.d/0299_b2everywhere.sh |  4 ++++
+ 2 files changed, 23 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0299_b2everywhere.py
+ create mode 100644 scripts/ss3ds_hooks.d/0299_b2everywhere.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0299_b2everywhere.py b/scripts/ss3ds_hooks.d/0299_b2everywhere.py
+new file mode 100755
+index 0000000..f1a910d
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0299_b2everywhere.py
+@@ -0,0 +1,19 @@
++#!/usr/bin/env python3
++"""ss3ds 0299: Black 2 sprites outside battle too (summary, Hall of Fame, starter pick, ...), same toggle as 0298.
++
++0298 only noted sprite templates in battle (P3DS_InBattle). This drops that check, so every Pokemon picture the game
++builds through GetMonSpriteCharAndPlttNarcIdsEx is noted; the platform (b2sprites.c) decides per call whether the toggle
++and pack allow it, and outside battle fits the Black 2 frame into the game's own 80x80 picture box.
++Read-only of game state; never touches the save. Idempotent ('SS3DS 0299').
++"""
++import sys
++
++path = sys.argv[1] if len(sys.argv) > 1 else 'src/pokemon.c'
++s = open(path).read()
++if 'SS3DS 0299' in s:
++    sys.exit(0)
++old = '        if (P3DS_InBattle && SS3DS_B2Want()) {\n'
++new = '        if (SS3DS_B2Want()) { /* SS3DS 0299: battle and every other Pokemon picture */\n'
++if s.count(old) != 1:
++    sys.exit('0299_b2everywhere: 0298 note anchor not found exactly once in %s (is hook 0298 applied?)' % path)
++open(path, 'w').write(s.replace(old, new, 1))
+diff --git a/scripts/ss3ds_hooks.d/0299_b2everywhere.sh b/scripts/ss3ds_hooks.d/0299_b2everywhere.sh
+new file mode 100644
+index 0000000..06a43bd
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0299_b2everywhere.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0299: Black 2 sprites outside battle too (same toggle as 0298). Not fatal: without it they stay battle-only.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0299_b2everywhere.py" && bash rebuild_game_object.sh src/pokemon.c pokemon.o none); then
++  log "ss3ds 0299 B2 sprites outside battle skipped (see message above); Black 2 sprites stay in battle only"
++fi
+-- 
+2.43.0
+

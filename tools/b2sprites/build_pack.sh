@@ -16,18 +16,22 @@ if [ ! -x "$WORK/ae/AnimaEngine" ]; then
   make -s -C "$WORK/ae" AnimaEngine >/dev/null 2>&1 || make -C "$WORK/ae" AnimaEngine
 fi
 AE="$WORK/ae/AnimaEngine"; EXP="$WORK/export"; rm -rf "$EXP"; mkdir -p "$EXP"
-# Female-only art is not exported yet (AnimaEngine's batch export ignores --gender), so both genders use one sprite.
+# Female art: the patched AnimaEngine (ANIMA_FEMALE=1) swaps in the female sheets and skips species/forms that have none;
+# b2pack.py also drops a female entry identical to the male one, and the game falls back to the male sprite.
 # Gen 4 species with forms in Black 2 / White 2 (form index = the game's own form number).
 declare -A FORMS=([201]=28 [351]=4 [386]=4 [412]=3 [413]=3 [422]=2 [423]=2 [421]=2 [479]=6 [487]=2 [492]=2 [493]=17)
 one() { # species form gender
-  local d="$EXP/$(printf '%03d_%02d_%d' "$1" "$2" "$3")"
-  local g=(); [ "$3" = 1 ] && g=(--gender 1)
-  ANIMA_RAW_DUMP=1 "$AE" "$ROM" "$1" "$d" --gif-side both --gif-palette normal --gif-scale 1 --form "$2" "${g[@]}" >/dev/null 2>&1 || { echo "b2pack: species $1 form $2 gender $3 failed (skipped)"; rm -rf "$d"; return 0; }
+  local d="$EXP/$(printf '%03d_%02d_%d' "$1" "$2" "$3")" fem=()
+  [ "$3" = 1 ] && fem=(env ANIMA_FEMALE=1)
+  if ! ANIMA_RAW_DUMP=1 "${fem[@]}" "$AE" "$ROM" "$1" "$d" --gif-side both --gif-palette normal --gif-scale 1 --form "$2" >/dev/null 2>&1; then
+    [ "$3" = 1 ] || echo "b2pack: species $1 form $2 failed (skipped)"
+    rm -rf "$d"; return 0
+  fi
   find "$d" -type f ! -name '*.raw' ! -name palettes.json -delete
 }
 for sp in $(seq 1 493); do
   n=${FORMS[$sp]:-1}
-  for f in $(seq 0 $((n - 1))); do one "$sp" "$f" 0; done
+  for f in $(seq 0 $((n - 1))); do one "$sp" "$f" 0; one "$sp" "$f" 1; done
   [ $((sp % 50)) = 0 ] && echo "b2pack: $sp / 493"
 done
 python3 "$HERE/b2pack.py" "$EXP" "$OUT"
