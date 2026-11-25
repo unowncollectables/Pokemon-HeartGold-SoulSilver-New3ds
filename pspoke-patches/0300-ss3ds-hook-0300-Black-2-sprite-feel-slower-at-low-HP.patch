@@ -1,0 +1,67 @@
+From 2453f6571da1460e9ae2c490203e5e6ef242e211 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Wed, 25 Nov 2026 05:17:30 +0000
+Subject: [PATCH] ss3ds: hook 0300 Black 2 sprite feel slower at low HP still
+ when asleep
+
+---
+ scripts/ss3ds_hooks.d/0300_b2feel.py | 35 ++++++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0300_b2feel.sh |  4 ++++
+ 2 files changed, 39 insertions(+)
+ create mode 100644 scripts/ss3ds_hooks.d/0300_b2feel.py
+ create mode 100644 scripts/ss3ds_hooks.d/0300_b2feel.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0300_b2feel.py b/scripts/ss3ds_hooks.d/0300_b2feel.py
+new file mode 100644
+index 0000000..bae9841
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0300_b2feel.py
+@@ -0,0 +1,35 @@
++#!/usr/bin/env python3
++"""ss3ds 0300: Black 2 sprite feel. Every battle frame (Battle_Run, BSTATE_BATTLE_MAIN) tells the platform
++(b2sprites.c SS3DS_B2BattleMon) each battler's picture template, HP and status, read-only. With Black 2 sprites on, the
++animation loop then slows in the yellow / red HP range and stops while the Pokemon is asleep or frozen, like Black 2.
++Idempotent ('SS3DS 0300')."""
++import sys
++p = 'src/battle/battle_022378C0.c'
++s = open(p).read()
++if 'SS3DS 0300' in s:
++    sys.exit(0)
++old = '    case BSTATE_BATTLE_MAIN:\n        if (ov12_02238358(man) == TRUE) {\n'
++if s.count(old) != 1:
++    sys.exit('0300_b2feel: BSTATE_BATTLE_MAIN not found exactly once')
++new = ('    case BSTATE_BATTLE_MAIN:\n'
++ '        { /* SS3DS 0300 Black 2 sprite feel: each battler\'s picture, HP and status for the platform (read-only) */\n'
++ '            extern void SS3DS_B2BattleMon(int battler, int narc, int chr, int pal, int hp, int maxHp, unsigned status);\n'
++ '            BattleSystem *ss3dsBs = OverlayManager_GetData(man);\n'
++ '            if (ss3dsBs != NULL && ss3dsBs->ctx != NULL) {\n'
++ '                int ss3dsI, ss3dsN = BattleSystem_GetMaxBattlers(ss3dsBs);\n'
++ '                for (ss3dsI = 0; ss3dsI < ss3dsN && ss3dsI < 4; ss3dsI++) {\n'
++ '                    OpponentData *ss3dsOd = ss3dsBs->opponentData[ss3dsI];\n'
++ '                    Pokepic *ss3dsP = ss3dsOd != NULL ? ss3dsOd->pokepic : NULL;\n'
++ '                    BattleMon *ss3dsM = &ss3dsBs->ctx->battleMons[ss3dsI];\n'
++ '                    if (ss3dsP != NULL && ss3dsP->active) {\n'
++ '                        SS3DS_B2BattleMon(ss3dsI, ss3dsP->template.narcID, ss3dsP->template.charDataID, ss3dsP->template.palDataID, ss3dsM->hp, (int)ss3dsM->maxHp, ss3dsM->status);\n'
++ '                    }\n'
++ '                }\n'
++ '            }\n'
++ '        }\n'
++ '        if (ov12_02238358(man) == TRUE) {\n')
++s = s.replace(old, new)
++if '#include "pokepic.h"' not in s:
++    s = s.replace('#include "battle/battle_system.h"\n', '#include "battle/battle_system.h"\n#include "pokepic.h"\n', 1)
++open(p, 'w').write(s)
++print('0300_b2feel: battle_022378C0.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0300_b2feel.sh b/scripts/ss3ds_hooks.d/0300_b2feel.sh
+new file mode 100644
+index 0000000..03e8db9
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0300_b2feel.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0300: Black 2 sprite feel (slower at low HP, still while asleep/frozen). Not fatal: without it the loop keeps one speed.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0300_b2feel.py" && bash rebuild_game_object.sh src/battle/battle_022378C0.c battle__battle_022378C0.o 12); then
++  log "ss3ds 0300 B2 sprite feel skipped (see message above); Black 2 sprites keep one speed"
++fi
+-- 
+2.43.0
+
