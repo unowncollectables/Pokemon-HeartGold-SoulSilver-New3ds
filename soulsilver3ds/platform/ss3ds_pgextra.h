@@ -629,7 +629,8 @@ static bool pxSortTap(int x, int y) {
 
 /* ---- incoming call banner (hook 0125 publishes whether the Pokegear is ringing). Tapping it = the POKEGEAR button: the game's
    Pokegear opens on the phone and answers (FieldSystem_InitPokegearArgs_Phone). Drawn over any pane, bottom of the panel. ---- */
-enum { kPxRingX0 = kBlPanX0 + 2, kPxRingX1 = kBlPanX1 - 2, kPxRingY0 = kBlPanY1 - 21, kPxRingY1 = kBlPanY1 - 2 };
+enum { kPxRingX0 = kBlPanX0 + 2, kPxRingY0 = kBlPanY1 - 21, kPxRingY1 = kBlPanY1 - 2 };
+#define kPxRingX1 (kBlPanX1 - 2) /* follows the panel when the side column is slid away */
 /* run 118: GearPhoneRingManager_IsRinging can flap between ring beeps; hold the banner ~20 quiet frames so it does not flicker off */
 static int pxRingHold, pxRingVal;
 static int pxRingShown() { return pxOn() ? pxRingVal : 0; }

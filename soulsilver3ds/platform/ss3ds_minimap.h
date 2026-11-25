@@ -122,7 +122,19 @@ static void mmDrawPanel(uint32_t *b, const SUiText &T, const SMm &m, int mode, b
    item squares) redrawn for SoulSilver in silver and Johto blue. Layout and palette only; no code or art is copied, the
    icons below are drawn here (10x10, '#' = ink, '+' = accent, '.' = light). Map: the explored-cell world map from hook 0080
    (procedural, not the Pokegear art). Buttons 0..6 = the same actions as layout 0's tiles, 7 = map mode, 8 = Y item. */
-static const int kBlPanX0 = 3, kBlPanY0 = 3, kBlPanX1 = 187, kBlPanY1 = 189, kBlColX0 = 190, kBlColX1 = 253;
+static const int kBlPanX0 = 3, kBlPanY0 = 3, kBlPanY1 = 189, kBlColX0 = 190, kBlColX1 = 253;
+/* 2026-11-25 collapsible panels (Nathan: "the bottom screen is too cluttered"): a thin handle strip between the panel and the
+   button column. Its middle slides the column off to the right (the panel widens by kBlSideShift DS px, the strip stays at the
+   screen edge); its top rolls the tab row up (the panel moves up). render3ds.cpp owns the state, the slide and the settings row:
+   these two are the LAYOUT values (0 = classic), set before the overlay is painted. Only with the native column (gBlHd). */
+enum { kBlSideShift = 56, kBlSideShiftN = 70 /* native px: 56 x 5/4 */, kBlTopGrabY = 24 /* DS rows of the strip that work the tab row */ };
+static int gBlSideHid, gBlTopHid;
+enum { kBlTopSlideN = 26 /* native rows the tab row rolls up by (it ends at native y 23) */ };
+static int gBlSideN, gBlTopN; /* this frame's slide: native px the column is pushed right (0..kBlSideShiftN), rows the tabs are pushed up */
+#define kBlPanX1 (187 + (gBlSideHid ? (int)kBlSideShift : 0))
+/* DS x range of the handle strip (the gap left of the column, plus a few px of the panel's right edge so a finger finds it) */
+static inline int blGrabX0() { return kBlPanX1 - 4; }
+static inline int blGrabX1() { return kBlPanX1 + 13; }
 /* run 18: bottom_hd=1 draws GabeSud0's column geometry at native 320x240 (ss3ds_blnative.h); touch follows it (native x 4/5) */
 static int gBlHd;
 enum { kBlItem1 = 8, kBlRun = 9, kBlItem2 = 10, kBlButtonCount = 11, kBlItem2Hit = 12, kBlItemIconSize = 20 };
@@ -148,14 +160,21 @@ static inline void blRect(int i, int *x0, int *y0, int *x1, int *y1) {
     *y1 = i == kBlItem1 ? 169 : 189;
   }
 }
-/* 10 = map panel, 11 = tabs, 12 = second registered item. */
+/* 10 = map panel, 11 = tabs, 12 = second registered item, 13 = the collapsible-panel handle strip (only with gBlGrabOn). */
+static int gBlGrabOn; /* render3ds.cpp: the handles are shown this frame (setting on, native column, not forced open) */
+static inline int blTopCut();
 static inline int blHit(int x, int y) {
+  if (gBlGrabOn && x >= blGrabX0() && x < blGrabX1() && y >= 0 && y < 192) return 13;
+  if (gBlSideHid) { /* the column is off screen: only the panel (and the tab row) answer */
+    const int cut = blTopCut();
+    if (!gBlTopHid && x >= kBlPanX0 && x < kBlPanX1 && y >= kBlPanY0 && y < kBlPanY0 + 16) return 11;
+    return x >= kBlPanX0 && x < kBlPanX1 && y >= kBlPanY0 + 16 - cut && y < kBlPanY1 ? 10 : -1; }
   for (int i = 0; i < kBlButtonCount; i++) {
     int a, b, c, d; blRect(i, &a, &b, &c, &d);
     if (x >= a && x < c && y >= b && y < d) return i == kBlItem2 ? kBlItem2Hit : i;
   }
-  if (x >= kBlPanX0 && x < kBlPanX1 && y >= kBlPanY0 && y < kBlPanY0 + 16) return 11; /* the tab bar (ss3ds_pgextra.h; ignored when pg_extras is off) */
-  return x >= kBlPanX0 && x < kBlPanX1 && y >= kBlPanY0 + 16 && y < kBlPanY1 ? 10 : -1; }
+  if (!gBlTopHid && x >= kBlPanX0 && x < kBlPanX1 && y >= kBlPanY0 && y < kBlPanY0 + 16) return 11; /* the tab bar (ss3ds_pgextra.h; ignored when pg_extras is off) */
+  return x >= kBlPanX0 && x < kBlPanX1 && y >= kBlPanY0 + 16 - blTopCut() && y < kBlPanY1 ? 10 : -1; }
 /* run 10: 12x12 icons, 1-px dark outline, solid fills ('#' ink, '+' accent, 'o' white), drawn 1:1 (no scaling in this code) */
 static const char *const kBlIcon[13][12] = {
   { ".##########.", "#++++++++++#", "#+oooooooo+#", "#+o######o+#", "#+o#oooo#o+#", "#+o######o+#", "#+oooooooo+#", "#+o##o##oo+#", "#+oooooooo+#", "#++++++++++#", ".##########.", "............" }, /* dex */
@@ -229,24 +248,31 @@ static bool pxOn(); static inline int pxPane(); static void pxNameStrip(uint32_t
 /* run 142: on the MAP pane the area name has its own full-width strip under the tab row, and the map panel starts below it */
 enum { kBlNameH = 12 };
 static inline int blNameH() { return pxOn() && pxPane() == 0 ? kBlNameH : 0; }
+/* rows the panel moves up while the tab row is rolled up: the MAP pane's name strip takes the tab row's place (top at kBlPanY0),
+   any other pane's top rim does */
+static inline int blTopCut() { return gBlTopHid ? (blNameH() ? 15 : 17) : 0; }
 /* mode -1 = the Pokegear map (run 10), 0..2 = bottom_map views */
 static void blDraw(uint32_t *b, const SUiText &T, const SMm &m, int mode, bool blink, const char *const *labels, const char *const *alts, const bool *on, int press) {
+  /* collapsible panels: right of the panel is the handle strip / column, both drawn natively over this; with the column slid away
+     the area it uncovers while it slides back in is the frame grey, not the column teal */
+  const int colX = gBlSideHid ? kBlPanX1 + 1 : kBlColX0 - 1, cut = blTopCut();
   for (int y = 0; y < 192; ++y) {
     uint32_t *row = b + y * 256;
-    std::fill(row, row + kBlColX0 - 1, suiMix(kBlBg0, kBlBg1, y, 191));
-    std::fill(row + kBlColX0 - 1, row + 256, SUI_RGB(77, 100, 114));
+    std::fill(row, row + colX, suiMix(kBlBg0, kBlBg1, y, 191));
+    std::fill(row + colX, row + 256, gBlGrabOn ? suiMix(kBlBg0, kBlBg1, y, 191) : SUI_RGB(77, 100, 114));
   }
   /* location bar on top of the map panel */
   /* run 147: with the tabs on, the row has no silver backing bar (it made silver buttons sit in a silver box); the tabs float on the screen background like the side column's buttons */
-  if (!pxOn()) { for (int y = kBlPanY0; y < kBlPanY0 + 16; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - kBlPanY0, 16); suiFill(b, kBlPanX0, y, kBlPanX1, y + 1, c); }
+  if (!pxOn() && !gBlTopHid) { for (int y = kBlPanY0; y < kBlPanY0 + 16; y++) { const uint32_t c = suiMix(kBlSilverHi, kBlSilverLo, y - kBlPanY0, 16); suiFill(b, kBlPanX0, y, kBlPanX1, y + 1, c); }
   mmFrame(b, kBlPanX0, kBlPanY0, kBlPanX1, kBlPanY0 + 16, kBlNavy); }
   /* 2026-11-18 speed: with the native column/tabs on (gBlHd) their DS-size copies are hidden under the overlay, so they are not painted:
      a repaint (tab swap, scroll, pan) skips 11 buttons and 6 tabs of text and icons */
-  if (pxOn()) { if (!gBlHd) pxBar(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING..."); } else suiSDraw(T, b, kBlPanX0 + 5, kBlPanY0 + 2, m.have ? m.name : "LOCATING...", kBlNavy, kBlSilverHi);
-  const int nh = blNameH(); if (nh) pxNameStrip(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING...");
-  if (mode < 0 && pxPaneDraw(b, T, kBlPanX0, kBlPanY0 + 17, kBlPanX1, kBlPanY1)) {}
-  else if (mode >= 0 || !blPgDraw(b, T, kBlPanX0, kBlPanY0 + 15 + nh, kBlPanX1, kBlPanY1, blink)) /* panel rim shares the tab bar's (or name strip's) bottom row (no gap, no double border) */ mmDrawPanel(b, T, m, mode < 0 ? kMmWorld : mode, blink, kBlPanX0, kBlPanY0 + 17 + nh, kBlPanX1, kBlPanY1);
-  if (mode < 0 && pxPane() == 0) ctCardDraw(b, T, kBlPanX0, kBlPanY0 + 17 + nh, kBlPanX1);
+  if (gBlTopHid) {} /* tab row rolled up: nothing drawn there, the panel moves up (cut) */
+  else if (pxOn()) { if (!gBlHd) pxBar(b, T, kBlPanX0, kBlPanY0, kBlPanX1, m.have ? m.name : "LOCATING..."); } else suiSDraw(T, b, kBlPanX0 + 5, kBlPanY0 + 2, m.have ? m.name : "LOCATING...", kBlNavy, kBlSilverHi);
+  const int nh = blNameH(); if (nh) pxNameStrip(b, T, kBlPanX0, kBlPanY0 - cut, kBlPanX1, m.have ? m.name : "LOCATING...");
+  if (mode < 0 && pxPaneDraw(b, T, kBlPanX0, kBlPanY0 + 17 - cut, kBlPanX1, kBlPanY1)) {}
+  else if (mode >= 0 || !blPgDraw(b, T, kBlPanX0, kBlPanY0 + 15 + nh - cut, kBlPanX1, kBlPanY1, blink)) /* panel rim shares the tab bar's (or name strip's) bottom row (no gap, no double border) */ mmDrawPanel(b, T, m, mode < 0 ? kMmWorld : mode, blink, kBlPanX0, kBlPanY0 + 17 + nh - cut, kBlPanX1, kBlPanY1);
+  if (mode < 0 && pxPane() == 0) ctCardDraw(b, T, kBlPanX0, kBlPanY0 + 17 + nh - cut, kBlPanX1);
   if (mode < 0) pxRingDraw(b, T, blink);
   if (!gBlHd) for (int i = 0; i < kBlButtonCount; i++) blButton(b, T, i, labels[i], alts[i], on[i], press == i);
 }
