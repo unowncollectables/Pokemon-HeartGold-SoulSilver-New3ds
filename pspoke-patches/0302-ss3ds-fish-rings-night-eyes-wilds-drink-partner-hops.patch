@@ -1,0 +1,293 @@
+From 6e10b7634a05113b5e9b062c85e042f92806f761 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 16:40:48 +0000
+Subject: [PATCH] ss3ds: fish rings, eyes in the night grass, wilds drink,
+ partner hops (0302)
+
+Hook 0110 block, same Alive wild Pokemon gate, no new toggle, nothing saved:
+- Now and then rings spread on a water tile near the player where a fish is (fewer in the rain).
+- At night a pair of yellow eyes blinks in a tall-grass tile 3+ tiles away, and ducks down if the player comes close.
+- An unaware land wild next to water sometimes faces it and stops to drink, with small rings where it sips.
+- The walking partner does two little hops (its sprite draw shift, restored exactly afterwards, and at once when a
+  script, menu or map change starts) when a wild of its own species comes over or a shiny appears.
+Logs: "eyes in the grass", "stops for a drink", "your partner hops with joy".
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 185 +++++++++++++++++++++++++-
+ 1 file changed, 184 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 7b3783b..c9c0a8d 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v27 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284/0288/0301: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v27 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284/0288/0301/0302: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -565,6 +565,8 @@ extern LocalMapObject *FollowMon_GetMapObject(FieldSystem *fieldSystem);
+ extern BOOL FollowMon_IsVisible(FieldSystem *fieldSystem);
+ extern int FollowMon_GetSpecies(LocalMapObject *mapObject);
+ extern u8 FollowMon_GetSizeParamBySpecies(int species);
++extern void sub_0205F990(LocalMapObject *object, VecFx32 *vector); /* 0302: sprite draw shift (get) */
++extern void sub_0205F9A0(LocalMapObject *object, VecFx32 *vector); /* 0302: sprite draw shift (set) */
+ 
+ static int sSS3DS_TownMode; // 0223: this frame's tick runs the lively-towns rules (set in SS3DS_WildTick)
+ static int sSS3DS_WildTod = -1; // 0283: last time-of-day bits seen by the tick (dusk / dawn changeover)
+@@ -1387,6 +1389,121 @@ static void SS3DS_PartnerSees(FieldSystem *fieldSystem, const SS3DSWildMon *m, i
+     PSPNativeMemLog("[WILD] your partner spotted species %d%s", m->sp, turn ? " and turned to look" : "");
+ }
+ 
++// 0302: the walking partner's happy hop (two little bounces) through its sprite draw shift. The shift it had before is put
++// back exactly when the hop ends, and at once when a script, menu or map change starts, so nothing is left raised.
++static int sSS3DS_PartnerHop;
++static fx32 sSS3DS_PartnerHopBase;
++static LocalMapObject *sSS3DS_PartnerHopObj;
++
++static void SS3DS_PartnerHopY(LocalMapObject *f, fx32 y) {
++    VecFx32 v;
++    sub_0205F990(f, &v);
++    v.y = y;
++    sub_0205F9A0(f, &v);
++}
++
++static void SS3DS_PartnerHopStart(FieldSystem *fieldSystem) {
++    if (sSS3DS_PartnerHop > 0 || !FollowMon_IsVisible(fieldSystem)) {
++        return;
++    }
++    LocalMapObject *f = FollowMon_GetMapObject(fieldSystem);
++    if (f == NULL) {
++        return;
++    }
++    VecFx32 v;
++    sub_0205F990(f, &v);
++    sSS3DS_PartnerHopBase = v.y;
++    sSS3DS_PartnerHopObj = f;
++    sSS3DS_PartnerHop = 24;
++    PSPNativeMemLog("[WILD] your partner hops with joy");
++}
++
++static void SS3DS_PartnerHopTick(FieldSystem *fieldSystem, int stop) {
++    if (sSS3DS_PartnerHop <= 0) {
++        return;
++    }
++    LocalMapObject *f = FollowMon_GetMapObject(fieldSystem);
++    sSS3DS_PartnerHop--;
++    if (f != sSS3DS_PartnerHopObj) { // the follower object changed (map load): it starts with its own shift
++        sSS3DS_PartnerHop = 0;
++        return;
++    }
++    if (stop || sSS3DS_PartnerHop == 0) {
++        SS3DS_PartnerHopY(f, sSS3DS_PartnerHopBase);
++        sSS3DS_PartnerHop = 0;
++        return;
++    }
++    int ph = (24 - sSS3DS_PartnerHop) % 12; // 0..11, twice
++    SS3DS_PartnerHopY(f, sSS3DS_PartnerHopBase + ph * (12 - ph) * FX32_ONE / 4); // up to 9 px
++}
++
++// 0302: little touches around the player: rings on the water where a fish is (or where a wild one drinks), and at night
++// a pair of eyes in the tall grass that blinks and ducks away. Draw-only, one each at a time, nothing saved.
++static int sSS3DS_RipX, sSS3DS_RipZ, sSS3DS_RipT, sSS3DS_RipSmall;
++static int sSS3DS_EyeX, sSS3DS_EyeZ, sSS3DS_EyeT;
++#define SS3DS_RIP_FRAMES 72
++#define SS3DS_EYE_FRAMES 150
++
++static void SS3DS_RippleAt(int x, int z, int small) {
++    if (sSS3DS_RipT > 0) {
++        return;
++    }
++    sSS3DS_RipX = x;
++    sSS3DS_RipZ = z;
++    sSS3DS_RipSmall = small;
++    sSS3DS_RipT = SS3DS_RIP_FRAMES;
++}
++
++static void SS3DS_AmbientTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz, int env) {
++    if (sSS3DS_RipT > 0) {
++        sSS3DS_RipT--;
++    } else if (SS3DS_WildRand(S, (env & 2) ? 900 : 360) == 0) { // fish rings (fewer in the rain, which has its own)
++        for (int tries = 0; tries < 6; tries++) {
++            int x = px - 6 + (int)SS3DS_WildRand(S, 13), z = pz - 5 + (int)SS3DS_WildRand(S, 11);
++            if ((x != px || z != pz) && (SS3DS_WildTileKind(fieldSystem, x, z) & 3) == 2 && !SS3DS_WildCrowded(S, -1, x, z)) {
++                SS3DS_RippleAt(x, z, 0);
++                break;
++            }
++        }
++    }
++    if (sSS3DS_EyeT > 0) {
++        int dx = sSS3DS_EyeX - px, dz = sSS3DS_EyeZ - pz;
++        if (--sSS3DS_EyeT > 8 && (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz) <= 2) {
++            sSS3DS_EyeT = 8; // too close: it ducks down into the grass
++        }
++    } else if ((env & 1) && MapHeader_IsOutdoors(fieldSystem->location->mapId) && SS3DS_WildRand(S, 1500) == 0) {
++        for (int tries = 0; tries < 6; tries++) {
++            int x = px - 6 + (int)SS3DS_WildRand(S, 13), z = pz - 5 + (int)SS3DS_WildRand(S, 11);
++            int dx = x - px, dz = z - pz, d = (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz);
++            if (d >= 3 && SS3DS_WildTileKind(fieldSystem, x, z) == (1 | 4) && !SS3DS_WildCrowded(S, -1, x, z)) {
++                sSS3DS_EyeX = x;
++                sSS3DS_EyeZ = z;
++                sSS3DS_EyeT = SS3DS_EYE_FRAMES;
++                PSPNativeMemLog("[WILD] eyes in the grass at %d,%d", x, z);
++                break;
++            }
++        }
++    }
++}
++
++// 0302: an unaware land one next to the water sometimes stops, faces it and drinks (small rings where it sips)
++static void SS3DS_WildDrink(FieldSystem *fieldSystem, SS3DSWildState *S, SS3DSWildMon *m, int i) {
++    static const int kDx[4] = { 0, 0, -1, 1 }, kDz[4] = { -1, 1, 0, 0 }; // same order as dir: up, down, left, right
++    if (sSS3DS_RipT > 0 || m->spare == 2) {
++        return;
++    }
++    for (int d = 0; d < 4; d++) {
++        int x = m->x + kDx[d], z = m->z + kDz[d];
++        if ((SS3DS_WildTileKind(fieldSystem, x, z) & 3) == 2) {
++            m->dir = (s16)d;
++            m->timer = 100 + (int)SS3DS_WildRand(S, 60); // stays put while it drinks
++            SS3DS_RippleAt(x, z, 1);
++            PSPNativeMemLog("[WILD] slot %d species %d stops for a drink", i + 1, m->sp);
++            return;
++        }
++    }
++}
++
+ // 0301: a wild one sizes up the player's lead (Scarlet/Violet style). A much stronger lead scares it off (never a
+ // shiny), a clearly weaker one gets a land one to charge, and the same species as the lead comes over curious.
+ static void SS3DS_WildSenseLead(FieldSystem *fieldSystem, SS3DSWildState *S, SS3DSWildMon *m, int i) {
+@@ -1401,6 +1518,7 @@ static void SS3DS_WildSenseLead(FieldSystem *fieldSystem, SS3DSWildState *S, SS3
+         m->mood = 1;
+         m->hop = 16;
+         PSPNativeMemLog("[WILD] slot %d species %d sees one of its own kind with you and comes over", i + 1, m->sp);
++        SS3DS_PartnerHopStart(fieldSystem); // 0302
+     } else if (!m->shiny && m->mood != 2 && (llv >= m->lv + 25 || (llv >= m->lv + 15 && SS3DS_WildRand(S, 2) == 0))) {
+         m->mood = 2;
+         PSPNativeMemLog("[WILD] slot %d species %d lv %d backs off from your lv %d lead", i + 1, m->sp, m->lv, llv);
+@@ -1879,6 +1997,8 @@ static int SS3DS_SeasonWeatherTick(FieldSystem *fieldSystem, int enabled, int to
+ 
+ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     SS3DSWildState *S = SS3DS_WildGet();
++    SS3DS_PartnerHopTick(fieldSystem, FieldSystem_TaskIsRunning(fieldSystem) || fieldSystem->location == NULL
++        || fieldSystem->location->mapId != S->map || !P3DS_WildVisCfg(0) || !P3DS_WildVisCfg(5)); // 0302
+     int seasonal = P3DS_AmbientWeatherCfg();
+     SS3DS_WeatherMapTick(seasonal);
+     int ambientWeather = SS3DS_SeasonWeatherTick(fieldSystem, seasonal, S->townShowerT < 0);
+@@ -1933,6 +2053,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             S->birdNext = 300 + (int)SS3DS_WildRand(S, 300);
+         }
+         sSS3DS_PartnerBang = 0; // 0301
++        sSS3DS_RipT = sSS3DS_EyeT = 0; // 0302
+         S->rng ^= SS3DS_WildClockSeed() + (u32)S->anim; // 0283: re-entering a map rolls fresh spots
+         PSPNativeMemLog("[WILD] map %d", map);
+     }
+@@ -2028,6 +2149,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+     int moving = (int)S->anim - S->lastStep < 30;
+     int loud = alive && moving && (P3DS_RunLast || PlayerAvatar_GetState(fieldSystem->playerAvatar) == 1 /* PLAYER_STATE_CYCLING */);
+     S->rng ^= (u32)(px * 31 + pz * 17);
++    if (alive) {
++        SS3DS_AmbientTick(fieldSystem, S, px, pz, env); // 0302
++    }
+     int n = 0, named = 0, mx = P3DS_WildVisCfg(1) + 1;
+     if (env & 2) {
+         mx = (mx + 1) / 2; // 0218: in the rain most of them shelter; the rest stay in tall grass or the water
+@@ -2222,6 +2346,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 P3DS_Toast("SHINY NEARBY!");
+                 if (alive) {
+                     SS3DS_PartnerSees(fieldSystem, m, 120, !moving); // 0301
++                    SS3DS_PartnerHopStart(fieldSystem); // 0302
+                 }
+             }
+             if (m->big) {
+@@ -2567,6 +2692,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                     m->splash = 16;
+                 } else if (m->kind == 1 && SS3DS_WildRand(S, (m->flags & 1) ? 200 : 600) == 0) { // 0283: young ones bounce more
+                     m->hop = 8;
++                } else if (alive && m->kind == 1 && !m->sleep && !m->leader && SS3DS_WildRand(S, 500) == 0) {
++                    SS3DS_WildDrink(fieldSystem, S, m, i); // 0302
+                 }
+                 // 0282: now and then an unaware one close by calls out (shares the cry cooldown, follows the cries setting)
+                 if (m->hop == 0 && !m->spare && m->roamer < 0 && dist <= 8 && SS3DS_WildRand(S, 2400) == 0
+@@ -3089,6 +3216,60 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     G3_PopMtx(1);
+ }
+ 
++// 0302: rings on the water (fish or a drink) and the night eyes in the grass
++static void SS3DS_AmbientDraw(FieldSystem *fieldSystem, fx32 py, int dark) {
++    const MtxFx43 *cm = &NNS_G3dGlb.cameraMtx;
++    VecFx32 c, v;
++    if (sSS3DS_RipT > 0 && !dark) {
++        int age = SS3DS_RIP_FRAMES - sSS3DS_RipT;
++        c.x = (sSS3DS_RipX * 16 + 8) * FX32_ONE;
++        c.z = (sSS3DS_RipZ * 16 + 8) * FX32_ONE;
++        c.y = SS3DS_WildGroundY(fieldSystem, c.x, c.z, py) + FX32_ONE / 2;
++        int grow = sSS3DS_RipSmall ? 10 : 6;
++        for (int k = 0; k < 2; k++) {
++            int a = age - k * 22;
++            if (a < 0) {
++                continue;
++            }
++            int alpha = 12 - a / 5;
++            if (alpha > 0) {
++                SS3DS_WildGroundEffect(cm, &c, (sSS3DS_RipSmall ? FX32_ONE : 2 * FX32_ONE) + a * FX32_ONE / grow, alpha, GX_RGB(24, 30, 31), 1);
++            }
++        }
++    }
++    if (sSS3DS_EyeT > 0 && !dark) {
++        int age = SS3DS_EYE_FRAMES - sSS3DS_EyeT;
++        if (age < 6 || sSS3DS_EyeT < 4 || (age % 48) >= 44) {
++            return; // opening, closing, a blink
++        }
++        c.x = (sSS3DS_EyeX * 16 + 8) * FX32_ONE;
++        c.z = (sSS3DS_EyeZ * 16 + 8) * FX32_ONE;
++        int duck = sSS3DS_EyeT < 10 ? 10 - sSS3DS_EyeT : 0;
++        c.y = SS3DS_WildGroundY(fieldSystem, c.x, c.z, py) + (7 - duck / 2) * FX32_ONE;
++        v = SS3DS_WildCam(cm, &c);
++        G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
++        G3_PushMtx();
++        G3_Identity();
++        G3_Translate(v.x, v.y, v.z);
++        G3_Scale(16 * FX32_ONE, 16 * FX32_ONE, 16 * FX32_ONE);
++        G3_PolygonAttr(GX_LIGHTMASK_NONE, GX_POLYGONMODE_MODULATE, GX_CULL_NONE, 0, 31, GX_POLYGON_ATTR_MISC_FOG);
++        G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++        G3_Color(GX_RGB(31, 28, 6));
++        const fx16 u = FX16_ONE / 16, z = FX16_ONE / 4; // a little toward the camera so the grass does not cover them
++        G3_Begin(GX_BEGIN_QUADS);
++        for (int e = -1; e <= 1; e += 2) {
++            fx16 x0 = (fx16)(e * u * 2 - u), h = (fx16)(sSS3DS_EyeT < 10 ? u / 2 : u * 3 / 2);
++            G3_Vtx(x0, h, z);
++            G3_Vtx(x0, 0, z);
++            G3_Vtx(x0 + u * 2, 0, z);
++            G3_Vtx(x0 + u * 2, h, z);
++        }
++        G3_End();
++        G3_Color(GX_RGB(31, 31, 31));
++        G3_PopMtx(1);
++    }
++}
++
+ // 0301: the walking partner's "!" above its head
+ static void SS3DS_PartnerDraw(FieldSystem *fieldSystem) {
+     if (sSS3DS_PartnerBang <= 0 || !FollowMon_IsVisible(fieldSystem)) {
+@@ -3366,6 +3547,7 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+         any |= S->m[i].on && !S->m[i].battle;
+     }
+     any |= S->birdOn;
++    any |= sSS3DS_PartnerBang > 0 || sSS3DS_RipT > 0 || sSS3DS_EyeT > 0; // 0301/0302
+     if (!any) {
+         return;
+     }
+@@ -3377,6 +3559,7 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+     NNS_G3dGeFlushBuffer();
+     if (effects) {
+         SS3DS_PartnerDraw(fieldSystem); // 0301
++        SS3DS_AmbientDraw(fieldSystem, py, dark); // 0302
+     }
+     for (i = 0; i < SS3DS_WILD_MAX; i++) {
+         int ddx = S->m[i].x - dpx, ddz = S->m[i].z - dpz;
+-- 
+2.43.0
+
