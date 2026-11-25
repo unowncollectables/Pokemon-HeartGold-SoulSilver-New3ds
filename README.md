@@ -53,7 +53,7 @@
   <tr>
     <td><a href="#setup">Setup</a></td>
     <td><a href="#heartgold-experimental">HeartGold</a></td>
-    <td><a href="#settings">Settings</a></td>
+    <td><a href="#settings">Settings</a> · <a href="#black-2-battle-sprites-optional">Black 2 sprites</a></td>
   </tr>
   <tr>
     <td><a href="#wireless--online">Wireless &amp; online</a></td>
@@ -125,6 +125,9 @@
 - **Find your next catch.** Tap a species in a location’s wild list to see its true-colour icon, encounter pins, time-of-day filters, and a **LIST** of locations with encounter-slot chances. **AREAS** lists recognized sub-areas inside a place and tracks your visits separately from the save.
 - **A battle companion.** Press <kbd>Y</kbd> in battle for a tabbed overlay with the available Pokémon info, catch odds, hunt stats, damage checks, or trainer party. Tap or swipe between pages while the battle keeps running. FIGHT also has move-effectiveness hints.
 - **A livelier world.** Visible wild Pokémon can form groups, react to one another, step aside for NPCs, and scatter after a battle. There are ambient town Pokémon and visible encounters in the Safari Zone too.
+- **Animated Black 2 battle sprites (optional).** Every battler, yours and the foe's, can use the animated Black 2 / White 2 sprites, including female forms, with slower motion at low HP and a still sprite when asleep or frozen. Turn on **Black 2 sprites** under BATTLE in Settings. The sprite pack is made on your own PC from your own Black 2 ROM, so nothing from that game is shipped here. See [Black 2 sprites](#black-2-battle-sprites-optional).
+- **Pal Park from a GBA cart (optional).** An optional virtual GBA Slot 2 lets the game's own Pal Park migrate read your own GBA dump and a copy of its save. See [Experimental features](#status).
+- **Mobile PC boxes.** After the Hall of Fame, the party screen gets a BOXES chip for the Mobile PC.
 - **Less menu-hopping.** Pan and fling the map, switch tabs more quickly, check party and bag, follow roamers and eggs, or use Tap to Fly and the Bug-Catching Contest helper.
 
 Open Settings with <kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>. Recent additions and their remaining hardware checks are under [Status](#status).
@@ -361,6 +364,16 @@ Install it beside SoulSilver:
 
 </details>
 
+## Black 2 battle sprites (optional)
+
+The port can swap the battle sprites for the animated ones from Black 2 / White 2. It is off by default.
+
+1. In [Pokémon 3DS Builder](https://github.com/unowncollectables/patch-builder) (v1.4.7 or newer), tick **Black 2 sprites** and choose your own US Black 2 `.nds` dump as well.
+2. The builder converts the sprites on your PC into a pack for your SD card. This repository and the builder download contain none of Black 2's art.
+3. In the game, open Settings (<kbd>L</kbd> + <kbd>R</kbd> + <kbd>Y</kbd>) → BATTLE → **Black 2 sprites**.
+
+It covers every battler, outside battle too (party and summary art), female forms, move effects, and no 1-pixel seams on moving sprites. Black 2 has no attack animations, so sprites idle and flourish only. Checked in Azahar and played on a New 3DS in early rounds; the latest round still needs a hardware check.
+
 ## Settings
 
 <p align="center">
@@ -463,6 +476,10 @@ When [reporting an issue](https://github.com/unowncollectables/Pokemon-HeartGold
 - **Battle info:** <kbd>Y</kbd> opens a sharp, tabbed overlay without pausing the battle. Available pages include info, catching, hunting, damage and trainer party; tap or swipe to browse. The FIGHT effectiveness hints have been refreshed too.
 - **Hunt stats overlay:** <kbd>ZR</kbd> in the field opens the hunt stats as an overlay that no longer pauses the game. It has five pages (HUNT, TOTALS, TOP, RECENT, SHINY), lets you pin a hunt, and keeps its numbers in `hunt.txt`, never in the save.
 - **Visible wild Pokémon:** herds and families, dawn/dusk and rain behaviour, NPC avoidance, scattering after battles, and Safari Zone support. A shore encounter uses the land-battle path; the water-battle intro has also been repaired.
+- **Black 2 battle sprites:** optional animated Black 2 / White 2 sprites for every battler, built from your own Black 2 ROM by the builder's **Black 2 sprites** tick box (see [above](#black-2-battle-sprites-optional)). Female art, move effects, slower motion at low HP, still when asleep.
+- **GBA Slot 2 / Pal Park:** an optional virtual GBA cart so the game's own Pal Park migrate works from your own GBA dump (setting `slot2`, off by default). Works on a copy of the GBA save.
+- **Foe Deeper battle depth:** the battle 3D option now places the backdrop, foe and your side at different depths by ground position, and stays steady on hits.
+- **Automatic wireless and a tidier Settings menu:** local Union Room and online GTS switch by themselves. Settings has fewer tabs, a description on the top screen, and defaults that match the tested setup. The naming-screen keyboard letters now line up with their touch keys.
 - **Stability and saves:** render workers are joined before soft-reset teardown, and repeated soft resets are steady again (sound and speed held through 20+ resets in testing). Save backup writes preserve the existing backup if the new write fails. The save stays a plain 512 KiB cartridge-compatible file.
 
 The [changelog](docs/CHANGELOG.md) and [handoff](HANDOFF.md) record implementation and test coverage. New text, finder, sub-area, battle-overlay and wild-behaviour changes still need broader hardware coverage.
@@ -475,6 +492,7 @@ The [changelog](docs/CHANGELOG.md) and [handoff](HANDOFF.md) record implementati
 - **HeartGold.** Compiles and packages. A console or emulator playtest has not been done.
 - **GBA Slot 2 (off by default).** An optional virtual GBA cart for the game's own Pal Park migrate. Put your own GBA dump and its matching save in `sdmc:/3ds/soulsilver3ds/slot2/` and turn on the Slot 2 setting (`slot2`). The port works on a copy of the GBA save, so the original is never written. Checked in a headless Azahar with a test save; not yet tried on a real New 3DS.
 - **Foe Deeper battle depth.** The battle 3D option now places the backdrop, the foe and your side at different depths by ground position. Checked in Azahar; a hardware check is still pending.
+- **Black 2 sprites.** Needs a builder run with your own Black 2 ROM. The slower low-HP motion, the still sleep pose and the seam fix are only checked in Azahar so far.
 - **Starter Poké Balls.** Elm's lab balls and turntable draw in Azahar. A New 3DS look is still open. A Poké Ball *opening in battle* can still show a double image with the 3D slider up.
 - **Seasons.** Seasonal trees start ON. Ambient Weather starts OFF while its remaining issues are worked on; it can be enabled in Display. Ambient scenery and the Johto WX radar still need broader on-device checks.
 - **Frontier, Safari, Plaza.** Seeded in the tree. The Plaza shows a closed toast. None of these screens have been opened on a 3DS. The Club minigames still stop.
