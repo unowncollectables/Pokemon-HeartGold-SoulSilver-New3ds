@@ -1,0 +1,284 @@
+From 7ead93f10a234720a98dd40fa0254e8e6c7d9aec Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 17:03:30 +0000
+Subject: [PATCH] ss3ds: rainbows and Ho-Oh, more Pokedex lore for visible
+ wilds (0305)
+
+Hook 0110 block, same Alive wild Pokemon gate, no new toggle, nothing saved:
+- When the rain stops in the daytime outdoors, half the time a translucent rainbow arcs far to the north for 30 s.
+  While it shows, the flyer's legendary roll is 1 in 64 instead of 1 in 4096 and it is always Ho-Oh
+  (SS3DS_RainbowOn, shared with the flyer pick in encounter_check.c).
+- Psyduck, Slowpoke and Slowbro show a "?" instead of "!" when they notice the player; Slowpoke/Slowbro stay dazed.
+- Spearow/Fearow are often bad-tempered (charge); Snorlax spawns asleep for a long time; Yanma darts about;
+  Mantine leaps high and often; the Hoppip line floats; Natu/Xatu stand still staring at the sun all day;
+  Pikachu/Raichu/Pichu cheeks spark when surprised.
+Logs: "a rainbow after the rain", "stares at the sun".
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 134 +++++++++++++++++++++++---
+ 1 file changed, 123 insertions(+), 11 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index 54d0235..5c53faf 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v27 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284/0288/0301/0302/0303/0304: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v27 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284/0288/0301/0302/0303/0304/0305: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -34,6 +34,7 @@ typedef struct { u32 magic, rng, anim; int map, spawnT; SS3DSWildMon m[SS3DS_WIL
+ #define SS3DS_WILD_MAGIC 0x57494C3Du /* 'WIL=': 0283 flags field */
+ typedef char SS3DSWildStateFits[sizeof(SS3DSWildState) <= 576 ? 1 : -1]; /* P3DS_WildMemV2 is 144 words */
+ extern void *P3DS_WildMemV2(void);
++extern int SS3DS_RainbowOn; /* 0305: a rainbow is in the sky (fieldmap side) */
+ extern int P3DS_WildVisCfg(int k); /* 0 on, 1 count-1 (1..6), 2 shiny sparkle, 3 only visible battle, 4 cries, 5 alive (0217) */
+ #define SS3DS_BIRD_FRAMES 240
+ extern volatile int P3DS_WildBattleResult; /* winFlag of the last battle (encounter.c hook), -1 = none yet */
+@@ -544,9 +545,9 @@ int SS3DS_WildBirdPick(FieldSystem *fieldSystem, int *legend, int ambientWeather
+     int weather = ambientWeather ? ambientWeather : LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData));
+     TIMEOFDAY tod = GF_RTC_GetTimeOfDay();
+     int night = tod == RTC_TIMEOFDAY_NITE || tod == RTC_TIMEOFDAY_LATE;
+-    if (weather <= WEATHER_THUNDERSTORM && LCRandRange(4096) == 0) { // as rare as a shiny flyover-wise
++    if (weather <= WEATHER_THUNDERSTORM && LCRandRange(SS3DS_RainbowOn ? 64 : 4096) == 0) { // as rare as a shiny flyover-wise
+         *legend = 1;
+-        return night ? SPECIES_LUGIA : SPECIES_HO_OH;
++        return night && !SS3DS_RainbowOn ? SPECIES_LUGIA : SPECIES_HO_OH; // 0305: Ho-Oh follows the rainbow
+     }
+     // In wet or snowy weather use the species that still fly in those conditions.
+     if (weather >= WEATHER_RAIN && weather <= WEATHER_THUNDERSTORM) {
+@@ -1485,6 +1486,9 @@ static void SS3DS_PartnerHopTick(FieldSystem *fieldSystem, int stop) {
+ // a pair of eyes in the tall grass that blinks and ducks away. Draw-only, one each at a time, nothing saved.
+ static int sSS3DS_RipX, sSS3DS_RipZ, sSS3DS_RipT, sSS3DS_RipSmall;
+ static int sSS3DS_EyeX, sSS3DS_EyeZ, sSS3DS_EyeT;
++int SS3DS_RainbowOn; // 0305: read by the flyer pick in encounter_check.c
++static int sSS3DS_RainbowT, sSS3DS_WasRain;
++#define SS3DS_RAINBOW_FRAMES 1800
+ #define SS3DS_RIP_FRAMES 72
+ #define SS3DS_EYE_FRAMES 150
+ 
+@@ -1499,6 +1503,18 @@ static void SS3DS_RippleAt(int x, int z, int small) {
+ }
+ 
+ static void SS3DS_AmbientTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz, int env) {
++    // 0305: when the rain stops in the daytime outdoors, sometimes a rainbow (and Ho-Oh is far more likely to fly by)
++    int outdoors = MapHeader_IsOutdoors(fieldSystem->location->mapId);
++    if (sSS3DS_RainbowT > 0) {
++        sSS3DS_RainbowT--;
++    } else if (sSS3DS_WasRain && !(env & 2) && !(env & 1) && outdoors && SS3DS_WildRand(S, 2) == 0) {
++        sSS3DS_RainbowT = SS3DS_RAINBOW_FRAMES;
++        PSPNativeMemLog("[WILD] a rainbow after the rain");
++    }
++    if (outdoors) {
++        sSS3DS_WasRain = (env & 2) != 0;
++    }
++    SS3DS_RainbowOn = sSS3DS_RainbowT > 0 && outdoors;
+     if (sSS3DS_RipT > 0) {
+         sSS3DS_RipT--;
+     } else if (SS3DS_WildRand(S, (env & 2) ? 900 : 360) == 0) { // fish rings (fewer in the rain, which has its own)
+@@ -1901,6 +1917,10 @@ static int SS3DS_LoreNotice(SS3DSWildState *S, SS3DSWildMon *m, int i) {
+         m->hop = m->bang = 0; // a "tree" and a disguise do not give themselves away
+         return 1;
+     }
++    if (m->sp == 79 || m->sp == 80) { // 0305: Slowpoke / Slowbro take a long moment to react
++        m->hop = 0;
++        m->timer = 90;
++    }
+     return 0;
+ }
+ 
+@@ -1985,6 +2005,35 @@ static void SS3DS_WildSpark(fx16 hw, u32 anim) {
+     G3_Color(GX_RGB(31, 31, 31));
+ }
+ 
++// 0305: a "?" (Psyduck, Slowpoke: not quite sure what they are looking at)
++static void SS3DS_WildQuestion(fx16 hw) {
++    const fx16 u = FX16_ONE / 16, y0 = hw + u * 2;
++    G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++    for (int pass = 0; pass < 2; pass++) {
++        fx16 e = pass ? 0 : u / 2, z = pass ? FX16_ONE / 8 : FX16_ONE / 16;
++        G3_Color(pass ? GX_RGB(31, 31, 31) : GX_RGB(4, 4, 6));
++        G3_Begin(GX_BEGIN_QUADS);
++        G3_Vtx(-u * 3 - e, y0 + u * 10 + e, z); // top bar
++        G3_Vtx(-u * 3 - e, y0 + u * 8 - e, z);
++        G3_Vtx(u * 3 + e, y0 + u * 8 - e, z);
++        G3_Vtx(u * 3 + e, y0 + u * 10 + e, z);
++        G3_Vtx(u - e, y0 + u * 9 + e, z); // right side
++        G3_Vtx(u - e, y0 + u * 6 - e, z);
++        G3_Vtx(u * 3 + e, y0 + u * 6 - e, z);
++        G3_Vtx(u * 3 + e, y0 + u * 9 + e, z);
++        G3_Vtx(-u - e, y0 + u * 7 + e, z); // middle, down to the stem
++        G3_Vtx(-u - e, y0 + u * 3 - e, z);
++        G3_Vtx(u + e, y0 + u * 3 - e, z);
++        G3_Vtx(u * 2 + e, y0 + u * 7 + e, z);
++        G3_Vtx(-u - e, y0 + u * 2 + e, z); // dot
++        G3_Vtx(-u - e, y0 - e, z);
++        G3_Vtx(u + e, y0 - e, z);
++        G3_Vtx(u + e, y0 + u * 2 + e, z);
++        G3_End();
++    }
++    G3_Color(GX_RGB(31, 31, 31));
++}
++
+ // two music notes drifting up beside Jigglypuff while it sings
+ static void SS3DS_WildNotes(fx16 hw, u32 anim) {
+     const fx16 u = FX16_ONE / 16, z = FX16_ONE / 8;
+@@ -2896,6 +2945,14 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 P3DS_Toast("A HUGE POKEMON APPEARED!");
+                 P3DS_AchSky(2);
+             }
++            if (alive && regular && !resident && ro < 0 && !m->big) { // 0305: lore at spawn
++                if ((sp == 21 || sp == 22) && m->kind == 1 && !m->sleep && SS3DS_WildRand(S, 2) == 0) {
++                    m->mood = 3; // Spearow and Fearow are famously bad-tempered
++                } else if (sp == 143) {
++                    m->mood = 0;
++                    m->sleep = 3600 + (int)SS3DS_WildRand(S, 3600); // Snorlax: asleep, as always
++                }
++            }
+             int special = 0; // 0303
+             if (wish) {
+                 special = 1;
+@@ -3113,6 +3170,19 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             }
+             sSS3DS_FreezeMask &= ~(1 << i);
+         }
++        if (m->sp == 177 || m->sp == 178) { // 0305: Natu and Xatu stand still all day staring at the sun
++            if (alive && (env & (WILD_MORNING | WILD_DAY)) && !(env & 2) && !m->noticed && !m->battle) {
++                if (!(sSS3DS_FreezeMask & (1 << i))) {
++                    PSPNativeMemLog("[WILD] slot %d species %d stares at the sun", i + 1, m->sp);
++                }
++                sSS3DS_FreezeMask |= 1 << i;
++                m->dir = 0;
++                m->sleep = m->hop = 0;
++                m->timer = 20;
++                continue;
++            }
++            sSS3DS_FreezeMask &= ~(1 << i);
++        }
+         if (sSS3DS_DittoMask & (1 << i)) { // 0304: close up, the disguise drops
+             int sx = m->x - px, sz = m->z - pz;
+             if ((sx < 0 ? -sx : sx) + (sz < 0 ? -sz : sz) <= 2 || !alive) {
+@@ -3303,7 +3373,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             }
+             // 0218: idle life: water ones jump and splash now and then (Magikarp a lot), land ones hop
+             if (m->t >= 16 && m->hop == 0 && !m->noticed) {
+-                if (m->kind == 2 && m->splash == 0 && SS3DS_WildRand(S, (m->sp == 129 ? 90 : 300) / ((env & 2) ? 3 : 1)) == 0) { // 0282: rain brings water ones up to splash
++                if (m->kind == 2 && m->splash == 0 && SS3DS_WildRand(S, (m->sp == 129 ? 90 : m->sp == 226 ? 150 : 300) / ((env & 2) ? 3 : 1)) == 0) { // 0282: rain brings water ones up to splash
+                     m->hop = 12;
+                     m->splash = 16;
+                 } else if (m->kind == 1 && SS3DS_WildRand(S, (m->flags & 1) ? 200 : (alive && SS3DS_WeatherLively(m->sp, env)) ? 120 : 600) == 0) { // 0283: young ones bounce more; 0304: their weather
+@@ -3381,6 +3451,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         if (alive && !m->spare && m->roamer < 0) {
+             int quirk = SS3DS_WildQuirk(m);
+             m->timer = quirk == 0 ? m->timer * 3 / 2 : quirk == 1 ? m->timer * 3 / 5 : m->timer; // 0283: its own pace
++            if (m->sp == 193) {
++                m->timer /= 3; // 0305: Yanma darts about
++            }
+             // 0283: an unbothered one often just turns and looks around instead of stepping
+             if (!m->noticed && !m->leader && !(m->flags & 0xFFFE) && !(sSS3DS_ParadeMask & (1 << i)) && SS3DS_WildRand(S, quirk == 2 ? 2 : 4) == 0) {
+                 m->dir = d;
+@@ -3774,6 +3847,7 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     py = SS3DS_WildGroundY(fieldSystem, c.x, c.z, py);
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+     int ghost = SS3DS_Ghost(m->sp); // 0303: floats, half see-through, no shadow
++    int floaty = ghost || (m->sp >= 187 && m->sp <= 189); // 0305: the Hoppip line floats on the breeze
+     if (m->kind == 1 && !m->grass && !ghost) {
+         c.y = py + FX32_ONE / 2;
+         SS3DS_WildShadow(cm, &c, m->big ? sz * 3 / 2 : (m->flags & 1) ? sz * 7 / 10 : sz);
+@@ -3784,8 +3858,8 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+         SS3DS_WildGroundEffect(cm, &c, 3 * FX32_ONE + age * FX32_ONE / 5,
+             2 - m->splash / 2, GX_RGB(22, 29, 31), 1);
+     }
+-    c.y = py + hs * FX32_ONE + (m->hop * (12 - m->hop)) * FX32_ONE / 6;
+-    if (ghost) {
++    c.y = py + hs * FX32_ONE + (m->hop * (12 - m->hop)) * FX32_ONE / (m->sp == 226 ? 2 : 6); // 0305: Mantine leaps high
++    if (floaty) {
+         int bob = (int)((anim >> 2) & 15);
+         c.y += (5 + (bob < 8 ? bob : 16 - bob) / 2) * FX32_ONE;
+     }
+@@ -3798,8 +3872,8 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+         : m->dir * 2 + ((anim >> (moving ? 3 : 4)) & 1);
+     fx16 hw = (fx16)(hs * FX16_ONE / 16);
+     // in tall grass the lower 30% is not drawn, so it stands in the grass instead of on top of it
+-    fx16 by = m->grass && !moving && !ghost ? (fx16)(-hw + hw * 3 / 5) : (fx16)-hw;
+-    fx32 bt = m->grass && !moving && !ghost ? sz * FX32_ONE * 7 / 10 : sz * FX32_ONE;
++    fx16 by = m->grass && !moving && !floaty ? (fx16)(-hw + hw * 3 / 5) : (fx16)-hw;
++    fx32 bt = m->grass && !moving && !floaty ? sz * FX32_ONE * 7 / 10 : sz * FX32_ONE;
+     fx16 top = hw;
+     if (effects && m->noticed == WILD_IN_COVER) {
+         int tuck = m->timer < 12 ? m->timer : 12;
+@@ -3849,12 +3923,17 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+         SS3DS_WildRustle(by, m->rustle);
+     }
+     if (m->bang > 0) {
+-        SS3DS_WildBang(hw);
++        if (m->sp == 54 || m->sp == 79 || m->sp == 80) {
++            SS3DS_WildQuestion(hw); // 0305
++        } else {
++            SS3DS_WildBang(hw);
++        }
+     }
+     if (m->sleep) {
+         SS3DS_WildZz(hw, anim);
+     }
+-    if (effects && sSS3DS_Storm && SS3DS_TypeElectric(m->sp) && ((anim >> 2) & 15) < 3) {
++    int pika = m->sp == 25 || m->sp == 26 || m->sp == 172; // 0305: Pikachu's cheeks spark when it is surprised
++    if (effects && ((sSS3DS_Storm && SS3DS_TypeElectric(m->sp) && ((anim >> 2) & 15) < 3) || (pika && m->bang > 0 && ((anim >> 1) & 3) < 2))) {
+         SS3DS_WildSpark(hw, anim); // 0304
+     }
+     if (effects && sSS3DS_Sing == slot) {
+@@ -3910,6 +3989,39 @@ static void SS3DS_AmbientDraw(FieldSystem *fieldSystem, fx32 py, int dark) {
+             }
+         }
+     }
++    if (sSS3DS_RainbowT > 0 && !dark && MapHeader_IsOutdoors(fieldSystem->location->mapId)) { // 0305: an arc far to the north
++        static const s32 kC[9] = { 4096, 3784, 2896, 1567, 0, -1567, -2896, -3784, -4096 };
++        static const s32 kS[9] = { 0, 1567, 2896, 3784, 4096, 3784, 2896, 1567, 0 };
++        static const GXRgb kBand[6] = { GX_RGB(31, 8, 8), GX_RGB(31, 19, 5), GX_RGB(31, 30, 8), GX_RGB(9, 27, 9), GX_RGB(9, 16, 31), GX_RGB(19, 9, 29) };
++        int t = sSS3DS_RainbowT, left = SS3DS_RAINBOW_FRAMES - t;
++        int alpha = t < 150 ? 1 + t / 19 : left < 150 ? 1 + left / 19 : 9;
++        const VecFx32 *pp = PlayerAvatar_GetPositionVector(fieldSystem->playerAvatar);
++        c.x = pp->x;
++        c.z = pp->z - 9 * 16 * FX32_ONE;
++        c.y = py;
++        v = SS3DS_WildCam(cm, &c);
++        G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
++        G3_PushMtx();
++        G3_Identity();
++        G3_Translate(v.x, v.y, v.z);
++        G3_Scale(16 * FX32_ONE, 16 * FX32_ONE, 16 * FX32_ONE);
++        G3_PolygonAttr(GX_LIGHTMASK_NONE, GX_POLYGONMODE_MODULATE, GX_CULL_NONE, 7, alpha, GX_POLYGON_ATTR_MISC_FOG);
++        G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++        for (int b = 0; b < 6; b++) {
++            s32 ro = 112 - b * 4, ri = ro - 4; // pixels
++            G3_Color(kBand[b]);
++            G3_Begin(GX_BEGIN_QUADS);
++            for (int g = 0; g < 8; g++) {
++                G3_Vtx((fx16)(ro * kC[g] / 16), (fx16)(ro * kS[g] / 16), 0);
++                G3_Vtx((fx16)(ri * kC[g] / 16), (fx16)(ri * kS[g] / 16), 0);
++                G3_Vtx((fx16)(ri * kC[g + 1] / 16), (fx16)(ri * kS[g + 1] / 16), 0);
++                G3_Vtx((fx16)(ro * kC[g + 1] / 16), (fx16)(ro * kS[g + 1] / 16), 0);
++            }
++            G3_End();
++        }
++        G3_Color(GX_RGB(31, 31, 31));
++        G3_PopMtx(1);
++    }
+     if (sSS3DS_StarT > 0 && !dark) { // 0303: a bright head with a fading tail, sliding down across the sky
+         int age = SS3DS_STAR_FRAMES - sSS3DS_StarT;
+         int fadeAll = sSS3DS_StarT < 10 ? sSS3DS_StarT * 3 : age < 6 ? 6 + age * 4 : 31;
+@@ -4258,7 +4370,7 @@ static void SS3DS_WildDraw(FieldSystem *fieldSystem) {
+         any |= S->m[i].on && !S->m[i].battle;
+     }
+     any |= S->birdOn;
+-    any |= sSS3DS_PartnerBang > 0 || sSS3DS_RipT > 0 || sSS3DS_EyeT > 0 || sSS3DS_StarT > 0; // 0301/0302/0303
++    any |= sSS3DS_PartnerBang > 0 || sSS3DS_RipT > 0 || sSS3DS_EyeT > 0 || sSS3DS_StarT > 0 || sSS3DS_RainbowT > 0; // 0301-0305
+     if (!any) {
+         return;
+     }
+-- 
+2.43.0
+

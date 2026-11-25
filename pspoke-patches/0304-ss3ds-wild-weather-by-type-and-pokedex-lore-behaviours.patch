@@ -1,0 +1,456 @@
+From e7b3c588e0131cea84e40a1c46631fe211de26d9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 17:00:13 +0000
+Subject: [PATCH] ss3ds: wild weather by type and Pokedex lore behaviours
+ (0304)
+
+Hook 0110 block, same Alive wild Pokemon gate, no new toggle, nothing saved (per-slot statics cleared when a slot
+empties and on map change):
+- Weather picks from the map's own table: fire types stay in out of the rain, ice types come out in snow, electric
+  types in a thunderstorm (with little sparks and livelier hops), fire types a bit more on clear days.
+- Hoothoot/Noctowl hoot on the hour at night (a visible one hops; otherwise one out of sight if the route has them).
+- Abra teleports away when it notices the player (up to twice), flickering out and back in a few tiles off.
+- Diglett/Dugtrio sink into the ground and pop up elsewhere (up to three times).
+- Sudowoodo stands stock still and silent while the player is within 4 tiles.
+- Slowpoke sits at the water's edge dangling its tail for a long while, with small rings.
+- Jigglypuff sometimes sings (notes); land wilds within 4 tiles fall asleep.
+- Ditto spawns looking like the player's lead and drops the disguise within 2 tiles.
+Logs: "weather brings out", "hoots", "teleports away", "digs underground", "pretends to be a tree", "dangles its tail",
+"Jigglypuff's song", "Ditto is disguised", "disguise drops".
+---
+ scripts/ss3ds_hooks.d/0110_wildvis.py | 322 +++++++++++++++++++++++++-
+ 1 file changed, 314 insertions(+), 8 deletions(-)
+
+diff --git a/scripts/ss3ds_hooks.d/0110_wildvis.py b/scripts/ss3ds_hooks.d/0110_wildvis.py
+index c5ef5aa..54d0235 100644
+--- a/scripts/ss3ds_hooks.d/0110_wildvis.py
++++ b/scripts/ss3ds_hooks.d/0110_wildvis.py
+@@ -13,7 +13,7 @@ import os
+ import sys
+ 
+ COMMON = r'''
+-/* SS3DS-WILD-BEGIN v27 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284/0288/0301/0302/0303: everything between BEGIN and END is replaced by the hook on every build) */
++/* SS3DS-WILD-BEGIN v27 (0110/0111/0217/0218/0223/0224/0281/0282/0283/0284/0288/0301/0302/0303/0304: everything between BEGIN and END is replaced by the hook on every build) */
+ /* SS3DS 0110 visible wild Pokemon. The state lives in the port (P3DS_WildMemV2, platform g3soft.cpp) so it survives the
+    field overlay being unloaded for menus, the bag and battles. Nothing here is saved. Same layout in fieldmap.c and
+    encounter_check.c. */
+@@ -1540,9 +1540,9 @@ static void SS3DS_WildDrink(FieldSystem *fieldSystem, SS3DSWildState *S, SS3DSWi
+         int x = m->x + kDx[d], z = m->z + kDz[d];
+         if ((SS3DS_WildTileKind(fieldSystem, x, z) & 3) == 2) {
+             m->dir = (s16)d;
+-            m->timer = 100 + (int)SS3DS_WildRand(S, 60); // stays put while it drinks
++            m->timer = m->sp == 79 ? 420 + (int)SS3DS_WildRand(S, 300) : 100 + (int)SS3DS_WildRand(S, 60); // 0304: Slowpoke fishes a long while
+             SS3DS_RippleAt(x, z, 1);
+-            PSPNativeMemLog("[WILD] slot %d species %d stops for a drink", i + 1, m->sp);
++            PSPNativeMemLog("[WILD] slot %d species %d %s", i + 1, m->sp, m->sp == 79 ? "dangles its tail in the water to fish" : "stops for a drink");
+             return;
+         }
+     }
+@@ -1787,6 +1787,226 @@ static void SS3DS_ParadeTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px
+     }
+ }
+ 
++// 0304: weather by type and Pokedex lore. Per-slot statics, cleared whenever a slot is empty and on every map change.
++#define SS3DS_VANISH 48
++static int sSS3DS_Vanish[SS3DS_WILD_MAX], sSS3DS_VanishKind[SS3DS_WILD_MAX], sSS3DS_Ports[SS3DS_WILD_MAX]; // 1 dig (Diglett), 2 teleport (Abra)
++static int sSS3DS_DittoMask, sSS3DS_FreezeMask, sSS3DS_Sing, sSS3DS_SingT, sSS3DS_Storm, sSS3DS_Hour = -1, sSS3DS_HourT;
++
++static void SS3DS_LoreReset(void) {
++    for (int k = 0; k < SS3DS_WILD_MAX; k++) {
++        sSS3DS_Vanish[k] = sSS3DS_VanishKind[k] = sSS3DS_Ports[k] = 0;
++    }
++    sSS3DS_DittoMask = sSS3DS_FreezeMask = sSS3DS_Sing = sSS3DS_SingT = 0;
++    sSS3DS_Hour = -1;
++}
++
++static int SS3DS_TypeFire(int sp) {
++    switch (sp) {
++    case 4: case 5: case 6: case 37: case 38: case 58: case 59: case 77: case 78: case 126: case 136: case 146: case 155: case 156:
++    case 157: case 218: case 219: case 228: case 229: case 240: case 244: case 250:
++        return 1;
++    default:
++        return 0;
++    }
++}
++
++static int SS3DS_TypeIce(int sp) {
++    switch (sp) {
++    case 87: case 91: case 124: case 131: case 144: case 215: case 220: case 221: case 225: case 238: case 361: case 362: case 459:
++    case 460: case 461: case 473:
++        return 1;
++    default:
++        return 0;
++    }
++}
++
++static int SS3DS_TypeElectric(int sp) {
++    switch (sp) {
++    case 25: case 26: case 81: case 82: case 100: case 101: case 125: case 135: case 145: case 170: case 171: case 172: case 179:
++    case 180: case 181: case 239: case 243: case 309: case 310: case 403: case 404: case 405: case 417: case 462: case 466:
++        return 1;
++    default:
++        return 0;
++    }
++}
++
++// weather picks the species: no fire types out in the rain, ice types come out in the snow, electric types in a
++// thunderstorm, fire types a little more on clear days. Only from this map's own table. 0 = skip this spawn try.
++static int SS3DS_WeatherPick(FieldSystem *fieldSystem, SS3DSWildState *S, int env, int *sp, int *lv) {
++    int want = (env & 4) ? 1 : sSS3DS_Storm ? 2 : (!(env & 3) && (env & WILD_DAY)) ? 3 : 0;
++    if ((env & 2) && SS3DS_TypeFire(*sp)) {
++        for (int t = 0; t < 3; t++) {
++            int s2, l2;
++            if (SS3DS_WildPick(fieldSystem, 0, &s2, &l2) && !SS3DS_TypeFire(s2)) {
++                *sp = s2;
++                *lv = l2;
++                return 1;
++            }
++        }
++        return 0; // only fire types here and it is raining: they stay in their dens
++    }
++    if (!want || SS3DS_WildRand(S, want == 3 ? 3 : 2) != 0) {
++        return 1;
++    }
++    for (int t = 0; t < 4; t++) {
++        int s2, l2;
++        if (!SS3DS_WildPick(fieldSystem, 0, &s2, &l2)) {
++            break;
++        }
++        if ((want == 1 && SS3DS_TypeIce(s2)) || (want == 2 && SS3DS_TypeElectric(s2)) || (want == 3 && SS3DS_TypeFire(s2))) {
++            *sp = s2;
++            *lv = l2;
++            PSPNativeMemLog("[WILD] the weather brings out species %d", s2);
++            return 1;
++        }
++    }
++    return 1;
++}
++
++static int SS3DS_WeatherLively(int sp, int env) {
++    return (sSS3DS_Storm && SS3DS_TypeElectric(sp)) || ((env & 4) && SS3DS_TypeIce(sp));
++}
++
++// Abra teleports / Diglett digs: halfway through it moves to a free spot a few tiles off, out of the player's sight
++static void SS3DS_VanishMove(FieldSystem *fieldSystem, SS3DSWildState *S, SS3DSWildMon *m, int i, int px, int pz) {
++    for (int t = 0; t < 10; t++) {
++        int x = m->x + (int)SS3DS_WildRand(S, 11) - 5, z = m->z + (int)SS3DS_WildRand(S, 9) - 4;
++        int dx = x - px, dz = z - pz, d = (dx < 0 ? -dx : dx) + (dz < 0 ? -dz : dz);
++        int tile = SS3DS_WildTileKind(fieldSystem, x, z);
++        if (d < 5 || d > 8 || (tile & 3) != m->kind || SS3DS_WildCrowded(S, i, x, z)) {
++            continue;
++        }
++        m->x = m->fx = m->homeX = x;
++        m->z = m->fz = m->homeZ = z;
++        m->grass = (tile & 4) != 0;
++        m->noticed = WILD_UNAWARE;
++        m->hop = m->bang = 0;
++        m->rustle = m->grass ? 12 : 0;
++        PSPNativeMemLog("[WILD] slot %d species %d %s to %d,%d", i + 1, m->sp, sSS3DS_VanishKind[i] == 2 ? "teleported" : "popped up", x, z);
++        return;
++    }
++}
++
++// lore when one notices the player. 1 = handled (no lead check)
++static int SS3DS_LoreNotice(SS3DSWildState *S, SS3DSWildMon *m, int i) {
++    if ((m->sp == 63 || m->sp == 50 || m->sp == 51) && sSS3DS_Ports[i] < (m->sp == 63 ? 2 : 3) && !m->big && m->roamer < 0) {
++        sSS3DS_Vanish[i] = SS3DS_VANISH;
++        sSS3DS_VanishKind[i] = m->sp == 63 ? 2 : 1;
++        sSS3DS_Ports[i]++;
++        m->hop = 0;
++        PSPNativeMemLog("[WILD] slot %d species %d %s", i + 1, m->sp, m->sp == 63 ? "teleports away" : "digs underground");
++        return 1;
++    }
++    if (m->sp == 185 || (sSS3DS_DittoMask & (1 << i))) {
++        m->hop = m->bang = 0; // a "tree" and a disguise do not give themselves away
++        return 1;
++    }
++    return 0;
++}
++
++// per frame, before the wilds move: Hoothoot on the hour, Jigglypuff's song, slots that emptied
++static void SS3DS_LoreTick(FieldSystem *fieldSystem, SS3DSWildState *S, int px, int pz, int env) {
++    for (int k = 0; k < SS3DS_WILD_MAX; k++) {
++        if (!S->m[k].on) {
++            sSS3DS_Vanish[k] = sSS3DS_VanishKind[k] = sSS3DS_Ports[k] = 0;
++            sSS3DS_DittoMask &= ~(1 << k);
++            sSS3DS_FreezeMask &= ~(1 << k);
++        }
++    }
++    if (sSS3DS_Sing && (!S->m[sSS3DS_Sing - 1].on || S->m[sSS3DS_Sing - 1].battle)) {
++        sSS3DS_Sing = 0;
++    }
++    if (sSS3DS_Sing && --sSS3DS_SingT == 60) {
++        SS3DSWildMon *j = &S->m[sSS3DS_Sing - 1];
++        int n = 0;
++        for (int k = 0; k < SS3DS_WILD_MAX; k++) {
++            SS3DSWildMon *o = &S->m[k];
++            int ox = o->x - j->x, oz = o->z - j->z;
++            if (k == sSS3DS_Sing - 1 || !o->on || o->spare || o->battle || o->big || o->roamer >= 0 || o->kind != 1 || o->sleep
++                || o->noticed == WILD_STARTLED || (ox < 0 ? -ox : ox) + (oz < 0 ? -oz : oz) > 4) {
++                continue;
++            }
++            o->sleep = 360 + (int)SS3DS_WildRand(S, 240);
++            o->noticed = WILD_UNAWARE;
++            o->hop = 0;
++            n++;
++        }
++        PSPNativeMemLog("[WILD] Jigglypuff's song put %d to sleep", n);
++    }
++    if (sSS3DS_Sing && sSS3DS_SingT <= 0) {
++        sSS3DS_Sing = 0;
++    }
++    if (++sSS3DS_HourT >= 120) { // Hoothoot keeps time: it hoots on the hour at night
++        sSS3DS_HourT = 0;
++        RTCDate date;
++        RTCTime time;
++        GF_RTC_CopyDateTime(&date, &time);
++        int hour = time.hour;
++        if (sSS3DS_Hour >= 0 && hour != sSS3DS_Hour && (env & 1) && MapHeader_IsOutdoors(fieldSystem->location->mapId)) {
++            int heard = 0;
++            for (int k = 0; k < SS3DS_WILD_MAX; k++) {
++                SS3DSWildMon *o = &S->m[k];
++                int ox = o->x - px, oz = o->z - pz;
++                if (o->on && !o->battle && (o->sp == 163 || o->sp == 164) && (ox < 0 ? -ox : ox) + (oz < 0 ? -oz : oz) <= 10) {
++                    o->sleep = 0;
++                    o->hop = 10;
++                    if (!heard) {
++                        heard = SS3DS_WildCue(S, o->sp, 0);
++                    }
++                }
++            }
++            if (!heard && MapHeader_HasWildEncounters(fieldSystem->location->mapId) && SS3DS_WildInTable(fieldSystem, 163)) {
++                heard = SS3DS_WildCue(S, 163, 0); // one out of sight in the trees
++            }
++            if (heard) {
++                PSPNativeMemLog("[WILD] a Hoothoot hoots: %d o'clock", hour);
++            }
++        }
++        sSS3DS_Hour = hour;
++    }
++}
++
++// a little yellow spark beside an electric type in a thunderstorm
++static void SS3DS_WildSpark(fx16 hw, u32 anim) {
++    const fx16 u = FX16_ONE / 16, z = FX16_ONE / 8;
++    fx16 x0 = (anim & 32) ? (fx16)(hw * 3 / 4) : (fx16)(-hw * 3 / 4 - u * 3), y0 = (fx16)(hw / 3);
++    G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++    G3_Color(GX_RGB(31, 30, 4));
++    G3_Begin(GX_BEGIN_QUADS);
++    G3_Vtx(x0, y0 + u * 4, z); // a small zigzag: two slanted bars
++    G3_Vtx(x0 + u, y0 + u * 4, z);
++    G3_Vtx(x0 + u * 3, y0 + u * 2, z);
++    G3_Vtx(x0 + u * 2, y0 + u * 2, z);
++    G3_Vtx(x0 + u * 1, y0 + u * 2, z);
++    G3_Vtx(x0 + u * 2, y0 + u * 2, z);
++    G3_Vtx(x0 + u, y0, z);
++    G3_Vtx(x0, y0, z);
++    G3_End();
++    G3_Color(GX_RGB(31, 31, 31));
++}
++
++// two music notes drifting up beside Jigglypuff while it sings
++static void SS3DS_WildNotes(fx16 hw, u32 anim) {
++    const fx16 u = FX16_ONE / 16, z = FX16_ONE / 8;
++    G3_TexImageParam(GX_TEXFMT_NONE, GX_TEXGEN_NONE, GX_TEXSIZE_S8, GX_TEXSIZE_T8, GX_TEXREPEAT_NONE, GX_TEXFLIP_NONE, GX_TEXPLTTCOLOR0_USE, 0);
++    G3_Color(GX_RGB(31, 20, 26));
++    for (int k = 0; k < 2; k++) {
++        int ph = (int)((anim >> 2) + k * 8) % 16;
++        fx16 x0 = (fx16)((k ? -hw : hw / 2) + u * (ph & 4 ? 1 : 0)), y0 = (fx16)(hw / 2 + u * ph);
++        G3_Begin(GX_BEGIN_QUADS);
++        G3_Vtx(x0, y0 + u * 2, z); // head
++        G3_Vtx(x0, y0, z);
++        G3_Vtx(x0 + u * 2, y0, z);
++        G3_Vtx(x0 + u * 2, y0 + u * 2, z);
++        G3_Vtx(x0 + u * 3 / 2, y0 + u * 6, z); // stem
++        G3_Vtx(x0 + u * 3 / 2, y0 + u, z);
++        G3_Vtx(x0 + u * 2, y0 + u, z);
++        G3_Vtx(x0 + u * 2, y0 + u * 6, z);
++        G3_End();
++    }
++    G3_Color(GX_RGB(31, 31, 31));
++}
++
+ // 0301: a wild one sizes up the player's lead (Scarlet/Violet style). A much stronger lead scares it off (never a
+ // shiny), a clearly weaker one gets a land one to charge, and the same species as the lead comes over curious.
+ static void SS3DS_WildSenseLead(FieldSystem *fieldSystem, SS3DSWildState *S, SS3DSWildMon *m, int i) {
+@@ -2345,6 +2565,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         sSS3DS_PartnerBang = 0; // 0301
+         sSS3DS_RipT = sSS3DS_EyeT = 0; // 0302
+         SS3DS_MomentsReset(); // 0303
++        SS3DS_LoreReset(); // 0304
+         S->rng ^= SS3DS_WildClockSeed() + (u32)S->anim; // 0283: re-entering a map rolls fresh spots
+         PSPNativeMemLog("[WILD] map %d", map);
+     }
+@@ -2361,6 +2582,8 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         env |= 4;
+     }
+     SS3DS_BirdTick(fieldSystem, S, px, pz, env, ambientWeather);
++    sSS3DS_Storm = alive && (ambientWeather ? ambientWeather
++        : LocalFieldData_GetWeatherType(Save_LocalFieldData_Get(fieldSystem->saveData))) == WEATHER_THUNDERSTORM; // 0304
+     int indoors = 0;
+     const SS3DSTownLink *link = alive >= 2 ? SS3DS_TownRoutineLink(map) : NULL;
+     const SS3DSTownRoutine *routine = link ? SS3DS_TownRoutineForMap(map, env, &indoors) : NULL;
+@@ -2449,6 +2672,7 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+         SS3DS_LostTick(fieldSystem, S, px, pz);
+         SS3DS_TagTick(S);
+         SS3DS_ParadeTick(fieldSystem, S, px, pz, alive, town, wildAvailable);
++        SS3DS_LoreTick(fieldSystem, S, px, pz, env); // 0304
+     }
+     int n = 0, named = 0, mx = P3DS_WildVisCfg(1) + 1;
+     if (env & 2) {
+@@ -2560,6 +2784,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                     }
+                     break;
+                 }
++                if (alive && !rainy && (kind & 3) == 1 && !SS3DS_WeatherPick(fieldSystem, S, env, &sp, &lv)) {
++                    continue; // 0304: fire types stay in out of the rain
++                }
+                 // 0303: a wish from a shooting star: a Clefairy (or a little Cleffa) comes down into the grass
+                 if (alive && sSS3DS_StarWish > 0 && (kind & 3) == 1) {
+                     sp = SS3DS_WildRand(S, 3) ? 35 : 173; // Clefairy, Cleffa
+@@ -2677,6 +2904,16 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 PlayCry(sp, 0);
+                 P3DS_Toast("SOMETHING CAME DOWN WITH THE SHOOTING STAR!");
+                 PSPNativeMemLog("[WILD] the shooting star's wish: species %d lv %d in slot %d", sp, m->lv, k + 1);
++            } else if (sp == 132 && regular && alive && !resident && ro < 0) { // 0304: Ditto looks like your lead until you are close
++                int ll, ls = SS3DS_WildLead(fieldSystem, &ll);
++                int dspr = ls > 0 && ls != 132 ? P3DS_FollowerSprite(ls, 0, 0) : -1;
++                int dw = dspr >= 0 ? P3DS_WildLoad(k + 1, dspr, 0) : 0;
++                if (dw) {
++                    special = 1;
++                    m->w = dw;
++                    sSS3DS_DittoMask |= 1 << k;
++                    PSPNativeMemLog("[WILD] slot %d Ditto is disguised as species %d", k + 1, ls);
++                }
+             } else if (regular && alive && !resident && ro < 0 && !m->big && !shiny && m->kind == 1 && !sSS3DS_Lost && lv > 4
+                 && SS3DS_WildRand(S, 30) == 0) {
+                 special = 1; // 0303: a young one on its own, lost
+@@ -2856,6 +3093,51 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->t++;
+             continue;
+         }
++        if (alive && sSS3DS_Vanish[i] > 0) { // 0304: Abra teleporting / Diglett underground
++            if (--sSS3DS_Vanish[i] == SS3DS_VANISH / 2) {
++                SS3DS_VanishMove(fieldSystem, S, m, i, px, pz);
++            }
++            m->timer = 20;
++            continue;
++        }
++        if (alive && m->sp == 185 && !m->battle) { // 0304: Sudowoodo stands stock still while the player is near (it is a "tree")
++            int sx = m->x - px, sz = m->z - pz;
++            if ((sx < 0 ? -sx : sx) + (sz < 0 ? -sz : sz) <= 4) {
++                if (!(sSS3DS_FreezeMask & (1 << i))) {
++                    PSPNativeMemLog("[WILD] slot %d Sudowoodo pretends to be a tree", i + 1);
++                }
++                sSS3DS_FreezeMask |= 1 << i;
++                m->hop = m->bang = 0;
++                m->timer = 20;
++                continue;
++            }
++            sSS3DS_FreezeMask &= ~(1 << i);
++        }
++        if (sSS3DS_DittoMask & (1 << i)) { // 0304: close up, the disguise drops
++            int sx = m->x - px, sz = m->z - pz;
++            if ((sx < 0 ? -sx : sx) + (sz < 0 ? -sz : sz) <= 2 || !alive) {
++                int dspr = P3DS_FollowerSprite(132, 0, 0);
++                int dw = dspr >= 0 ? P3DS_WildLoad(i + 1, dspr, m->shiny) : 0;
++                if (dw) {
++                    m->w = dw;
++                    m->hop = 14;
++                    m->bang = 45;
++                    SS3DS_WildCue(S, 132, 0);
++                    PSPNativeMemLog("[WILD] slot %d Ditto's disguise drops", i + 1);
++                }
++                sSS3DS_DittoMask &= ~(1 << i);
++            }
++        }
++        if (alive && m->sp == 39 && !sSS3DS_Sing && !m->noticed && !m->sleep && !m->battle && SS3DS_WildRand(S, 1500) == 0) {
++            int sx = m->x - px, sz = m->z - pz;
++            if ((sx < 0 ? -sx : sx) + (sz < 0 ? -sz : sz) <= 8) { // 0304: Jigglypuff sings
++                sSS3DS_Sing = i + 1;
++                sSS3DS_SingT = 150;
++                m->timer = 150;
++                SS3DS_WildCue(S, 39, 0);
++                PSPNativeMemLog("[WILD] slot %d Jigglypuff starts to sing", i + 1);
++            }
++        }
+         // 0281: an NPC walked onto this tile (wilds are not map objects, so the game lets it): step aside, or slip away
+         if (alive && m->spare != 2 && fieldSystem->mapObjectManager != NULL && !(m->x == px && m->z == pz) && (((int)S->anim + i) & 3) == 0
+             && MapObjectManager_GetFirstObjectWithXAndZ(fieldSystem->mapObjectManager, m->x, m->z, TRUE) != NULL) {
+@@ -3024,9 +3306,9 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+                 if (m->kind == 2 && m->splash == 0 && SS3DS_WildRand(S, (m->sp == 129 ? 90 : 300) / ((env & 2) ? 3 : 1)) == 0) { // 0282: rain brings water ones up to splash
+                     m->hop = 12;
+                     m->splash = 16;
+-                } else if (m->kind == 1 && SS3DS_WildRand(S, (m->flags & 1) ? 200 : 600) == 0) { // 0283: young ones bounce more
++                } else if (m->kind == 1 && SS3DS_WildRand(S, (m->flags & 1) ? 200 : (alive && SS3DS_WeatherLively(m->sp, env)) ? 120 : 600) == 0) { // 0283: young ones bounce more; 0304: their weather
+                     m->hop = 8;
+-                } else if (alive && m->kind == 1 && !m->sleep && !m->leader && SS3DS_WildRand(S, 500) == 0) {
++                } else if (alive && m->kind == 1 && !m->sleep && !m->leader && SS3DS_WildRand(S, m->sp == 79 ? 120 : 500) == 0) {
+                     SS3DS_WildDrink(fieldSystem, S, m, i); // 0302
+                 }
+                 // 0282: now and then an unaware one close by calls out (shares the cry cooldown, follows the cries setting)
+@@ -3078,12 +3360,14 @@ static void SS3DS_WildTick(FieldSystem *fieldSystem) {
+             m->bang = m->spare ? 0 : 45;
+             m->timer = 8;
+             m->dir = adx > adz ? (ddx > 0 ? 2 : 3) : (ddz > 0 ? 0 : 1); // turns to face the player
+-            if (P3DS_WildVisCfg(4) && !m->spare) {
++            if (P3DS_WildVisCfg(4) && !m->spare && m->sp != 185 && !(sSS3DS_DittoMask & (1 << i))) { // 0304: no cry from a disguise
+                 PlayCry(m->sp, 0);
+             }
+             PSPNativeMemLog("[WILD] slot %d species %d noticed the player (mood %d)", i + 1, m->sp, m->mood);
+             if (alive && !m->spare) { // 0301: it sizes up your lead, and your partner spots it
+-                SS3DS_WildSenseLead(fieldSystem, S, m, i);
++                if (!SS3DS_LoreNotice(S, m, i)) { // 0304: Abra, Diglett, Sudowoodo, Ditto first
++                    SS3DS_WildSenseLead(fieldSystem, S, m, i);
++                }
+                 SS3DS_PartnerSees(fieldSystem, m, 45, !moving);
+             }
+         } else if (m->noticed && dist > 6) {
+@@ -3510,7 +3794,8 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     if (effects && m->kind == 1 && m->splash > 0) {
+         v.x += (m->splash & 2 ? -1 : 1) * FX32_ONE;
+     }
+-    int moving = m->t < 16 || m->pad < 0, fr = m->sleep ? 2 : m->dir * 2 + ((anim >> (moving ? 3 : 4)) & 1);
++    int moving = m->t < 16 || m->pad < 0, fr = m->sleep ? 2 : (sSS3DS_FreezeMask & (1 << (slot - 1))) ? m->dir * 2 // 0304: a still "tree"
++        : m->dir * 2 + ((anim >> (moving ? 3 : 4)) & 1);
+     fx16 hw = (fx16)(hs * FX16_ONE / 16);
+     // in tall grass the lower 30% is not drawn, so it stands in the grass instead of on top of it
+     fx16 by = m->grass && !moving && !ghost ? (fx16)(-hw + hw * 3 / 5) : (fx16)-hw;
+@@ -3521,6 +3806,21 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+         top -= hw * tuck / 18;
+         bt -= sz * FX32_ONE * tuck / 36;
+     }
++    if (sSS3DS_Vanish[slot - 1] > 0) { // 0304: sinking into the ground (Diglett) or flickering out (Abra)
++        int v = sSS3DS_Vanish[slot - 1], sink = v > SS3DS_VANISH / 2 ? SS3DS_VANISH - v : v; // 0..24..0
++        if (sSS3DS_VanishKind[slot - 1] == 2) {
++            if (sink >= 8 || (anim & 2)) {
++                return;
++            }
++        } else {
++            int s16 = sink >= 16 ? 16 : sink;
++            if (s16 >= 16) {
++                return;
++            }
++            top = (fx16)(by + (top - by) * (16 - s16) / 16);
++            bt = bt * (16 - s16) / 16;
++        }
++    }
+     G3_MtxMode(GX_MTXMODE_POSITION_VECTOR);
+     G3_PushMtx();
+     G3_Identity();
+@@ -3554,6 +3854,12 @@ static void SS3DS_WildDrawOne(FieldSystem *fieldSystem, SS3DSWildMon *m, int slo
+     if (m->sleep) {
+         SS3DS_WildZz(hw, anim);
+     }
++    if (effects && sSS3DS_Storm && SS3DS_TypeElectric(m->sp) && ((anim >> 2) & 15) < 3) {
++        SS3DS_WildSpark(hw, anim); // 0304
++    }
++    if (effects && sSS3DS_Sing == slot) {
++        SS3DS_WildNotes(hw, anim); // 0304
++    }
+     if (m->splash > 0) {
+         SS3DS_WildSplash(hw, m->splash);
+     }
+-- 
+2.43.0
+
