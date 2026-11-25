@@ -65,12 +65,16 @@ static int packFind(int species, int form, int back) {
 /* ---- slots (defined below) ---- */
 typedef struct Slot Slot;
 static void slotsFree(void);
+/* per battler speed for the Black 2 feel (hook 0300, below); speed4: 4 normal, 6 yellow, 8 red, 0 stopped */
+typedef struct { u16 narc, chr, pal; u8 speed4, used; } BState;
+static BState bstate[4];
 
 /* ---- per battle latch ---- */
 static int latched, wasBattle;
 static int battleOn(void) {
     if (P3DS_InBattle && !wasBattle) {
         slotsFree(); /* last battle's sprites */
+        memset(bstate, 0, sizeof bstate);
         latched = P3DS_B2Cfg() && packOpen() == 1;
         if (latched) { P3DS_Use("b2_sprites"); PSPNativeMemLog("[B2] battle: Black 2 sprites ON"); }
     }
@@ -117,7 +121,7 @@ struct Slot {
     int ox, oy;
     const u16 *palN, *palS, *seq;
     const u8 *frames;
-    u64 t0;
+    u64 t0, lastT, acc; /* acc: animation time so far, scaled by the battle speed (hook 0300) */
     int lastFrame;
     int palOk; /* the last palette load of this pic took the Black 2 colours */
     u16 lastPal[16];
@@ -146,7 +150,7 @@ static int slotLoad(Slot *s, int dir) {
     }
     s->blob = b; s->dir = dir; s->w = w; s->h = hh; s->tw = pow2(w); s->th = pow2(hh); s->nUniq = nu; s->nSeq = ns; s->delayCs = dl ? dl : 5; s->bw = bw;
     s->ox = (s16)h16[2]; s->oy = (s16)h16[3]; s->palN = h16 + 8; s->palS = h16 + 24; s->seq = h16 + 40; s->frames = b + hdrA;
-    s->t0 = svcGetSystemTick(); s->lastFrame = -1; anyLoaded = 1;
+    s->t0 = s->lastT = svcGetSystemTick(); s->acc = 0; s->lastFrame = -1; anyLoaded = 1;
     if (loads++ < 40) PSPNativeMemLog("[B2] %s %d: species %u form %u %s, %ux%u, %u frames (%u unique)", s == &fileSlot ? "file" : "slot", s == &fileSlot ? 0 : (int)(s - slots), d->species, d->form, (d->flags & 1) ? "back" : "front", w, hh, ns, nu);
     return 1;
 }
@@ -195,13 +199,41 @@ static void fitBox(unsigned w, unsigned h, int ox, int oy, int height, int *s256
     *s256 = s; *x0 = x; *y0 = y;
 }
 
+/* ---- Black 2 battle feel (hook 0300): Battle_Run reports each battler's picture, HP and status every frame. Like Black 2
+   the loop slows in the yellow (x1.5) and red (x2) HP range and stops while the Pokemon is asleep or frozen. ---- */
+void SS3DS_B2BattleMon(int battler, int narc, int chr, int pal, int hp, int maxHp, unsigned status) {
+    if ((unsigned)battler >= 4) return;
+    BState *b = &bstate[battler];
+    if (!b->used) { b->speed4 = 4; PSPNativeMemLog("[B2] battler %d: speed follows HP and status (hook 0300)", battler); }
+    b->narc = (u16)narc; b->chr = (u16)chr; b->pal = (u16)pal; b->used = 1;
+    unsigned sp = 4;
+    if (status & (7u | (1u << 5))) sp = 0; /* STATUS_SLEEP, STATUS_FREEZE */
+    else if (maxHp > 0 && hp > 0) {
+        unsigned px = (unsigned)hp * 48u / (unsigned)maxHp; /* the HP bar's 48 pixels, same colour rule as HpBar_GetColorIdx */
+        if (px == 0) px = 1;
+        sp = px * 2 > 48 ? 4 : px * 5 > 48 ? 6 : 8;
+    }
+    if (sp != b->speed4) PSPNativeMemLog("[B2] battler %d %s", battler, sp == 0 ? "asleep/frozen: still" : sp == 4 ? "normal speed" : sp == 6 ? "yellow HP: slower" : "red HP: slowest");
+    b->speed4 = (u8)sp;
+}
+static unsigned battleSpeed4(int narc, int chr, int pal) {
+    if (!P3DS_InBattle) return 4;
+    for (int i = 0; i < 4; i++) if (bstate[i].used && bstate[i].narc == narc && bstate[i].chr == chr && bstate[i].pal == pal) return bstate[i].speed4;
+    return 4;
+}
+
 typedef struct { int texOff, sizeS, sizeT, w, h, ox, oy, height, scale256, pltt; } SS3DSB2Pic;
 int SS3DS_B2Pic(int slot, int narc, int chr, int pal, const u16 *livePltt, SS3DSB2Pic *o) {
     const Note *n;
     if (!slotFor(slot, narc, chr, pal, &n) || !slots[slot].palOk) return 0;
     Slot *s = &slots[slot];
-    const u64 el = svcGetSystemTick() - s->t0;
-    const unsigned step = (unsigned)(el / (CPU_TICKS_PER_MSEC * 10ull * s->delayCs));
+    const u64 now = svcGetSystemTick();
+    u64 dt = now - s->lastT;
+    s->lastT = now;
+    if (dt > CPU_TICKS_PER_MSEC * 500ull) dt = CPU_TICKS_PER_MSEC * 500ull; /* a long pause (menu, load) is not a jump */
+    const unsigned sp4 = battleSpeed4(narc, chr, pal);
+    if (sp4) s->acc += dt * 4u / sp4;
+    const unsigned step = (unsigned)(s->acc / (CPU_TICKS_PER_MSEC * 10ull * s->delayCs));
     const int fr = s->seq[step % s->nSeq] < s->nUniq ? s->seq[step % s->nSeq] : 0;
     if (fr != s->lastFrame || memcmp(livePltt, s->lastPal, 32)) {
         u32 *px = P3DS_B2TexPixels(slot, s->tw, s->th);

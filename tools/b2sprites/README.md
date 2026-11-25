@@ -9,4 +9,5 @@ Settings > BATTLE > **Black 2 sprites** (hook 0298, `soulsilver3ds/platform/b2sp
 - `b2pack.py` turns those dumps into the pack: idle animation per Pokemon 1-493, front and back, every Gen 4 form,
   normal + shiny 16-colour palettes, frames de-duplicated. About 37 MB, about 4 minutes.
 - Female art is exported for every species and form that has its own female sprite (the patch adds `ANIMA_FEMALE=1`); the rest use the male sprite.
+- The patch also samples each animation cell at the pixel centre, so cells that meet at a fractional position leave no 1-pixel seam (the "segments" seen in moving Pokemon, run 1027).
 - The pack is made from the user's own ROM and goes onto their SD card only. Never commit it, the ROM or any extracted file.
