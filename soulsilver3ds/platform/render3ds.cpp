@@ -2783,11 +2783,10 @@ static int PresentFrame(bool){
     bmDown = -1;
   }
   pxRingFrame();
-  /* 2026-11-26: a Bag/Party tap only REQUESTS the game screen (Want); it takes a few frames to open (On). Forcing the old narrow layout
-     from the tap showed the map in the old layout until the screen opened. While only Want is set the layout is left alone, and the
-     snap happens when the screen actually opens (On). Native Pokegear panes and the return hold still force at once. */
-  const bool openPending=P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold&&!sSwapAct&&!pxNativeGear(pxPane());
-  blGrabFrame(!openPending&&(P3DS_PanelPartyWant||P3DS_PanelPartyOn||ppChrome||sRetHold||sSwapAct)||pxNativeGear(pxPane())||pxPane()==3||pxPane()==4,
+  /* 2026-11-26 (Nathan): opening Bag/Party no longer forces the old narrow layout. The game picture in the panel is sized from
+     the panel rect (kBlPanX1 follows the collapsed column), so it grows into the new space; only the native Pokegear apps, the
+     return hold and tab swaps (fixed-size pieces) still bring the menus back. */
+  blGrabFrame(sRetHold||sSwapAct||pxNativeGear(pxPane())||pxPane()==3||pxPane()==4,
               !P3DS_InField||P3DS_InBattle);
   P3DS_PgWeatherOn=show&&gPg.decoded&&blMode<0&&!pxPane()&&!gPg.ov&&!gPg.achOpen&&gPg.weather&&P3DS_AmbientWeatherCfg();
   if(P3DS_PgWeatherOn){
@@ -3168,6 +3167,7 @@ static int PresentFrame(bool){
     const int y1=kBlPanY1-(gearTextStrip?gearTextHeight+1:0),dw=x1-x0,dh=y1-y0;
     if(dw>0&&dh>0){
      int outW,outH;if(gearTextStrip){outW=dw;outH=dh;}else if(dw*192<=dh*256){outW=dw;outH=(192*dw+128)/256;}else{outH=dh;outW=(256*dh+96)/192;}
+     if(!gearTextStrip){const int capW=204,capH=153;if(outW>capW){outH=outH*capW/outW;outW=capW;}if(outH>capH){outW=outW*capH/outH;outH=capH;}} /* 2026-11-26: the final-res panel buffer is 256 px max (x1.25) */
      if(outW<1)outW=1;if(outH<1)outH=1;if(outW>dw)outW=dw;if(outH>dh)outH=dh;
      const int ox=x0+(dw-outW)/2,oy=y0+(dh-outH)/2;dx0=ox;dy0=oy;dx1=ox+outW;dy1=oy+outH;
      /* run 138: the panel picture is resampled once, to the final bottom-screen size (dest x 1.25), and drawn by the GPU over the stretched DS bottom (gpuscale.c pnDraw). */
