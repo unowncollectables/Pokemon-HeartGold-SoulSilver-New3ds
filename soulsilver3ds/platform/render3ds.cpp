@@ -2783,7 +2783,11 @@ static int PresentFrame(bool){
     bmDown = -1;
   }
   pxRingFrame();
-  blGrabFrame(P3DS_PanelPartyWant||P3DS_PanelPartyOn||ppChrome||sRetHold||sSwapAct||pxNativeGear(pxPane())||pxPane()==3||pxPane()==4,
+  /* 2026-11-26: a Bag/Party tap only REQUESTS the game screen (Want); it takes a few frames to open (On). Forcing the old narrow layout
+     from the tap showed the map in the old layout until the screen opened. While only Want is set the layout is left alone, and the
+     snap happens when the screen actually opens (On). Native Pokegear panes and the return hold still force at once. */
+  const bool openPending=P3DS_PanelPartyWant&&!P3DS_PanelPartyOn&&!sRetHold&&!sSwapAct&&!pxNativeGear(pxPane());
+  blGrabFrame(!openPending&&(P3DS_PanelPartyWant||P3DS_PanelPartyOn||ppChrome||sRetHold||sSwapAct)||pxNativeGear(pxPane())||pxPane()==3||pxPane()==4,
               !P3DS_InField||P3DS_InBattle);
   P3DS_PgWeatherOn=show&&gPg.decoded&&blMode<0&&!pxPane()&&!gPg.ov&&!gPg.achOpen&&gPg.weather&&P3DS_AmbientWeatherCfg();
   if(P3DS_PgWeatherOn){
