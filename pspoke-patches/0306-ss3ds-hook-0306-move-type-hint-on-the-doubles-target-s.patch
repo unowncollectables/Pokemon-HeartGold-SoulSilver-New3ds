@@ -1,0 +1,107 @@
+From af2f9200694c698e4f6540df72644238ddfc32a9 Mon Sep 17 00:00:00 2001
+From: ss3ds <ss3ds@localhost>
+Date: Thu, 26 Nov 2026 02:35:55 +0000
+Subject: [PATCH] ss3ds: hook 0306 move type hint on the doubles target screen
+ (battle_input.c)
+
+---
+ scripts/ss3ds_hooks.d/0306_targethint.py | 75 ++++++++++++++++++++++++
+ scripts/ss3ds_hooks.d/0306_targethint.sh |  4 ++
+ 2 files changed, 79 insertions(+)
+ create mode 100755 scripts/ss3ds_hooks.d/0306_targethint.py
+ create mode 100755 scripts/ss3ds_hooks.d/0306_targethint.sh
+
+diff --git a/scripts/ss3ds_hooks.d/0306_targethint.py b/scripts/ss3ds_hooks.d/0306_targethint.py
+new file mode 100755
+index 0000000..a566fa3
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0306_targethint.py
+@@ -0,0 +1,75 @@
++#!/usr/bin/env python3
++"""ss3ds 0306: move type hint on the doubles target screen (Settings > Battle "Move type hint"). Read-only snapshots for the port:
++ - Task_FightMenuButtonFeedback publishes the pressed move id in P3DS_MoveHint[23] (0 = cancel).
++ - BattleInput_CreateTargetMenuObjects publishes P3DS_TargetHint[24]: [0] valid (target menu open)  [1] counter
++   [2..5] slot i is a legal target (same test the game uses to draw its name plate)  [6..9] type1  [10..13] type2 (255 = none)
++   Slots follow the game's screen order: 0 bottom-left, 1 top-right, 2 bottom-right, 3 top-left (sTargetPokemonMenuPositions).
++ - BattleInput_ChangeMenu clears [0] before a menu is built; Task_TargetMenuButtonFeedback clears it when a target is pressed.
++The port draws the same SUPER / RESIST / NO EFFECT pill as the FIGHT menu on each target's button. Game logic untouched.
++Each edit is optional on its own; idempotent ('SS3DS 0306')."""
++import sys
++p = 'src/battle/battle_input.c'
++s = open(p).read()
++if 'SS3DS 0306' in s:
++    sys.exit(0)
++edits = []
++
++# 1. chosen move
++edits.append(('feedback move', (
++ '        moveNo = 0;\n        break;\n    }\n\n    switch (battleInput->feedback.state) {\n    case 0:\n        ov12_02268EE4('),
++ ('        moveNo = 0;\n        break;\n    }\n\n'
++  '    { /* SS3DS 0306: the pressed move, for the doubles target hint */\n'
++  '        extern volatile int P3DS_MoveHint[24];\n'
++  '        P3DS_MoveHint[23] = moveNo;\n'
++  '    }\n\n'
++  '    switch (battleInput->feedback.state) {\n    case 0:\n        ov12_02268EE4(')))
++
++# 2. clear before any menu is built
++edits.append(('change menu clear', (
++ '    BattleInput_FreePersistentResources(battleInput);\n\n    if (menuTemplate->funcCreateMenuObjects != NULL) {'),
++ ('    { /* SS3DS 0306 */\n'
++  '        extern volatile int P3DS_TargetHint[24];\n'
++  '        P3DS_TargetHint[0] = 0;\n'
++  '    }\n'
++  '    BattleInput_FreePersistentResources(battleInput);\n\n    if (menuTemplate->funcCreateMenuObjects != NULL) {')))
++
++# 3. publish at target menu build
++edits.append(('target publish', (
++ '    String *strCancel = NewString_ReadMsgData(msgLoader, msg_0197_00930)'),
++ ('    { /* SS3DS 0306 type hint: read-only snapshot of each legal target\'s types */\n'
++  '        extern volatile int P3DS_TargetHint[24];\n'
++  '        BattleContext *tctx = BattleSystem_GetBattleContext(battleInput->battleSystem);\n'
++  '        int ti;\n'
++  '        for (ti = 0; ti < 4; ti++) {\n'
++  '            int tb = v11[2 + ti];\n'
++  '            int ok = (menu->targetMons[tb].hide == 1) && (monsHit[ti] == 1) && (tctx->battleMons[tb].hp > 0);\n'
++  '            P3DS_TargetHint[2 + ti] = ok;\n'
++  '            P3DS_TargetHint[6 + ti] = ok ? tctx->battleMons[tb].type1 : 255;\n'
++  '            P3DS_TargetHint[10 + ti] = ok ? tctx->battleMons[tb].type2 : 255;\n'
++  '        }\n'
++  '        P3DS_TargetHint[1] = P3DS_TargetHint[1] + 1;\n'
++  '        P3DS_TargetHint[0] = 1;\n'
++  '    }\n\n'
++  '    String *strCancel = NewString_ReadMsgData(msgLoader, msg_0197_00930)')))
++
++# 4. clear when a target is pressed
++edits.append(('target pressed', (
++ 'static void Task_TargetMenuButtonFeedback(SysTask *task, void *data) {\n    BattleInput *battleInput = data;\n    BgConfig *bgConfig;\n    int i, x, y;\n    u8 v4[4];\n\n    bgConfig = BattleSystem_GetBgConfig(battleInput->battleSystem);\n'),
++ ('static void Task_TargetMenuButtonFeedback(SysTask *task, void *data) {\n    BattleInput *battleInput = data;\n    BgConfig *bgConfig;\n    int i, x, y;\n    u8 v4[4];\n\n    bgConfig = BattleSystem_GetBgConfig(battleInput->battleSystem);\n'
++  '    { /* SS3DS 0306: a target was pressed, the port hides the hint */\n'
++  '        extern volatile int P3DS_TargetHint[24];\n'
++  '        P3DS_TargetHint[0] = 0;\n'
++  '    }\n')))
++
++done = 0
++for name, old, new in edits:
++    if s.count(old) != 1:
++        print('0306_targethint: anchor "%s" not found exactly once (skipped)' % name)
++        continue
++    s = s.replace(old, new)
++    done += 1
++if done != len(edits):
++    sys.exit('0306_targethint: not all edits applied (skipped)')
++s = s.replace('/* SS3DS 0306 */', '/* SS3DS 0306 */', 1)
++open(p, 'w').write(s)
++print('0306_targethint: battle_input.c hooked')
+diff --git a/scripts/ss3ds_hooks.d/0306_targethint.sh b/scripts/ss3ds_hooks.d/0306_targethint.sh
+new file mode 100755
+index 0000000..9c3f890
+--- /dev/null
++++ b/scripts/ss3ds_hooks.d/0306_targethint.sh
+@@ -0,0 +1,4 @@
++# ss3ds 0306: move type hint on the doubles target screen (battle_input.c, overlay 12). Optional: without it the target screen shows no hint.
++if ! (cd "$C" && python3 "$ROOT/scripts/ss3ds_hooks.d/0306_targethint.py" && bash rebuild_game_object.sh src/battle/battle_input.c battle__battle_input.o 12); then
++  log "ss3ds 0306 targethint hook skipped (see message above); the doubles target screen shows no type hint"
++fi
+-- 
+2.43.0
+

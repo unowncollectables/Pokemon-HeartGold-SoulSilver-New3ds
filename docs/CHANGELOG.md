@@ -4,6 +4,8 @@ Short summary of what the port can do. The full per-run development log (every f
 
 ## Unreleased
 
+- Move type hint on the doubles target screen (hook 0306, Settings > Battle "Move type hint"): when a move needs a target in a double battle, each legal target's button now shows the same SUPER / RESIST / NO EFFECT pill as the FIGHT menu, worked out from that target's own types. Read-only; neutral targets show nothing. Log line `[HINT] target menu:`. Unbuilt on hardware.
+
 - Reset logging trimmed (Nathan confirmed ~20 resets with sound): the per-boot thread-count lines, the audio start/exit diagnostics, the "dsp alive" / "first sound grain" / "ndspInit ok" lines and the start-up memory line are no longer written on a healthy boot. Failure lines stay (sound thread could not start, DSP not running, ndspInit retries, not enough memory after a reset, crashes and stalls).
 
 - Soft reset sound loss (run 1007): every reset still cost 3 of the 32 application thread slots until power-off (25 -> 28 -> 31 at boot, then the sound thread could not start). A fresh power-on boot already shows exactly 3 slots taken beyond the live threads, right after the boot speed check, whose core timing runs 3 short threads on core 0 and 3 on core 2; the reset sound losses started after that check was switched on (2026-11-14). The core timing is no longer run (it was only a log line); the 804 MHz speed-up request is unchanged. Check: on a power-on boot, `[3DS] threads at boot` should show reslimit threads equal to this process's threads (4), and the count should stay flat across resets.
