@@ -853,6 +853,7 @@ volatile int P3DS_FoeInfo[40]; /* hook 0031 trainer foe snapshot (battle -> foe 
 volatile int P3DS_DmgInfo[32]; /* hook 0208 damage/speed check snapshot (battle -> foe info screen), read-only */
 volatile int P3DS_CatchInfo[20]; /* run 75 catch info snapshot (battle -> settings app), read-only */
 volatile int P3DS_MoveHint[24]; /* hook 0121 fight-menu snapshot (moves, types, foe types), read-only */
+volatile int P3DS_TargetHint[24]; /* hook 0306 doubles target-screen snapshot (legal slots + their types; MoveHint[23] = pressed move), read-only */
 
 /* SoulSilver requests 128 when restoring field music. libntr's decibel
    table only covers 0..127: an unchecked 128 reads the next object in rodata.

@@ -1722,6 +1722,7 @@ static bool blPgDraw(uint32_t*b,const SUiText&T,int X0,int Y0,int X1,int Y1,bool
    P3DS_MoveHint, read-only) a rounded badge on each damaging move's touch-screen button: SUPER X2/X4 (green), RESIST X1/2, X1/4 (red), NO EFFECT (grey);
    neutral and status moves show nothing. Gen 4 chart; abilities, items and Foresight are not considered (a hint). */
 extern "C" volatile int P3DS_MoveHint[24];
+extern "C" volatile int P3DS_TargetHint[24];
 static int hintMult(int a,int d){/* x2 units: 0 immune, 1 half, 2 normal, 4 double */
  static const signed char T[][3]={{0,5,1},{0,8,1},{0,7,0},{10,10,1},{10,11,1},{10,12,4},{10,15,4},{10,6,4},{10,5,1},{10,16,1},{10,8,4},
  {11,10,4},{11,11,1},{11,12,1},{11,4,4},{11,5,4},{11,16,1},{13,11,4},{13,13,1},{13,12,1},{13,4,0},{13,2,4},{13,16,1},
@@ -1737,7 +1738,31 @@ static int hintMult(int a,int d){/* x2 units: 0 immune, 1 half, 2 normal, 4 doub
    buttons x 4..124 / 132..252, plates start at y 26 and 98 in DS pixels). Neutral and status moves show nothing. kHintX/kHintY are the button tops; the first time a
    FIGHT menu opens the log prints a colour profile of the bottom image so the offsets can be checked from a log. */
 static bool hintSharpBegin(u32*img);static bool hintSharpDraw(u32*img,int x0,int y0,int mult);static void hintSharpEnd(bool began);
+/* ss3ds 0306: doubles target screen. Hook 0306 publishes each legal target slot's types (P3DS_TargetHint) and the pressed move (P3DS_MoveHint[23]);
+   the same pill as the FIGHT menu goes on that target's button (slots: 0 bottom-left, 1 top-right, 2 bottom-right, 3 top-left; buttons x 0..120 / 136..255,
+   y 8..80 / 88..144 in DS pixels). Neutral targets show nothing. */
+static void drawTargetHint(u32*img){
+ int k=-1;const int mv=P3DS_MoveHint[23];
+ for(int j=0;j<4;j++)if(mv>0&&P3DS_MoveHint[2+j]==mv){k=j;break;}
+ if(k<0)return;const int ty=P3DS_MoveHint[6+k];if(ty>=18||P3DS_MoveHint[10+k]<=0)return;
+ static const int kTx[4]={0,136,136,0},kTy[4]={95,15,95,15};
+ int bm[4]={-1,-1,-1,-1};
+ for(int i=0;i<4;i++){if(!P3DS_TargetHint[2+i])continue;const int t1=P3DS_TargetHint[6+i],t2=P3DS_TargetHint[10+i];if(t1>=18)continue;
+  bm[i]=hintMult(ty,t1)*(t2<18&&t2!=t1?hintMult(ty,t2):2);}
+ static int seen;if(seen!=P3DS_TargetHint[1]){seen=P3DS_TargetHint[1];
+  PSPNativeMemLog("[HINT] target menu: move %d type %d | slots valid %d/%d/%d/%d types %d/%d %d/%d %d/%d %d/%d | mult x4-units %d/%d/%d/%d",mv,ty,(int)P3DS_TargetHint[2],(int)P3DS_TargetHint[3],(int)P3DS_TargetHint[4],(int)P3DS_TargetHint[5],
+   (int)P3DS_TargetHint[6],(int)P3DS_TargetHint[10],(int)P3DS_TargetHint[7],(int)P3DS_TargetHint[11],(int)P3DS_TargetHint[8],(int)P3DS_TargetHint[12],(int)P3DS_TargetHint[9],(int)P3DS_TargetHint[13],bm[0],bm[1],bm[2],bm[3]);}
+ const bool sharp=hintSharpBegin(img);
+ for(int i=0;i<4;i++){if(bm[i]<0||bm[i]==4)continue;
+  if(sharp&&hintSharpDraw(img,kTx[i],kTy[i],bm[i]))continue;
+  const int m=bm[i];const char*t=m==0?"NO EFFECT":m==1?"RESIST X1/4":m==2?"RESIST X1/2":m==8?"SUPER X2":"SUPER X4";
+  const u32 col=m==0?0x00707070u:m<4?0x003030C8u:0x0030A030u,dk=(col>>1)&0x007F7F7Fu;const int w=(int)strlen(t)*4-1,pw=w+6,px=kTx[i]+120-4-pw,py=kTy[i],ph=9;
+  for(int yy=0;yy<ph;yy++)for(int xx=0;xx<pw;xx++){if((xx==0||xx==pw-1)&&(yy==0||yy>=ph-2))continue;
+   const int X=px+xx,Y=py+yy;if(X>=0&&X<256&&Y>=0&&Y<192)img[Y*256+X]=yy>=ph-1?dk:col;}
+  drawTiny(img,px+3,py+2,t,0x00FFFFFFu);}
+ hintSharpEnd(sharp);}
 static void drawTypeHint(u32*img){
+ if(P3DS_InBattle&&P3DS_TargetHint[0]&&P3DS_CfgInt("type_hint",0)){drawTargetHint(img);return;}
  if(!P3DS_InBattle||!P3DS_MoveHint[0]||!P3DS_CfgInt("type_hint",0))return;
  static const int kHintX[2]={4,132},kHintY[2]={79,144},kHintW=120;/* badge tops: in the gap under each button row (measured on the FIGHT menu: gaps y 77..88 and 143..152) */
  const char*txt[4]={0,0,0,0};u32 col[4]={0,0,0,0};int bm[4]={-1,-1,-1,-1};
