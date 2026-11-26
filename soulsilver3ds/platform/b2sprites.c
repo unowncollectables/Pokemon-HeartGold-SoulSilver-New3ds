@@ -143,9 +143,19 @@ static int slotLoad(Slot *s, int dir) {
     if (d->size < 80 || d->size > 4u << 20) return 0;
     u8 *b = (u8 *)malloc(d->size);
     if (!b) { PSPNativeMemLog("[B2] out of memory for sprite %u (%u bytes)", (unsigned)dir, (unsigned)d->size); return 0; }
-    FILE *f = fopen(B2_PATH, "rb");
-    const int ok = f && !fseek(f, (long)d->off, SEEK_SET) && fread(b, 1, d->size, f) == d->size;
-    if (f) fclose(f);
+    /* Another slot (or the 2D picture slot) often holds the very same sprite already (the 3D battler and its send-out /
+       move-effect pictures): copy it from RAM instead of reading it from the SD card again. */
+    const u8 *have = NULL;
+    for (int i = 0; i < 5 && !have; i++) { const Slot *o = i < 4 ? &slots[i] : &fileSlot; if (o != s && o->dir == dir && o->blob) have = o->blob; }
+    const u64 t0 = svcGetSystemTick();
+    int ok;
+    if (have) { memcpy(b, have, d->size); ok = 1; }
+    else {
+        FILE *f = fopen(B2_PATH, "rb");
+        ok = f && !fseek(f, (long)d->off, SEEK_SET) && fread(b, 1, d->size, f) == d->size;
+        if (f) fclose(f);
+    }
+    const unsigned ms = (unsigned)((svcGetSystemTick() - t0) / CPU_TICKS_PER_MSEC);
     const u16 *h16 = (const u16 *)b;
     const unsigned w = h16[0], hh = h16[1], nu = h16[4], ns = h16[5], dl = h16[6];
     const unsigned bw = (w + 1) / 2, hdr = 16 + 64 + ns * 2, hdrA = (hdr + 3) & ~3u;
@@ -155,7 +165,7 @@ static int slotLoad(Slot *s, int dir) {
     s->blob = b; s->dir = dir; s->w = w; s->h = hh; s->tw = pow2(w); s->th = pow2(hh); s->nUniq = nu; s->nSeq = ns; s->delayCs = dl ? dl : 5; s->bw = bw;
     s->ox = (s16)h16[2]; s->oy = (s16)h16[3]; s->palN = h16 + 8; s->palS = h16 + 24; s->seq = h16 + 40; s->frames = b + hdrA;
     s->t0 = s->lastT = svcGetSystemTick(); s->acc = 0; s->lastFrame = -1; anyLoaded = 1;
-    if (loads++ < 40) PSPNativeMemLog("[B2] %s %d: species %u form %u %s, %ux%u, %u frames (%u unique)", s == &fileSlot ? "file" : "slot", s == &fileSlot ? 0 : (int)(s - slots), d->species, d->form, (d->flags & 1) ? "back" : "front", w, hh, ns, nu);
+    if (loads++ < 40) PSPNativeMemLog("[B2] %s %d: species %u form %u %s, %ux%u, %u frames (%u unique), %s %u ms", s == &fileSlot ? "file" : "slot", s == &fileSlot ? 0 : (int)(s - slots), d->species, d->form, (d->flags & 1) ? "back" : "front", w, hh, ns, nu, have ? "copied" : "read", ms);
     return 1;
 }
 /* Spinda uses its plain Black 2 sprite (Nathan 2026-11-24: turn the toggle off to see its spots). */
@@ -305,9 +315,10 @@ static u8 *nitroSection(u8 *f, unsigned size, u32 magic) {
 }
 static unsigned fileSubs;
 static void fileSubst(int narc, int file, void *data, unsigned size) {
-    if (!data || size < 0x30 || !packState || !SS3DS_B2Want()) return;
+    if (!data || size < 0x30 || !packState) return;
     int isPal;
-    const Note *n = noteForFile(narc, file, &isPal);
+    const Note *n = noteForFile(narc, file, &isPal); /* every NARC read of the game comes through here: look at the (empty at boot) notes first */
+    if (!n || !SS3DS_B2Want()) return;
     const int dir = noteDir(n);
     if (dir < 0) return;
     u8 *f = (u8 *)data;
