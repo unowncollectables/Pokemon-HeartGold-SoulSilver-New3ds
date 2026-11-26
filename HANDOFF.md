@@ -8,6 +8,7 @@ Short on purpose. The old running notes (920 lines of per-run test results, 2026
 - State in config.txt `bl_side_hide` / `bl_top_hide`, written on the next battle/door, never on the tap frame. Forced open while the panel hosts a fixed-size game screen (PARTY/BAG panes, native Phone/Radio, panel party). X tile cursor is off while the column is away (X opens the game's menu).
 - Settings > (Bottom menu tab) > Panel handles, default ON (`panel_handles`). OFF = classic layout. Logs `[PANEL] handle: ...`.
 - Host check: `tools/panel_handles_preview.cpp` (states + hit targets). If the bottom screen looks wrong, turn Panel handles OFF.
+- 2026-11-26: nothing forces the old layout any more (Bag/Party/Phone/Radio panes and the game pictures adapt to the collapsed panel; picture width capped at 204 DS px = 256 px final buffer). blGrabFrame(false,...). Unbuilt, untested.
 
 ## Slot 2 visual prototype (2026-11-22, hook 0294, unmerged)
 

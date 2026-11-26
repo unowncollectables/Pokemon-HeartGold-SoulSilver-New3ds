@@ -2808,7 +2808,9 @@ static int PresentFrame(bool){
     bmDown = -1;
   }
   pxRingFrame();
-  blGrabFrame(P3DS_PanelPartyWant||P3DS_PanelPartyOn||ppChrome||sRetHold||sSwapAct||pxNativeGear(pxPane())||pxPane()==3||pxPane()==4,
+  /* 2026-11-26 (Nathan): nothing forces the old narrow layout any more. Bag/Party/Phone/Radio panes and the game pictures in the
+     panel are all sized from the panel rect (kBlPanX1 follows the collapsed column), so they use the space the collapse frees. */
+  blGrabFrame(false,
               !P3DS_InField||P3DS_InBattle);
   P3DS_PgWeatherOn=show&&gPg.decoded&&blMode<0&&!pxPane()&&!gPg.ov&&!gPg.achOpen&&gPg.weather&&P3DS_AmbientWeatherCfg();
   if(P3DS_PgWeatherOn){
@@ -3189,6 +3191,8 @@ static int PresentFrame(bool){
     const int y1=kBlPanY1-(gearTextStrip?gearTextHeight+1:0),dw=x1-x0,dh=y1-y0;
     if(dw>0&&dh>0){
      int outW,outH;if(gearTextStrip){outW=dw;outH=dh;}else if(dw*192<=dh*256){outW=dw;outH=(192*dw+128)/256;}else{outH=dh;outW=(256*dh+96)/192;}
+     if(gearTextStrip&&outW>204)outW=204; /* same 256 px final-buffer limit */
+     if(!gearTextStrip){const int capW=204,capH=153;if(outW>capW){outH=outH*capW/outW;outW=capW;}if(outH>capH){outW=outW*capH/outH;outH=capH;}} /* 2026-11-26: the final-res panel buffer is 256 px max (x1.25) */
      if(outW<1)outW=1;if(outH<1)outH=1;if(outW>dw)outW=dw;if(outH>dh)outH=dh;
      const int ox=x0+(dw-outW)/2,oy=y0+(dh-outH)/2;dx0=ox;dy0=oy;dx1=ox+outW;dy1=oy+outH;
      /* run 138: the panel picture is resampled once, to the final bottom-screen size (dest x 1.25), and drawn by the GPU over the stretched DS bottom (gpuscale.c pnDraw). */
