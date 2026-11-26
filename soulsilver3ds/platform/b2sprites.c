@@ -126,7 +126,7 @@ struct Slot {
     const u8 *frames;
     u64 t0, lastT, acc; /* acc: animation time so far, scaled by the battle speed (hook 0300) */
     int palId, noteH; /* the template palette file and the note's height (move-effect copies) */
-    int lastFrame;
+    int lastFrame, lastSc;
     int palOk; /* the last palette load of this pic took the Black 2 colours */
     u16 lastPal[16];
 };
@@ -154,7 +154,7 @@ static int slotLoad(Slot *s, int dir) {
     }
     s->blob = b; s->dir = dir; s->w = w; s->h = hh; s->tw = pow2(w); s->th = pow2(hh); s->nUniq = nu; s->nSeq = ns; s->delayCs = dl ? dl : 5; s->bw = bw;
     s->ox = (s16)h16[2]; s->oy = (s16)h16[3]; s->palN = h16 + 8; s->palS = h16 + 24; s->seq = h16 + 40; s->frames = b + hdrA;
-    s->t0 = s->lastT = svcGetSystemTick(); s->acc = 0; s->lastFrame = -1; anyLoaded = 1;
+    s->t0 = s->lastT = svcGetSystemTick(); s->acc = 0; s->lastFrame = -1; s->lastSc = 0; anyLoaded = 1;
     if (loads++ < 40) PSPNativeMemLog("[B2] %s %d: species %u form %u %s, %ux%u, %u frames (%u unique)", s == &fileSlot ? "file" : "slot", s == &fileSlot ? 0 : (int)(s - slots), d->species, d->form, (d->flags & 1) ? "back" : "front", w, hh, ns, nu);
     return 1;
 }
@@ -203,6 +203,34 @@ static void fitBox(unsigned w, unsigned h, int ox, int oy, int height, int *s256
     *s256 = s; *x0 = x; *y0 = y;
 }
 
+/* Area-average downscale (scale s256 < 256): the mean of the source pixels a destination pixel covers, so a shrunk sprite
+   keeps its detail instead of dropping every other pixel (the blurry / jagged look in party and summary pictures).
+   col[] are 8-bit R,G,B of the 16 colours (index 0 transparent). Returns coverage 0..255, rgb in out[3] (not premultiplied). */
+static unsigned boxSample(const u8 *src, unsigned bw, unsigned w, unsigned h, int s256, int x, int y, const u8 col[16][3], u8 out[3]) {
+    int sx0 = x * 256 / s256, sx1 = ((x + 1) * 256 + s256 - 1) / s256, sy0 = y * 256 / s256, sy1 = ((y + 1) * 256 + s256 - 1) / s256;
+    if (sx1 <= sx0) sx1 = sx0 + 1;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    if (sx1 > (int)w) sx1 = (int)w;
+    if (sy1 > (int)h) sy1 = (int)h;
+    unsigned n = 0, a = 0, r = 0, g = 0, b = 0;
+    for (int yy = sy0; yy < sy1; yy++)
+        for (int xx = sx0; xx < sx1; xx++) {
+            const unsigned v = (src[yy * bw + (xx >> 1)] >> ((xx & 1) * 4)) & 15;
+            n++;
+            if (v) { a++; r += col[v][0]; g += col[v][1]; b += col[v][2]; }
+        }
+    out[0] = out[1] = out[2] = 0;
+    if (!n || !a) return 0;
+    out[0] = (u8)(r / a); out[1] = (u8)(g / a); out[2] = (u8)(b / a);
+    return a * 255 / n;
+}
+static void palRgb(const u16 *pal, u8 col[16][3]) {
+    for (int i = 0; i < 16; i++) {
+        const unsigned v = pal[i], r = v & 31, g = (v >> 5) & 31, b = (v >> 10) & 31;
+        col[i][0] = (u8)(r << 3 | r >> 2); col[i][1] = (u8)(g << 3 | g >> 2); col[i][2] = (u8)(b << 3 | b >> 2);
+    }
+}
+
 /* ---- Black 2 battle feel (hook 0300): Battle_Run reports each battler's picture, HP and status every frame. Like Black 2
    the loop slows in the yellow (x1.5) and red (x2) HP range and stops while the Pokemon is asleep or frozen. ---- */
 static void b2CopiesTick(void);
@@ -244,34 +272,48 @@ int SS3DS_B2Pic(int slot, int narc, int chr, int pal, const u16 *livePltt, SS3DS
     if (!slotFor(slot, narc, chr, pal, &n) || !slots[slot].palOk) return 0;
     Slot *s = &slots[slot];
     const int fr = slotStep(s, battleSpeed4(narc, chr, pal));
-    if (fr != s->lastFrame || memcmp(livePltt, s->lastPal, 32)) {
-        u32 *px = P3DS_B2TexPixels(slot, s->tw, s->th);
+    int sc = 256, bx0 = 0, by0 = 0;
+    if (!P3DS_InBattle) fitBox(s->w, s->h, s->ox, s->oy, n->height, &sc, &bx0, &by0); /* summary, Hall of Fame...: fit the 80x80 box */
+    /* a shrunk sprite is area-averaged into its own smaller texture and drawn 1:1 (nearest sampling of a scaled quad was jagged) */
+    const unsigned dw = sc == 256 ? s->w : (unsigned)((int)s->w * sc >> 8), dh = sc == 256 ? s->h : (unsigned)((int)s->h * sc >> 8);
+    const unsigned dtw = pow2(dw ? dw : 1), dth = pow2(dh ? dh : 1);
+    if (fr != s->lastFrame || sc != s->lastSc || memcmp(livePltt, s->lastPal, 32)) {
+        u32 *px = P3DS_B2TexPixels(slot, dtw, dth);
         if (!px) return 0;
         u32 c[16];
         for (int i = 0; i < 16; i++) { const unsigned v = livePltt[i], r = v & 31, g = (v >> 5) & 31, b = (v >> 10) & 31; c[i] = (r << 3 | r >> 2) | ((g << 3 | g >> 2) << 8) | ((b << 3 | b >> 2) << 16) | 0xFF000000u; }
         c[0] = 0;
-        memset(px, 0, s->tw * s->th * 4);
+        memset(px, 0, dtw * dth * 4);
         const u8 *src = s->frames + (size_t)fr * s->bw * s->h;
-        for (unsigned y = 0; y < s->h; y++) {
-            u32 *row = px + y * s->tw;
-            const u8 *sr = src + y * s->bw;
-            for (unsigned x = 0; x < s->w; x++) row[x] = c[(sr[x >> 1] >> ((x & 1) * 4)) & 15];
+        if (sc == 256) {
+            for (unsigned y = 0; y < s->h; y++) {
+                u32 *row = px + y * dtw;
+                const u8 *sr = src + y * s->bw;
+                for (unsigned x = 0; x < s->w; x++) row[x] = c[(sr[x >> 1] >> ((x & 1) * 4)) & 15];
+            }
+        } else {
+            u8 col[16][3];
+            palRgb(livePltt, col);
+            for (unsigned y = 0; y < dh; y++)
+                for (unsigned x = 0; x < dw; x++) {
+                    u8 rgb[3];
+                    const unsigned a = boxSample(src, s->bw, s->w, s->h, sc, (int)x, (int)y, col, rgb);
+                    if (a) px[y * dtw + x] = (u32)rgb[0] | ((u32)rgb[1] << 8) | ((u32)rgb[2] << 16) | ((u32)a << 24);
+                }
         }
-        s->lastFrame = fr;
+        s->lastFrame = fr; s->lastSc = sc;
         memcpy(s->lastPal, livePltt, 32);
     }
     unsigned ls = 0, lt = 0;
-    while ((8u << ls) < s->tw) ls++;
-    while ((8u << lt) < s->th) lt++;
+    while ((8u << ls) < dtw) ls++;
+    while ((8u << lt) < dth) lt++;
     s->palId = pal; s->noteH = n->height;
-    o->texOff = B2_TEX_OFF + slot * 8; o->sizeS = (int)ls; o->sizeT = (int)lt; o->w = (int)s->w; o->h = (int)s->h; o->ox = s->ox; o->oy = s->oy;
+    o->texOff = B2_TEX_OFF + slot * 8; o->sizeS = (int)ls; o->sizeT = (int)lt; o->w = (int)dw; o->h = (int)dh; o->ox = s->ox; o->oy = s->oy;
     o->height = n->height; o->scale256 = 256; o->pltt = B2_PLTT;
-    if (!P3DS_InBattle) { /* summary, Hall of Fame...: keep it inside the game's own 80x80 picture box */
-        int sc, x0, y0;
-        fitBox(s->w, s->h, s->ox, s->oy, n->height, &sc, &x0, &y0);
-        o->scale256 = sc;
-        o->ox = (40 - x0) * 256 / sc;
-        o->height = 80 - (y0 + (s->oy * sc >> 8));
+    if (sc != 256) {
+        o->ox = 40 - bx0;
+        o->oy = s->oy * sc >> 8;
+        o->height = 80 - (by0 + (s->oy * sc >> 8));
     }
     return 1;
 }
@@ -336,13 +378,25 @@ static void fileSubst(int narc, int file, void *data, unsigned size) {
         const int fr = s->seq[0] < s->nUniq ? s->seq[0] : 0;
         const u8 *src = s->frames + (size_t)fr * s->bw * s->h;
         const int sw = (int)s->w * sc >> 8, sh = (int)s->h * sc >> 8;
-        for (int y = 0; y < sh; y++) {
-            const unsigned sy = (unsigned)(y * 256 / sc);
-            if (sy >= s->h || y0 + y >= 80) break;
-            for (int x = 0; x < sw; x++) {
-                const unsigned sx = (unsigned)(x * 256 / sc);
-                if (sx >= s->w || x0 + x >= 80) break;
-                const unsigned v = (src[sy * s->bw + (sx >> 1)] >> ((sx & 1) * 4)) & 15;
+        u8 col[16][3];
+        palRgb(n->shiny ? s->palS : s->palN, col);
+        for (int y = 0; y < sh && y0 + y < 80; y++) {
+            for (int x = 0; x < sw && x0 + x < 80; x++) {
+                unsigned v;
+                if (sc == 256) {
+                    v = (src[y * s->bw + (x >> 1)] >> ((x & 1) * 4)) & 15;
+                } else { /* area average, then the nearest of the 15 colours (4 bit art has no alpha) */
+                    u8 rgb[3];
+                    const unsigned a = boxSample(src, s->bw, s->w, s->h, sc, x, y, col, rgb);
+                    v = 0;
+                    if (a >= 110) {
+                        int best = 1 << 30;
+                        for (int k = 1; k < 16; k++) {
+                            const int dr = rgb[0] - col[k][0], dg = rgb[1] - col[k][1], db = rgb[2] - col[k][2], d = dr * dr * 3 + dg * dg * 4 + db * db * 2;
+                            if (d < best) { best = d; v = (unsigned)k; }
+                        }
+                    }
+                }
                 if (!v) continue;
                 for (int half = 0; half < 2; half++) {
                     const int px = half * 80 + x0 + x, py = y0 + y;
