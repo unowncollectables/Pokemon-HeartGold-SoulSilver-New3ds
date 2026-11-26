@@ -65,7 +65,7 @@ static const WlScreen kWlScreens[] = {
     { "gearconfig", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
     { "gearradio", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
     { "gearmap", kWlNone, 0, kWlGearPhoneB, WL_N(kWlGearPhoneB) },
-    { "naming", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
+    /* "naming" has no layout: its sides are black anyway, and the CPU wide compose redrew it every frame (13-15 ms, log 2026-11-26: laggy nickname screen after a catch) */
     { "flymap", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "unownreport", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },
     { "voltorbflip", kWlBlackSides, WL_N(kWlBlackSides), kWlBlackSides, WL_N(kWlBlackSides) },

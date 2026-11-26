@@ -2601,7 +2601,9 @@ static int PresentFrame(bool){
    else{nNo++;const int why=WC_Check(&wlPlan,R,ws.frame3d!=nullptr);if(why!=lastWhy){lastWhy=why;PSPNativeMemLog("[WIDE] wide_layouts: screen not drawable (WC_Check %d, engine %c, DISPCNT %08X), old strips",why,eng?'B':'A',*(const u32*)R);}}
    if(nF==600){PSPNativeMemLog("[WIDE] wide_layouts: engine %c, %d parts, %u of 600 frames redrawn, %u not drawable, avg %u us/frame",eng?'B':'A',np,nDrawn,nNo,us/600);nF=nDrawn=nNo=us=0;}}}
  if(wlDone){wnReady=true;gWlDone=1;}else
- if(wideCfg>0&&P3DS_ScaleMode()==1&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
+ /* nickname screen (black sides): no CPU wide pass; it still counts as battle after a catch and was redrawn every frame (13-15 ms) */
+ const bool namingNow=P3DS_WideScreenName&&!strcmp(P3DS_WideScreenName,"naming");
+ if(wideCfg>0&&!namingNow&&P3DS_ScaleMode()==1&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
   /* 2026-11-05 (Nathan: the whole game wide): strip pixels no repeating layer reached (title, intro, plain menu screens) were
      backdrop, i.e. black bars; with edge fill on they take the mirrored, softened picture edge instead (wideFill) */
   if(!P3DS_InBattle&&P3DS_InWideKind==0&&wideFillCfg()){int un=0;for(int i=0;i<64*192;i++)un+=wnUnres[i];
@@ -3342,7 +3344,7 @@ static int PresentFrame(bool){
   static bool zrHeldPrev=true;const bool zrDown=(kh&KEY_ZR)&&!zrHeldPrev;zrHeldPrev=(kh&KEY_ZR)!=0; /* ZR edge from our own held history: hidKeysDown() can miss ZR (see psp_ctru.c) */
   cyTick(kh);
   if(cy.open)cyInput(kd,kh);
-  else if((kd&KEY_Y)&&!cy.release&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&!P3DS_InField&&!P3DS_SumOpen&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))cyOpen();
+  else if((kd&KEY_Y)&&!cy.release&&!(kh&(KEY_L|KEY_R|KEY_X))&&(P3DS_CatchInfo[0]||P3DS_FoeInfo[0])&&P3DS_InBattle&&!P3DS_InField&&!P3DS_SumOpen&&!P3DS_ConsoleOnBottom()&&(P3DS_CfgInt("catch_overlay",0)||P3DS_HuntOn()))cyOpen();
   else if(zrDown&&!cy.release&&!(kh&(KEY_L|KEY_R|KEY_X|KEY_Y))&&P3DS_InField&&!P3DS_MenuOpen&&!P3DS_BmBlock&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&!P3DS_ConsoleOnBottom()&&P3DS_CfgInt("hunt_stats",0)&&P3DS_HuntCounting())hsOpen();
   else if(zrDown&&P3DS_InField&&!cy.open){static unsigned zn;if(zn++<6)PSPNativeMemLog("[HSTAT] ZR not opened: release %d LRXY %d menu %d startmenu %d panelapp %d/%d console %d hunt_stats %d counting %d",(int)cy.release,(kh&(KEY_L|KEY_R|KEY_X|KEY_Y))!=0,(int)P3DS_MenuOpen,(int)P3DS_BmBlock,(int)P3DS_PanelPartyOn,(int)P3DS_PanelPartyWant,(int)P3DS_ConsoleOnBottom(),P3DS_CfgInt("hunt_stats",0),P3DS_HuntCounting());}
   else if(cornerOpen||btnOpen||((kd&KEY_Y)&&(kh&KEY_L)&&(kh&KEY_R)&&!(kh&KEY_X)&&menuCfg())){if(!P3DS_ConsoleOnBottom())runApp(stereo?eyeL:top,mode,mode&&gpuOk==1);BLINV;}}
