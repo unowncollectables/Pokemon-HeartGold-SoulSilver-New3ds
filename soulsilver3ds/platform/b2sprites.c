@@ -33,6 +33,7 @@ void P3DS_B2SetCfg(int on) { b2Cfg = on != 0; P3DS_CfgWrite("b2_sprites", b2Cfg)
 
 /* ---- pack directory ---- */
 static int packState = -1; /* -1 not tried, 0 missing/bad, 1 ok */
+static FILE *packF; /* kept open: a send-out used to fopen the pack on the SD card twice (2026-11-26 battle hitch) */
 static B2Dir *packDir;
 static unsigned packN;
 static int packOpen(void) {
@@ -46,7 +47,8 @@ static int packOpen(void) {
         if (packDir && fread(packDir, sizeof(B2Dir), h[2], f) == h[2]) { packN = h[2]; packState = 1; }
         else { free(packDir); packDir = NULL; }
     }
-    fclose(f);
+    if (packState) { packF = f; setvbuf(f, NULL, _IONBF, 0); } /* entries are read whole: no stdio buffer copy */
+    else fclose(f);
     PSPNativeMemLog("[B2] b2sprites.bin %s: %u sprites", packState ? "ok" : "BAD (rebuild it with the builder)", packN);
     return packState;
 }
@@ -65,10 +67,36 @@ static int packFind(int species, int form, int back) {
 /* ---- slots (defined below) ---- */
 typedef struct Slot Slot;
 static void slotsFree(void);
+/* ---- entry cache (2026-11-26, Nathan: hitch to ~21 fps when the next Pokemon comes out): an entry is 0.1-2 MB. A
+   send-out read it from the SD card twice (the 2D picture file and the 3D slot each had their own copy), and a
+   Pokemon switched back in read it again. Entries are now read once, shared by reference and kept (least recently
+   used out first) up to a budget. ---- */
+typedef struct { int dir; u8 *data; u32 size; int refs; u32 stamp; } Blob;
+#define B2_BLOBS 12
+#define B2_BLOB_BUDGET (3u << 20) /* bytes kept with no slot using them */
+static Blob blobs[B2_BLOBS];
+static u32 blobClock;
+static void blobDrop(Blob *b) { free(b->data); memset(b, 0, sizeof *b); b->dir = -1; }
+static void blobTrim(void) {
+    for (;;) {
+        u32 idle = 0; Blob *old = NULL;
+        for (int i = 0; i < B2_BLOBS; i++) {
+            Blob *b = &blobs[i];
+            if (!b->data || b->refs) continue;
+            idle += b->size;
+            if (!old || b->stamp < old->stamp) old = b;
+        }
+        if (idle <= B2_BLOB_BUDGET || !old) return;
+        blobDrop(old);
+    }
+}
+static Blob *blobFind(int dir) { for (int i = 0; i < B2_BLOBS; i++) if (blobs[i].data && blobs[i].dir == dir) return &blobs[i]; return NULL; }
+static void blobFlush(void) { for (int i = 0; i < B2_BLOBS; i++) if (blobs[i].data && !blobs[i].refs) blobDrop(&blobs[i]); }
+static void blobRelease(Blob *b) { if (b && b->refs > 0) b->refs--; }
 /* per battler speed for the Black 2 feel (hook 0300, below); speed4: 4 normal, 6 yellow, 8 red, 0 stopped */
 typedef struct { u16 narc, chr, pal; u8 speed4, used; } BState;
 static BState bstate[4];
-typedef struct { void *ms, *spr; int slot, dir, lastFr; u32 dst; u8 want, used; } B2Copy; /* move-effect copies, see the end of the file */
+typedef struct { void *ms, *spr; int slot, dir, lastFr; u32 dst, lastTick; u8 want, used; } B2Copy; /* move-effect copies, see the end of the file */
 static B2Copy b2Copies[8];
 
 /* ---- per battle latch ---- */
@@ -81,6 +109,7 @@ static int battleOn(void) {
         latched = P3DS_B2Cfg() && packOpen() == 1;
         if (latched) { P3DS_Use("b2_sprites"); PSPNativeMemLog("[B2] battle: Black 2 sprites ON"); }
     }
+    else if (!P3DS_InBattle && wasBattle) blobFlush(); /* battle over: give the cached entries back */
     wasBattle = P3DS_InBattle != 0;
     return P3DS_InBattle && latched;
 }
@@ -91,7 +120,7 @@ int SS3DS_B2Want(void) {
     if (P3DS_InBattle) return battleOn();
     battleOn(); /* notes the end of a battle */
     const int on = P3DS_B2Cfg() && packOpen() == 1;
-    if (!on && anyLoaded) { slotsFree(); anyLoaded = 0; }
+    if (!on && anyLoaded) { slotsFree(); blobFlush(); anyLoaded = 0; }
     return on;
 }
 
@@ -119,7 +148,8 @@ static const Note *noteFind(int narc, int chr, int pal) {
 /* ---- slots ---- */
 struct Slot {
     int dir;           /* pack entry index, -1 none */
-    u8 *blob;          /* whole entry */
+    u8 *blob;          /* whole entry (owned by bl) */
+    Blob *bl;
     unsigned w, h, tw, th, nUniq, nSeq, delayCs, bw;
     int ox, oy;
     const u16 *palN, *palS, *seq;
@@ -132,26 +162,50 @@ struct Slot {
 };
 static Slot slots[4] = { { .dir = -1 }, { .dir = -1 }, { .dir = -1 }, { .dir = -1 } };
 static Slot fileSlot = { .dir = -1 }; /* the sprite last used for a 2D picture (file substitution below) */
-static void slotsFree(void) { for (int i = 0; i < 4; i++) { free(slots[i].blob); slots[i].blob = NULL; slots[i].dir = -1; slots[i].palOk = 0; P3DS_B2TexFree(i); } }
+static void slotsFree(void) { for (int i = 0; i < 4; i++) { blobRelease(slots[i].bl); slots[i].bl = NULL; slots[i].blob = NULL; slots[i].dir = -1; slots[i].palOk = 0; P3DS_B2TexFree(i); } }
 static unsigned loads;
 
 static unsigned pow2(unsigned v) { unsigned p = 8; while (p < v) p <<= 1; return p; }
+static Blob *blobGet(int dir) {
+    Blob *b = blobFind(dir);
+    if (b) { b->stamp = ++blobClock; return b; }
+    const B2Dir *d = &packDir[dir];
+    if (d->size < 80 || d->size > 4u << 20) return NULL;
+    Blob *slot = NULL;
+    for (int i = 0; i < B2_BLOBS && !slot; i++) if (!blobs[i].data) slot = &blobs[i];
+    if (!slot) { /* all in use: drop the oldest idle one */
+        for (int i = 0; i < B2_BLOBS; i++) if (!blobs[i].refs && (!slot || blobs[i].stamp < slot->stamp)) slot = &blobs[i];
+        if (!slot) return NULL;
+        blobDrop(slot);
+    }
+    u8 *buf = (u8 *)malloc(d->size);
+    if (!buf) { blobTrim(); buf = (u8 *)malloc(d->size); }
+    if (!buf) { PSPNativeMemLog("[B2] out of memory for sprite %u (%u bytes)", (unsigned)dir, (unsigned)d->size); return NULL; }
+    if (!packF) packF = fopen(B2_PATH, "rb");
+    const u64 t0 = svcGetSystemTick();
+    const int ok = packF && !fseek(packF, (long)d->off, SEEK_SET) && fread(buf, 1, d->size, packF) == d->size;
+    if (!ok) { free(buf); PSPNativeMemLog("[B2] sprite %u read failed", (unsigned)dir); return NULL; }
+    *slot = (Blob){ dir, buf, d->size, 0, ++blobClock };
+    static unsigned reads;
+    if (reads++ < 24) PSPNativeMemLog("[B2] entry %d read from SD: %u bytes, %u ms", dir, (unsigned)d->size, (unsigned)((svcGetSystemTick() - t0) / CPU_TICKS_PER_MSEC));
+    blobTrim();
+    return slot;
+}
 static int slotLoad(Slot *s, int dir) {
     if (s->dir == dir) return 1;
-    free(s->blob); s->blob = NULL; s->dir = -1;
+    blobRelease(s->bl); s->bl = NULL; s->blob = NULL; s->dir = -1;
     const B2Dir *d = &packDir[dir];
-    if (d->size < 80 || d->size > 4u << 20) return 0;
-    u8 *b = (u8 *)malloc(d->size);
-    if (!b) { PSPNativeMemLog("[B2] out of memory for sprite %u (%u bytes)", (unsigned)dir, (unsigned)d->size); return 0; }
-    FILE *f = fopen(B2_PATH, "rb");
-    const int ok = f && !fseek(f, (long)d->off, SEEK_SET) && fread(b, 1, d->size, f) == d->size;
-    if (f) fclose(f);
+    Blob *bl = blobGet(dir);
+    if (!bl) return 0;
+    u8 *b = bl->data;
+    const int ok = 1;
     const u16 *h16 = (const u16 *)b;
     const unsigned w = h16[0], hh = h16[1], nu = h16[4], ns = h16[5], dl = h16[6];
     const unsigned bw = (w + 1) / 2, hdr = 16 + 64 + ns * 2, hdrA = (hdr + 3) & ~3u;
     if (!ok || !w || !hh || w > 256 || hh > 256 || !nu || !ns || hdrA + nu * bw * hh > d->size) {
-        free(b); PSPNativeMemLog("[B2] sprite %u unreadable (%s)", (unsigned)dir, ok ? "bad entry" : "read failed"); return 0;
+        PSPNativeMemLog("[B2] sprite %u unreadable (%s)", (unsigned)dir, ok ? "bad entry" : "read failed"); return 0;
     }
+    bl->refs++; s->bl = bl;
     s->blob = b; s->dir = dir; s->w = w; s->h = hh; s->tw = pow2(w); s->th = pow2(hh); s->nUniq = nu; s->nSeq = ns; s->delayCs = dl ? dl : 5; s->bw = bw;
     s->ox = (s16)h16[2]; s->oy = (s16)h16[3]; s->palN = h16 + 8; s->palS = h16 + 24; s->seq = h16 + 40; s->frames = b + hdrA;
     s->t0 = s->lastT = svcGetSystemTick(); s->acc = 0; s->lastFrame = -1; anyLoaded = 1;
@@ -336,11 +390,13 @@ static void fileSubst(int narc, int file, void *data, unsigned size) {
         const int fr = s->seq[0] < s->nUniq ? s->seq[0] : 0;
         const u8 *src = s->frames + (size_t)fr * s->bw * s->h;
         const int sw = (int)s->w * sc >> 8, sh = (int)s->h * sc >> 8;
+        static u16 colX[256]; /* no hardware divide on the ARM11: one divide per column, not per pixel */
+        for (int x = 0; x < sw && x < 256; x++) colX[x] = (u16)(x * 256 / sc);
         for (int y = 0; y < sh; y++) {
-            const unsigned sy = (unsigned)(y * 256 / sc);
+            const unsigned sy = sc == 256 ? (unsigned)y : (unsigned)(y * 256 / sc);
             if (sy >= s->h || y0 + y >= 80) break;
-            for (int x = 0; x < sw; x++) {
-                const unsigned sx = (unsigned)(x * 256 / sc);
+            for (int x = 0; x < sw && x < 256; x++) {
+                const unsigned sx = colX[x];
                 if (sx >= s->w || x0 + x >= 80) break;
                 const unsigned v = (src[sy * s->bw + (sx >> 1)] >> ((sx & 1) * 4)) & 15;
                 if (!v) continue;
@@ -440,7 +496,7 @@ int __wrap_GF_CreateNewVramTransferTask(int type, u32 dst, void *src, u32 size) 
     if (type == 0x13 /* NNS_GFD_DST_2D_OBJ_CHAR_MAIN */ && size == 3200 && lastNewSprite && P3DS_InBattle && latched && src) {
         for (int i = 0; i < 8; i++)
             if (!b2Copies[i].used) {
-                b2Copies[i] = (B2Copy){ lastNewSprite, *(void **)lastNewSprite, -1, -1, -1, dst, 0, 1 };
+                b2Copies[i] = (B2Copy){ .ms = lastNewSprite, .spr = *(void **)lastNewSprite, .slot = -1, .dir = -1, .lastFr = -1, .dst = dst, .used = 1 };
                 memcpy(b2CopyBuf[i], src, 3200);
                 src = b2CopyBuf[i];
                 pendingCopy = i;
@@ -476,6 +532,8 @@ void __wrap_Sprite_Delete(void *sprite) {
 static void b2CopiesTick(void) {
     if (!P3DS_InBattle) { memset(b2Copies, 0, sizeof b2Copies); pendingCopy = -1; return; }
     const u64 now = svcGetSystemTick();
+    static u32 tick;
+    tick++;
     for (int i = 0; i < 8; i++) {
         B2Copy *c = &b2Copies[i];
         if (!c->used || c->slot < 0) continue;
@@ -484,7 +542,11 @@ static void b2CopiesTick(void) {
         int fr = s->lastFrame;
         if (now - s->lastT > CPU_TICKS_PER_MSEC * 40ull) fr = slotStep(s, 4); /* the 3D sprite is hidden: keep the clock going */
         if (fr < 0 || fr == c->lastFr) continue;
-        copyRender(c, fr);
+        int from = -1; /* another copy of the same battler already drawn this tick with this frame: just copy it */
+        for (int j = 0; j < i; j++) if (b2Copies[j].used && b2Copies[j].slot == c->slot && b2Copies[j].dir == c->dir && b2Copies[j].lastFr == fr && b2Copies[j].lastTick == tick) { from = j; break; }
+        if (from >= 0) { memcpy(b2CopyBuf[i], b2CopyBuf[from], 3200); c->lastFr = fr; }
+        else copyRender(c, fr);
+        c->lastTick = tick;
         GX_LoadOBJ(b2CopyBuf[i], c->dst, 3200);
     }
 }
