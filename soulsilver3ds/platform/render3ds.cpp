@@ -2625,9 +2625,9 @@ static int PresentFrame(bool){
     if(stereo&&eyeL){eyeL=eyeR=display[eng];}}
    else{nNo++;const int why=WC_Check(&wlPlan,R,ws.frame3d!=nullptr);if(why!=lastWhy){lastWhy=why;PSPNativeMemLog("[WIDE] wide_layouts: screen not drawable (WC_Check %d, engine %c, DISPCNT %08X), old strips",why,eng?'B':'A',*(const u32*)R);}}
    if(nF==600){PSPNativeMemLog("[WIDE] wide_layouts: engine %c, %d parts, %u of 600 frames redrawn, %u not drawable, avg %u us/frame",eng?'B':'A',np,nDrawn,nNo,us/600);nF=nDrawn=nNo=us=0;}}}
- if(wlDone){wnReady=true;gWlDone=1;}else
  /* nickname screen (black sides): no CPU wide pass; it still counts as battle after a catch and was redrawn every frame (13-15 ms) */
  const bool namingNow=P3DS_WideScreenName&&!strcmp(P3DS_WideScreenName,"naming");
+ if(wlDone){wnReady=true;gWlDone=1;}else
  if(wideCfg>0&&!namingNow&&P3DS_ScaleMode()==1&&!P3DS_PanelPartyOn&&!P3DS_PanelPartyWant&&(P3DS_WideMenusCfg()||(P3DS_InBattle&&(wideBattleCfg()||wideBoxCfg()))||(P3DS_InWideMenu&&wideScreensCfg())||(P3DS_InWideKind==2&&wideDexCfg())||(P3DS_InWideKind==3&&widePcCfg()))&&!(G3G_Wide&&G3G_StripValid>=1&&P3DS_InField)&&(power&0x8000)&&engineA.Enabled){wideNative();wnReady=true;if(P3DS_InBattle&&wideBoxCfg())wideBoxOverlay();
   /* 2026-11-05 (Nathan: the whole game wide): strip pixels no repeating layer reached (title, intro, plain menu screens) were
      backdrop, i.e. black bars; with edge fill on they take the mirrored, softened picture edge instead (wideFill) */
